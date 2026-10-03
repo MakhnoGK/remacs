@@ -17,7 +17,9 @@ runtime-shaders = ["gpui/runtime_shaders"]
 
 [dependencies]
 gpui.workspace = true
-remacs-text.workspace = true
+remacs-core.workspace = true
+remacs-editing.workspace = true
+remacs-languages.workspace = true
 remacs-theme.workspace = true
 
 [lints]

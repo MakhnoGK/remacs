@@ -68,6 +68,45 @@ impl Snapshot {
                 .next()
                 .is_some_and(|chunk| !is_utf8_continuation(chunk[0]))
     }
+
+    pub fn next_char_boundary(&self, offset: usize) -> usize {
+        (offset + 1..self.len())
+            .find(|&candidate| self.is_char_boundary(candidate))
+            .unwrap_or(self.len())
+    }
+
+    pub fn previous_char_boundary(&self, offset: usize) -> usize {
+        (1..offset)
+            .rev()
+            .find(|&candidate| self.is_char_boundary(candidate))
+            .unwrap_or(0)
+    }
+
+    /// Characters between the start of `offset`'s line and `offset`.
+    pub fn char_column(&self, offset: usize) -> usize {
+        let line_start = self.line_start(self.line_of(offset)).unwrap_or(0);
+        self.chunks(line_start..offset)
+            .flatten()
+            .filter(|&&byte| !is_utf8_continuation(byte))
+            .count()
+    }
+
+    /// Offset of the `column`-th character of `line`, clamped to the line's end.
+    pub fn offset_at_char_column(&self, line: usize, column: usize) -> usize {
+        let Some(range) = self.line_range(line) else {
+            return self.len();
+        };
+        let mut chars_seen = 0;
+        for (offset, &byte) in (range.start..).zip(self.chunks(range.clone()).flatten()) {
+            if !is_utf8_continuation(byte) {
+                if chars_seen == column {
+                    return offset;
+                }
+                chars_seen += 1;
+            }
+        }
+        range.end
+    }
 }
 
 fn is_utf8_continuation(byte: u8) -> bool {

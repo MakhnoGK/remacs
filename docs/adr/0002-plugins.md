@@ -11,6 +11,19 @@ A thin core (buffers, windows, commands, keymaps, hooks, minibuffer); every feat
 - **Third-party plugins** are WASM components (wasmtime, WIT interface): sandboxed, stable ABI.
 - No Rust dylib plugins: Rust has no stable ABI.
 
+## As built (M2)
+
+- `remacs-core`: `Editor`, `Buffer` (text + point + goal column), `Viewport`, `Keymap`
+  (Emacs key notation, prefix sequences), `Commands`, `Modes`, and `Registry` that a
+  `Plugin` fills in `register`.
+- Commands are `fn(&mut Editor) -> CommandResult`; errors go to the echo area.
+- Undo boundaries are set before each command; up to 20 consecutive self-inserts
+  undo together, as in Emacs.
+- Built-in plugins live in `plugins/`: `editing` (motion, editing, undo, save, quit)
+  and `languages` (major modes by extension).
+- The UI only translates input (Option = Meta, Command = Super) and draws; it holds no
+  editing logic.
+
 ## Notes
 
 - The WIT interface/SDK should be permissively licensed so third parties can publish

@@ -3719,8 +3719,32 @@ name = "remacs-app"
 version = "0.1.0"
 dependencies = [
  "gpui",
- "remacs-text",
+ "remacs-core",
+ "remacs-editing",
+ "remacs-languages",
  "remacs-theme",
+]
+
+[[package]]
+name = "remacs-core"
+version = "0.1.0"
+dependencies = [
+ "remacs-text",
+]
+
+[[package]]
+name = "remacs-editing"
+version = "0.1.0"
+dependencies = [
+ "remacs-core",
+ "remacs-text",
+]
+
+[[package]]
+name = "remacs-languages"
+version = "0.1.0"
+dependencies = [
+ "remacs-core",
 ]
 
 [[package]]

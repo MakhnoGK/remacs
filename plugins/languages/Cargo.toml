@@ -1,0 +1,13 @@
+[package]
+name = "remacs-languages"
+description = "Built-in plugin: major modes for the initial languages"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+remacs-core.workspace = true
+
+[lints]
+workspace = true
