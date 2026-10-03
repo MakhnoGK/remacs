@@ -1,41 +1,23 @@
 use std::ops::Range;
+use std::sync::Arc;
 
+use crate::add_buffer::AddBuffer;
 use crate::newline;
 use crate::original::Original;
 use crate::piece::{Piece, SourceKind};
 
-pub(crate) trait Source {
-    fn bytes(&self) -> &[u8];
-
-    fn newlines_in(&self, range: Range<usize>) -> usize {
-        newline::count(&self.bytes()[range])
-    }
-
-    fn nth_newline_in(&self, range: Range<usize>, rank: usize) -> Option<usize> {
-        let start = range.start;
-        newline::nth(&self.bytes()[range], rank).map(|offset| start + offset)
-    }
-}
-
-/// Append-only: pieces keep pointing at bytes once written.
-#[derive(Default)]
-struct AddBuffer(Vec<u8>);
-
-impl Source for AddBuffer {
-    fn bytes(&self) -> &[u8] {
-        &self.0
-    }
-}
-
+/// The bytes pieces point into. Cloning is cheap: the original is shared and the add
+/// buffer copies at most one chunk.
+#[derive(Clone)]
 pub(crate) struct Sources {
-    original: Original,
+    original: Arc<Original>,
     added: AddBuffer,
 }
 
 impl Sources {
     pub fn new(original: Original) -> Self {
         Self {
-            original,
+            original: Arc::new(original),
             added: AddBuffer::default(),
         }
     }
@@ -46,13 +28,12 @@ impl Sources {
     }
 
     pub fn append(&mut self, text: &[u8]) -> Piece {
-        let start = self.added.0.len();
-        self.added.0.extend_from_slice(text);
-        self.piece(SourceKind::Added, start..start + text.len())
+        let (chunk, range) = self.added.append(text);
+        self.piece(SourceKind::Added { chunk }, range)
     }
 
     pub fn bytes(&self, piece: &Piece) -> &[u8] {
-        &self.source(piece.source).bytes()[piece.range()]
+        &self.source_bytes(piece.source)[piece.range()]
     }
 
     pub fn split(&self, piece: &Piece, offset_in_piece: usize) -> (Piece, Piece) {
@@ -68,31 +49,41 @@ impl Sources {
     }
 
     pub fn newlines_in_prefix(&self, piece: &Piece, prefix_len: usize) -> usize {
-        self.source(piece.source)
-            .newlines_in(piece.start..piece.start + prefix_len)
+        self.newlines_in(piece.source, piece.start..piece.start + prefix_len)
     }
 
+    /// Offset within `piece` of its `rank`-th newline.
     pub fn nth_newline_in(&self, piece: &Piece, rank: usize) -> usize {
-        self.source(piece.source)
-            .nth_newline_in(piece.range(), rank)
-            .expect("piece newline count matches its bytes")
-            - piece.start
+        let offset_in_piece = match piece.source {
+            SourceKind::Original => self
+                .original
+                .nth_newline_in(piece.range(), rank)
+                .map(|offset| offset - piece.start),
+            SourceKind::Added { .. } => newline::nth(self.bytes(piece), rank),
+        };
+        offset_in_piece.expect("piece newline count matches its bytes")
     }
 
     fn piece(&self, source: SourceKind, range: Range<usize>) -> Piece {
-        let newlines = self.source(source).newlines_in(range.clone());
         Piece {
             source,
             start: range.start,
             len: range.len(),
-            newlines,
+            newlines: self.newlines_in(source, range),
         }
     }
 
-    fn source(&self, kind: SourceKind) -> &dyn Source {
-        match kind {
-            SourceKind::Original => &self.original,
-            SourceKind::Added => &self.added,
+    fn newlines_in(&self, source: SourceKind, range: Range<usize>) -> usize {
+        match source {
+            SourceKind::Original => self.original.newlines_in(range),
+            SourceKind::Added { .. } => newline::count(&self.source_bytes(source)[range]),
+        }
+    }
+
+    fn source_bytes(&self, source: SourceKind) -> &[u8] {
+        match source {
+            SourceKind::Original => self.original.bytes(),
+            SourceKind::Added { chunk } => self.added.chunk(chunk),
         }
     }
 }

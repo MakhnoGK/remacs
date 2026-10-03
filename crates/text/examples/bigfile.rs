@@ -5,7 +5,7 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use remacs_text::Text;
+use remacs_text::{Snapshot, Text};
 
 const VIEWPORT_LINES: usize = 50;
 const RANDOM_EDITS: usize = 10_000;
@@ -52,6 +52,7 @@ fn main() -> std::io::Result<()> {
             } else {
                 text.insert(offset, "edit\n");
             }
+            text.add_undo_boundary();
         }
     });
     measure("seek after edits", || text.line_start(middle_line).unwrap());
@@ -59,6 +60,14 @@ fn main() -> std::io::Result<()> {
         read_lines(&text, middle_line, VIEWPORT_LINES)
     });
     measure("offset to line", || text.line_of(text.len() / 3));
+    let snapshot = measure("snapshot", || text.snapshot());
+    measure("read snapshot on a thread", || {
+        std::thread::spawn(move || read_lines(&snapshot, middle_line, VIEWPORT_LINES))
+            .join()
+            .unwrap()
+    });
+    measure("undo every edit", || while text.undo().is_some() {});
+    assert!(!text.is_modified());
     println!("peak RSS {}", peak_rss_mib());
     Ok(())
 }
@@ -81,7 +90,7 @@ fn generate(path: &Path, target_len: usize) -> std::io::Result<()> {
     writer.flush()
 }
 
-fn read_lines(text: &Text, first_line: usize, count: usize) -> usize {
+fn read_lines(text: &Snapshot, first_line: usize, count: usize) -> usize {
     (first_line..first_line + count)
         .filter_map(|line| text.line_range(line))
         .map(|range| text.bytes_in(range).len())

@@ -4,7 +4,7 @@ use std::ops::{Add, Range};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SourceKind {
     Original,
-    Added,
+    Added { chunk: u32 },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -24,11 +24,12 @@ impl Piece {
         self.start + self.len
     }
 
-    pub fn summary(&self) -> Summary {
-        Summary {
-            len: self.len,
-            newlines: self.newlines,
-        }
+    /// Typing appends right after the previous insert; such pieces merge instead of
+    /// adding one per keystroke.
+    pub fn continues(&self, previous: &Piece) -> bool {
+        matches!(self.source, SourceKind::Added { .. })
+            && self.source == previous.source
+            && self.start == previous.end()
     }
 }
 
@@ -52,5 +53,18 @@ impl Add for Summary {
 impl Sum for Summary {
     fn sum<I: Iterator<Item = Self>>(summaries: I) -> Self {
         summaries.fold(Self::default(), Add::add)
+    }
+}
+
+pub(crate) trait Summarized {
+    fn summary(&self) -> Summary;
+}
+
+impl Summarized for Piece {
+    fn summary(&self) -> Summary {
+        Summary {
+            len: self.len,
+            newlines: self.newlines,
+        }
     }
 }

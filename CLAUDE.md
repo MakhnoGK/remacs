@@ -16,4 +16,9 @@ Emacs-inspired IDE from scratch in Rust + gpui. Everything is a plugin.
 - Priorities: latency, memory, files measured in gigabytes.
 - Initial languages (tree-sitter + LSP): Rust, C/C++, TypeScript/JavaScript, JSX/TSX, HTML, CSS.
 
+## Workflow
+
+- Commits: Conventional Commits, subject line only.
+- After every completed action, re-index the repo with Cerebrium `code_index`.
+
 ADRs live in `docs/adr/`.
