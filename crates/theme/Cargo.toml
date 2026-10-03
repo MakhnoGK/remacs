@@ -1,0 +1,10 @@
+[package]
+name = "remacs-theme"
+description = "Design tokens for remacs (Modus Vivendi dark)"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
