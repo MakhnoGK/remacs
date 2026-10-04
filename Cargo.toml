@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "plugins/*"]
+exclude = ["vendor/gpui"]
 
 [workspace.package]
 version = "0.1.0"
@@ -51,6 +52,10 @@ tree-sitter-javascript = "0.25"
 tree-sitter-language = "0.1"
 tree-sitter-rust = "0.24"
 tree-sitter-typescript = "0.23"
+
+# gpui patched for thin and thick text strokes; see docs/adr/0034-text-strokes.md.
+[patch.crates-io]
+gpui = { path = "vendor/gpui" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

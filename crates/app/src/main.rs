@@ -17,8 +17,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use gpui::{
-    App, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions, point, prelude::*, px,
-    size,
+    App, Application, Bounds, TextStrokes, TitlebarOptions, WindowBounds, WindowOptions, point,
+    prelude::*, px, set_text_strokes, size,
 };
 use remacs_actions::ActionsPlugin;
 use remacs_completion::CompletionPlugin;
@@ -60,6 +60,9 @@ const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
     &LspPlugin::new(SERVERS),
 ];
 
+// TODO: read from the config once remacs has one.
+const TEXT_STROKES: TextStrokes = TextStrokes::Thick;
+
 fn main() -> ExitCode {
     let mut editor = Editor::new(BUILTIN_PLUGINS);
 
@@ -75,6 +78,7 @@ fn main() -> ExitCode {
         }
     }
 
+    set_text_strokes(TEXT_STROKES);
     Application::new()
         .with_assets(Assets)
         .run(move |cx: &mut App| {
