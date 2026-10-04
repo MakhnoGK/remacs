@@ -498,6 +498,7 @@ fn hand_over(editor: &mut Editor, index: usize, client: &Client, answer: Answer)
             }
         }
         Answer::ActionFailed { id, message } => remacs_actions::failed(editor, id, &message),
+        Answer::Formatted { id, formatted } => remacs_format::deliver(editor, id, formatted),
         Answer::ApplyEdit {
             reply,
             edit,
@@ -552,7 +553,13 @@ fn send_requests(editor: &mut Editor) {
     let hovers = remacs_documentation::take_requests(editor);
     let definitions = remacs_xref::take_requests(editor);
     let actions = remacs_actions::take_requests(editor);
+    // The last backend: what the others left is the language server's to format.
+    let formats = remacs_format::take_requests(editor, |_| true);
     let Some(documents) = editor.window_buffer().local::<Documents>() else {
+        for request in formats {
+            let missing = "No formatter for this buffer".to_owned();
+            remacs_format::deliver(editor, request.id, Err(missing));
+        }
         for request in hovers {
             remacs_documentation::deliver(editor, request.id, None);
         }
@@ -575,6 +582,14 @@ fn send_requests(editor: &mut Editor) {
     }
     for request in definitions {
         first.ask(Question::Definition, request.id, request.offset);
+    }
+    for request in formats {
+        first.client.send(Outgoing::Format {
+            uri: first.uri.clone(),
+            id: request.id,
+            text: first.sent_text(),
+            range: request.range,
+        });
     }
     let mut listed = None;
     let mut chosen = Vec::new();

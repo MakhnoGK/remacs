@@ -16,26 +16,28 @@ use lsp_types::notification::{
 };
 use lsp_types::request::{
     ApplyWorkspaceEdit, CodeActionRequest, CodeActionResolveRequest, Completion,
-    DocumentDiagnosticRequest, ExecuteCommand, GotoDefinition, HoverRequest, Initialize, Request,
-    ResolveCompletionItem, WillRenameFiles, WorkspaceConfiguration, WorkspaceDiagnosticRefresh,
+    DocumentDiagnosticRequest, ExecuteCommand, Formatting, GotoDefinition, HoverRequest,
+    Initialize, RangeFormatting, Request, ResolveCompletionItem, WillRenameFiles,
+    WorkspaceConfiguration, WorkspaceDiagnosticRefresh,
 };
 use lsp_types::{
     ApplyWorkspaceEditParams, CodeAction, CodeActionOrCommand, CompletionItem,
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DidSaveTextDocumentParams, InitializedParams, Position, PublishDiagnosticsParams,
-    TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem, Uri,
+    TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem, TextEdit, Uri,
     VersionedTextDocumentIdentifier, WorkspaceEdit,
 };
 use remacs_actions::Action;
 use remacs_completion::{Item, List, Trigger};
 use remacs_core::Notifier;
+use remacs_format::Formatted;
 use remacs_text::{Edit, Snapshot};
 use serde_json::{Value, json};
 
 use crate::LanguageServer;
 use crate::completion::{self, CompletionSupport, Origin};
 use crate::markdown::CodeModes;
-use crate::position::{Encoding, to_lsp};
+use crate::position::{Encoding, from_lsp, to_lsp};
 use crate::transport::{read_message, write_message};
 use crate::{code_action, definition, hover, uri};
 
@@ -119,6 +121,14 @@ pub(crate) enum Outgoing {
     Execute {
         id: u64,
         command: lsp_types::Command,
+    },
+    /// Asks for the edits that format `range` of `text`, or all of it; `id` is the format
+    /// plugin's.
+    Format {
+        uri: Uri,
+        id: u64,
+        text: Snapshot,
+        range: Option<Range<usize>>,
     },
     /// Asks what renaming files, from and to, would change in others; `id` is dired's.
     WillRename {
@@ -207,6 +217,10 @@ pub(crate) enum Answer {
         id: u64,
         message: String,
     },
+    Formatted {
+        id: u64,
+        formatted: Formatted,
+    },
     /// The server asks for edits, e.g. from an action's command; `reply` is the request's
     /// id, to answer whether they were made.
     ApplyEdit {
@@ -244,6 +258,10 @@ enum Pending {
     },
     Execute {
         id: u64,
+    },
+    Format {
+        id: u64,
+        text: Snapshot,
     },
     WillRename {
         id: u64,
@@ -284,6 +302,8 @@ struct Negotiated {
     incremental: bool,
     completion: Option<CompletionSupport>,
     will_rename: bool,
+    formatting: bool,
+    range_formatting: bool,
 }
 
 /// A language server process for one project root. A writer thread sends what the editor
@@ -319,6 +339,7 @@ impl Client {
         let pull_generation = Arc::new(AtomicU64::new(0));
         let settled = Arc::new(AtomicBool::new(true));
         let writer = Writer {
+            server: server.name,
             stdin: BufWriter::new(stdin),
             inbox: Arc::clone(&inbox),
             notifier: Arc::clone(&notifier),
@@ -477,6 +498,7 @@ fn initialize_params(server: &LanguageServer, root: &Path) -> Value {
 }
 
 struct Writer {
+    server: &'static str,
     stdin: BufWriter<ChildStdin>,
     inbox: SharedInbox,
     notifier: Notifier,
@@ -650,6 +672,47 @@ impl Writer {
                 let pending = Pending::WillRename { id: *id };
                 self.ask(WillRenameFiles::METHOD, params, pending)
             }
+            Outgoing::Format {
+                uri,
+                id,
+                text,
+                range,
+            } => {
+                let supported = match range {
+                    Some(_) => negotiated.range_formatting,
+                    None => negotiated.formatting,
+                };
+                if !supported {
+                    let what = if range.is_some() { "a region" } else { "files" };
+                    let message = format!("{} does not format {what}", self.server);
+                    lock(&self.inbox).answers.push(Answer::Formatted {
+                        id: *id,
+                        formatted: Err(message),
+                    });
+                    (self.notifier)();
+                    return Ok(());
+                }
+                // Formatters follow the project's own settings, such as rustfmt.toml.
+                let mut params = json!({
+                    "textDocument": TextDocumentIdentifier::new(uri.clone()),
+                    "options": { "tabSize": 4, "insertSpaces": true, "insertFinalNewline": true },
+                });
+                let method = match range {
+                    Some(range) => {
+                        params["range"] = json!(lsp_types::Range::new(
+                            to_lsp(text, range.start, negotiated.encoding),
+                            to_lsp(text, range.end, negotiated.encoding),
+                        ));
+                        RangeFormatting::METHOD
+                    }
+                    None => Formatting::METHOD,
+                };
+                let pending = Pending::Format {
+                    id: *id,
+                    text: text.clone(),
+                };
+                self.ask(method, params, pending)
+            }
             message => message.to_json(negotiated),
         };
         write_message(&mut self.stdin, &json)
@@ -727,6 +790,7 @@ impl Outgoing {
             | Outgoing::CodeActions { .. }
             | Outgoing::ResolveAction { .. }
             | Outgoing::Execute { .. }
+            | Outgoing::Format { .. }
             | Outgoing::WillRename { .. } => unreachable!("the writer numbers requests"),
             Outgoing::Reply { id, result } => {
                 json!({ "jsonrpc": "2.0", "id": id, "result": result })
@@ -755,6 +819,11 @@ fn content_change(
         range_length: None,
         text: contents(new, edit.start..edit.new_end),
     }
+}
+
+/// A capability given as `true` or as its options.
+fn is_provided(capability: &Value) -> bool {
+    capability.as_bool().unwrap_or(capability.is_object())
 }
 
 fn request(id: u64, method: &str, params: Value) -> Value {
@@ -872,6 +941,8 @@ impl Reader {
             incremental: !full_sync,
             completion: CompletionSupport::from_capabilities(capabilities),
             will_rename: capabilities["workspace"]["fileOperations"]["willRename"].is_object(),
+            formatting: is_provided(&capabilities["documentFormattingProvider"]),
+            range_formatting: is_provided(&capabilities["documentRangeFormattingProvider"]),
         });
     }
 
@@ -962,6 +1033,24 @@ impl Reader {
                 if let Some(message) = error {
                     self.deliver(Answer::ActionFailed { id, message });
                 }
+            }
+            Pending::Format { id, text } => {
+                let formatted = match error {
+                    Some(message) => Err(format!("{}: {message}", self.server)),
+                    None => {
+                        let edits: Vec<TextEdit> =
+                            serde_json::from_value(result).unwrap_or_default();
+                        Ok(edits
+                            .into_iter()
+                            .map(|edit| {
+                                let start = from_lsp(&text, edit.range.start, self.encoding);
+                                let end = from_lsp(&text, edit.range.end, self.encoding);
+                                (start..end.max(start), edit.new_text)
+                            })
+                            .collect())
+                    }
+                };
+                self.deliver(Answer::Formatted { id, formatted });
             }
             Pending::WillRename { id } => {
                 let edit = error

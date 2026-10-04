@@ -1,0 +1,16 @@
+[package]
+name = "remacs-prettier"
+description = "Built-in plugin: formats web files with the project's prettier, kept warm in a Node process"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+remacs-core.workspace = true
+remacs-format.workspace = true
+remacs-text.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

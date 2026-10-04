@@ -12,11 +12,14 @@ use remacs_core::{Changes, Documentation, Editor, Elsewhere, Icon, Plugin, Popup
 use remacs_diagnostics::DiagnosticsPlugin;
 use remacs_dired::{DiredPlugin, list_directory};
 use remacs_documentation::DocumentationPlugin;
-use remacs_languages::{LanguagesPlugin, SERVERS};
+use remacs_format::FormatPlugin;
+use remacs_languages::{LanguagesPlugin, PRETTIER_MODES, SERVERS};
 use remacs_lsp::LspPlugin;
+use remacs_prettier::PrettierPlugin;
 use remacs_xref::XrefPlugin;
 
 static LSP: LspPlugin = LspPlugin::new(SERVERS);
+static PRETTIER: PrettierPlugin = PrettierPlugin::new(PRETTIER_MODES);
 const PLUGINS: &[&dyn Plugin] = &[
     &LanguagesPlugin,
     &DiagnosticsPlugin,
@@ -24,6 +27,8 @@ const PLUGINS: &[&dyn Plugin] = &[
     &DocumentationPlugin,
     &XrefPlugin,
     &ActionsPlugin,
+    &FormatPlugin,
+    &PRETTIER,
     &LSP,
 ];
 const TIMEOUT: Duration = Duration::from_secs(120);
@@ -579,4 +584,95 @@ fn rust_analyzer_updates_mod_declarations_of_files_renamed_in_dired() {
     let lib = fs::read_to_string(src.join("lib.rs")).unwrap();
     assert!(lib.starts_with("mod case_fiddle;"), "{lib}");
     assert!(src.join("case_fiddle.rs").exists());
+}
+
+/// Formats the whole file and returns the buffer once it changed.
+fn format(file: &Path) -> String {
+    let mut editor = Editor::new(PLUGINS);
+    editor.visit_file(file).unwrap();
+    let source = fs::read_to_string(file).unwrap();
+    editor.run_command("format-buffer");
+    let contents = |editor: &Editor| {
+        let buffer = editor.window_buffer();
+        buffer.contents(0..buffer.text().len())
+    };
+    refresh_until(&mut editor, "formatting", |editor| {
+        assert_eq!(editor.echo(), None, "{}", file.display());
+        contents(editor) != source
+    });
+    contents(&editor)
+}
+
+#[test]
+#[ignore]
+fn language_servers_format_files() {
+    let rust = project(
+        "rust-format",
+        &[
+            (
+                "Cargo.toml",
+                "[package]\nname = \"demo\"\nedition = \"2024\"\n",
+            ),
+            ("src/main.rs", "fn main(){let x=1;println!(\"{x}\");}\n"),
+        ],
+    );
+    assert_eq!(
+        format(&rust.join("src/main.rs")),
+        "fn main() {\n    let x = 1;\n    println!(\"{x}\");\n}\n"
+    );
+    let c = project("c-format", &[("main.c", "int main(void){return 0;}\n")]);
+    assert_eq!(format(&c.join("main.c")), "int main(void) { return 0; }\n");
+    let typescript = project(
+        "ts-format",
+        &[("package.json", "{}\n"), ("index.ts", "const a={b:1}\n")],
+    );
+    assert_eq!(format(&typescript.join("index.ts")), "const a = { b: 1 }\n");
+    let css = project("css-format", &[("style.css", "a{color:red}\n")]);
+    assert_eq!(format(&css.join("style.css")), "a {\n    color: red\n}\n");
+}
+
+#[test]
+#[ignore]
+fn prettier_formats_projects_that_use_it_with_their_config() {
+    let root = project(
+        "prettier",
+        &[
+            ("package.json", "{}\n"),
+            (
+                ".prettierrc",
+                "{ \"semi\": false, \"singleQuote\": true }\n",
+            ),
+            ("index.ts", "const a={b:\"c\"};\n"),
+            ("broken.ts", "const = ;\n"),
+            ("style.css", "a{color:red}\n"),
+        ],
+    );
+    assert_eq!(format(&root.join("index.ts")), "const a = { b: 'c' }\n");
+    assert_eq!(format(&root.join("style.css")), "a {\n  color: red;\n}\n");
+
+    let mut editor = Editor::new(PLUGINS);
+    editor.visit_file(&root.join("broken.ts")).unwrap();
+    editor.run_command("format-buffer");
+    refresh_until(&mut editor, "the failure", |editor| editor.echo().is_some());
+    let echo = editor.echo().unwrap();
+    assert!(echo.starts_with("prettier: "), "{echo}");
+}
+
+#[test]
+#[ignore]
+fn prettier_of_the_project_comes_before_the_global_one() {
+    let own = "module.exports = {\n  getFileInfo: async () => ({ ignored: false, inferredParser: \"babel\" }),\n  resolveConfig: async () => null,\n  format: async () => \"// the project's own\\n\",\n};\n";
+    let root = project(
+        "own-prettier",
+        &[
+            ("package.json", "{}\n"),
+            ("index.js", "let a\n"),
+            (
+                "node_modules/prettier/package.json",
+                "{ \"main\": \"index.js\" }\n",
+            ),
+            ("node_modules/prettier/index.js", own),
+        ],
+    );
+    assert_eq!(format(&root.join("index.js")), "// the project's own\n");
 }

@@ -1,0 +1,18 @@
+[package]
+name = "remacs-format"
+description = "Built-in plugin: formats the buffer or region with backends such as prettier or language servers"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+imara-diff.workspace = true
+remacs-core.workspace = true
+remacs-text.workspace = true
+
+[dev-dependencies]
+remacs-editing.workspace = true
+
+[lints]
+workspace = true

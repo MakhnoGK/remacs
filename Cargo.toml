@@ -19,10 +19,12 @@ remacs-dired = { path = "plugins/dired" }
 remacs-documentation = { path = "plugins/documentation" }
 remacs-editing = { path = "plugins/editing" }
 remacs-files = { path = "plugins/files" }
+remacs-format = { path = "plugins/format" }
 remacs-git = { path = "plugins/git" }
 remacs-languages = { path = "plugins/languages" }
 remacs-lsp = { path = "plugins/lsp" }
 remacs-minibuffer = { path = "plugins/minibuffer" }
+remacs-prettier = { path = "plugins/prettier" }
 remacs-syntax = { path = "plugins/syntax" }
 remacs-xref = { path = "plugins/xref" }
 
@@ -30,6 +32,7 @@ remacs-xref = { path = "plugins/xref" }
 futures = "0.3"
 gpui = { version = "0.2.2", default-features = false, features = ["font-kit"] }
 ignore = "0.4"
+imara-diff = "0.2"
 libc = "0.2"
 lsp-types = "0.97"
 memchr = "2.7"

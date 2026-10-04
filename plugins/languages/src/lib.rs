@@ -183,6 +183,9 @@ const SCRIPTS: &[(&str, &str)] = &[
     (JSX, "javascriptreact"),
 ];
 
+/// Modes whose files prettier formats.
+pub const PRETTIER_MODES: &[&str] = &[TYPESCRIPT, TSX, JAVASCRIPT, JSX, HTML, CSS];
+
 pub const SERVERS: &[LanguageServer] = &[
     LanguageServer {
         name: "rust-analyzer",
@@ -231,7 +234,8 @@ pub const SERVERS: &[LanguageServer] = &[
         args: &["--stdio"],
         languages: &[(HTML, "html")],
         root_markers: &["package.json"],
-        initialization_options: None,
+        // Formats only when asked to provide it.
+        initialization_options: Some(r#"{ "provideFormatter": true }"#),
         configuration: None,
         pull_diagnostics: false,
         node_modules: false,
@@ -243,7 +247,7 @@ pub const SERVERS: &[LanguageServer] = &[
         args: &["--stdio"],
         languages: &[(CSS, "css")],
         root_markers: &["package.json"],
-        initialization_options: None,
+        initialization_options: Some(r#"{ "provideFormatter": true }"#),
         configuration: None,
         pull_diagnostics: false,
         node_modules: false,

@@ -28,10 +28,12 @@ use remacs_dired::{DiredPlugin, list_directory};
 use remacs_documentation::DocumentationPlugin;
 use remacs_editing::EditingPlugin;
 use remacs_files::FilesPlugin;
+use remacs_format::FormatPlugin;
 use remacs_git::GitPlugin;
-use remacs_languages::{GRAMMARS, LanguagesPlugin, SERVERS};
+use remacs_languages::{GRAMMARS, LanguagesPlugin, PRETTIER_MODES, SERVERS};
 use remacs_lsp::LspPlugin;
 use remacs_minibuffer::MinibufferPlugin;
+use remacs_prettier::PrettierPlugin;
 use remacs_syntax::SyntaxPlugin;
 use remacs_xref::XrefPlugin;
 
@@ -52,6 +54,9 @@ const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
     &DocumentationPlugin,
     &XrefPlugin,
     &ActionsPlugin,
+    &FormatPlugin,
+    // Format backends, asked in order; language servers format what the others leave.
+    &PrettierPlugin::new(PRETTIER_MODES),
     &LspPlugin::new(SERVERS),
 ];
 

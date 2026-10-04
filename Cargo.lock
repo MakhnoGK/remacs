@@ -2335,6 +2335,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "edcd27d72f2f071c64249075f42e205ff93c9a4c5f6c6da53e79ed9f9832c285"
 
 [[package]]
+name = "imara-diff"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f01d462f766df78ab820dd06f5eb700233c51f0f4c2e846520eaf4ba6aa5c5c"
+dependencies = [
+ "hashbrown 0.15.5",
+ "memchr",
+]
+
+[[package]]
 name = "imgref"
 version = "1.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3877,10 +3887,12 @@ dependencies = [
  "remacs-documentation",
  "remacs-editing",
  "remacs-files",
+ "remacs-format",
  "remacs-git",
  "remacs-languages",
  "remacs-lsp",
  "remacs-minibuffer",
+ "remacs-prettier",
  "remacs-syntax",
  "remacs-theme",
  "remacs-xref",
@@ -3956,6 +3968,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "remacs-format"
+version = "0.1.0"
+dependencies = [
+ "imara-diff",
+ "remacs-core",
+ "remacs-editing",
+ "remacs-text",
+]
+
+[[package]]
 name = "remacs-git"
 version = "0.1.0"
 dependencies = [
@@ -3980,7 +4002,9 @@ dependencies = [
  "remacs-diagnostics",
  "remacs-dired",
  "remacs-documentation",
+ "remacs-format",
  "remacs-lsp",
+ "remacs-prettier",
  "remacs-syntax",
  "remacs-xref",
  "tree-sitter",
@@ -4004,6 +4028,7 @@ dependencies = [
  "remacs-diagnostics",
  "remacs-dired",
  "remacs-documentation",
+ "remacs-format",
  "remacs-text",
  "remacs-xref",
  "serde_json",
@@ -4016,6 +4041,16 @@ dependencies = [
  "remacs-core",
  "remacs-editing",
  "remacs-text",
+]
+
+[[package]]
+name = "remacs-prettier"
+version = "0.1.0"
+dependencies = [
+ "remacs-core",
+ "remacs-format",
+ "remacs-text",
+ "serde_json",
 ]
 
 [[package]]
