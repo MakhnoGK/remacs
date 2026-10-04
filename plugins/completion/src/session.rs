@@ -20,8 +20,18 @@ pub(crate) const NEXT: &str = "completion-next";
 pub(crate) const PREVIOUS: &str = "completion-previous";
 pub(crate) const INSERT: &str = "completion-insert";
 pub(crate) const QUIT: &str = "completion-quit";
+pub(crate) const SCROLL_DOCUMENTATION: &str = "completion-scroll-documentation";
+pub(crate) const SCROLL_DOCUMENTATION_DOWN: &str = "completion-scroll-documentation-down";
 /// They update the popup themselves.
-const OWN_COMMANDS: &[&str] = &[COMPLETION_AT_POINT, NEXT, PREVIOUS, INSERT, QUIT];
+const OWN_COMMANDS: &[&str] = &[
+    COMPLETION_AT_POINT,
+    NEXT,
+    PREVIOUS,
+    INSERT,
+    QUIT,
+    SCROLL_DOCUMENTATION,
+    SCROLL_DOCUMENTATION_DOWN,
+];
 
 #[derive(Default)]
 struct Completion {
@@ -56,6 +66,8 @@ struct Session {
     /// Point when the word was matched; moving it other than by typing ends the session.
     point: usize,
     resolving: HashSet<usize>,
+    /// Pages the selected item's documentation was scrolled by.
+    documentation_pages: i32,
 }
 
 impl Session {
@@ -69,6 +81,7 @@ impl Session {
             selection: Selection::default(),
             point: start,
             resolving: HashSet::new(),
+            documentation_pages: 0,
         }
     }
 
@@ -90,6 +103,7 @@ impl Session {
             .map(|(_, index, highlights)| (index, highlights))
             .collect();
         self.selection = Selection::default();
+        self.documentation_pages = 0;
         self.point = point;
     }
 
@@ -100,6 +114,7 @@ impl Session {
     fn select(&mut self, index: usize) {
         self.selection
             .select(index, self.matches.len(), VISIBLE_ROWS);
+        self.documentation_pages = 0;
     }
 
     fn selected_item(&self) -> Option<&Item> {
@@ -336,6 +351,7 @@ pub(crate) fn popup(editor: &Editor) -> Option<Popup> {
         rows,
         selected: Some(session.selection.selected() - visible.start),
         documentation,
+        documentation_pages: session.documentation_pages,
         hints: HINTS,
     })
 }
@@ -371,6 +387,21 @@ fn step(editor: &mut Editor, forward: bool) -> CommandResult {
         selected.saturating_sub(1)
     });
     state.resolve_selected();
+    Ok(())
+}
+
+/// Scrolls the selected item's documentation a page forward, like `scroll-other-window`.
+pub(crate) fn scroll_documentation(editor: &mut Editor) -> CommandResult {
+    scroll_documentation_by(editor, 1)
+}
+
+pub(crate) fn scroll_documentation_down(editor: &mut Editor) -> CommandResult {
+    scroll_documentation_by(editor, -1)
+}
+
+fn scroll_documentation_by(editor: &mut Editor, pages: i32) -> CommandResult {
+    let session = completion(editor).session.as_mut().ok_or("No completion")?;
+    session.documentation_pages += pages;
     Ok(())
 }
 

@@ -5,7 +5,7 @@ use crate::decoration::Decorator;
 use crate::editor::Editor;
 use crate::keymap::Keymap;
 use crate::mode::Modes;
-use crate::popup::PopupProvider;
+use crate::popup::{CodeHighlighter, PopupProvider};
 use crate::status::StatusProvider;
 
 pub type Hook = Rc<dyn Fn(&mut Editor)>;
@@ -32,6 +32,9 @@ pub struct Registry {
     /// Segments of the status pill, before the position and the mode.
     pub status_providers: Vec<StatusProvider>,
     pub popup_providers: Vec<PopupProvider>,
+    /// Highlight code that is not in a buffer, e.g. in documentation; the first that
+    /// knows the mode does.
+    pub code_highlighters: Vec<CodeHighlighter>,
 }
 
 pub trait Plugin {

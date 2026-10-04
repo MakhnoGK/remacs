@@ -20,6 +20,8 @@ const COMMANDS: &[Command] = &[
     Command::new(session::PREVIOUS, "Select the previous completion", session::previous),
     Command::new(session::INSERT, "Insert the selected completion", session::insert),
     Command::new(session::QUIT, "Close the completion popup", session::quit),
+    Command::new(session::SCROLL_DOCUMENTATION, "Scroll the completion's documentation a page forward", session::scroll_documentation),
+    Command::new(session::SCROLL_DOCUMENTATION_DOWN, "Scroll the completion's documentation a page back", session::scroll_documentation_down),
 ];
 
 const BINDINGS: &[(&str, &str)] = &[
@@ -37,6 +39,8 @@ const POPUP_BINDINGS: &[(&str, &str)] = &[
     ("TAB", session::INSERT),
     ("C-g", session::QUIT),
     ("ESC", session::QUIT),
+    ("C-M-v", session::SCROLL_DOCUMENTATION),
+    ("C-M-V", session::SCROLL_DOCUMENTATION_DOWN),
 ];
 
 impl Plugin for CompletionPlugin {

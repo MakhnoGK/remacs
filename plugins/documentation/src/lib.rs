@@ -16,12 +16,18 @@ pub struct DocumentationPlugin;
 const COMMANDS: &[Command] = &[
     Command::new(at_point::SHOW, "Show the documentation of the symbol at point, then all of it", at_point::show),
     Command::new(at_point::HIDE, "Hide the documentation popup", at_point::hide),
+    Command::new(at_point::SCROLL, "Scroll the documentation popup a page forward", at_point::scroll),
+    Command::new(at_point::SCROLL_DOWN, "Scroll the documentation popup a page back", at_point::scroll_down),
 ];
 
 const BINDINGS: &[(&str, &str)] = &[("C-h .", at_point::SHOW)];
 
 /// Active while the popup is shown; any other command hides it too.
-const POPUP_BINDINGS: &[(&str, &str)] = &[("ESC", at_point::HIDE)];
+const POPUP_BINDINGS: &[(&str, &str)] = &[
+    ("ESC", at_point::HIDE),
+    ("C-M-v", at_point::SCROLL),
+    ("C-M-V", at_point::SCROLL_DOWN),
+];
 
 impl Plugin for DocumentationPlugin {
     fn register(&self, registry: &mut Registry) {

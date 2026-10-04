@@ -12,6 +12,7 @@ use remacs_text::Snapshot;
 use crate::LanguageServer;
 use crate::client::{Answer, Client, Outgoing, Published, Question};
 use crate::completion::Origin;
+use crate::markdown::CodeModes;
 use crate::position::{Encoding, from_lsp};
 use crate::{definition, uri};
 
@@ -27,6 +28,8 @@ struct Document {
     path: PathBuf,
     uri: Uri,
     language: &'static str,
+    /// What code in its documentation is highlighted as.
+    modes: CodeModes,
     version: i32,
     modified: bool,
     /// Versions sent and not yet answered with diagnostics, oldest first; the last one is
@@ -49,6 +52,7 @@ impl Document {
         client: Rc<Client>,
         path: PathBuf,
         language: &'static str,
+        modes: CodeModes,
         text: Snapshot,
         modified: bool,
     ) -> Self {
@@ -64,6 +68,7 @@ impl Document {
             path,
             uri,
             language,
+            modes,
             version: 0,
             modified,
             pending: VecDeque::from([(0, text)]),
@@ -155,6 +160,7 @@ impl Document {
             id,
             text: self.sent_text(),
             offset,
+            modes: self.modes,
         });
     }
 
@@ -172,6 +178,7 @@ impl Document {
                 start,
                 offset,
                 trigger,
+                modes: self.modes,
             },
             Request::Resolve { id, index } => {
                 let listed = self.listed.as_ref().filter(|listed| listed.id == id);
@@ -186,6 +193,7 @@ impl Document {
                     item: Box::new(item.clone()),
                     text: listed.origin.text.clone(),
                     start: listed.origin.start,
+                    modes: listed.origin.modes,
                 }
             }
         };
@@ -372,10 +380,15 @@ fn attach(editor: &mut Editor, index: usize, servers: &'static [LanguageServer])
     let buffer = &mut editor.buffers_mut()[index];
     let text = buffer.text().snapshot();
     let modified = buffer.is_modified();
+    let modes = CodeModes {
+        document: buffer.mode(),
+        languages: server.languages,
+    };
     buffer.set_local(Document::open(
         client,
         path,
         language,
+        modes,
         text.clone(),
         modified,
     ));

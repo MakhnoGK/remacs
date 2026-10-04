@@ -1,4 +1,6 @@
-use remacs_core::{Buffer, DocBlock, Documentation, Editor, Face, Popup, Span, parse_sequence};
+use remacs_core::{
+    Buffer, Code, DocBlock, Documentation, Editor, Face, Popup, Span, parse_sequence,
+};
 use remacs_editing::EditingPlugin;
 use remacs_text::Text;
 
@@ -25,7 +27,10 @@ fn answer() -> Answer {
         documentation: Documentation {
             container: "core::slice".into(),
             kind: "method".into(),
-            signature: Some("pub fn copy_from_slice(&mut self, src: &[T])".into()),
+            signature: Some(Code::new(
+                "pub fn copy_from_slice(&mut self, src: &[T])",
+                Some("Rust"),
+            )),
             blocks: vec![
                 DocBlock::Text("Copies all elements from `src` into `self`.".into()),
                 DocBlock::Heading("Panics".into()),
@@ -67,6 +72,17 @@ fn shows_the_summary_then_everything_and_highlights_the_symbol() {
     press(&mut editor, "C-f");
     assert!(popup(&editor).is_none());
     assert_eq!(editor.decorations(0..SOURCE.len()), [vec![]]);
+}
+
+#[test]
+fn scrolling_keeps_it_shown_and_shows_all_of_it() {
+    let mut editor = editor();
+    press(&mut editor, "C-h .");
+    deliver(&mut editor, 1, Some(answer()));
+    press(&mut editor, "C-M-v C-M-v C-M-V");
+    let shown = popup(&editor).unwrap();
+    assert_eq!(shown.documentation_pages, 1);
+    assert_eq!(shown.documentation.unwrap().blocks.len(), 3);
 }
 
 #[test]

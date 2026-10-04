@@ -87,3 +87,17 @@ fn other_modes_are_not_parsed() {
     editor.refresh();
     assert!(faces(&editor).is_empty());
 }
+
+#[test]
+fn code_outside_buffers_is_highlighted_by_mode() {
+    let editor = Editor::new(&[&SYNTAX]);
+    let code = "pub fn len(&self) -> usize";
+    let faces: Vec<_> = editor
+        .highlight_code("Rust", code)
+        .into_iter()
+        .map(|span| (&code[span.range], span.face))
+        .collect();
+    assert!(faces.contains(&("fn", Face::Keyword)));
+    assert!(faces.contains(&("usize", Face::Type)));
+    assert_eq!(editor.highlight_code("Python", code), []);
+}

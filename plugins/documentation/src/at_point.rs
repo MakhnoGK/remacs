@@ -5,6 +5,10 @@ use remacs_core::{Buffer, CommandResult, DocBlock, Documentation, Editor, Face, 
 
 pub(crate) const SHOW: &str = "show-documentation";
 pub(crate) const HIDE: &str = "hide-documentation";
+pub(crate) const SCROLL: &str = "scroll-documentation";
+pub(crate) const SCROLL_DOWN: &str = "scroll-documentation-down";
+/// They keep the documentation shown.
+const OWN_COMMANDS: &[&str] = &[SHOW, SCROLL, SCROLL_DOWN];
 const HINTS: &[(&str, &str)] = &[("M-.", "Go to definition"), ("C-h .", "Full documentation")];
 const FULL_HINTS: &[(&str, &str)] = &[("M-.", "Go to definition")];
 
@@ -40,6 +44,8 @@ struct Shown {
     answer: Answer,
     /// All of it rather than its summary.
     full: bool,
+    /// Scrolled by keys, a page at a time.
+    pages: i32,
 }
 
 impl Shown {
@@ -82,13 +88,16 @@ fn close(editor: &mut Editor) {
     }
 }
 
-/// Any command but asking again hides the documentation.
+/// Any command but asking again or scrolling hides the documentation.
 pub(crate) fn update(editor: &mut Editor) {
     let count = editor.command_count();
     if mem::replace(&mut state(editor).seen_commands, count) == count {
         return;
     }
-    if editor.last_command() != Some(SHOW) {
+    if !editor
+        .last_command()
+        .is_some_and(|command| OWN_COMMANDS.contains(&command))
+    {
         close(editor);
     }
 }
@@ -124,6 +133,27 @@ pub(crate) fn hide(editor: &mut Editor) -> CommandResult {
     Ok(())
 }
 
+/// Scrolls a page forward, like `scroll-other-window`; the summary turns into all of it.
+pub(crate) fn scroll(editor: &mut Editor) -> CommandResult {
+    scroll_by(editor, 1)
+}
+
+pub(crate) fn scroll_down(editor: &mut Editor) -> CommandResult {
+    scroll_by(editor, -1)
+}
+
+fn scroll_by(editor: &mut Editor, pages: i32) -> CommandResult {
+    let buffer = editor.window_buffer_mut();
+    let point = buffer.point();
+    let shown = buffer
+        .local_mut::<Shown>()
+        .filter(|shown| shown.point == point)
+        .ok_or("No documentation shown")?;
+    shown.full = true;
+    shown.pages += pages;
+    Ok(())
+}
+
 pub fn take_requests(editor: &mut Editor) -> Vec<Request> {
     mem::take(&mut state(editor).requests)
 }
@@ -146,6 +176,7 @@ pub fn deliver(editor: &mut Editor, id: u64, answer: Option<Answer>) {
         point: awaited.offset,
         answer,
         full: false,
+        pages: 0,
     });
     state(editor).showing = true;
 }
@@ -170,6 +201,7 @@ pub(crate) fn popup(editor: &Editor) -> Option<Popup> {
         rows: Vec::new(),
         selected: None,
         documentation: Some(documentation),
+        documentation_pages: shown.pages,
         hints: if full { FULL_HINTS } else { HINTS },
     })
 }

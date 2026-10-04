@@ -468,6 +468,16 @@ impl Editor {
             .collect()
     }
 
+    /// Faces for `code` written in `mode`, sorted and non-overlapping; none when no
+    /// highlighter knows the mode.
+    pub fn highlight_code(&self, mode: &'static str, code: &str) -> Vec<Span> {
+        self.registry
+            .code_highlighters
+            .iter()
+            .find_map(|highlight| highlight(mode, code))
+            .unwrap_or_default()
+    }
+
     fn run_post_command_hooks(&mut self) {
         for hook in self.registry.post_command_hooks.clone() {
             hook(self);

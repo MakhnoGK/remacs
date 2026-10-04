@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -8,14 +9,14 @@ use gpui::{
     MouseDownEvent, ParentElement, Pixels, Render, ScrollWheelEvent, StyledText, Subscription,
     Window, div, font, linear_color_stop, linear_gradient, prelude::*, px, rgb, rgba,
 };
-use remacs_core::{Editor, StatusSegment};
+use remacs_core::{Code, DocBlock, Editor, Popup, StatusSegment};
 use remacs_theme::{color, font};
 
 use crate::display_line::DisplayLine;
 use crate::highlights::{Highlights, combine, face_style, region_style};
 use crate::key_input::to_key;
 use crate::minibuffer_view::{is_problem_list, render_minibuffer, render_scrim};
-use crate::popup_view::{Placement, render_popup};
+use crate::popup_view::{DocumentationScroll, DocumentationView, Placement, render_popup};
 use crate::widgets::{cursor_style, hsla, icon, modified_dot};
 
 /// Minified files can hold megabytes on one line; lay out only what can be on screen.
@@ -27,12 +28,17 @@ const TEXT_TOP: f32 = 64.0;
 const ROW_MARGIN: f32 = 8.0;
 const GUTTER_PADDING: f32 = 20.0;
 const MIN_GUTTER_DIGITS: usize = 3;
+/// Per mode; one popup shows a handful.
+const MAX_HIGHLIGHTED_SNIPPETS: usize = 64;
 
 pub struct EditorView {
     editor: Editor,
     focus_handle: FocusHandle,
     metrics: Option<Metrics>,
     scroll_remainder: Pixels,
+    documentation_scroll: DocumentationScroll,
+    /// Faces of code shown in popups, by mode and text.
+    code_faces: HashMap<&'static str, HashMap<String, Highlights>>,
     _activation: Subscription,
 }
 
@@ -73,6 +79,8 @@ impl EditorView {
             focus_handle: cx.focus_handle(),
             metrics: None,
             scroll_remainder: px(0.0),
+            documentation_scroll: DocumentationScroll::default(),
+            code_faces: HashMap::new(),
             _activation: activation,
         };
         view.receive_clipboard(cx);
@@ -282,15 +290,27 @@ impl EditorView {
     /// Popups next to the text they belong to, e.g. completions under the word or the
     /// documentation of a symbol.
     fn render_popups(
-        &self,
+        &mut self,
         metrics: Metrics,
         gutter_width: Pixels,
         window: &Window,
     ) -> Vec<AnyElement> {
         let window_size = window.viewport_size();
         let line_height = px(font::CODE_LINE_HEIGHT);
-        self.editor
-            .popups()
+        let popups = self.editor.popups();
+        self.documentation_scroll.update(&popups);
+        self.highlight_code_in(&popups);
+        let code_faces = |code: &Code| {
+            code.mode
+                .and_then(|mode| self.code_faces.get(mode)?.get(&code.text))
+                .cloned()
+                .unwrap_or_default()
+        };
+        let view = DocumentationView {
+            code_faces: &code_faces,
+            scroll: &self.documentation_scroll.handle,
+        };
+        popups
             .iter()
             .filter_map(|popup| {
                 let line = self.editor.window_buffer().text().line_of(popup.anchor);
@@ -313,9 +333,42 @@ impl EditorView {
                     window_width: window_size.width,
                     window_height: window_size.height,
                 };
-                Some(render_popup(popup, placement))
+                Some(render_popup(popup, placement, &view))
             })
             .collect()
+    }
+
+    /// Faces for the code in the popups' documentation, parsed once per snippet.
+    fn highlight_code_in(&mut self, popups: &[Popup]) {
+        let codes = popups
+            .iter()
+            .filter_map(|popup| popup.documentation.as_ref())
+            .flat_map(|documentation| {
+                let blocks = documentation.blocks.iter().filter_map(|block| match block {
+                    DocBlock::Code(code) => Some(code),
+                    _ => None,
+                });
+                documentation.signature.iter().chain(blocks)
+            });
+        for code in codes {
+            let Some(mode) = code.mode else {
+                continue;
+            };
+            let known = self.code_faces.entry(mode).or_default();
+            if known.contains_key(&code.text) {
+                continue;
+            }
+            if known.len() >= MAX_HIGHLIGHTED_SNIPPETS {
+                known.clear();
+            }
+            let faces = self
+                .editor
+                .highlight_code(mode, &code.text)
+                .into_iter()
+                .map(|span| (span.range, face_style(span.face)))
+                .collect();
+            known.insert(code.text.clone(), faces);
+        }
     }
 
     fn render_header(&self) -> impl IntoElement {
@@ -461,8 +514,8 @@ impl Render for EditorView {
         let first_line = self.editor.viewport.first_line;
         let line_count = self.editor.window_buffer().text().line_count();
         let last_line = (first_line + drawn_rows).min(line_count);
-        let lines = (first_line..last_line).map(|line| self.render_line(line, gutter_width));
         let popups = self.render_popups(metrics, gutter_width, window);
+        let lines = (first_line..last_line).map(|line| self.render_line(line, gutter_width));
         let minibuffer = self
             .editor
             .minibuffer()

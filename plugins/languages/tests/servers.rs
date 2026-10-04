@@ -294,7 +294,9 @@ fn servers_show_documentation_and_go_to_definitions() {
 
     let copy = documentation(&rust.join("src/main.rs"), "copy_from_slice");
     assert_eq!(copy.kind, "method");
-    assert!(copy.signature.unwrap().contains("fn copy_from_slice"));
+    let signature = copy.signature.unwrap();
+    assert!(signature.text.contains("fn copy_from_slice"));
+    assert_eq!(signature.mode, Some("Rust"));
     assert!(!copy.blocks.is_empty());
     let upper = documentation(&typescript.join("index.ts"), "toUpperCase");
     assert_eq!(upper.kind, "method");

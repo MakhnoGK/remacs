@@ -3,7 +3,9 @@
 mod buffer_syntax;
 mod highlighter;
 mod parser_thread;
+mod snippet;
 
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use remacs_core::{Plugin, Registry};
@@ -34,6 +36,10 @@ impl Plugin for SyntaxPlugin {
             .post_command_hooks
             .push(Rc::new(move |editor| buffer_syntax::sync(editor, grammars)));
         registry.decorators.push(Rc::new(buffer_syntax::highlight));
+        let snippets = RefCell::new(snippet::SnippetHighlighter::new(grammars));
+        registry.code_highlighters.push(Rc::new(move |mode, code| {
+            snippets.borrow_mut().highlight(mode, code)
+        }));
     }
 }
 

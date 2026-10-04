@@ -1,4 +1,4 @@
-use remacs_core::{Buffer, Documentation, Editor, Key, KeyCode, Modifiers, parse_sequence};
+use remacs_core::{Buffer, Code, Documentation, Editor, Key, KeyCode, Modifiers, parse_sequence};
 use remacs_editing::EditingPlugin;
 use remacs_text::Text;
 
@@ -182,7 +182,7 @@ fn inserting_places_point_and_makes_extra_edits() {
     let start = "use a;\nfn f() { ".len();
     let documentation = Documentation {
         kind: "macro".into(),
-        signature: Some("macro_rules! map".into()),
+        signature: Some(Code::new("macro_rules! map", Some("Rust"))),
         ..Documentation::default()
     };
     let map = Item {

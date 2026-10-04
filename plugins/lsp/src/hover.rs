@@ -1,9 +1,9 @@
 use lsp_types::{Hover, HoverContents, MarkedString, MarkupKind};
-use remacs_core::{DocBlock, Documentation};
+use remacs_core::{Code, DocBlock, Documentation};
 use remacs_documentation::Answer;
 use remacs_text::Snapshot;
 
-use crate::markdown;
+use crate::markdown::{self, CodeModes};
 use crate::position::{Encoding, from_lsp};
 
 /// Declaration keywords and the kind of symbol they declare.
@@ -30,20 +30,26 @@ const KINDS: &[(&str, &str)] = &[
 const FN_QUALIFIERS: &[&str] = &["const", "async", "unsafe", "extern", "safe"];
 
 /// The documentation at a position of `text`, the text the server had when asked.
-pub(crate) fn answer(hover: Option<Hover>, text: &Snapshot, encoding: Encoding) -> Option<Answer> {
+pub(crate) fn answer(
+    hover: Option<Hover>,
+    text: &Snapshot,
+    encoding: Encoding,
+    modes: CodeModes,
+) -> Option<Answer> {
     let hover = hover?;
     let blocks = match hover.contents {
         HoverContents::Markup(content) if content.kind == MarkupKind::PlainText => {
             markdown::plain_blocks(&content.value)
         }
-        HoverContents::Markup(content) => markdown::blocks(&content.value),
-        HoverContents::Scalar(marked) => markdown::blocks(&to_markdown(marked)),
+        HoverContents::Markup(content) => markdown::blocks(&content.value, modes),
+        HoverContents::Scalar(marked) => markdown::blocks(&to_markdown(marked), modes),
         HoverContents::Array(marked) => markdown::blocks(
             &marked
                 .into_iter()
                 .map(to_markdown)
                 .collect::<Vec<_>>()
                 .join("\n\n"),
+            modes,
         ),
     };
     let range = hover
@@ -69,10 +75,12 @@ fn documentation(mut blocks: Vec<DocBlock>) -> Documentation {
     let mut container = Vec::new();
     let mut kind = String::new();
     let mut signature = take_code(&mut blocks, 0);
-    if signature.as_ref().is_some_and(|code| !code.contains('\n'))
+    if signature
+        .as_ref()
+        .is_some_and(|code| !code.text.contains('\n'))
         && let Some(declaration) = take_code(&mut blocks, 0)
     {
-        container.extend(signature.replace(declaration));
+        container.extend(signature.replace(declaration).map(|module| module.text));
     } else if signature.is_none()
         && let Some(DocBlock::Heading(heading)) = blocks.first()
         && let Some((named, _)) = heading.split_once(" `")
@@ -82,8 +90,8 @@ fn documentation(mut blocks: Vec<DocBlock>) -> Documentation {
         let last = blocks.len().saturating_sub(1);
         signature = take_code(&mut blocks, last);
     }
-    let signature = signature.map(|declaration| {
-        let (context, mut declaration) = split_context(&declaration);
+    let signature = signature.map(|Code { text, mode }| {
+        let (context, mut declaration) = split_context(&text);
         container.extend(context);
         if let Some((named, rest)) = declaration
             .strip_prefix('(')
@@ -94,7 +102,7 @@ fn documentation(mut blocks: Vec<DocBlock>) -> Documentation {
         } else if kind.is_empty() {
             kind = kind_of(&declaration).unwrap_or_default().to_owned();
         }
-        declaration
+        Code::new(declaration, mode)
     });
     Documentation {
         container: container.join(" · "),
@@ -104,7 +112,7 @@ fn documentation(mut blocks: Vec<DocBlock>) -> Documentation {
     }
 }
 
-fn take_code(blocks: &mut Vec<DocBlock>, index: usize) -> Option<String> {
+fn take_code(blocks: &mut Vec<DocBlock>, index: usize) -> Option<Code> {
     let DocBlock::Code(_) = blocks.get(index)? else {
         return None;
     };
@@ -163,9 +171,26 @@ mod tests {
 
     use super::*;
 
-    fn convert(hover: serde_json::Value, source: &str) -> Answer {
+    const LANGUAGES: &[(&str, &str)] = &[
+        ("Rust", "rust"),
+        ("C", "c"),
+        ("C++", "cpp"),
+        ("TypeScript", "typescript"),
+    ];
+
+    fn convert(hover: serde_json::Value, source: &str, document: &'static str) -> Answer {
         let hover = serde_json::from_value(hover).unwrap();
-        answer(Some(hover), &Text::from(source).snapshot(), Encoding::Utf16).unwrap()
+        let modes = CodeModes {
+            document,
+            languages: LANGUAGES,
+        };
+        answer(
+            Some(hover),
+            &Text::from(source).snapshot(),
+            Encoding::Utf16,
+            modes,
+        )
+        .unwrap()
     }
 
     #[test]
@@ -175,17 +200,17 @@ mod tests {
             "contents": { "kind": "markdown", "value": value },
             "range": { "start": { "line": 0, "character": 5 }, "end": { "line": 0, "character": 9 } }
         });
-        let answer = convert(hover, "self.copy(s)");
+        let answer = convert(hover, "self.copy(s)", "Rust");
         assert_eq!(answer.range, Some(5..9));
         assert_eq!(
             answer.documentation,
             Documentation {
                 container: "core::slice · impl<T> [T]".into(),
                 kind: "method".into(),
-                signature: Some(
-                    "pub const fn copy_from_slice(&mut self, src: &[T])\nwhere\n    T: Copy,"
-                        .into()
-                ),
+                signature: Some(Code::new(
+                    "pub const fn copy_from_slice(&mut self, src: &[T])\nwhere\n    T: Copy,",
+                    Some("Rust")
+                )),
                 blocks: vec![
                     DocBlock::Text("Copies all elements.".into()),
                     DocBlock::Heading("Panics".into()),
@@ -198,13 +223,14 @@ mod tests {
     #[test]
     fn kinds_come_from_the_declaration() {
         let typescript = json!({ "contents": [{ "language": "typescript", "value": "(method) String.toUpperCase(): string" }, "Converts to uppercase."] });
-        let documentation = convert(typescript, "").documentation;
+        let documentation = convert(typescript, "", "TSX").documentation;
+        assert_eq!(documentation.kind, "method");
         assert_eq!(
-            (
-                documentation.kind.as_str(),
-                documentation.signature.as_deref()
-            ),
-            ("method", Some("String.toUpperCase(): string"))
+            documentation.signature,
+            Some(Code::new(
+                "String.toUpperCase(): string",
+                Some("TypeScript")
+            ))
         );
         assert_eq!(documentation.container, "");
         assert_eq!(kind_of("pub start: usize"), Some("field"));
@@ -219,11 +245,14 @@ mod tests {
         let value = "### function `strlen`  \nprovided by `<string.h>`  \n\n---\n→ `unsigned long`  \nParameters:  \n- `const char * __s`\n\n---\n```cpp\n// In string.h\nunsigned long strlen(const char *__s)\n```";
         let hover = json!({ "contents": { "kind": "markdown", "value": value } });
         assert_eq!(
-            convert(hover, "").documentation,
+            convert(hover, "", "C").documentation,
             Documentation {
                 container: "string.h".into(),
                 kind: "function".into(),
-                signature: Some("unsigned long strlen(const char *__s)".into()),
+                signature: Some(Code::new(
+                    "unsigned long strlen(const char *__s)",
+                    Some("C++")
+                )),
                 blocks: vec![
                     DocBlock::Text("provided by `<string.h>`".into()),
                     DocBlock::Text("→ `unsigned long`".into()),

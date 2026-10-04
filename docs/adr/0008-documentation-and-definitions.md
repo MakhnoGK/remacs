@@ -28,15 +28,25 @@ Status: accepted, 2026-10-04 (M4, step 4)
   without a server, gives "No documentation at point" / "No definitions found".
 - `lsp` now hands answers over before syncing buffers, so a file a definition opened is
   attached in the same pass.
+- **Code in documentation is highlighted like buffers.** `syntax` registers a code
+  highlighter that parses a snippet whole with the mode's grammar, on the UI thread; the
+  view keeps the faces per snippet. `lsp` tags each `Code` with a mode: a fence's tag
+  matched against the server's language ids, else the document's mode, which the
+  declaration is written in too.
+- **Documentation scrolls**, in the hover popup and beside completions: the mouse wheel
+  over it (popups take the mouse from the buffer behind them), and `C-M-v`/`C-M-V` a body
+  height at a time, like `scroll-other-window`. Plugins count pages (`Popup::
+  documentation_pages`); the view owns the pixel offset, which starts at the top for
+  other documentation. Scrolling the summary shows all of it.
 
 ## Core additions
 
 - `Popup` without rows: documentation alone. `Documentation::{container, kind}` replace
   `title`; `DocBlock::Heading`.
 - `Face::Highlight`.
+- `Code { text, mode }` for the signature and code blocks; `Registry::code_highlighters`,
+  `Editor::highlight_code`; `Popup::documentation_pages`.
 
 ## Open
 
-- The signature is not syntax-highlighted.
-- No scrolling inside the popup; long documentation is cut at the bottom.
 - No `M-?` (references), no peek of a definition without visiting it.

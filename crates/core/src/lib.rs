@@ -30,6 +30,6 @@ pub use kill_ring::KillRing;
 pub use minibuffer::{Count, Minibuffer, Prompt, VISIBLE_CANDIDATES};
 pub use mode::{FUNDAMENTAL_MODE, Mode, Modes};
 pub use plugin::{Hook, MinorKeymap, Plugin, Registry};
-pub use popup::{DocBlock, Documentation, Popup, PopupProvider};
+pub use popup::{Code, CodeHighlighter, DocBlock, Documentation, Popup, PopupProvider};
 pub use status::{StatusProvider, StatusSegment};
 pub use viewport::Viewport;

@@ -3,11 +3,11 @@ use lsp_types::{
     CompletionTriggerKind, InsertTextFormat, MarkupKind,
 };
 use remacs_completion::{Item, List, Trigger, is_word_char};
-use remacs_core::{Documentation, SymbolKind};
+use remacs_core::{Code, Documentation, SymbolKind};
 use remacs_text::Snapshot;
 use serde_json::Value;
 
-use crate::markdown;
+use crate::markdown::{self, CodeModes};
 use crate::position::{Encoding, from_lsp};
 use crate::snippet;
 
@@ -76,6 +76,7 @@ pub(crate) struct Origin {
     pub text: Snapshot,
     pub start: usize,
     pub encoding: Encoding,
+    pub modes: CodeModes,
 }
 
 /// The items in the server's order, converted and as sent, the latter for resolving.
@@ -151,24 +152,28 @@ pub(crate) fn convert(item: &CompletionItem, origin: &Origin) -> Item {
                 (range, edit.new_text.clone())
             })
             .collect(),
-        documentation: documentation(item, kind),
+        documentation: documentation(item, kind, origin.modes),
     }
 }
 
 /// `None` while the server has said nothing about the item, so it is worth resolving.
-fn documentation(item: &CompletionItem, kind: Option<SymbolKind>) -> Option<Documentation> {
+fn documentation(
+    item: &CompletionItem,
+    kind: Option<SymbolKind>,
+    modes: CodeModes,
+) -> Option<Documentation> {
     let signature = item
         .detail
         .as_deref()
         .map(str::trim)
         .filter(|detail| !detail.is_empty())
-        .map(str::to_owned);
+        .map(|detail| Code::new(detail, Some(modes.document)));
     let blocks = match &item.documentation {
         None if signature.is_none() => return None,
         None => Vec::new(),
         Some(lsp_types::Documentation::String(text)) => markdown::plain_blocks(text),
         Some(lsp_types::Documentation::MarkupContent(content)) => match content.kind {
-            MarkupKind::Markdown => markdown::blocks(&content.value),
+            MarkupKind::Markdown => markdown::blocks(&content.value, modes),
             MarkupKind::PlainText => markdown::plain_blocks(&content.value),
         },
     };
@@ -220,6 +225,10 @@ mod tests {
             text: Text::from(source).snapshot(),
             start,
             encoding: Encoding::Utf16,
+            modes: CodeModes {
+                document: "Rust",
+                languages: &[("Rust", "rust")],
+            },
         }
     }
 
@@ -261,7 +270,7 @@ mod tests {
             field.documentation,
             Some(Documentation {
                 kind: "field".into(),
-                signature: Some("usize".into()),
+                signature: Some(Code::new("usize", Some("Rust"))),
                 blocks: vec![remacs_core::DocBlock::Text("The lower bound.".into())],
                 ..Documentation::default()
             })

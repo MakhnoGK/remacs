@@ -1,16 +1,18 @@
 use gpui::{
-    AnyElement, Div, HighlightStyle, IntoElement, ParentElement, Pixels, StyledText, div,
-    prelude::*, px, rgb, rgba,
+    AnyElement, Div, HighlightStyle, IntoElement, ParentElement, Pixels, Point, ScrollHandle,
+    Stateful, StyledText, div, prelude::*, px, rgb, rgba,
 };
-use remacs_core::{Candidate, DocBlock, Documentation, Popup, SymbolKind};
+use remacs_core::{Candidate, Code, DocBlock, Documentation, Popup, SymbolKind};
 use remacs_theme::{color, font};
 
+use crate::highlights::Highlights;
 use crate::minibuffer_view::{matches_in, secondary_color};
 use crate::widgets::{hsla, kbd, shadow};
 
 const LIST_WIDTH: f32 = 440.0;
 const DOCUMENTATION_WIDTH: f32 = 360.0;
 const DOCUMENTATION_BODY_MAX_HEIGHT: f32 = 280.0;
+const BODY_LINE_HEIGHT: f32 = 20.0;
 const ROW_HEIGHT: f32 = 28.0;
 const ROW_GAP: f32 = 2.0;
 const LIST_PADDING: f32 = 6.0;
@@ -71,13 +73,72 @@ impl Placement {
     }
 }
 
+/// What documentation takes from the view: faces for its code, and the scroll position of
+/// its body, which the mouse wheel and the plugin's page keys move.
+pub struct DocumentationView<'a> {
+    pub code_faces: &'a dyn Fn(&Code) -> Highlights,
+    pub scroll: &'a ScrollHandle,
+}
+
+/// Keeps the shown documentation's scroll position between frames: new documentation
+/// starts at the top, and each page the plugin scrolled by moves it a body height.
+#[derive(Default)]
+pub struct DocumentationScroll {
+    pub handle: ScrollHandle,
+    /// Says which documentation is shown, and its pages as last applied.
+    shown: Option<(DocumentationKey, i32)>,
+}
+
+/// The same symbol's documentation, even when more of it is shown.
+#[derive(PartialEq)]
+struct DocumentationKey {
+    anchor: usize,
+    container: String,
+    kind: String,
+    signature: Option<String>,
+}
+
+impl DocumentationScroll {
+    pub fn update(&mut self, popups: &[Popup]) {
+        let shown = popups.iter().find_map(|popup| {
+            let documentation = popup.documentation.as_ref()?;
+            let key = DocumentationKey {
+                anchor: popup.anchor,
+                container: documentation.container.clone(),
+                kind: documentation.kind.clone(),
+                signature: documentation
+                    .signature
+                    .as_ref()
+                    .map(|code| code.text.clone()),
+            };
+            Some((key, popup.documentation_pages))
+        });
+        let applied = match (&shown, &self.shown) {
+            (Some((key, _)), Some((shown_key, applied))) if key == shown_key => *applied,
+            _ => {
+                self.handle.set_offset(Point::default());
+                0
+            }
+        };
+        if let Some((_, pages)) = &shown {
+            let page =
+                (self.handle.bounds().size.height - px(BODY_LINE_HEIGHT)).max(px(BODY_LINE_HEIGHT));
+            let mut offset = self.handle.offset();
+            // gpui clamps the offset to the content when it lays the body out.
+            offset.y -= page * (pages - applied) as f32;
+            self.handle.set_offset(offset);
+        }
+        self.shown = shown;
+    }
+}
+
 /// A list with the selected row's documentation beside it, or documentation alone.
-pub fn render_popup(popup: &Popup, placement: Placement) -> AnyElement {
+pub fn render_popup(popup: &Popup, placement: Placement, view: &DocumentationView) -> AnyElement {
     match &popup.documentation {
         Some(documentation) if popup.rows.is_empty() => {
-            render_hover(documentation, popup.hints, &placement)
+            render_hover(documentation, popup.hints, &placement, view)
         }
-        _ => render_list_popup(popup, &placement),
+        _ => render_list_popup(popup, &placement, view),
     }
 }
 
@@ -86,6 +147,7 @@ fn render_hover(
     documentation: &Documentation,
     hints: &'static [(&'static str, &'static str)],
     placement: &Placement,
+    view: &DocumentationView,
 ) -> AnyElement {
     let (below, above) = (placement.room_below(), placement.room_above());
     let fits_below = below >= px(HOVER_ENOUGH_ROOM) || below >= above;
@@ -117,7 +179,7 @@ fn render_hover(
                     .child(div().flex_none().child(documentation.kind.clone())),
             )
         })
-        .when_some(documentation.signature.clone(), |panel, signature| {
+        .when_some(documentation.signature.as_ref(), |panel, signature| {
             panel.child(
                 div()
                     .flex_none()
@@ -132,11 +194,11 @@ fn render_hover(
                     .font_family(font::MONO)
                     .text_size(px(font::CODE_SIZE))
                     .line_height(px(font::CODE_LINE_HEIGHT))
-                    .child(signature),
+                    .child(render_code(signature, view)),
             )
         })
         .when(!documentation.blocks.is_empty(), |panel| {
-            panel.child(render_body(&documentation.blocks, 10.0, 20.0))
+            panel.child(render_body(&documentation.blocks, 10.0, view))
         })
         .when(!hints.is_empty(), |panel| {
             panel.child(render_hints(hints).gap(px(18.0)).pt(px(10.0)))
@@ -154,7 +216,7 @@ fn render_hover(
 
 /// The list below the line, or above it when it does not fit; the documentation beside
 /// it, on the right if there is room.
-fn render_list_popup(popup: &Popup, placement: &Placement) -> AnyElement {
+fn render_list_popup(popup: &Popup, placement: &Placement, view: &DocumentationView) -> AnyElement {
     let rows = popup.rows.len() as f32;
     let list_height =
         rows * ROW_HEIGHT + (rows - 1.0).max(0.0) * ROW_GAP + 2.0 * (LIST_PADDING + 1.0);
@@ -168,7 +230,7 @@ fn render_list_popup(popup: &Popup, placement: &Placement) -> AnyElement {
     let documentation = popup
         .documentation
         .as_ref()
-        .map(|documentation| render_documentation(documentation, popup.hints, room));
+        .map(|documentation| render_documentation(documentation, popup.hints, room, view));
     let documentation_right = list_left + px(LIST_WIDTH + PANEL_GAP + DOCUMENTATION_WIDTH)
         <= placement.window_width - px(WINDOW_MARGIN);
     let (left, children) = match documentation {
@@ -195,8 +257,10 @@ fn render_list_popup(popup: &Popup, placement: &Placement) -> AnyElement {
     placement.place(container, below).into_any_element()
 }
 
+/// Takes the mouse, so the wheel scrolls the popup and not the buffer behind it.
 fn panel() -> Div {
     div()
+        .occlude()
         .flex()
         .flex_col()
         .flex_none()
@@ -304,6 +368,7 @@ fn render_documentation(
     documentation: &Documentation,
     hints: &'static [(&'static str, &'static str)],
     room: Pixels,
+    view: &DocumentationView,
 ) -> AnyElement {
     let title = [documentation.container.as_str(), &documentation.kind]
         .into_iter()
@@ -326,19 +391,21 @@ fn render_documentation(
                     .child(title),
             )
         })
-        .when_some(documentation.signature.clone(), |panel, signature| {
+        .when_some(documentation.signature.as_ref(), |panel, signature| {
             panel.child(
                 div()
                     .flex_none()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
                     .font_family(font::MONO)
                     .text_size(px(font::CODE_SIZE))
-                    .line_height(px(20.0))
-                    .child(signature),
+                    .line_height(px(BODY_LINE_HEIGHT))
+                    .child(render_code(signature, view)),
             )
         })
         .when(!documentation.blocks.is_empty(), |panel| {
             panel.child(
-                render_body(&documentation.blocks, 8.0, 19.0)
+                render_body(&documentation.blocks, 8.0, view)
                     .max_h(px(DOCUMENTATION_BODY_MAX_HEIGHT)),
             )
         })
@@ -346,10 +413,9 @@ fn render_documentation(
         .into_any_element()
 }
 
-/// Gives way first when the panel is short of room, so the hints stay in view; it is cut
-/// at the bottom rather than squeezing its blocks. A heading stays close to the block it
-/// introduces.
-fn render_body(blocks: &[DocBlock], gap: f32, line_height: f32) -> Div {
+/// Gives way first when the panel is short of room, so the hints stay in view, and
+/// scrolls. A heading stays close to the block it introduces.
+fn render_body(blocks: &[DocBlock], gap: f32, view: &DocumentationView) -> Stateful<Div> {
     let mut sections = Vec::new();
     let mut blocks = blocks.iter().peekable();
     while let Some(block) = blocks.next() {
@@ -363,21 +429,28 @@ fn render_body(blocks: &[DocBlock], gap: f32, line_height: f32) -> Div {
                 .children(
                     blocks
                         .next_if(|next| !matches!(next, DocBlock::Heading(_)))
-                        .map(|next| render_block(next, line_height)),
+                        .map(|next| render_block(next, view)),
                 )
                 .into_any_element(),
-            block => render_block(block, line_height),
+            block => render_block(block, view),
         };
         sections.push(section);
     }
     div()
+        .id("documentation-body")
         .flex()
         .flex_col()
         .flex_shrink()
         .min_h_0()
         .gap(px(gap))
-        .overflow_hidden()
+        .overflow_y_scroll()
+        .track_scroll(view.scroll)
         .children(sections)
+}
+
+/// Colored like the buffer when its mode has a grammar.
+fn render_code(code: &Code, view: &DocumentationView) -> StyledText {
+    StyledText::new(code.text.clone()).with_highlights((view.code_faces)(code))
 }
 
 fn render_heading(heading: &str) -> impl IntoElement {
@@ -389,7 +462,7 @@ fn render_heading(heading: &str) -> impl IntoElement {
         .child(StyledText::new(text).with_highlights(code))
 }
 
-fn render_block(block: &DocBlock, line_height: f32) -> AnyElement {
+fn render_block(block: &DocBlock, view: &DocumentationView) -> AnyElement {
     match block {
         DocBlock::Heading(heading) => render_heading(heading).into_any_element(),
         DocBlock::Text(text) => {
@@ -397,7 +470,7 @@ fn render_block(block: &DocBlock, line_height: f32) -> AnyElement {
             div()
                 .flex_none()
                 .text_size(px(font::UI_SIZE))
-                .line_height(px(line_height))
+                .line_height(px(BODY_LINE_HEIGHT))
                 .text_color(rgb(color::FG_BODY))
                 .child(StyledText::new(text).with_highlights(code))
                 .into_any_element()
@@ -414,7 +487,7 @@ fn render_block(block: &DocBlock, line_height: f32) -> AnyElement {
             .text_size(px(font::STATUS_SIZE))
             .line_height(px(18.0))
             .text_color(rgb(color::FG_ALT))
-            .child(code.clone())
+            .child(render_code(code, view))
             .into_any_element(),
     }
 }

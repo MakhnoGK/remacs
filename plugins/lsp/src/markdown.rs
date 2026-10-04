@@ -2,31 +2,52 @@ use std::iter::Peekable;
 use std::mem;
 use std::str::Chars;
 
-use remacs_core::DocBlock;
+use remacs_core::{Code, DocBlock};
+
+/// The major modes code in a document's documentation is written in: a server language's
+/// for a fence tagged with its id, the document's for untagged code and declarations.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct CodeModes {
+    pub document: &'static str,
+    /// Major modes and LSP language ids, as in `LanguageServer::languages`.
+    pub languages: &'static [(&'static str, &'static str)],
+}
+
+impl CodeModes {
+    pub fn of(self, tag: &str) -> Option<&'static str> {
+        if tag.is_empty() {
+            return Some(self.document);
+        }
+        self.languages
+            .iter()
+            .find(|(mode, id)| *id == tag || mode.eq_ignore_ascii_case(tag))
+            .map(|&(mode, _)| mode)
+    }
+}
 
 /// Paragraphs and code blocks of Markdown documentation; inline markup is reduced to its
 /// text, keeping `code` spans.
-pub(crate) fn blocks(markdown: &str) -> Vec<DocBlock> {
+pub(crate) fn blocks(markdown: &str, modes: CodeModes) -> Vec<DocBlock> {
     let mut blocks = Vec::new();
     let mut paragraph = String::new();
-    let mut code: Option<String> = None;
+    let mut code: Option<Code> = None;
     for line in markdown.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+        if let Some(fence) = trimmed.strip_prefix("```").or(trimmed.strip_prefix("~~~")) {
             match code.take() {
                 Some(code) => blocks.push(DocBlock::Code(code)),
                 None => {
                     flush(&mut blocks, &mut paragraph);
-                    code = Some(String::new());
+                    code = Some(Code::new("", modes.of(fence.trim())));
                 }
             }
             continue;
         }
-        if let Some(code) = &mut code {
-            if !code.is_empty() {
-                code.push('\n');
+        if let Some(Code { text, .. }) = &mut code {
+            if !text.is_empty() {
+                text.push('\n');
             }
-            code.push_str(line);
+            text.push_str(line);
             continue;
         }
         if is_link_definition(trimmed) {
@@ -167,18 +188,25 @@ fn skip_past(chars: &mut Peekable<Chars>, close: char) {
 mod tests {
     use super::*;
 
+    const MODES: CodeModes = CodeModes {
+        document: "C++",
+        languages: &[("C", "c"), ("C++", "cpp")],
+    };
+
     #[test]
     fn markdown_becomes_paragraphs_and_code() {
         let markdown = "The lower bound of the **range**\n(inclusive), see [`Range`](std::ops::Range).\n\n\
-            # Examples\n\n```rust\nlet r = 1..2;\n\nassert_eq!(r.start, 1);\n```\n---\n- one\n- `two` \\[x\\]\n\n\
+            # Examples\n\n```c\nint r = 1;\n\nreturn r;\n```\n```sh\nls\n```\n```\nauto x = 1;\n```\n---\n- one\n- `two` \\[x\\]\n\n\
             ![Baseline icon](data:image/svg) _Widely available_ in snake_case: &lt;color&gt;\n\n\
             [`Range`]: std::ops::Range\n[two]: two";
         assert_eq!(
-            blocks(markdown),
+            blocks(markdown, MODES),
             [
                 DocBlock::Text("The lower bound of the range (inclusive), see `Range`.".into()),
                 DocBlock::Heading("Examples".into()),
-                DocBlock::Code("let r = 1..2;\n\nassert_eq!(r.start, 1);".into()),
+                DocBlock::Code(Code::new("int r = 1;\n\nreturn r;", Some("C"))),
+                DocBlock::Code(Code::new("ls", None)),
+                DocBlock::Code(Code::new("auto x = 1;", Some("C++"))),
                 DocBlock::Text("• one".into()),
                 DocBlock::Text("• `two` [x]".into()),
                 DocBlock::Text("Widely available in snake_case: <color>".into()),

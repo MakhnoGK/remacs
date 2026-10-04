@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
 use crate::completion::Candidate;
+use crate::decoration::Span;
 use crate::editor::Editor;
 
 /// A list shown at a place in the window buffer, like Emacs corfu's popup; without rows,
@@ -14,6 +15,9 @@ pub struct Popup {
     pub selected: Option<usize>,
     /// About the selected row, shown beside the list.
     pub documentation: Option<Documentation>,
+    /// Pages the documentation was scrolled by keys since it was shown, back ones
+    /// negative, like `scroll-other-window`; the mouse wheel scrolls it too.
+    pub documentation_pages: i32,
     /// Keys and what they do, under the documentation.
     pub hints: &'static [(&'static str, &'static str)],
 }
@@ -25,8 +29,8 @@ pub struct Documentation {
     pub container: String,
     /// What the symbol is, e.g. `field`.
     pub kind: String,
-    /// Its declaration, in the code font.
-    pub signature: Option<String>,
+    /// Its declaration.
+    pub signature: Option<Code>,
     pub blocks: Vec<DocBlock>,
 }
 
@@ -35,7 +39,23 @@ pub enum DocBlock {
     /// A paragraph; `quoted` parts are code.
     Text(String),
     Heading(String),
-    Code(String),
+    Code(Code),
+}
+
+/// Code in documentation, highlighted as the major mode it is written in, if known.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Code {
+    pub text: String,
+    pub mode: Option<&'static str>,
+}
+
+impl Code {
+    pub fn new(text: impl Into<String>, mode: Option<&'static str>) -> Self {
+        Self {
+            text: text.into(),
+            mode,
+        }
+    }
 }
 
 impl Documentation {
@@ -46,3 +66,6 @@ impl Documentation {
 
 /// Describes a popup for the window buffer, if the plugin has one open.
 pub type PopupProvider = Rc<dyn Fn(&Editor) -> Option<Popup>>;
+
+/// Faces for `code` written in a major mode, if the highlighter knows the mode.
+pub type CodeHighlighter = Rc<dyn Fn(&'static str, &str) -> Option<Vec<Span>>>;

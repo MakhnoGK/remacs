@@ -30,6 +30,7 @@ use serde_json::{Value, json};
 
 use crate::LanguageServer;
 use crate::completion::{self, CompletionSupport, Origin};
+use crate::markdown::CodeModes;
 use crate::position::{Encoding, to_lsp};
 use crate::transport::{read_message, write_message};
 use crate::{definition, hover, uri};
@@ -73,6 +74,7 @@ pub(crate) enum Outgoing {
         start: usize,
         offset: usize,
         trigger: Trigger,
+        modes: CodeModes,
     },
     /// Asks for the rest of item `index` of list `id`, such as its documentation.
     Resolve {
@@ -81,6 +83,7 @@ pub(crate) enum Outgoing {
         item: Box<CompletionItem>,
         text: Snapshot,
         start: usize,
+        modes: CodeModes,
     },
     /// Asks about the symbol at `offset` of `text`; `id` is the asking plugin's.
     AtPoint {
@@ -89,6 +92,7 @@ pub(crate) enum Outgoing {
         id: u64,
         text: Snapshot,
         offset: usize,
+        modes: CodeModes,
     },
     /// Answers a request the server made.
     Reply {
@@ -164,7 +168,7 @@ enum Pending {
     AtPoint {
         question: Question,
         id: u64,
-        text: Snapshot,
+        origin: Origin,
     },
 }
 
@@ -348,10 +352,11 @@ impl Writer {
     }
 
     fn write(&mut self, message: &Outgoing, negotiated: &Negotiated) -> io::Result<()> {
-        let origin = |text: &Snapshot, start: usize| Origin {
+        let origin = |text: &Snapshot, start: usize, modes: CodeModes| Origin {
             text: text.clone(),
             start,
             encoding: negotiated.encoding,
+            modes,
         };
         let completion = negotiated.completion.as_ref();
         let json = match message {
@@ -370,6 +375,7 @@ impl Writer {
                 start,
                 offset,
                 trigger,
+                modes,
             } => {
                 let Some(context) = completion.and_then(|support| support.context(*trigger)) else {
                     return Ok(());
@@ -381,7 +387,7 @@ impl Writer {
                 });
                 let pending = Pending::Complete {
                     id: *id,
-                    origin: origin(text, *start),
+                    origin: origin(text, *start, *modes),
                 };
                 self.ask(Completion::METHOD, params, pending)
             }
@@ -391,6 +397,7 @@ impl Writer {
                 item,
                 text,
                 start,
+                modes,
             } => {
                 if !completion.is_some_and(CompletionSupport::resolves) {
                     return Ok(());
@@ -398,7 +405,7 @@ impl Writer {
                 let pending = Pending::Resolve {
                     id: *id,
                     index: *index,
-                    origin: origin(text, *start),
+                    origin: origin(text, *start, *modes),
                 };
                 let params = serde_json::to_value(item)?;
                 self.ask(ResolveCompletionItem::METHOD, params, pending)
@@ -409,6 +416,7 @@ impl Writer {
                 id,
                 text,
                 offset,
+                modes,
             } => {
                 let params = json!({
                     "textDocument": TextDocumentIdentifier::new(uri.clone()),
@@ -417,7 +425,7 @@ impl Writer {
                 let pending = Pending::AtPoint {
                     question: *question,
                     id: *id,
-                    text: text.clone(),
+                    origin: origin(text, *offset, *modes),
                 };
                 self.ask(question.method(), params, pending)
             }
@@ -646,10 +654,10 @@ impl Reader {
             Pending::AtPoint {
                 question: Question::Hover,
                 id,
-                text,
+                origin,
             } => {
                 let response = serde_json::from_value(result).unwrap_or_default();
-                let answer = hover::answer(response, &text, self.encoding);
+                let answer = hover::answer(response, &origin.text, origin.encoding, origin.modes);
                 self.deliver(Answer::Hover { id, answer });
             }
             Pending::AtPoint {
