@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::key::{Key, parse_sequence};
 
+#[derive(Clone, Copy)]
 pub enum Binding {
     Command(&'static str),
     Prefix,
@@ -33,5 +34,22 @@ impl Keymap {
         } else {
             Binding::Unbound
         }
+    }
+
+    /// Looks `keys` up in active keymaps, highest priority first; the first that binds
+    /// them wins, as in Emacs.
+    pub fn lookup_in(keymaps: &[&Keymap], keys: &[Key]) -> Binding {
+        keymaps
+            .iter()
+            .map(|keymap| keymap.lookup(keys))
+            .find(|binding| !matches!(binding, Binding::Unbound))
+            .unwrap_or(Binding::Unbound)
+    }
+
+    pub fn sequences_for<'a>(&'a self, command: &'a str) -> impl Iterator<Item = &'a [Key]> {
+        self.commands
+            .iter()
+            .filter(move |(_, bound)| **bound == command)
+            .map(|(keys, _)| keys.as_slice())
     }
 }

@@ -7,6 +7,8 @@ use crate::mode::Modes;
 pub struct Registry {
     pub commands: Commands,
     pub keymap: Keymap,
+    /// Active over `keymap` while a prompt is open, like `minibuffer-local-map`.
+    pub minibuffer_keymap: Keymap,
     pub modes: Modes,
 }
 

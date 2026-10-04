@@ -8,6 +8,8 @@ pub struct DisplayLine {
     /// Display column and byte offset in `text` where each source character starts,
     /// plus one entry for the end of the line.
     cells: Vec<Cell>,
+    /// A space was appended so the end of the line can be drawn on.
+    padded: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -39,24 +41,53 @@ impl DisplayLine {
             column,
             byte: text.len(),
         });
-        Self { text, cells }
+        Self {
+            text,
+            cells,
+            padded: false,
+        }
     }
 
     /// Byte range of the cell the cursor covers at `char_column`; past the end of the
-    /// line a space is appended so the cursor has a cell to draw on.
+    /// line it covers the newline, drawn as a space.
     pub fn cursor_cell(&mut self, char_column: usize) -> Range<usize> {
-        let start = self.cells[char_column.min(self.cells.len() - 1)].byte;
-        if start == self.text.len() {
-            self.text.push(' ');
+        if char_column >= self.end_column() {
+            return self.newline_cell();
         }
+        let start = self.cells[char_column].byte;
         let width = self.text[start..].chars().next().map_or(1, char::len_utf8);
         start..start + width
+    }
+
+    /// Byte range covering the characters in `char_columns`; a range past the last
+    /// character includes the newline.
+    pub fn cell_range(&mut self, char_columns: Range<usize>) -> Range<usize> {
+        let start = self.cells[char_columns.start.min(self.end_column())].byte;
+        let end = if char_columns.end > self.end_column() {
+            self.newline_cell().end
+        } else {
+            self.cells[char_columns.end].byte
+        };
+        start..end
     }
 
     pub fn char_column_at(&self, display_column: usize) -> usize {
         self.cells
             .partition_point(|cell| cell.column <= display_column)
             .saturating_sub(1)
+    }
+
+    fn end_column(&self) -> usize {
+        self.cells.len() - 1
+    }
+
+    fn newline_cell(&mut self) -> Range<usize> {
+        let start = self.cells[self.end_column()].byte;
+        if !self.padded {
+            self.text.push(' ');
+            self.padded = true;
+        }
+        start..start + 1
     }
 }
 
@@ -78,6 +109,15 @@ mod tests {
         let mut line = DisplayLine::new("ж\tx");
         assert_eq!(line.cursor_cell(0), 0..2);
         assert_eq!(line.cursor_cell(1), 2..3);
+        assert_eq!(line.cursor_cell(3), 6..7);
+        assert_eq!(line.text, "ж   x ");
+    }
+
+    #[test]
+    fn cell_ranges_cover_tabs_and_the_newline() {
+        let mut line = DisplayLine::new("ж\tx");
+        assert_eq!(line.cell_range(1..2), 2..5);
+        assert_eq!(line.cell_range(2..4), 5..7);
         assert_eq!(line.cursor_cell(3), 6..7);
         assert_eq!(line.text, "ж   x ");
     }

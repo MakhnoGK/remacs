@@ -1,0 +1,17 @@
+[package]
+name = "remacs-minibuffer"
+description = "Built-in plugin: minibuffer completion keys and M-x"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+remacs-core.workspace = true
+
+[dev-dependencies]
+remacs-editing.workspace = true
+remacs-text.workspace = true
+
+[lints]
+workspace = true

@@ -7,13 +7,15 @@ pub fn self_insert(editor: &mut Editor) -> CommandResult {
         .last_key()
         .and_then(|key| key.printable_char())
         .ok_or("Not a printable key")?;
-    editor.buffer.insert(character.encode_utf8(&mut [0; 4]));
+    editor
+        .buffer_mut()
+        .insert(character.encode_utf8(&mut [0; 4]));
     Ok(())
 }
 
 /// Breaks the line and repeats the current line's indentation.
 pub fn newline(editor: &mut Editor) -> CommandResult {
-    let buffer = &mut editor.buffer;
+    let buffer = editor.buffer_mut();
     let line_start = buffer.text().line_start(buffer.point_line()).unwrap_or(0);
     let before_point = buffer.text().bytes_in(line_start..buffer.point());
     let indentation_len = before_point
@@ -26,13 +28,19 @@ pub fn newline(editor: &mut Editor) -> CommandResult {
 }
 
 pub fn tab_to_tab_stop(editor: &mut Editor) -> CommandResult {
-    let spaces = TAB_WIDTH - editor.buffer.point_column() % TAB_WIDTH;
-    editor.buffer.insert(&" ".repeat(spaces));
+    let buffer = editor.buffer_mut();
+    let spaces = TAB_WIDTH - buffer.point_column() % TAB_WIDTH;
+    buffer.insert(&" ".repeat(spaces));
     Ok(())
 }
 
+/// Deletes the next character, or the active region without saving it, as in Emacs.
 pub fn delete_char(editor: &mut Editor) -> CommandResult {
-    let buffer = &mut editor.buffer;
+    let buffer = editor.buffer_mut();
+    if let Some(region) = buffer.region() {
+        buffer.delete(region);
+        return Ok(());
+    }
     let point = buffer.point();
     if point == buffer.text().len() {
         return Err("End of buffer".into());
@@ -43,7 +51,11 @@ pub fn delete_char(editor: &mut Editor) -> CommandResult {
 }
 
 pub fn delete_backward_char(editor: &mut Editor) -> CommandResult {
-    let buffer = &mut editor.buffer;
+    let buffer = editor.buffer_mut();
+    if let Some(region) = buffer.region() {
+        buffer.delete(region);
+        return Ok(());
+    }
     let point = buffer.point();
     if point == 0 {
         return Err("Beginning of buffer".into());
@@ -54,7 +66,7 @@ pub fn delete_backward_char(editor: &mut Editor) -> CommandResult {
 }
 
 pub fn undo(editor: &mut Editor) -> CommandResult {
-    if !editor.buffer.undo() {
+    if !editor.buffer_mut().undo() {
         return Err("No further undo information".into());
     }
     editor.set_message("Undo");
@@ -62,7 +74,7 @@ pub fn undo(editor: &mut Editor) -> CommandResult {
 }
 
 pub fn undo_redo(editor: &mut Editor) -> CommandResult {
-    if !editor.buffer.redo() {
+    if !editor.buffer_mut().redo() {
         return Err("No further redo information".into());
     }
     editor.set_message("Redo");
@@ -70,6 +82,7 @@ pub fn undo_redo(editor: &mut Editor) -> CommandResult {
 }
 
 pub fn keyboard_quit(editor: &mut Editor) -> CommandResult {
+    editor.buffer_mut().deactivate_mark();
     editor.set_message("Quit");
     Ok(())
 }

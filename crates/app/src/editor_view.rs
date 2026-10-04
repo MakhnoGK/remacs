@@ -1,13 +1,17 @@
+use std::ops::Range;
+
 use gpui::{
-    AnyElement, Context, FocusHandle, Hsla, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent,
-    ParentElement, Pixels, Render, ScrollWheelEvent, StyledText, Window, div, font,
-    linear_color_stop, linear_gradient, prelude::*, px, rgb, rgba,
+    AnyElement, ClipboardItem, Context, FocusHandle, HighlightStyle, IntoElement, KeyDownEvent,
+    MouseButton, MouseDownEvent, ParentElement, Pixels, Render, ScrollWheelEvent, StyledText,
+    Subscription, Window, div, font, linear_color_stop, linear_gradient, prelude::*, px, rgb, rgba,
 };
 use remacs_core::Editor;
 use remacs_theme::{color, font};
 
 use crate::display_line::DisplayLine;
 use crate::key_input::to_key;
+use crate::minibuffer_view::{render_minibuffer, render_scrim};
+use crate::widgets::{cursor_style, hsla, modified_dot};
 
 /// Minified files can hold megabytes on one line; lay out only what can be on screen.
 const MAX_RENDERED_LINE_BYTES: usize = 2048;
@@ -24,6 +28,7 @@ pub struct EditorView {
     focus_handle: FocusHandle,
     metrics: Option<Metrics>,
     scroll_remainder: Pixels,
+    _activation: Subscription,
 }
 
 /// Monospace advances, measured once from the code font.
@@ -34,17 +39,31 @@ struct Metrics {
 }
 
 impl EditorView {
-    pub fn new(editor: Editor, cx: &mut Context<Self>) -> Self {
-        Self {
+    pub fn new(editor: Editor, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        // Another app may have changed the clipboard while this window was in the background.
+        let activation = cx.observe_window_activation(window, |view, window, cx| {
+            if window.is_window_active() {
+                view.receive_clipboard(cx);
+            }
+        });
+        let mut view = Self {
             editor,
             focus_handle: cx.focus_handle(),
             metrics: None,
             scroll_remainder: px(0.0),
-        }
+            _activation: activation,
+        };
+        view.receive_clipboard(cx);
+        view
     }
 
     pub fn focus_handle(&self) -> &FocusHandle {
         &self.focus_handle
+    }
+
+    pub fn choose_candidate(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.editor.choose_candidate(index);
+        self.after_input(cx);
     }
 
     fn on_key_down(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
@@ -52,10 +71,23 @@ impl EditorView {
             return;
         };
         self.editor.handle_key(key);
+        self.after_input(cx);
+    }
+
+    fn after_input(&mut self, cx: &mut Context<Self>) {
+        if let Some(killed) = self.editor.kill_ring.take_export() {
+            cx.write_to_clipboard(ClipboardItem::new_string(killed));
+        }
         if self.editor.quit_requested() {
             cx.quit();
         }
         cx.notify();
+    }
+
+    fn receive_clipboard(&mut self, cx: &mut Context<Self>) {
+        if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+            self.editor.kill_ring.receive(text);
+        }
     }
 
     fn on_scroll(
@@ -81,7 +113,8 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) {
         window.focus(&self.focus_handle);
-        let Some(metrics) = self.metrics else {
+        // An open prompt is modal: clicks choose candidates or do nothing.
+        let Some(metrics) = self.metrics.filter(|_| self.editor.minibuffer().is_none()) else {
             return;
         };
         let row = ((event.position.y - px(TEXT_TOP)) / px(font::CODE_LINE_HEIGHT)).floor();
@@ -115,31 +148,52 @@ impl EditorView {
     }
 
     fn gutter_width(&self, metrics: Metrics) -> Pixels {
-        let digits = self.editor.buffer.text().line_count().to_string().len();
+        let digits = self
+            .editor
+            .window_buffer()
+            .text()
+            .line_count()
+            .to_string()
+            .len();
         metrics.digit_width * digits.max(MIN_GUTTER_DIGITS) as f32 + px(GUTTER_PADDING)
     }
 
     fn display_line(&self, line: usize) -> DisplayLine {
-        let text = self.editor.buffer.text();
+        let text = self.editor.window_buffer().text();
         let range = text.line_range(line).unwrap_or_default();
         let visible = range.start..range.end.min(range.start + MAX_RENDERED_LINE_BYTES);
         DisplayLine::new(&String::from_utf8_lossy(&text.bytes_in(visible)))
     }
 
-    fn render_line(&self, line: usize, gutter_width: Pixels) -> AnyElement {
-        let is_current = line == self.editor.buffer.point_line();
-        let mut display_line = self.display_line(line);
-        let content = if is_current {
-            let cursor = display_line.cursor_cell(self.editor.buffer.point_column());
-            let cursor_style = gpui::HighlightStyle {
-                color: Some(hsla(color::BG_MAIN)),
-                background_color: Some(hsla(color::FG_MAIN)),
-                ..Default::default()
-            };
-            StyledText::new(display_line.text).with_highlights([(cursor, cursor_style)])
+    /// Characters of `line` inside the active region; past the end means the newline too.
+    fn region_columns(&self, line: usize) -> Option<Range<usize>> {
+        let buffer = self.editor.window_buffer();
+        let region = buffer.region()?;
+        let text = buffer.text();
+        let line_range = text.line_range(line)?;
+        if region.start > line_range.end || region.end <= line_range.start {
+            return None;
+        }
+        let column_of =
+            |offset: usize| text.char_column(offset.clamp(line_range.start, line_range.end));
+        let end = if region.end > line_range.end {
+            column_of(line_range.end) + 1
         } else {
-            StyledText::new(display_line.text)
+            column_of(region.end)
         };
+        Some(column_of(region.start)..end)
+    }
+
+    fn render_line(&self, line: usize, gutter_width: Pixels) -> AnyElement {
+        let buffer = self.editor.window_buffer();
+        let is_current = line == buffer.point_line();
+        let mut display_line = self.display_line(line);
+        let cursor = is_current.then(|| display_line.cursor_cell(buffer.point_column()));
+        let region = self
+            .region_columns(line)
+            .map(|columns| display_line.cell_range(columns));
+        let content =
+            StyledText::new(display_line.text).with_highlights(highlights(region, cursor));
         let number_color = if is_current {
             color::FG_MAIN
         } else {
@@ -169,7 +223,7 @@ impl EditorView {
     }
 
     fn render_header(&self) -> impl IntoElement {
-        let buffer = &self.editor.buffer;
+        let buffer = self.editor.window_buffer();
         div()
             .absolute()
             .top_0()
@@ -196,7 +250,7 @@ impl EditorView {
     }
 
     fn render_status(&self) -> impl IntoElement {
-        let buffer = &self.editor.buffer;
+        let buffer = self.editor.window_buffer();
         let position = format!("{}:{}", buffer.point_line() + 1, buffer.point_column() + 1);
         let separator = || div().w(px(1.0)).h(px(14.0)).bg(rgba(0xffffff14));
 
@@ -227,7 +281,7 @@ impl EditorView {
                     .px(px(8.0))
                     .font_family(font::MONO)
                     .when(buffer.is_modified(), |position| {
-                        position.child(div().size(px(7.0)).rounded_full().bg(rgb(color::WARNING)))
+                        position.child(modified_dot())
                     })
                     .child(position),
             )
@@ -253,13 +307,17 @@ impl Render for EditorView {
         self.editor
             .viewport
             .set_height(clear_rows.max(1.0) as usize);
-        window.set_window_title(&format!("{} — remacs", self.editor.buffer.name()));
+        window.set_window_title(&format!("{} — remacs", self.editor.window_buffer().name()));
 
         let gutter_width = self.gutter_width(metrics);
         let first_line = self.editor.viewport.first_line;
-        let line_count = self.editor.buffer.text().line_count();
+        let line_count = self.editor.window_buffer().text().line_count();
         let last_line = (first_line + drawn_rows).min(line_count);
         let lines = (first_line..last_line).map(|line| self.render_line(line, gutter_width));
+        let minibuffer = self
+            .editor
+            .minibuffer()
+            .map(|minibuffer| render_minibuffer(minibuffer, cx));
 
         div()
             .track_focus(&self.focus_handle)
@@ -292,13 +350,40 @@ impl Render for EditorView {
                     .h(px(FOOTER_FADE_HEIGHT))
                     .bg(fade(0.0, 0.0)),
             )
-            .child(self.render_header())
             .child(self.render_status())
+            .when(minibuffer.is_some(), |root| root.child(render_scrim()))
+            .child(self.render_header())
+            .children(minibuffer)
     }
 }
 
-fn hsla(hex: u32) -> Hsla {
-    rgb(hex).into()
+/// The region and the cursor as sorted, non-overlapping highlights; the cursor wins.
+fn highlights(
+    region: Option<Range<usize>>,
+    cursor: Option<Range<usize>>,
+) -> Vec<(Range<usize>, HighlightStyle)> {
+    let region_style = HighlightStyle {
+        background_color: Some(hsla(color::BG_SELECTION)),
+        ..Default::default()
+    };
+    let mut highlights = Vec::with_capacity(3);
+    match (region, cursor) {
+        (Some(region), Some(cursor)) => {
+            let before = region.start..region.end.min(cursor.start);
+            let after = region.start.max(cursor.end)..region.end;
+            if !before.is_empty() {
+                highlights.push((before, region_style));
+            }
+            highlights.push((cursor, cursor_style()));
+            if !after.is_empty() {
+                highlights.push((after, region_style));
+            }
+        }
+        (Some(region), None) => highlights.push((region, region_style)),
+        (None, Some(cursor)) => highlights.push((cursor, cursor_style())),
+        (None, None) => {}
+    }
+    highlights
 }
 
 /// Black fading to transparent along `angle`, solid until `solid_until` (0..1).

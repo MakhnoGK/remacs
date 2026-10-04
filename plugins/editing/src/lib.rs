@@ -1,7 +1,8 @@
-//! Built-in plugin: Emacs motion, editing, undo and file commands with their default keys.
+//! Built-in plugin: Emacs motion, editing, undo, the mark and the kill ring with their
+//! default keys.
 
 mod editing;
-mod files;
+mod killing;
 mod motion;
 
 use remacs_core::{Command, Plugin, Registry, SELF_INSERT_COMMAND};
@@ -12,6 +13,8 @@ pub struct EditingPlugin;
 const COMMANDS: &[Command] = &[
     Command::new("forward-char", "Move point one character forward", motion::forward_char),
     Command::new("backward-char", "Move point one character backward", motion::backward_char),
+    Command::new("forward-word", "Move point to the end of the next word", motion::forward_word),
+    Command::new("backward-word", "Move point to the start of the previous word", motion::backward_word),
     Command::new("next-line", "Move to the next line, keeping the column", motion::next_line),
     Command::new("previous-line", "Move to the previous line, keeping the column", motion::previous_line),
     Command::new("move-beginning-of-line", "Move to the beginning of the line", motion::move_beginning_of_line),
@@ -24,13 +27,21 @@ const COMMANDS: &[Command] = &[
     Command::new(SELF_INSERT_COMMAND, "Insert the character typed", editing::self_insert),
     Command::new("newline", "Break the line, keeping its indentation", editing::newline),
     Command::new("tab-to-tab-stop", "Insert spaces up to the next tab stop", editing::tab_to_tab_stop),
-    Command::new("delete-char", "Delete the character after point", editing::delete_char),
-    Command::new("delete-backward-char", "Delete the character before point", editing::delete_backward_char),
+    Command::new("delete-char", "Delete the next character or the region", editing::delete_char),
+    Command::new("delete-backward-char", "Delete the previous character or the region", editing::delete_backward_char),
     Command::new("undo", "Undo the last change", editing::undo),
     Command::new("undo-redo", "Redo the last undone change", editing::undo_redo),
-    Command::new("keyboard-quit", "Cancel the current command", editing::keyboard_quit),
-    Command::new("save-buffer", "Save the buffer to its file", files::save_buffer),
-    Command::new(files::SAVE_BUFFERS_KILL_TERMINAL, "Quit remacs", files::save_buffers_kill_terminal),
+    Command::new("keyboard-quit", "Cancel the current command and deactivate the mark", editing::keyboard_quit),
+    Command::new(killing::SET_MARK_COMMAND, "Set the mark at point and activate it", killing::set_mark_command),
+    Command::new("exchange-point-and-mark", "Swap point and mark, activating the region", killing::exchange_point_and_mark),
+    Command::new("mark-whole-buffer", "Put point at the beginning and mark at the end", killing::mark_whole_buffer),
+    Command::new("kill-region", "Kill the text between point and mark", killing::kill_region),
+    Command::new("kill-ring-save", "Save the region as if killed, without deleting it", killing::kill_ring_save),
+    Command::new("kill-line", "Kill the rest of the line", killing::kill_line),
+    Command::new("kill-word", "Kill up to the end of the next word", killing::kill_word),
+    Command::new("backward-kill-word", "Kill back to the start of the previous word", killing::backward_kill_word),
+    Command::new(killing::YANK, "Insert the last killed text", killing::yank),
+    Command::new(killing::YANK_POP, "Replace the yanked text with an earlier kill", killing::yank_pop),
 ];
 
 const BINDINGS: &[(&str, &str)] = &[
@@ -38,6 +49,10 @@ const BINDINGS: &[(&str, &str)] = &[
     ("<right>", "forward-char"),
     ("C-b", "backward-char"),
     ("<left>", "backward-char"),
+    ("M-f", "forward-word"),
+    ("M-<right>", "forward-word"),
+    ("M-b", "backward-word"),
+    ("M-<left>", "backward-word"),
     ("C-n", "next-line"),
     ("<down>", "next-line"),
     ("C-p", "previous-line"),
@@ -67,10 +82,20 @@ const BINDINGS: &[(&str, &str)] = &[
     ("C-?", "undo-redo"),
     ("s-Z", "undo-redo"),
     ("C-g", "keyboard-quit"),
-    ("C-x C-s", "save-buffer"),
-    ("s-s", "save-buffer"),
-    ("C-x C-c", files::SAVE_BUFFERS_KILL_TERMINAL),
-    ("s-q", files::SAVE_BUFFERS_KILL_TERMINAL),
+    ("C-SPC", killing::SET_MARK_COMMAND),
+    ("C-x C-x", "exchange-point-and-mark"),
+    ("C-x h", "mark-whole-buffer"),
+    ("s-a", "mark-whole-buffer"),
+    ("C-w", "kill-region"),
+    ("s-x", "kill-region"),
+    ("M-w", "kill-ring-save"),
+    ("s-c", "kill-ring-save"),
+    ("C-k", "kill-line"),
+    ("M-d", "kill-word"),
+    ("M-DEL", "backward-kill-word"),
+    ("C-y", killing::YANK),
+    ("s-v", killing::YANK),
+    ("M-y", killing::YANK_POP),
 ];
 
 impl Plugin for EditingPlugin {

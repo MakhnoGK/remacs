@@ -13,10 +13,13 @@ remacs-core = { path = "crates/core" }
 remacs-text = { path = "crates/text" }
 remacs-theme = { path = "crates/theme" }
 remacs-editing = { path = "plugins/editing" }
+remacs-files = { path = "plugins/files" }
 remacs-languages = { path = "plugins/languages" }
+remacs-minibuffer = { path = "plugins/minibuffer" }
 
 # Without `font-kit` gpui falls back to a no-op text system on macOS.
 gpui = { version = "0.2.2", default-features = false, features = ["font-kit"] }
+ignore = "0.4"
 libc = "0.2"
 memchr = "2.7"
 memmap2 = "0.9"

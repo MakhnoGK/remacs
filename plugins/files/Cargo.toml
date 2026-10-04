@@ -1,0 +1,19 @@
+[package]
+name = "remacs-files"
+description = "Built-in plugin: visiting, saving and switching files and buffers"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+ignore.workspace = true
+remacs-core.workspace = true
+remacs-text.workspace = true
+
+[dev-dependencies]
+remacs-editing.workspace = true
+remacs-minibuffer.workspace = true
+
+[lints]
+workspace = true

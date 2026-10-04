@@ -1,28 +1,46 @@
+use std::collections::HashMap;
 use std::io;
 use std::mem;
+use std::ops::Range;
 use std::path::Path;
+use std::rc::Rc;
 
 use remacs_text::Text;
 
 use crate::buffer::Buffer;
+use crate::command::{CommandResult, Commands};
+use crate::completion::Completions;
 use crate::key::{Key, describe_sequence};
-use crate::keymap::Binding;
+use crate::keymap::{Binding, Keymap};
+use crate::kill_ring::KillRing;
+use crate::minibuffer::{Minibuffer, Prompt};
 use crate::plugin::{Plugin, Registry};
 use crate::viewport::Viewport;
 
 pub const SELF_INSERT_COMMAND: &str = "self-insert-command";
+pub const SCRATCH_BUFFER: &str = "*scratch*";
 const ABORT_KEY: &str = "C-g";
 /// Like Emacs, consecutive self-inserts undo together, at most this many at a time.
 const MAX_AMALGAMATED_INSERTS: usize = 20;
+const MAX_HISTORY: usize = 100;
 
 pub struct Editor {
-    pub buffer: Buffer,
+    /// Most recently selected first; the first one is shown in the window.
+    buffers: Vec<Buffer>,
+    minibuffer: Option<Minibuffer>,
     pub viewport: Viewport,
+    pub kill_ring: KillRing,
     registry: Registry,
     pending_keys: Vec<Key>,
     last_key: Option<Key>,
+    /// The command being run; M-x replaces it with the command it runs, as in Emacs.
+    this_command: Option<&'static str>,
     last_command: Option<&'static str>,
+    this_command_killed: bool,
+    last_command_killed: bool,
     amalgamated_inserts: usize,
+    /// Answers given to the minibuffer, newest first, by completion category.
+    history: HashMap<&'static str, Vec<String>>,
     message: Option<String>,
     quit_requested: bool,
 }
@@ -33,41 +51,156 @@ impl Editor {
         for plugin in plugins {
             plugin.register(&mut registry);
         }
-        let mode = registry.modes.name_for(None);
+        let scratch = Buffer::new(
+            SCRATCH_BUFFER,
+            Text::default(),
+            registry.modes.name_for(None),
+        );
         Self {
-            buffer: Buffer::new("*scratch*", Text::default(), mode),
+            buffers: vec![scratch],
+            minibuffer: None,
             viewport: Viewport::default(),
+            kill_ring: KillRing::default(),
             registry,
             pending_keys: Vec::new(),
             last_key: None,
+            this_command: None,
             last_command: None,
+            this_command_killed: false,
+            last_command_killed: false,
             amalgamated_inserts: 0,
+            history: HashMap::new(),
             message: None,
             quit_requested: false,
         }
     }
 
+    /// The buffer commands act on: the minibuffer input while a prompt is open.
+    pub fn buffer(&self) -> &Buffer {
+        match &self.minibuffer {
+            Some(minibuffer) => &minibuffer.input,
+            None => &self.buffers[0],
+        }
+    }
+
+    pub fn buffer_mut(&mut self) -> &mut Buffer {
+        match &mut self.minibuffer {
+            Some(minibuffer) => &mut minibuffer.input,
+            None => &mut self.buffers[0],
+        }
+    }
+
+    pub fn window_buffer(&self) -> &Buffer {
+        &self.buffers[0]
+    }
+
+    pub fn window_buffer_mut(&mut self) -> &mut Buffer {
+        &mut self.buffers[0]
+    }
+
+    /// All buffers, most recently selected first.
+    pub fn buffers(&self) -> &[Buffer] {
+        &self.buffers
+    }
+
+    pub fn buffer_named_mut(&mut self, name: &str) -> Option<&mut Buffer> {
+        self.buffers.iter_mut().find(|buffer| buffer.name() == name)
+    }
+
+    pub fn mode_for(&self, path: Option<&Path>) -> &'static str {
+        self.registry.modes.name_for(path)
+    }
+
+    /// Shows the buffer visiting `path`, opening it first if needed; a missing file
+    /// becomes an empty buffer that creates it on save.
     pub fn visit_file(&mut self, path: &Path) -> io::Result<()> {
-        let text = Text::open(path)?;
+        let path = path.canonicalize().or_else(|_| std::path::absolute(path))?;
+        if let Some(index) = self
+            .buffers
+            .iter()
+            .position(|buffer| buffer.path() == Some(&path))
+        {
+            self.select_buffer(index);
+            return Ok(());
+        }
+        let text = match Text::open(&path) {
+            Ok(text) => text,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                self.set_message("(New file)");
+                Text::default()
+            }
+            Err(error) => return Err(error),
+        };
         let name = path.file_name().map_or_else(
             || path.display().to_string(),
             |name| name.to_string_lossy().into_owned(),
         );
-        self.buffer = Buffer::new(name, text, self.registry.modes.name_for(Some(path)));
-        self.viewport.first_line = 0;
+        let mode = self.mode_for(Some(&path));
+        self.add_buffer(Buffer::new(name, text, mode).with_file(path));
         Ok(())
+    }
+
+    /// Adds `buffer` under a unique name (`name<2>`) and shows it.
+    pub fn add_buffer(&mut self, mut buffer: Buffer) {
+        buffer.set_name(self.unique_name(buffer.name()));
+        self.buffers.push(buffer);
+        self.select_buffer(self.buffers.len() - 1);
+    }
+
+    pub fn switch_to_buffer(&mut self, name: &str) -> bool {
+        self.buffer_index(name)
+            .inspect(|&index| self.select_buffer(index))
+            .is_some()
+    }
+
+    /// Removes a buffer; the window falls back to the next most recent one, or `*scratch*`.
+    pub fn kill_buffer(&mut self, name: &str) -> bool {
+        let Some(index) = self.buffer_index(name) else {
+            return false;
+        };
+        self.buffers.remove(index);
+        if self.buffers.is_empty() {
+            let mode = self.mode_for(None);
+            self.buffers
+                .push(Buffer::new(SCRATCH_BUFFER, Text::default(), mode));
+        }
+        if index == 0 {
+            self.viewport.first_line = self.buffers[0].window_start;
+        }
+        true
+    }
+
+    /// Deletes `range` from the current buffer into the kill ring; consecutive kills
+    /// accumulate in one entry, before it when killing backward from point.
+    pub fn kill(&mut self, range: Range<usize>) {
+        let buffer = self.buffer_mut();
+        let backward = buffer.point() == range.end && range.start < range.end;
+        let text = buffer.contents(range.clone());
+        buffer.delete(range);
+        if self.last_command_killed {
+            self.kill_ring.append(&text, backward);
+        } else {
+            self.kill_ring.push(text);
+        }
+        self.this_command_killed = true;
     }
 
     pub fn handle_key(&mut self, key: Key) {
         self.message = None;
-        if Key::parse(ABORT_KEY) == Some(key) && !self.pending_keys.is_empty() {
-            self.pending_keys.clear();
-            self.set_message("Quit");
+        if Key::parse(ABORT_KEY) == Some(key) && self.abort() {
+            return;
+        }
+        if self
+            .minibuffer
+            .as_ref()
+            .is_some_and(Minibuffer::is_question)
+        {
+            self.answer_question(key);
             return;
         }
         self.pending_keys.push(key);
         self.last_key = Some(key);
-        match self.registry.keymap.lookup(&self.pending_keys) {
+        match Keymap::lookup_in(&self.active_keymaps(), &self.pending_keys) {
             Binding::Command(name) => {
                 self.pending_keys.clear();
                 self.run_command(name);
@@ -91,28 +224,114 @@ impl Editor {
         };
         let (name, run) = (command.name, command.run);
         self.start_undo_group(name);
+        self.this_command = Some(name);
+        self.this_command_killed = false;
         if let Err(error) = run(self) {
             self.set_message(error.0);
         }
-        self.last_command = Some(name);
-        self.viewport.ensure_visible(self.buffer.point_line());
+        self.last_command = self.this_command;
+        self.last_command_killed = self.this_command_killed;
+        self.after_command();
+    }
+
+    pub fn commands(&self) -> &Commands {
+        &self.registry.commands
+    }
+
+    pub fn keymap(&self) -> &Keymap {
+        &self.registry.keymap
+    }
+
+    /// Opens a prompt; `complete` lists candidates for the input as it changes and
+    /// `on_answer` receives the chosen value.
+    pub fn read(
+        &mut self,
+        prompt: Prompt,
+        complete: impl Fn(&Editor, &str) -> Completions + 'static,
+        on_answer: impl FnOnce(&mut Editor, String) -> CommandResult + 'static,
+    ) -> CommandResult {
+        self.open_minibuffer(Minibuffer::new(
+            prompt,
+            Some(Rc::new(complete)),
+            Box::new(on_answer),
+        ))
+    }
+
+    /// Asks a question answered with a single `y` or `n`, like Emacs `y-or-n-p`.
+    pub fn ask_y_or_n(
+        &mut self,
+        question: impl Into<String>,
+        on_answer: impl FnOnce(&mut Editor, bool) -> CommandResult + 'static,
+    ) -> CommandResult {
+        self.open_minibuffer(Minibuffer::question(
+            question.into(),
+            Box::new(move |editor, answer| on_answer(editor, answer == "y")),
+        ))
+    }
+
+    pub fn minibuffer(&self) -> Option<&Minibuffer> {
+        self.minibuffer.as_ref()
+    }
+
+    pub fn minibuffer_mut(&mut self) -> Option<&mut Minibuffer> {
+        self.minibuffer.as_mut()
+    }
+
+    /// Answers the prompt with the selected candidate, or with the input as typed.
+    pub fn exit_minibuffer(&mut self, literal_input: bool) -> CommandResult {
+        let minibuffer = self.minibuffer.as_ref().ok_or("Not in the minibuffer")?;
+        let answer = minibuffer.answer(literal_input)?;
+        self.finish_minibuffer(answer)
+    }
+
+    /// Answers the prompt with the candidate at `index`, as a mouse click does.
+    pub fn choose_candidate(&mut self, index: usize) {
+        if let Some(minibuffer) = &mut self.minibuffer {
+            minibuffer.select(index);
+        }
+        if let Err(error) = self.exit_minibuffer(false) {
+            self.set_message(error.0);
+        }
+        self.after_command();
+    }
+
+    /// Lists candidates again, e.g. after a command changed what they describe.
+    pub fn refresh_minibuffer(&mut self) {
+        let Some(minibuffer) = &self.minibuffer else {
+            return;
+        };
+        let Some(complete) = minibuffer.source.clone() else {
+            return;
+        };
+        let input = minibuffer.input_text();
+        let completions = complete(self, &input);
+        if let Some(minibuffer) = &mut self.minibuffer {
+            minibuffer.set_completions(completions, input);
+        }
+    }
+
+    /// Earlier answers in a completion category, newest first.
+    pub fn history(&self, category: &str) -> &[String] {
+        self.history.get(category).map_or(&[], Vec::as_slice)
     }
 
     /// Scrolls without moving point unless it would leave the window.
     pub fn scroll(&mut self, lines: isize) {
-        let line_count = self.buffer.text().line_count();
+        let line_count = self.window_buffer().text().line_count();
         if self.viewport.scroll_by(lines, line_count) {
-            let point_line = self.buffer.point_line();
+            let point_line = self.window_buffer().point_line();
             let visible_line = self.viewport.clamp(point_line);
             if visible_line != point_line {
-                self.buffer.move_to_line(visible_line);
+                self.window_buffer_mut().move_to_line(visible_line);
             }
         }
     }
 
     pub fn set_point_at(&mut self, line: usize, column: usize) {
-        let offset = self.buffer.text().offset_at_char_column(line, column);
-        self.buffer.set_point(offset);
+        let buffer = self.window_buffer_mut();
+        let offset = buffer.text().offset_at_char_column(line, column);
+        buffer.set_point(offset);
+        buffer.deactivate_mark();
     }
 
     pub fn last_key(&self) -> Option<Key> {
@@ -144,6 +363,94 @@ impl Editor {
         self.quit_requested
     }
 
+    fn active_keymaps(&self) -> Vec<&Keymap> {
+        let minibuffer_keymap = self
+            .minibuffer
+            .as_ref()
+            .map(|_| &self.registry.minibuffer_keymap);
+        minibuffer_keymap
+            .into_iter()
+            .chain([&self.registry.keymap])
+            .collect()
+    }
+
+    /// C-g cancels a pending prefix or the prompt; false when there was neither.
+    fn abort(&mut self) -> bool {
+        if !self.pending_keys.is_empty() {
+            self.pending_keys.clear();
+        } else if self.minibuffer.take().is_none() {
+            return false;
+        }
+        self.set_message("Quit");
+        true
+    }
+
+    fn answer_question(&mut self, key: Key) {
+        let answer = match key.printable_char() {
+            Some(answer @ ('y' | 'n')) => answer.to_string(),
+            _ => return self.set_message("Please answer y or n"),
+        };
+        if let Err(error) = self.finish_minibuffer(answer) {
+            self.set_message(error.0);
+        }
+        self.after_command();
+    }
+
+    fn open_minibuffer(&mut self, minibuffer: Minibuffer) -> CommandResult {
+        if self.minibuffer.is_some() {
+            return Err("Command attempted to use minibuffer while in minibuffer".into());
+        }
+        self.minibuffer = Some(minibuffer);
+        self.refresh_minibuffer();
+        Ok(())
+    }
+
+    fn finish_minibuffer(&mut self, answer: String) -> CommandResult {
+        let minibuffer = self.minibuffer.take().ok_or("Not in the minibuffer")?;
+        let category = minibuffer.prompt().category;
+        if !category.is_empty() {
+            let history = self.history.entry(category).or_default();
+            history.retain(|earlier| *earlier != answer);
+            history.insert(0, answer.clone());
+            history.truncate(MAX_HISTORY);
+        }
+        (minibuffer.on_answer)(self, answer)
+    }
+
+    fn after_command(&mut self) {
+        if self
+            .minibuffer
+            .as_ref()
+            .is_some_and(Minibuffer::needs_completions)
+        {
+            self.refresh_minibuffer();
+        }
+        let point_line = self.window_buffer().point_line();
+        self.viewport.ensure_visible(point_line);
+    }
+
+    fn buffer_index(&self, name: &str) -> Option<usize> {
+        self.buffers.iter().position(|buffer| buffer.name() == name)
+    }
+
+    fn select_buffer(&mut self, index: usize) {
+        self.buffers[0].window_start = self.viewport.first_line;
+        let buffer = self.buffers.remove(index);
+        self.viewport.first_line = buffer.window_start;
+        self.buffers.insert(0, buffer);
+    }
+
+    fn unique_name(&self, name: &str) -> String {
+        let taken = |candidate: &str| self.buffer_index(candidate).is_some();
+        if !taken(name) {
+            return name.to_owned();
+        }
+        (2..)
+            .map(|number| format!("{name}<{number}>"))
+            .find(|candidate| !taken(candidate))
+            .expect("unbounded")
+    }
+
     fn start_undo_group(&mut self, command: &'static str) {
         let amalgamate = command == SELF_INSERT_COMMAND
             && self.last_command == Some(SELF_INSERT_COMMAND)
@@ -152,7 +459,42 @@ impl Editor {
             self.amalgamated_inserts += 1;
         } else {
             self.amalgamated_inserts = 0;
-            self.buffer.add_undo_boundary();
+            self.buffer_mut().add_undo_boundary();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn buffers_are_most_recent_first_with_unique_names() {
+        let mut editor = Editor::new(&[]);
+        editor.add_buffer(Buffer::new("a", Text::default(), "Fundamental"));
+        editor.add_buffer(Buffer::new("a", Text::default(), "Fundamental"));
+        let names = |editor: &Editor| -> Vec<String> {
+            editor
+                .buffers()
+                .iter()
+                .map(|buffer| buffer.name().to_owned())
+                .collect()
+        };
+        assert_eq!(names(&editor), ["a<2>", "a", SCRATCH_BUFFER]);
+        assert!(editor.switch_to_buffer(SCRATCH_BUFFER));
+        assert_eq!(names(&editor), [SCRATCH_BUFFER, "a<2>", "a"]);
+        assert!(editor.kill_buffer(SCRATCH_BUFFER));
+        assert!(editor.kill_buffer("a<2>") && editor.kill_buffer("a"));
+        assert_eq!(names(&editor), [SCRATCH_BUFFER]);
+    }
+
+    #[test]
+    fn buffers_remember_their_scroll_position() {
+        let mut editor = Editor::new(&[]);
+        editor.viewport.first_line = 7;
+        editor.add_buffer(Buffer::new("other", Text::default(), "Fundamental"));
+        assert_eq!(editor.viewport.first_line, 0);
+        editor.switch_to_buffer(SCRATCH_BUFFER);
+        assert_eq!(editor.viewport.first_line, 7);
     }
 }
