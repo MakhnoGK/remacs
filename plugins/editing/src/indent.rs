@@ -119,6 +119,40 @@ pub fn newline(editor: &mut Editor) -> CommandResult {
     Ok(())
 }
 
+/// Starts an indented line below the current one, leaving the current one whole.
+pub fn open_line_below(editor: &mut Editor) -> CommandResult {
+    let buffer = writable_buffer(editor)?;
+    let line_end = buffer
+        .text()
+        .line_range(buffer.point_line())
+        .map_or(buffer.point(), |line| line.end);
+    buffer.set_point(line_end);
+    newline(editor)
+}
+
+/// Starts a line above the current one at its level, a level deeper above a closer.
+pub fn open_line_above(editor: &mut Editor) -> CommandResult {
+    let buffer = writable_buffer(editor)?;
+    let unit = indent_unit(buffer);
+    let line = buffer
+        .text()
+        .line_range(buffer.point_line())
+        .unwrap_or(0..0);
+    let mut indentation = line_indentation(buffer, line.start);
+    let first = buffer
+        .text()
+        .bytes_in(line.start + indentation.len()..line.end.min(line.start + MAX_SCAN));
+    if first.first().is_some_and(|byte| CLOSERS.contains(byte)) {
+        indentation.push_str(&unit.text());
+    }
+    buffer.set_point(line.start);
+    buffer.insert(&indentation);
+    let resume = buffer.point();
+    buffer.insert("\n");
+    buffer.set_point(resume);
+    Ok(())
+}
+
 /// Before a closer is typed on a line holding only blanks, indents the line to the level
 /// of the closer's opener.
 pub fn indent_for_closer(buffer: &mut Buffer, closer: char) {

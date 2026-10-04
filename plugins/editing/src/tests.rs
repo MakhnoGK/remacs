@@ -124,6 +124,23 @@ fn closer_typed_on_a_blank_line_dedents_to_its_opener() {
 }
 
 #[test]
+fn lines_open_below_and_above_without_breaking_this_one() {
+    let mut editor = editor_with("fn f() {\n    g();\n}");
+    press(&mut editor, "C-f s-RET");
+    type_text(&mut editor, "a");
+    assert_eq!(contents(&editor), "fn f() {\n    a\n    g();\n}");
+    press(&mut editor, "M-> s-S-RET");
+    type_text(&mut editor, "b");
+    assert_eq!(contents(&editor), "fn f() {\n    a\n    g();\n    b\n}");
+    press(&mut editor, "C-p C-e s-S-RET");
+    type_text(&mut editor, "c");
+    assert_eq!(
+        contents(&editor),
+        "fn f() {\n    a\n    c\n    g();\n    b\n}"
+    );
+}
+
+#[test]
 fn tab_follows_the_buffers_indentation() {
     let mut editor = editor_with("a {\n  b\n}\n");
     press(&mut editor, "M-> TAB");
