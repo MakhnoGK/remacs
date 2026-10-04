@@ -29,12 +29,17 @@ pub(crate) fn blocks(markdown: &str) -> Vec<DocBlock> {
             code.push_str(line);
             continue;
         }
+        if is_link_definition(trimmed) {
+            continue;
+        }
         if trimmed.is_empty() || is_rule(trimmed) {
             flush(&mut blocks, &mut paragraph);
         } else if let Some(heading) = heading(trimmed) {
             flush(&mut blocks, &mut paragraph);
-            paragraph.push_str(heading);
-            flush(&mut blocks, &mut paragraph);
+            let heading = inline(heading);
+            if !heading.is_empty() {
+                blocks.push(DocBlock::Heading(heading));
+            }
         } else if let Some(item) = list_item(trimmed) {
             flush(&mut blocks, &mut paragraph);
             paragraph.push_str("• ");
@@ -43,7 +48,11 @@ pub(crate) fn blocks(markdown: &str) -> Vec<DocBlock> {
             if !paragraph.is_empty() {
                 paragraph.push(' ');
             }
-            paragraph.push_str(trimmed);
+            let hard_break = trimmed.strip_suffix('\\');
+            paragraph.push_str(hard_break.unwrap_or(trimmed));
+            if hard_break.is_some() || line.ends_with("  ") {
+                flush(&mut blocks, &mut paragraph);
+            }
         }
     }
     flush(&mut blocks, &mut paragraph);
@@ -73,6 +82,13 @@ fn is_rule(line: &str) -> bool {
     line.len() >= 3
         && matches!(mark, Some('-' | '*' | '_'))
         && line.chars().all(|character| Some(character) == mark)
+}
+
+/// `[Range]: std::ops::Range`, the target of a reference link.
+fn is_link_definition(line: &str) -> bool {
+    line.strip_prefix('[')
+        .and_then(|rest| rest.split_once("]: "))
+        .is_some_and(|(label, _)| !label.is_empty() && !label.contains(']'))
 }
 
 fn heading(line: &str) -> Option<&str> {
@@ -155,12 +171,13 @@ mod tests {
     fn markdown_becomes_paragraphs_and_code() {
         let markdown = "The lower bound of the **range**\n(inclusive), see [`Range`](std::ops::Range).\n\n\
             # Examples\n\n```rust\nlet r = 1..2;\n\nassert_eq!(r.start, 1);\n```\n---\n- one\n- `two` \\[x\\]\n\n\
-            ![Baseline icon](data:image/svg) _Widely available_ in snake_case: &lt;color&gt;";
+            ![Baseline icon](data:image/svg) _Widely available_ in snake_case: &lt;color&gt;\n\n\
+            [`Range`]: std::ops::Range\n[two]: two";
         assert_eq!(
             blocks(markdown),
             [
                 DocBlock::Text("The lower bound of the range (inclusive), see `Range`.".into()),
-                DocBlock::Text("Examples".into()),
+                DocBlock::Heading("Examples".into()),
                 DocBlock::Code("let r = 1..2;\n\nassert_eq!(r.start, 1);".into()),
                 DocBlock::Text("• one".into()),
                 DocBlock::Text("• `two` [x]".into()),

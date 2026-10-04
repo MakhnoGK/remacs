@@ -15,7 +15,7 @@ use crate::display_line::DisplayLine;
 use crate::highlights::{Highlights, combine, face_style, region_style};
 use crate::key_input::to_key;
 use crate::minibuffer_view::{is_problem_list, render_minibuffer, render_scrim};
-use crate::popup_view::{LABEL_INSET, Placement, render_popup};
+use crate::popup_view::{Placement, render_popup};
 use crate::widgets::{cursor_style, hsla, icon, modified_dot};
 
 /// Minified files can hold megabytes on one line; lay out only what can be on screen.
@@ -279,7 +279,8 @@ impl EditorView {
             .into_any_element()
     }
 
-    /// Popups next to the text they belong to, e.g. completions under the word.
+    /// Popups next to the text they belong to, e.g. completions under the word or the
+    /// documentation of a symbol.
     fn render_popups(
         &self,
         metrics: Metrics,
@@ -303,10 +304,10 @@ impl EditorView {
                 let display_line = self.display_line(line);
                 let byte = display_line.display_range(offset..offset).start;
                 let column = display_line.text[..byte].chars().count();
-                let left = px(ROW_MARGIN) + gutter_width + metrics.char_width * column as f32
-                    - px(LABEL_INSET);
+                let anchor_left =
+                    px(ROW_MARGIN) + gutter_width + metrics.char_width * column as f32;
                 let placement = Placement {
-                    left,
+                    anchor_left,
                     line_top,
                     line_bottom: line_top + line_height,
                     window_width: window_size.width,

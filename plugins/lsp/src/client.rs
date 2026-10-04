@@ -14,12 +14,12 @@ use lsp_types::notification::{
     Initialized, Notification, PublishDiagnostics,
 };
 use lsp_types::request::{
-    Completion, DocumentDiagnosticRequest, Initialize, Request, ResolveCompletionItem,
-    WorkspaceConfiguration, WorkspaceDiagnosticRefresh,
+    Completion, DocumentDiagnosticRequest, GotoDefinition, HoverRequest, Initialize, Request,
+    ResolveCompletionItem, WorkspaceConfiguration, WorkspaceDiagnosticRefresh,
 };
 use lsp_types::{
     CompletionItem, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, InitializedParams,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, InitializedParams, Position,
     PublishDiagnosticsParams, TextDocumentContentChangeEvent, TextDocumentIdentifier,
     TextDocumentItem, Uri, VersionedTextDocumentIdentifier,
 };
@@ -32,7 +32,7 @@ use crate::LanguageServer;
 use crate::completion::{self, CompletionSupport, Origin};
 use crate::position::{Encoding, to_lsp};
 use crate::transport::{read_message, write_message};
-use crate::uri;
+use crate::{definition, hover, uri};
 
 const INITIALIZE_ID: u64 = 0;
 
@@ -82,6 +82,14 @@ pub(crate) enum Outgoing {
         text: Snapshot,
         start: usize,
     },
+    /// Asks about the symbol at `offset` of `text`; `id` is the asking plugin's.
+    AtPoint {
+        question: Question,
+        uri: Uri,
+        id: u64,
+        text: Snapshot,
+        offset: usize,
+    },
     /// Answers a request the server made.
     Reply {
         id: Value,
@@ -96,8 +104,24 @@ pub(crate) struct Published {
     pub encoding: Encoding,
 }
 
-/// What a server answered about completion.
-pub(crate) enum CompletionAnswer {
+/// What can be asked about the symbol at a position.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Question {
+    Hover,
+    Definition,
+}
+
+impl Question {
+    fn method(self) -> &'static str {
+        match self {
+            Question::Hover => HoverRequest::METHOD,
+            Question::Definition => GotoDefinition::METHOD,
+        }
+    }
+}
+
+/// What a server answered to the plugins' requests.
+pub(crate) enum Answer {
     Listed {
         id: u64,
         list: List,
@@ -109,6 +133,16 @@ pub(crate) enum CompletionAnswer {
         id: u64,
         index: usize,
         item: Item,
+    },
+    Hover {
+        id: u64,
+        answer: Option<remacs_documentation::Answer>,
+    },
+    /// Positions in the target files, which only the editor has the texts of.
+    Definitions {
+        id: u64,
+        targets: Vec<(PathBuf, Position)>,
+        encoding: Encoding,
     },
 }
 
@@ -127,6 +161,11 @@ enum Pending {
         index: usize,
         origin: Origin,
     },
+    AtPoint {
+        question: Question,
+        id: u64,
+        text: Snapshot,
+    },
 }
 
 /// What the reader thread collects for the editor.
@@ -134,7 +173,7 @@ enum Pending {
 struct Inbox {
     published: HashMap<PathBuf, Published>,
     requests: HashMap<u64, Pending>,
-    completions: Vec<CompletionAnswer>,
+    answers: Vec<Answer>,
 }
 
 type SharedInbox = Arc<Mutex<Inbox>>;
@@ -219,8 +258,8 @@ impl Client {
         lock(&self.inbox).published.remove(path)
     }
 
-    pub fn take_completions(&self) -> Vec<CompletionAnswer> {
-        std::mem::take(&mut lock(&self.inbox).completions)
+    pub fn take_answers(&self) -> Vec<Answer> {
+        std::mem::take(&mut lock(&self.inbox).answers)
     }
 
     pub fn pulls_diagnostics(&self) -> bool {
@@ -265,6 +304,8 @@ fn initialize_params(server: &LanguageServer, root: &Path) -> Value {
                     },
                     "contextSupport": true,
                 },
+                "hover": { "contentFormat": ["markdown", "plaintext"] },
+                "definition": { "linkSupport": true },
             },
         },
     })
@@ -362,6 +403,24 @@ impl Writer {
                 let params = serde_json::to_value(item)?;
                 self.ask(ResolveCompletionItem::METHOD, params, pending)
             }
+            Outgoing::AtPoint {
+                question,
+                uri,
+                id,
+                text,
+                offset,
+            } => {
+                let params = json!({
+                    "textDocument": TextDocumentIdentifier::new(uri.clone()),
+                    "position": to_lsp(text, *offset, negotiated.encoding),
+                });
+                let pending = Pending::AtPoint {
+                    question: *question,
+                    id: *id,
+                    text: text.clone(),
+                };
+                self.ask(question.method(), params, pending)
+            }
             message => message.to_json(negotiated),
         };
         write_message(&mut self.stdin, &json)
@@ -376,12 +435,18 @@ impl Writer {
     }
 }
 
-/// A pull or completion that a later one in the same batch repeats is not worth the
-/// server's time.
+/// A pull, completion or question that a later one in the same batch repeats is not worth
+/// the server's time.
 fn is_superseded(message: &Outgoing, later: &[Outgoing]) -> bool {
     later.iter().any(|other| match (message, other) {
         (Outgoing::Pull { uri, .. }, Outgoing::Pull { uri: other, .. })
         | (Outgoing::Complete { uri, .. }, Outgoing::Complete { uri: other, .. }) => uri == other,
+        (
+            Outgoing::AtPoint { question, .. },
+            Outgoing::AtPoint {
+                question: other, ..
+            },
+        ) => question == other,
         _ => false,
     })
 }
@@ -423,9 +488,10 @@ impl Outgoing {
                     text_document: TextDocumentIdentifier::new(uri.clone()),
                 })
             }
-            Outgoing::Pull { .. } | Outgoing::Complete { .. } | Outgoing::Resolve { .. } => {
-                unreachable!("the writer numbers requests")
-            }
+            Outgoing::Pull { .. }
+            | Outgoing::Complete { .. }
+            | Outgoing::Resolve { .. }
+            | Outgoing::AtPoint { .. } => unreachable!("the writer numbers requests"),
             Outgoing::Reply { id, result } => {
                 json!({ "jsonrpc": "2.0", "id": id, "result": result })
             }
@@ -549,12 +615,13 @@ impl Reader {
         });
     }
 
-    /// Failed requests, e.g. cancelled by a newer edit, are dropped.
+    /// Failed requests, e.g. cancelled by a newer edit, are dropped; a failed question is
+    /// answered with nothing, so the user hears that there is nothing to show.
     fn answered(&mut self, id: u64, mut response: Value) {
         let Some(pending) = lock(&self.inbox).requests.remove(&id) else {
             return;
         };
-        if response.get("error").is_some() {
+        if response.get("error").is_some() && !matches!(pending, Pending::AtPoint { .. }) {
             return;
         }
         let result = response["result"].take();
@@ -563,7 +630,7 @@ impl Reader {
             Pending::Complete { id, origin } => {
                 let response = serde_json::from_value(result).unwrap_or_default();
                 let (list, items) = completion::list(response, &origin);
-                self.complete(CompletionAnswer::Listed {
+                self.deliver(Answer::Listed {
                     id,
                     list,
                     items,
@@ -573,14 +640,35 @@ impl Reader {
             Pending::Resolve { id, index, origin } => {
                 if let Ok(item) = serde_json::from_value(result) {
                     let item = completion::convert(&item, &origin);
-                    self.complete(CompletionAnswer::Resolved { id, index, item });
+                    self.deliver(Answer::Resolved { id, index, item });
                 }
+            }
+            Pending::AtPoint {
+                question: Question::Hover,
+                id,
+                text,
+            } => {
+                let response = serde_json::from_value(result).unwrap_or_default();
+                let answer = hover::answer(response, &text, self.encoding);
+                self.deliver(Answer::Hover { id, answer });
+            }
+            Pending::AtPoint {
+                question: Question::Definition,
+                id,
+                ..
+            } => {
+                let response = serde_json::from_value(result).unwrap_or_default();
+                self.deliver(Answer::Definitions {
+                    id,
+                    targets: definition::targets(response),
+                    encoding: self.encoding,
+                });
             }
         }
     }
 
-    fn complete(&mut self, answer: CompletionAnswer) {
-        lock(&self.inbox).completions.push(answer);
+    fn deliver(&mut self, answer: Answer) {
+        lock(&self.inbox).answers.push(answer);
         (self.notifier)();
     }
 

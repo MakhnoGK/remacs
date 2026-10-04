@@ -3,9 +3,11 @@ use std::rc::Rc;
 use crate::completion::Candidate;
 use crate::editor::Editor;
 
-/// A list shown at a place in the window buffer, like Emacs corfu's popup.
+/// A list shown at a place in the window buffer, like Emacs corfu's popup; without rows,
+/// the documentation alone, like an LSP hover.
 pub struct Popup {
-    /// Buffer offset the rows' labels line up with, e.g. where the completed word starts.
+    /// Buffer offset the rows' labels or the documentation line up with, e.g. where the
+    /// completed word starts.
     pub anchor: usize,
     /// Only the rows on screen.
     pub rows: Vec<Candidate>,
@@ -19,8 +21,10 @@ pub struct Popup {
 /// Documentation of a symbol, e.g. a completion candidate's.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Documentation {
+    /// Where the symbol is declared, e.g. `core::ops::Range`.
+    pub container: String,
     /// What the symbol is, e.g. `field`.
-    pub title: String,
+    pub kind: String,
     /// Its declaration, in the code font.
     pub signature: Option<String>,
     pub blocks: Vec<DocBlock>,
@@ -30,6 +34,7 @@ pub struct Documentation {
 pub enum DocBlock {
     /// A paragraph; `quoted` parts are code.
     Text(String),
+    Heading(String),
     Code(String),
 }
 

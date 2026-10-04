@@ -18,6 +18,8 @@ pub enum Face {
     Error,
     Warning,
     Info,
+    /// The symbol a popup is about, like Emacs `highlight`.
+    Highlight,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

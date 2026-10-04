@@ -6,16 +6,20 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use remacs_completion::CompletionPlugin;
-use remacs_core::{Editor, Icon, Plugin, Popup};
+use remacs_core::{Documentation, Editor, Icon, Plugin, Popup};
 use remacs_diagnostics::DiagnosticsPlugin;
+use remacs_documentation::DocumentationPlugin;
 use remacs_languages::{LanguagesPlugin, SERVERS};
 use remacs_lsp::LspPlugin;
+use remacs_xref::XrefPlugin;
 
 static LSP: LspPlugin = LspPlugin::new(SERVERS);
 const PLUGINS: &[&dyn Plugin] = &[
     &LanguagesPlugin,
     &DiagnosticsPlugin,
     &CompletionPlugin,
+    &DocumentationPlugin,
+    &XrefPlugin,
     &LSP,
 ];
 const TIMEOUT: Duration = Duration::from_secs(120);
@@ -195,6 +199,127 @@ fn servers_complete_at_point() {
         let text = complete(&file, before, wanted);
         eprintln!("{text}");
         assert!(text.contains(inserted), "{text}");
+    }
+}
+
+/// Runs `command` with point in `symbol` until `answered` finds what it wanted.
+fn ask_at<T>(
+    file: &Path,
+    symbol: &str,
+    command: &str,
+    answered: impl Fn(&Editor) -> Option<T>,
+) -> T {
+    let mut editor = Editor::new(PLUGINS);
+    editor.visit_file(file).unwrap();
+    let source = fs::read_to_string(file).unwrap();
+    let point = source.find(symbol).unwrap() + 1;
+    let started = Instant::now();
+    loop {
+        assert!(
+            started.elapsed() < TIMEOUT,
+            "{command} on {symbol} never answered"
+        );
+        editor.visit_file(file).unwrap();
+        editor.window_buffer_mut().set_point(point);
+        editor.run_command(command);
+        thread::sleep(Duration::from_millis(300));
+        editor.refresh();
+        if let Some(answer) = answered(&editor) {
+            return answer;
+        }
+    }
+}
+
+fn documentation(file: &Path, symbol: &str) -> Documentation {
+    let documentation = ask_at(file, symbol, "show-documentation", |editor| {
+        editor.popups().pop()?.documentation
+    });
+    eprintln!("{}: {symbol}: {documentation:#?}", file.display());
+    documentation
+}
+
+/// The file and line point lands on from `call`.
+fn definition(file: &Path, call: &str) -> (PathBuf, String) {
+    ask_at(file, call, "xref-find-definitions", |editor| {
+        let buffer = editor.window_buffer();
+        let range = buffer.text().line_range(buffer.point_line())?;
+        let line = buffer.contents(range).trim().to_owned();
+        (!line.contains(call)).then(|| (buffer.path().unwrap().to_path_buf(), line))
+    })
+}
+
+#[test]
+#[ignore]
+fn servers_show_documentation_and_go_to_definitions() {
+    let rust = project(
+        "rust-navigation",
+        &[
+            (
+                "Cargo.toml",
+                "[package]\nname = \"demo\"\nedition = \"2024\"\n",
+            ),
+            (
+                "src/main.rs",
+                "mod util;\n\nfn main() {\n    let mut bytes = [0u8; 2];\n    bytes.copy_from_slice(&[1, 2]);\n    util::helper();\n}\n",
+            ),
+            ("src/util.rs", "/// Says hello.\npub fn helper() {}\n"),
+        ],
+    );
+    let typescript = project(
+        "ts-navigation",
+        &[
+            ("package.json", "{}\n"),
+            (
+                "index.ts",
+                "import { helper } from \"./util\";\n\"a\".toUpperCase();\nhelper();\n",
+            ),
+            (
+                "util.ts",
+                "/** Says hello. */\nexport function helper() {}\n",
+            ),
+        ],
+    );
+    let c = project(
+        "c-navigation",
+        &[(
+            "main.c",
+            "#include <string.h>\n\nstatic int helper(void) { return 0; }\n\nint main(void) { return helper() + strlen(\"a\"); }\n",
+        )],
+    );
+    let css = project("css-navigation", &[("style.css", "a { color: red; }\n")]);
+    let html = project(
+        "html-navigation",
+        &[("index.html", "<body><section></section></body>\n")],
+    );
+
+    let copy = documentation(&rust.join("src/main.rs"), "copy_from_slice");
+    assert_eq!(copy.kind, "method");
+    assert!(copy.signature.unwrap().contains("fn copy_from_slice"));
+    assert!(!copy.blocks.is_empty());
+    let upper = documentation(&typescript.join("index.ts"), "toUpperCase");
+    assert_eq!(upper.kind, "method");
+    let strlen = documentation(&c.join("main.c"), "strlen");
+    assert!(!strlen.is_empty());
+    assert!(!documentation(&css.join("style.css"), "color").is_empty());
+    assert!(!documentation(&html.join("index.html"), "section").is_empty());
+
+    let cases = [
+        (rust.join("src/main.rs"), "helper();", "pub fn helper() {}"),
+        (
+            typescript.join("index.ts"),
+            "helper();",
+            "export function helper() {}",
+        ),
+        (
+            c.join("main.c"),
+            "helper() +",
+            "static int helper(void) { return 0; }",
+        ),
+    ];
+    for (file, call, expected) in cases {
+        let (path, line) = definition(&file, call);
+        eprintln!("{}: {line}", path.display());
+        assert_eq!(line, expected);
     }
 }
 

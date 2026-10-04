@@ -18,45 +18,159 @@ const ROW_PADDING: f32 = 6.0;
 const BADGE_SIZE: f32 = 18.0;
 const BADGE_GAP: f32 = 8.0;
 const DETAIL_MAX_WIDTH: f32 = 200.0;
-/// Between the line and the popup, and between the list and the documentation.
-pub const POPUP_GAP: f32 = 6.0;
+/// Between the line and the popup.
+const POPUP_GAP: f32 = 6.0;
+/// Between the list and the documentation.
 const PANEL_GAP: f32 = 8.0;
+const WINDOW_MARGIN: f32 = 8.0;
 /// From the list's edge to its labels, which line up with the completed word.
-pub const LABEL_INSET: f32 = 1.0 + LIST_PADDING + ROW_PADDING + BADGE_SIZE + BADGE_GAP;
+const LABEL_INSET: f32 = 1.0 + LIST_PADDING + ROW_PADDING + BADGE_SIZE + BADGE_GAP;
+const HOVER_WIDTH: f32 = 520.0;
+const HOVER_PADDING: f32 = 16.0;
+/// From the documentation's edge to its text, which lines up with the symbol.
+const HOVER_INSET: f32 = 1.0 + HOVER_PADDING;
+/// Room below the line that is enough for documentation, which is otherwise put where
+/// there is more room.
+const HOVER_ENOUGH_ROOM: f32 = 320.0;
 
-/// Where a popup goes: `left` is the list's edge, `top`/`bottom` the line's.
+/// Where a popup goes: `anchor_left` is where the anchor is drawn, `top`/`bottom` the
+/// line's.
 pub struct Placement {
-    pub left: Pixels,
+    pub anchor_left: Pixels,
     pub line_top: Pixels,
     pub line_bottom: Pixels,
     pub window_width: Pixels,
     pub window_height: Pixels,
 }
 
+impl Placement {
+    /// The popup's left edge, `inset` before the anchor and inside the window.
+    fn left(&self, inset: f32, width: f32) -> Pixels {
+        (self.anchor_left - px(inset))
+            .min(self.window_width - px(width + WINDOW_MARGIN))
+            .max(px(WINDOW_MARGIN))
+    }
+
+    fn room_below(&self) -> Pixels {
+        self.window_height - self.line_bottom - px(POPUP_GAP + WINDOW_MARGIN)
+    }
+
+    fn room_above(&self) -> Pixels {
+        self.line_top - px(POPUP_GAP + WINDOW_MARGIN)
+    }
+
+    /// Positioned below the line, or above it.
+    fn place(&self, popup: Div, below: bool) -> Div {
+        if below {
+            popup.top(self.line_bottom + px(POPUP_GAP)).items_start()
+        } else {
+            popup
+                .bottom(self.window_height - self.line_top + px(POPUP_GAP))
+                .items_end()
+        }
+    }
+}
+
+/// A list with the selected row's documentation beside it, or documentation alone.
+pub fn render_popup(popup: &Popup, placement: Placement) -> AnyElement {
+    match &popup.documentation {
+        Some(documentation) if popup.rows.is_empty() => {
+            render_hover(documentation, popup.hints, &placement)
+        }
+        _ => render_list_popup(popup, &placement),
+    }
+}
+
+/// Below the symbol, its text in line with the symbol's, or above when there is more room.
+fn render_hover(
+    documentation: &Documentation,
+    hints: &'static [(&'static str, &'static str)],
+    placement: &Placement,
+) -> AnyElement {
+    let (below, above) = (placement.room_below(), placement.room_above());
+    let fits_below = below >= px(HOVER_ENOUGH_ROOM) || below >= above;
+    let room = if fits_below { below } else { above };
+    let has_header = !documentation.container.is_empty() || !documentation.kind.is_empty();
+    let panel = panel()
+        .w(px(HOVER_WIDTH))
+        .max_h(room)
+        .overflow_hidden()
+        .pt(px(14.0))
+        .px(px(HOVER_PADDING))
+        .pb(px(12.0))
+        .gap(px(10.0))
+        .when(has_header, |panel| {
+            panel.child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .justify_between()
+                    .gap(px(12.0))
+                    .text_size(px(font::SMALL_SIZE))
+                    .text_color(rgb(color::FG_DIM))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .child(documentation.container.clone()),
+                    )
+                    .child(div().flex_none().child(documentation.kind.clone())),
+            )
+        })
+        .when_some(documentation.signature.clone(), |panel, signature| {
+            panel.child(
+                div()
+                    .flex_none()
+                    .px(px(12.0))
+                    .py(px(8.0))
+                    .rounded(px(8.0))
+                    .bg(rgb(color::BG_FIELD))
+                    .border_1()
+                    .border_color(rgba(0xffffff0f))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .font_family(font::MONO)
+                    .text_size(px(font::CODE_SIZE))
+                    .line_height(px(font::CODE_LINE_HEIGHT))
+                    .child(signature),
+            )
+        })
+        .when(!documentation.blocks.is_empty(), |panel| {
+            panel.child(render_body(&documentation.blocks, 10.0, 20.0))
+        })
+        .when(!hints.is_empty(), |panel| {
+            panel.child(render_hints(hints).gap(px(18.0)).pt(px(10.0)))
+        });
+    let container = div()
+        .absolute()
+        .left(placement.left(HOVER_INSET, HOVER_WIDTH))
+        .flex()
+        .flex_col()
+        .font_family(font::UI)
+        .text_color(rgb(color::FG_MAIN))
+        .child(panel);
+    placement.place(container, fits_below).into_any_element()
+}
+
 /// The list below the line, or above it when it does not fit; the documentation beside
 /// it, on the right if there is room.
-pub fn render_popup(popup: &Popup, placement: Placement) -> AnyElement {
-    let margin = px(8.0);
+fn render_list_popup(popup: &Popup, placement: &Placement) -> AnyElement {
     let rows = popup.rows.len() as f32;
     let list_height =
         rows * ROW_HEIGHT + (rows - 1.0).max(0.0) * ROW_GAP + 2.0 * (LIST_PADDING + 1.0);
-    let below =
-        placement.line_bottom + px(POPUP_GAP + list_height) + margin <= placement.window_height;
-    let list_left = placement
-        .left
-        .min(placement.window_width - px(LIST_WIDTH) - margin)
-        .max(margin);
+    let below = placement.room_below() >= px(list_height);
+    let list_left = placement.left(LABEL_INSET, LIST_WIDTH);
     let room = if below {
-        placement.window_height - placement.line_bottom - px(POPUP_GAP) - margin
+        placement.room_below()
     } else {
-        placement.line_top - px(POPUP_GAP) - margin
+        placement.room_above()
     };
     let documentation = popup
         .documentation
         .as_ref()
         .map(|documentation| render_documentation(documentation, popup.hints, room));
     let documentation_right = list_left + px(LIST_WIDTH + PANEL_GAP + DOCUMENTATION_WIDTH)
-        <= placement.window_width - margin;
+        <= placement.window_width - px(WINDOW_MARGIN);
     let (left, children) = match documentation {
         Some(documentation) if !documentation_right => (
             list_left - px(DOCUMENTATION_WIDTH + PANEL_GAP),
@@ -78,16 +192,7 @@ pub fn render_popup(popup: &Popup, placement: Placement) -> AnyElement {
         .font_family(font::UI)
         .text_color(rgb(color::FG_MAIN))
         .children(children);
-    if below {
-        container
-            .top(placement.line_bottom + px(POPUP_GAP))
-            .items_start()
-    } else {
-        container
-            .bottom(placement.window_height - placement.line_top + px(POPUP_GAP))
-            .items_end()
-    }
-    .into_any_element()
+    placement.place(container, below).into_any_element()
 }
 
 fn panel() -> Div {
@@ -200,15 +305,11 @@ fn render_documentation(
     hints: &'static [(&'static str, &'static str)],
     room: Pixels,
 ) -> AnyElement {
-    let body = div()
-        .flex()
-        .flex_col()
-        .flex_shrink()
-        .min_h_0()
-        .gap(px(8.0))
-        .max_h(px(DOCUMENTATION_BODY_MAX_HEIGHT))
-        .overflow_hidden()
-        .children(documentation.blocks.iter().map(render_block));
+    let title = [documentation.container.as_str(), &documentation.kind]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ");
     panel()
         .w(px(DOCUMENTATION_WIDTH))
         .max_h(room)
@@ -216,13 +317,13 @@ fn render_documentation(
         .px(px(14.0))
         .py(px(12.0))
         .gap(px(8.0))
-        .when(!documentation.title.is_empty(), |panel| {
+        .when(!title.is_empty(), |panel| {
             panel.child(
                 div()
                     .flex_none()
                     .text_size(px(font::SMALL_SIZE))
                     .text_color(rgb(color::FG_DIM))
-                    .child(documentation.title.clone()),
+                    .child(title),
             )
         })
         .when_some(documentation.signature.clone(), |panel, signature| {
@@ -235,23 +336,74 @@ fn render_documentation(
                     .child(signature),
             )
         })
-        .when(!documentation.blocks.is_empty(), |panel| panel.child(body))
+        .when(!documentation.blocks.is_empty(), |panel| {
+            panel.child(
+                render_body(&documentation.blocks, 8.0, 19.0)
+                    .max_h(px(DOCUMENTATION_BODY_MAX_HEIGHT)),
+            )
+        })
         .when(!hints.is_empty(), |panel| panel.child(render_hints(hints)))
         .into_any_element()
 }
 
-fn render_block(block: &DocBlock) -> AnyElement {
+/// Gives way first when the panel is short of room, so the hints stay in view; it is cut
+/// at the bottom rather than squeezing its blocks. A heading stays close to the block it
+/// introduces.
+fn render_body(blocks: &[DocBlock], gap: f32, line_height: f32) -> Div {
+    let mut sections = Vec::new();
+    let mut blocks = blocks.iter().peekable();
+    while let Some(block) = blocks.next() {
+        let section = match block {
+            DocBlock::Heading(heading) => div()
+                .flex()
+                .flex_none()
+                .flex_col()
+                .gap(px(2.0))
+                .child(render_heading(heading))
+                .children(
+                    blocks
+                        .next_if(|next| !matches!(next, DocBlock::Heading(_)))
+                        .map(|next| render_block(next, line_height)),
+                )
+                .into_any_element(),
+            block => render_block(block, line_height),
+        };
+        sections.push(section);
+    }
+    div()
+        .flex()
+        .flex_col()
+        .flex_shrink()
+        .min_h_0()
+        .gap(px(gap))
+        .overflow_hidden()
+        .children(sections)
+}
+
+fn render_heading(heading: &str) -> impl IntoElement {
+    let (text, code) = code_spans(heading);
+    div()
+        .flex_none()
+        .text_size(px(font::STATUS_SIZE))
+        .font_weight(gpui::FontWeight::SEMIBOLD)
+        .child(StyledText::new(text).with_highlights(code))
+}
+
+fn render_block(block: &DocBlock, line_height: f32) -> AnyElement {
     match block {
+        DocBlock::Heading(heading) => render_heading(heading).into_any_element(),
         DocBlock::Text(text) => {
             let (text, code) = code_spans(text);
             div()
+                .flex_none()
                 .text_size(px(font::UI_SIZE))
-                .line_height(px(19.0))
+                .line_height(px(line_height))
                 .text_color(rgb(color::FG_BODY))
                 .child(StyledText::new(text).with_highlights(code))
                 .into_any_element()
         }
         DocBlock::Code(code) => div()
+            .flex_none()
             .px(px(8.0))
             .py(px(6.0))
             .rounded(px(6.0))
@@ -286,7 +438,7 @@ fn code_spans(text: &str) -> (String, Vec<(std::ops::Range<usize>, HighlightStyl
     (plain, code)
 }
 
-fn render_hints(hints: &'static [(&'static str, &'static str)]) -> impl IntoElement {
+fn render_hints(hints: &'static [(&'static str, &'static str)]) -> Div {
     div()
         .flex()
         .flex_none()

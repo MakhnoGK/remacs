@@ -3838,6 +3838,7 @@ dependencies = [
  "remacs-completion",
  "remacs-core",
  "remacs-diagnostics",
+ "remacs-documentation",
  "remacs-editing",
  "remacs-files",
  "remacs-languages",
@@ -3845,6 +3846,7 @@ dependencies = [
  "remacs-minibuffer",
  "remacs-syntax",
  "remacs-theme",
+ "remacs-xref",
 ]
 
 [[package]]
@@ -3869,6 +3871,15 @@ version = "0.1.0"
 dependencies = [
  "remacs-core",
  "remacs-minibuffer",
+ "remacs-text",
+]
+
+[[package]]
+name = "remacs-documentation"
+version = "0.1.0"
+dependencies = [
+ "remacs-core",
+ "remacs-editing",
  "remacs-text",
 ]
 
@@ -3899,8 +3910,10 @@ dependencies = [
  "remacs-completion",
  "remacs-core",
  "remacs-diagnostics",
+ "remacs-documentation",
  "remacs-lsp",
  "remacs-syntax",
+ "remacs-xref",
  "tree-sitter",
  "tree-sitter-c",
  "tree-sitter-cpp",
@@ -3919,7 +3932,9 @@ dependencies = [
  "remacs-completion",
  "remacs-core",
  "remacs-diagnostics",
+ "remacs-documentation",
  "remacs-text",
+ "remacs-xref",
  "serde_json",
 ]
 
@@ -3956,6 +3971,16 @@ dependencies = [
 [[package]]
 name = "remacs-theme"
 version = "0.1.0"
+
+[[package]]
+name = "remacs-xref"
+version = "0.1.0"
+dependencies = [
+ "remacs-core",
+ "remacs-editing",
+ "remacs-minibuffer",
+ "remacs-text",
+]
 
 [[package]]
 name = "resvg"

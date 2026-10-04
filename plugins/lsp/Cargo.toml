@@ -11,7 +11,9 @@ lsp-types.workspace = true
 remacs-completion.workspace = true
 remacs-core.workspace = true
 remacs-diagnostics.workspace = true
+remacs-documentation.workspace = true
 remacs-text.workspace = true
+remacs-xref.workspace = true
 serde_json.workspace = true
 
 [lints]

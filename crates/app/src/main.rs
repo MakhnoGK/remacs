@@ -17,12 +17,14 @@ use gpui::{
 use remacs_completion::CompletionPlugin;
 use remacs_core::{Editor, Plugin};
 use remacs_diagnostics::DiagnosticsPlugin;
+use remacs_documentation::DocumentationPlugin;
 use remacs_editing::EditingPlugin;
 use remacs_files::FilesPlugin;
 use remacs_languages::{GRAMMARS, LanguagesPlugin, SERVERS};
 use remacs_lsp::LspPlugin;
 use remacs_minibuffer::MinibufferPlugin;
 use remacs_syntax::SyntaxPlugin;
+use remacs_xref::XrefPlugin;
 
 use assets::Assets;
 use editor_view::EditorView;
@@ -34,14 +36,16 @@ const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
     &LanguagesPlugin,
     &SyntaxPlugin::new(GRAMMARS),
     &DiagnosticsPlugin,
-    // Before its backends, so that what it asks after a command is sent in the same pass.
+    // Before their backends, so that what they ask after a command is sent in the same pass.
     &CompletionPlugin,
+    &DocumentationPlugin,
+    &XrefPlugin,
     &LspPlugin::new(SERVERS),
 ];
 
 fn main() -> ExitCode {
     let mut editor = Editor::new(BUILTIN_PLUGINS);
-    
+
     if let Some(path) = std::env::args_os().nth(1).map(PathBuf::from)
         && let Err(error) = editor.visit_file(&path)
     {

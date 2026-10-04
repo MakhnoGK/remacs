@@ -181,9 +181,9 @@ fn inserting_places_point_and_makes_extra_edits() {
     take_requests(&mut editor);
     let start = "use a;\nfn f() { ".len();
     let documentation = Documentation {
-        title: "macro".into(),
+        kind: "macro".into(),
         signature: Some("macro_rules! map".into()),
-        blocks: Vec::new(),
+        ..Documentation::default()
     };
     let map = Item {
         label: "map!".into(),

@@ -10,10 +10,10 @@ use remacs_diagnostics::{self as diagnostics, Diagnostic, Severity};
 use remacs_text::Snapshot;
 
 use crate::LanguageServer;
-use crate::client::{Client, CompletionAnswer, Outgoing, Published};
+use crate::client::{Answer, Client, Outgoing, Published, Question};
 use crate::completion::Origin;
 use crate::position::{Encoding, from_lsp};
-use crate::uri;
+use crate::{definition, uri};
 
 /// Servers hold whole files in memory and reparse them; larger ones stay unsynced.
 const MAX_SYNCED_BYTES: usize = 16 << 20;
@@ -148,6 +148,16 @@ impl Document {
         Some((text, diagnostics))
     }
 
+    fn ask(&self, question: Question, id: u64, offset: usize) {
+        self.client.send(Outgoing::AtPoint {
+            question,
+            uri: self.uri.clone(),
+            id,
+            text: self.sent_text(),
+            offset,
+        });
+    }
+
     fn request(&self, request: Request) {
         let message = match request {
             Request::Complete {
@@ -182,11 +192,11 @@ impl Document {
         self.client.send(message);
     }
 
-    /// Completion answers since the last call; the newest list is kept for resolving.
-    fn take_completions(&mut self) -> Vec<CompletionAnswer> {
-        let mut answers = self.client.take_completions();
+    /// Answers since the last call; the newest completion list is kept for resolving.
+    fn take_answers(&mut self) -> Vec<Answer> {
+        let mut answers = self.client.take_answers();
         for answer in &mut answers {
-            if let CompletionAnswer::Listed {
+            if let Answer::Listed {
                 id, items, origin, ..
             } = answer
             {
@@ -248,9 +258,12 @@ impl Clients {
     }
 }
 
-/// Keeps every buffer's server up to date and hands its diagnostics over; runs after
-/// every command and whenever a server published something.
+/// Hands answers over, keeps every buffer's server up to date and passes its diagnostics
+/// on, then sends what the plugins ask, including what the answers made them ask. Runs
+/// after every command and whenever a server published or answered something.
 pub(crate) fn sync(editor: &mut Editor, servers: &'static [LanguageServer]) {
+    hand_over_answers(editor);
+    // After the answers, so that a file a definition opened is attached at once.
     for index in 0..editor.buffers().len() {
         attach(editor, index, servers);
         let buffer = &mut editor.buffers_mut()[index];
@@ -262,32 +275,57 @@ pub(crate) fn sync(editor: &mut Editor, servers: &'static [LanguageServer]) {
             diagnostics::publish(buffer, text, diagnostics);
         }
     }
-    complete(editor);
+    send_requests(editor);
 }
 
-/// Hands the window buffer's completion answers over, then sends what the completion
-/// plugin asks, including what the answers made it ask.
-fn complete(editor: &mut Editor) {
+fn hand_over_answers(editor: &mut Editor) {
     let answers = editor
         .window_buffer_mut()
         .local_mut::<Document>()
-        .map(Document::take_completions)
+        .map(Document::take_answers)
         .unwrap_or_default();
     for answer in answers {
         match answer {
-            CompletionAnswer::Listed { id, list, .. } => {
-                remacs_completion::deliver(editor, id, list)
-            }
-            CompletionAnswer::Resolved { id, index, item } => {
+            Answer::Listed { id, list, .. } => remacs_completion::deliver(editor, id, list),
+            Answer::Resolved { id, index, item } => {
                 remacs_completion::resolved(editor, id, index, item);
+            }
+            Answer::Hover { id, answer } => remacs_documentation::deliver(editor, id, answer),
+            Answer::Definitions {
+                id,
+                targets,
+                encoding,
+            } => {
+                let locations = definition::locations(editor, targets, encoding);
+                remacs_xref::deliver(editor, id, locations);
             }
         }
     }
-    let requests = remacs_completion::take_requests(editor);
-    if let Some(document) = editor.window_buffer().local::<Document>() {
-        for request in requests {
-            document.request(request);
+}
+
+/// Sends the window buffer's requests to its server; without one, questions are answered
+/// with nothing at once.
+fn send_requests(editor: &mut Editor) {
+    let completions = remacs_completion::take_requests(editor);
+    let hovers = remacs_documentation::take_requests(editor);
+    let definitions = remacs_xref::take_requests(editor);
+    let Some(document) = editor.window_buffer().local::<Document>() else {
+        for request in hovers {
+            remacs_documentation::deliver(editor, request.id, None);
         }
+        for request in definitions {
+            remacs_xref::deliver(editor, request.id, Vec::new());
+        }
+        return;
+    };
+    for request in completions {
+        document.request(request);
+    }
+    for request in hovers {
+        document.ask(Question::Hover, request.id, request.offset);
+    }
+    for request in definitions {
+        document.ask(Question::Definition, request.id, request.offset);
     }
 }
 

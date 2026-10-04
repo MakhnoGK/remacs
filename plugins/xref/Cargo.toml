@@ -1,0 +1,18 @@
+[package]
+name = "remacs-xref"
+description = "Built-in plugin: going to definitions and back, fed by backends such as language servers"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+remacs-core.workspace = true
+remacs-text.workspace = true
+
+[dev-dependencies]
+remacs-editing.workspace = true
+remacs-minibuffer.workspace = true
+
+[lints]
+workspace = true

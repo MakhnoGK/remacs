@@ -173,9 +173,10 @@ fn documentation(item: &CompletionItem, kind: Option<SymbolKind>) -> Option<Docu
         },
     };
     Some(Documentation {
-        title: kind.map_or("", SymbolKind::name).to_owned(),
+        kind: kind.map_or("", SymbolKind::name).to_owned(),
         signature,
         blocks,
+        ..Documentation::default()
     })
 }
 
@@ -259,9 +260,10 @@ mod tests {
         assert_eq!(
             field.documentation,
             Some(Documentation {
-                title: "field".into(),
+                kind: "field".into(),
                 signature: Some("usize".into()),
                 blocks: vec![remacs_core::DocBlock::Text("The lower bound.".into())],
+                ..Documentation::default()
             })
         );
         let method = &list.items[1];

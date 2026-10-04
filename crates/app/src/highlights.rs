@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use gpui::{HighlightStyle, UnderlineStyle, px};
+use gpui::{HighlightStyle, UnderlineStyle, px, rgba};
 use remacs_core::Face;
 use remacs_theme::color;
 
@@ -36,6 +36,10 @@ pub fn face_style(face: Face) -> HighlightStyle {
         Face::Error => underline(color::ERROR),
         Face::Warning => underline(color::WARNING),
         Face::Info => underline(color::INFO),
+        Face::Highlight => HighlightStyle {
+            background_color: Some(rgba(color::ACCENT << 8 | 0x2e).into()),
+            ..Default::default()
+        },
     }
 }
 

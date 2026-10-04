@@ -21,6 +21,7 @@ gpui.workspace = true
 remacs-completion.workspace = true
 remacs-core.workspace = true
 remacs-diagnostics.workspace = true
+remacs-documentation.workspace = true
 remacs-editing.workspace = true
 remacs-files.workspace = true
 remacs-languages.workspace = true
@@ -28,6 +29,7 @@ remacs-lsp.workspace = true
 remacs-minibuffer.workspace = true
 remacs-syntax.workspace = true
 remacs-theme.workspace = true
+remacs-xref.workspace = true
 
 [lints]
 workspace = true
