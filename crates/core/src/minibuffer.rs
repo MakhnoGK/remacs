@@ -5,7 +5,7 @@ use remacs_text::Text;
 
 use crate::buffer::Buffer;
 use crate::command::{CommandError, CommandResult};
-use crate::completion::{Candidate, Completions};
+use crate::completion::{Candidate, Completions, Selection};
 use crate::editor::Editor;
 use crate::mode::FUNDAMENTAL_MODE;
 
@@ -57,8 +57,7 @@ pub struct Minibuffer {
     pub(crate) source: Option<CompletionSource>,
     pub(crate) on_answer: AnswerHandler,
     completions: Completions,
-    selected: usize,
-    first_visible: usize,
+    selection: Selection,
     /// The input `completions` were computed for.
     completed_input: Option<String>,
 }
@@ -81,8 +80,7 @@ impl Minibuffer {
             source,
             on_answer,
             completions: Completions::default(),
-            selected: 0,
-            first_visible: 0,
+            selection: Selection::default(),
             completed_input: None,
         }
     }
@@ -122,33 +120,31 @@ impl Minibuffer {
     }
 
     pub fn selected(&self) -> Option<usize> {
-        (self.selected < self.candidates().len()).then_some(self.selected)
+        let selected = self.selection.selected();
+        (selected < self.candidates().len()).then_some(selected)
     }
 
     pub fn selected_candidate(&self) -> Option<&Candidate> {
-        self.candidates().get(self.selected)
+        self.candidates().get(self.selection.selected())
     }
 
     /// Indices of the candidates on screen; the selection is always among them.
     pub fn visible(&self) -> Range<usize> {
-        self.first_visible..(self.first_visible + VISIBLE_CANDIDATES).min(self.candidates().len())
+        self.selection
+            .visible(self.candidates().len(), VISIBLE_CANDIDATES)
     }
 
     pub fn select(&mut self, index: usize) {
-        self.selected = index.min(self.candidates().len().saturating_sub(1));
-        if self.selected < self.first_visible {
-            self.first_visible = self.selected;
-        } else if self.selected >= self.first_visible + VISIBLE_CANDIDATES {
-            self.first_visible = self.selected + 1 - VISIBLE_CANDIDATES;
-        }
+        let len = self.candidates().len();
+        self.selection.select(index, len, VISIBLE_CANDIDATES);
     }
 
     pub fn select_next(&mut self) {
-        self.select(self.selected + 1);
+        self.select(self.selection.selected() + 1);
     }
 
     pub fn select_previous(&mut self) {
-        self.select(self.selected.saturating_sub(1));
+        self.select(self.selection.selected().saturating_sub(1));
     }
 
     /// Replaces the input with the selected candidate, like TAB in vertico.
@@ -167,19 +163,21 @@ impl Minibuffer {
     pub(crate) fn set_completions(&mut self, completions: Completions, input: String) {
         let input_changed = self.completed_input.as_deref() != Some(&input);
         self.completions = completions;
-        if input_changed {
+        let index = if input_changed {
+            self.selection = Selection::default();
             let default = self.prompt.default.as_ref().filter(|_| input.is_empty());
-            self.selected = default
+            default
                 .and_then(|default| {
                     self.candidates()
                         .iter()
                         .position(|candidate| &candidate.value == default)
                 })
-                .unwrap_or(0);
-            self.first_visible = 0;
-        }
+                .unwrap_or(0)
+        } else {
+            self.selection.selected()
+        };
         self.completed_input = Some(input);
-        self.select(self.selected);
+        self.select(index);
     }
 
     /// The selected candidate, else the input, else the default.

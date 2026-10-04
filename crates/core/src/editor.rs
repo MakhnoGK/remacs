@@ -18,6 +18,7 @@ use crate::keymap::{Binding, Keymap};
 use crate::kill_ring::KillRing;
 use crate::minibuffer::{Minibuffer, Prompt};
 use crate::plugin::{Plugin, Registry};
+use crate::popup::Popup;
 use crate::status::StatusSegment;
 use crate::viewport::Viewport;
 
@@ -46,6 +47,7 @@ pub struct Editor {
     last_command: Option<&'static str>,
     this_command_killed: bool,
     last_command_killed: bool,
+    command_count: u64,
     amalgamated_inserts: usize,
     /// Answers given to the minibuffer, newest first, by completion category.
     history: HashMap<&'static str, Vec<String>>,
@@ -78,6 +80,7 @@ impl Editor {
             last_command: None,
             this_command_killed: false,
             last_command_killed: false,
+            command_count: 0,
             amalgamated_inserts: 0,
             history: HashMap::new(),
             message: None,
@@ -268,6 +271,7 @@ impl Editor {
         }
         self.last_command = self.this_command;
         self.last_command_killed = self.this_command_killed;
+        self.command_count += 1;
         self.after_command();
     }
 
@@ -384,6 +388,12 @@ impl Editor {
         self.last_command
     }
 
+    /// Commands run so far; post-command hooks compare it to tell a command from a
+    /// background refresh.
+    pub fn command_count(&self) -> u64 {
+        self.command_count
+    }
+
     /// The echo area: a command's message, or a prefix typed so far (`C-x-`).
     pub fn echo(&self) -> Option<String> {
         if self.pending_keys.is_empty() {
@@ -412,6 +422,11 @@ impl Editor {
             .or_insert_with(|| Box::new(T::default()))
             .downcast_mut()
             .expect("plugin states are keyed by their type")
+    }
+
+    /// A plugin's state, if it has created any.
+    pub fn find_plugin_state<T: 'static>(&self) -> Option<&T> {
+        self.plugin_states.get(&TypeId::of::<T>())?.downcast_ref()
     }
 
     pub fn set_notifier(&mut self, notifier: Notifier) {
@@ -445,6 +460,14 @@ impl Editor {
             .collect()
     }
 
+    pub fn popups(&self) -> Vec<Popup> {
+        self.registry
+            .popup_providers
+            .iter()
+            .filter_map(|describe| describe(self))
+            .collect()
+    }
+
     fn run_post_command_hooks(&mut self) {
         for hook in self.registry.post_command_hooks.clone() {
             hook(self);
@@ -456,8 +479,15 @@ impl Editor {
             .minibuffer
             .as_ref()
             .map(|_| &self.registry.minibuffer_keymap);
+        let minor_keymaps = self
+            .registry
+            .minor_keymaps
+            .iter()
+            .filter(|minor| (minor.active)(self))
+            .map(|minor| &minor.keymap);
         minibuffer_keymap
             .into_iter()
+            .chain(minor_keymaps)
             .chain([&self.registry.keymap])
             .collect()
     }

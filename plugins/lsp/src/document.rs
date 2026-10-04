@@ -1,14 +1,17 @@
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::mem;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use lsp_types::{DiagnosticSeverity, NumberOrString, Uri};
+use lsp_types::{CompletionItem, DiagnosticSeverity, NumberOrString, Uri};
+use remacs_completion::Request;
 use remacs_core::{Editor, Notifier};
 use remacs_diagnostics::{self as diagnostics, Diagnostic, Severity};
 use remacs_text::Snapshot;
 
 use crate::LanguageServer;
-use crate::client::{Client, Outgoing, Published};
+use crate::client::{Client, CompletionAnswer, Outgoing, Published};
+use crate::completion::Origin;
 use crate::position::{Encoding, from_lsp};
 use crate::uri;
 
@@ -31,6 +34,14 @@ struct Document {
     pending: VecDeque<(i32, Snapshot)>,
     /// The client's pull generation when the diagnostics were last pulled.
     pulled: Option<u64>,
+    /// The newest completion list, as the server sent it, for resolving its items.
+    listed: Option<Listed>,
+}
+
+struct Listed {
+    id: u64,
+    items: Vec<CompletionItem>,
+    origin: Origin,
 }
 
 impl Document {
@@ -57,18 +68,23 @@ impl Document {
             modified,
             pending: VecDeque::from([(0, text)]),
             pulled: None,
+            listed: None,
         }
+    }
+
+    /// The text the server has now.
+    fn sent_text(&self) -> Snapshot {
+        self.pending
+            .back()
+            .expect("the sent text is pending")
+            .1
+            .clone()
     }
 
     /// Sends what changed since the last call; a save shows as the buffer turning
     /// unmodified. Returns the diagnostics published since, with the text they refer to.
     fn sync(&mut self, text: Snapshot, modified: bool) -> Option<(Snapshot, Vec<Diagnostic>)> {
-        let sent = self
-            .pending
-            .back()
-            .expect("the sent text is pending")
-            .1
-            .clone();
+        let sent = self.sent_text();
         let edit = text.edit_from(&sent);
         if let Some(edit) = edit {
             self.version += 1;
@@ -131,6 +147,58 @@ impl Document {
             .collect();
         Some((text, diagnostics))
     }
+
+    fn request(&self, request: Request) {
+        let message = match request {
+            Request::Complete {
+                id,
+                start,
+                offset,
+                trigger,
+            } => Outgoing::Complete {
+                uri: self.uri.clone(),
+                id,
+                text: self.sent_text(),
+                start,
+                offset,
+                trigger,
+            },
+            Request::Resolve { id, index } => {
+                let listed = self.listed.as_ref().filter(|listed| listed.id == id);
+                let Some((listed, item)) =
+                    listed.and_then(|listed| Some((listed, listed.items.get(index)?)))
+                else {
+                    return;
+                };
+                Outgoing::Resolve {
+                    id,
+                    index,
+                    item: Box::new(item.clone()),
+                    text: listed.origin.text.clone(),
+                    start: listed.origin.start,
+                }
+            }
+        };
+        self.client.send(message);
+    }
+
+    /// Completion answers since the last call; the newest list is kept for resolving.
+    fn take_completions(&mut self) -> Vec<CompletionAnswer> {
+        let mut answers = self.client.take_completions();
+        for answer in &mut answers {
+            if let CompletionAnswer::Listed {
+                id, items, origin, ..
+            } = answer
+            {
+                self.listed = Some(Listed {
+                    id: *id,
+                    items: mem::take(items),
+                    origin: origin.clone(),
+                });
+            }
+        }
+        answers
+    }
 }
 
 impl Drop for Document {
@@ -192,6 +260,33 @@ pub(crate) fn sync(editor: &mut Editor, servers: &'static [LanguageServer]) {
             .and_then(|document| document.sync(text, modified));
         if let Some((text, diagnostics)) = reported {
             diagnostics::publish(buffer, text, diagnostics);
+        }
+    }
+    complete(editor);
+}
+
+/// Hands the window buffer's completion answers over, then sends what the completion
+/// plugin asks, including what the answers made it ask.
+fn complete(editor: &mut Editor) {
+    let answers = editor
+        .window_buffer_mut()
+        .local_mut::<Document>()
+        .map(Document::take_completions)
+        .unwrap_or_default();
+    for answer in answers {
+        match answer {
+            CompletionAnswer::Listed { id, list, .. } => {
+                remacs_completion::deliver(editor, id, list)
+            }
+            CompletionAnswer::Resolved { id, index, item } => {
+                remacs_completion::resolved(editor, id, index, item);
+            }
+        }
+    }
+    let requests = remacs_completion::take_requests(editor);
+    if let Some(document) = editor.window_buffer().local::<Document>() {
+        for request in requests {
+            document.request(request);
         }
     }
 }

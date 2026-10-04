@@ -4,6 +4,7 @@ mod editor_view;
 mod highlights;
 mod key_input;
 mod minibuffer_view;
+mod popup_view;
 mod widgets;
 
 use std::path::PathBuf;
@@ -13,6 +14,7 @@ use gpui::{
     App, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions, point, prelude::*, px,
     size,
 };
+use remacs_completion::CompletionPlugin;
 use remacs_core::{Editor, Plugin};
 use remacs_diagnostics::DiagnosticsPlugin;
 use remacs_editing::EditingPlugin;
@@ -32,11 +34,14 @@ const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
     &LanguagesPlugin,
     &SyntaxPlugin::new(GRAMMARS),
     &DiagnosticsPlugin,
+    // Before its backends, so that what it asks after a command is sent in the same pass.
+    &CompletionPlugin,
     &LspPlugin::new(SERVERS),
 ];
 
 fn main() -> ExitCode {
     let mut editor = Editor::new(BUILTIN_PLUGINS);
+    
     if let Some(path) = std::env::args_os().nth(1).map(PathBuf::from)
         && let Err(error) = editor.visit_file(&path)
     {

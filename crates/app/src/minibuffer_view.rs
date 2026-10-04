@@ -273,7 +273,7 @@ fn candidate_row(index: usize, selected: bool, cx: &mut Context<EditorView>) -> 
         )
 }
 
-fn secondary_color(selected: bool) -> u32 {
+pub(crate) fn secondary_color(selected: bool) -> u32 {
     if selected {
         color::FG_ALT
     } else {
@@ -293,7 +293,7 @@ fn match_style(selected: bool) -> HighlightStyle {
 }
 
 /// `matches` within `range` of a label, relative to the range's start.
-fn matches_in(
+pub(crate) fn matches_in(
     matches: &[Range<usize>],
     range: Range<usize>,
     selected: bool,

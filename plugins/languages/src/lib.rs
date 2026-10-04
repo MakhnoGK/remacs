@@ -101,14 +101,19 @@ pub const SERVERS: &[LanguageServer] = &[
         args: &[],
         languages: &[(RUST, "rust")],
         root_markers: &["Cargo.toml"],
+        // Calls complete to `f()` with point inside, not to argument names to type over.
+        initialization_options: Some(
+            r#"{ "completion": { "callable": { "snippets": "add_parentheses" } } }"#,
+        ),
         pull_diagnostics: false,
     },
     LanguageServer {
         name: "clangd",
         command: "clangd",
-        args: &[],
+        args: &["--function-arg-placeholders=0"],
         languages: &[(C, "c"), (CPP, "cpp")],
         root_markers: &["compile_commands.json", "compile_flags.txt", ".clangd"],
+        initialization_options: None,
         pull_diagnostics: false,
     },
     // TypeScript 7's own server, native and much leaner than typescript-language-server.
@@ -123,6 +128,7 @@ pub const SERVERS: &[LanguageServer] = &[
             (JSX, "javascriptreact"),
         ],
         root_markers: &["package.json", "tsconfig.json", "jsconfig.json"],
+        initialization_options: None,
         pull_diagnostics: true,
     },
     LanguageServer {
@@ -131,6 +137,7 @@ pub const SERVERS: &[LanguageServer] = &[
         args: &["--stdio"],
         languages: &[(HTML, "html")],
         root_markers: &["package.json"],
+        initialization_options: None,
         pull_diagnostics: false,
     },
     LanguageServer {
@@ -139,6 +146,7 @@ pub const SERVERS: &[LanguageServer] = &[
         args: &["--stdio"],
         languages: &[(CSS, "css")],
         root_markers: &["package.json"],
+        initialization_options: None,
         pull_diagnostics: false,
     },
 ];

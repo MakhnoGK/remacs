@@ -18,6 +18,7 @@ runtime-shaders = ["gpui/runtime_shaders"]
 [dependencies]
 futures.workspace = true
 gpui.workspace = true
+remacs-completion.workspace = true
 remacs-core.workspace = true
 remacs-diagnostics.workspace = true
 remacs-editing.workspace = true

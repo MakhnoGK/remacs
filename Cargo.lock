@@ -3835,6 +3835,7 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "gpui",
+ "remacs-completion",
  "remacs-core",
  "remacs-diagnostics",
  "remacs-editing",
@@ -3844,6 +3845,15 @@ dependencies = [
  "remacs-minibuffer",
  "remacs-syntax",
  "remacs-theme",
+]
+
+[[package]]
+name = "remacs-completion"
+version = "0.1.0"
+dependencies = [
+ "remacs-core",
+ "remacs-editing",
+ "remacs-text",
 ]
 
 [[package]]
@@ -3886,6 +3896,7 @@ dependencies = [
 name = "remacs-languages"
 version = "0.1.0"
 dependencies = [
+ "remacs-completion",
  "remacs-core",
  "remacs-diagnostics",
  "remacs-lsp",
@@ -3905,6 +3916,7 @@ name = "remacs-lsp"
 version = "0.1.0"
 dependencies = [
  "lsp-types",
+ "remacs-completion",
  "remacs-core",
  "remacs-diagnostics",
  "remacs-text",

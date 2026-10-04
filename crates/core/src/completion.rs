@@ -10,7 +10,43 @@ pub enum Icon {
     Info,
 }
 
-/// One row of a minibuffer completion list.
+/// What a completion candidate or a documented symbol is; the UI gives each its own badge.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SymbolKind {
+    Function,
+    Method,
+    Field,
+    Variable,
+    Constant,
+    EnumMember,
+    Type,
+    Interface,
+    Module,
+    Keyword,
+    Snippet,
+    Text,
+}
+
+impl SymbolKind {
+    pub fn name(self) -> &'static str {
+        match self {
+            SymbolKind::Function => "function",
+            SymbolKind::Method => "method",
+            SymbolKind::Field => "field",
+            SymbolKind::Variable => "variable",
+            SymbolKind::Constant => "constant",
+            SymbolKind::EnumMember => "variant",
+            SymbolKind::Type => "type",
+            SymbolKind::Interface => "interface",
+            SymbolKind::Module => "module",
+            SymbolKind::Keyword => "keyword",
+            SymbolKind::Snippet => "snippet",
+            SymbolKind::Text => "text",
+        }
+    }
+}
+
+/// One row of a completion list.
 #[derive(Clone, Debug, Default)]
 pub struct Candidate {
     /// What the minibuffer returns when the candidate is chosen.
@@ -25,6 +61,7 @@ pub struct Candidate {
     pub detail: Option<Cow<'static, str>>,
     pub group: Option<Cow<'static, str>>,
     pub icon: Option<Icon>,
+    pub kind: Option<SymbolKind>,
     pub modified: bool,
     pub dim: bool,
 }
@@ -52,6 +89,33 @@ impl From<Vec<Candidate>> for Completions {
         Self {
             total: candidates.len(),
             candidates,
+        }
+    }
+}
+
+/// The selected row of a list and the rows on screen, which always include it.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Selection {
+    selected: usize,
+    first_visible: usize,
+}
+
+impl Selection {
+    pub fn selected(&self) -> usize {
+        self.selected
+    }
+
+    /// Rows on screen of a list of `len`, at most `rows` of them.
+    pub fn visible(&self, len: usize, rows: usize) -> Range<usize> {
+        self.first_visible..(self.first_visible + rows).min(len)
+    }
+
+    pub fn select(&mut self, index: usize, len: usize, rows: usize) {
+        self.selected = index.min(len.saturating_sub(1));
+        if self.selected < self.first_visible {
+            self.first_visible = self.selected;
+        } else if self.selected >= self.first_visible + rows {
+            self.first_visible = self.selected + 1 - rows;
         }
     }
 }
@@ -115,6 +179,33 @@ pub fn filter_candidates(query: &str, candidates: Vec<Candidate>, ranked: bool) 
         .into()
 }
 
+/// Byte ranges of `text` matching the characters of `query` in order, like the Emacs
+/// `flex` completion style; a contiguous match is preferred. Smart case, as in [`filter`].
+pub fn flex_match(query: &str, text: &str) -> Option<Vec<Range<usize>>> {
+    if query.is_empty() {
+        return Some(Vec::new());
+    }
+    if let Some(start) = find(text, query) {
+        let contiguous = start..start + query.len();
+        return Some(vec![contiguous]);
+    }
+    let case_sensitive = query.chars().any(char::is_uppercase);
+    let same = |a: char, b: char| {
+        if case_sensitive {
+            a == b
+        } else {
+            a.eq_ignore_ascii_case(&b)
+        }
+    };
+    let mut ranges = Vec::with_capacity(query.len());
+    let mut rest = text.char_indices();
+    for wanted in query.chars() {
+        let (start, found) = rest.find(|&(_, character)| same(character, wanted))?;
+        ranges.push(start..start + found.len_utf8());
+    }
+    Some(merge(ranges))
+}
+
 fn find(text: &str, term: &str) -> Option<usize> {
     if term.chars().any(char::is_uppercase) {
         return text.find(term);
@@ -166,5 +257,15 @@ mod tests {
         assert_eq!(matches.len(), 2);
         assert_eq!(matches[0].ranges, [0..4, 10..13]);
         assert!(filter("Save", names, |name| name).len() == 1);
+    }
+
+    #[test]
+    fn flex_matches_prefer_contiguous_runs() {
+        let contiguous = 2..4;
+        assert_eq!(flex_match("st", "last()"), Some(vec![contiguous]));
+        assert_eq!(flex_match("st", "size_hint()"), Some(vec![0..1, 8..9]));
+        assert_eq!(flex_match("sT", "is_sorted"), None);
+        assert_eq!(flex_match("жx", "ажbx"), Some(vec![2..4, 5..6]));
+        assert_eq!(flex_match("", "any"), Some(vec![]));
     }
 }

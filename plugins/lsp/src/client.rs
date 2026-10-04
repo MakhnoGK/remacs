@@ -14,20 +14,22 @@ use lsp_types::notification::{
     Initialized, Notification, PublishDiagnostics,
 };
 use lsp_types::request::{
-    DocumentDiagnosticRequest, Initialize, Request, WorkspaceConfiguration,
-    WorkspaceDiagnosticRefresh,
+    Completion, DocumentDiagnosticRequest, Initialize, Request, ResolveCompletionItem,
+    WorkspaceConfiguration, WorkspaceDiagnosticRefresh,
 };
 use lsp_types::{
-    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, InitializedParams, PublishDiagnosticsParams,
-    TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem, Uri,
-    VersionedTextDocumentIdentifier,
+    CompletionItem, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, InitializedParams,
+    PublishDiagnosticsParams, TextDocumentContentChangeEvent, TextDocumentIdentifier,
+    TextDocumentItem, Uri, VersionedTextDocumentIdentifier,
 };
+use remacs_completion::{Item, List, Trigger};
 use remacs_core::Notifier;
 use remacs_text::{Edit, Snapshot};
 use serde_json::{Value, json};
 
 use crate::LanguageServer;
+use crate::completion::{self, CompletionSupport, Origin};
 use crate::position::{Encoding, to_lsp};
 use crate::transport::{read_message, write_message};
 use crate::uri;
@@ -62,6 +64,24 @@ pub(crate) enum Outgoing {
         path: PathBuf,
         version: i32,
     },
+    /// Asks for completions at `offset` of `text`, the text the server has; `id` is the
+    /// completion plugin's.
+    Complete {
+        uri: Uri,
+        id: u64,
+        text: Snapshot,
+        start: usize,
+        offset: usize,
+        trigger: Trigger,
+    },
+    /// Asks for the rest of item `index` of list `id`, such as its documentation.
+    Resolve {
+        id: u64,
+        index: usize,
+        item: Box<CompletionItem>,
+        text: Snapshot,
+        start: usize,
+    },
     /// Answers a request the server made.
     Reply {
         id: Value,
@@ -76,12 +96,45 @@ pub(crate) struct Published {
     pub encoding: Encoding,
 }
 
+/// What a server answered about completion.
+pub(crate) enum CompletionAnswer {
+    Listed {
+        id: u64,
+        list: List,
+        /// As the server sent them, to resolve them later.
+        items: Vec<CompletionItem>,
+        origin: Origin,
+    },
+    Resolved {
+        id: u64,
+        index: usize,
+        item: Item,
+    },
+}
+
+/// A request in flight and what its answer is for.
+enum Pending {
+    Pull {
+        path: PathBuf,
+        version: i32,
+    },
+    Complete {
+        id: u64,
+        origin: Origin,
+    },
+    Resolve {
+        id: u64,
+        index: usize,
+        origin: Origin,
+    },
+}
+
 /// What the reader thread collects for the editor.
 #[derive(Default)]
 struct Inbox {
     published: HashMap<PathBuf, Published>,
-    /// Pull requests in flight, by id: the file and version each asked about.
-    pulls: HashMap<u64, (PathBuf, i32)>,
+    requests: HashMap<u64, Pending>,
+    completions: Vec<CompletionAnswer>,
 }
 
 type SharedInbox = Arc<Mutex<Inbox>>;
@@ -90,11 +143,12 @@ fn lock(inbox: &SharedInbox) -> MutexGuard<'_, Inbox> {
     inbox.lock().expect("no thread panics holding the inbox")
 }
 
-/// How the server wants positions and changes, agreed on in `initialize`.
-#[derive(Clone, Copy)]
+/// How the server wants positions and changes and what it offers, agreed on in
+/// `initialize`.
 struct Negotiated {
     encoding: Encoding,
     incremental: bool,
+    completion: Option<CompletionSupport>,
 }
 
 /// A language server process for one project root. A writer thread sends what the editor
@@ -128,7 +182,7 @@ impl Client {
             inbox: Arc::clone(&inbox),
             next_id: INITIALIZE_ID + 1,
         };
-        let initialize = initialize_params(root);
+        let initialize = initialize_params(server, root);
         thread::Builder::new()
             .name(format!("{} writer", server.name))
             .spawn(move || writer.write_all(initialize, negotiated, queued))?;
@@ -165,6 +219,10 @@ impl Client {
         lock(&self.inbox).published.remove(path)
     }
 
+    pub fn take_completions(&self) -> Vec<CompletionAnswer> {
+        std::mem::take(&mut lock(&self.inbox).completions)
+    }
+
     pub fn pulls_diagnostics(&self) -> bool {
         self.pulls_diagnostics
     }
@@ -180,19 +238,33 @@ impl Client {
     }
 }
 
-fn initialize_params(root: &Path) -> Value {
+fn initialize_params(server: &LanguageServer, root: &Path) -> Value {
     let root_uri = uri::from_path(root);
     let name = root.file_name().map(|name| name.to_string_lossy());
+    let options = server
+        .initialization_options
+        .map(|options| serde_json::from_str::<Value>(options).expect("options are JSON"));
     json!({
         "processId": std::process::id(),
         "clientInfo": { "name": "remacs" },
         "rootUri": root_uri,
         "workspaceFolders": [{ "uri": root_uri, "name": name }],
+        "initializationOptions": options,
         "capabilities": {
             "general": { "positionEncodings": ["utf-8", "utf-16"] },
             "textDocument": {
                 "synchronization": { "didSave": true },
                 "publishDiagnostics": { "versionSupport": true },
+                // The CSS and HTML servers complete only for clients with snippets.
+                "completion": {
+                    "completionItem": {
+                        "snippetSupport": true,
+                        "documentationFormat": ["markdown", "plaintext"],
+                        "insertReplaceSupport": true,
+                        "labelDetailsSupport": true,
+                    },
+                    "contextSupport": true,
+                },
             },
         },
     })
@@ -227,40 +299,95 @@ impl Writer {
             let batch: Vec<_> = iter::once(first).chain(queued.try_iter()).collect();
             for (index, message) in batch.iter().enumerate() {
                 if !is_superseded(message, &batch[index + 1..]) {
-                    self.write(message, negotiated)?;
+                    self.write(message, &negotiated)?;
                 }
             }
         }
         Ok(())
     }
 
-    fn write(&mut self, message: &Outgoing, negotiated: Negotiated) -> io::Result<()> {
+    fn write(&mut self, message: &Outgoing, negotiated: &Negotiated) -> io::Result<()> {
+        let origin = |text: &Snapshot, start: usize| Origin {
+            text: text.clone(),
+            start,
+            encoding: negotiated.encoding,
+        };
+        let completion = negotiated.completion.as_ref();
         let json = match message {
             Outgoing::Pull { uri, path, version } => {
-                let id = self.next_id;
-                self.next_id += 1;
-                lock(&self.inbox).pulls.insert(id, (path.clone(), *version));
                 let params = json!({ "textDocument": TextDocumentIdentifier::new(uri.clone()) });
-                request(id, DocumentDiagnosticRequest::METHOD, params)
+                let pending = Pending::Pull {
+                    path: path.clone(),
+                    version: *version,
+                };
+                self.ask(DocumentDiagnosticRequest::METHOD, params, pending)
+            }
+            Outgoing::Complete {
+                uri,
+                id,
+                text,
+                start,
+                offset,
+                trigger,
+            } => {
+                let Some(context) = completion.and_then(|support| support.context(*trigger)) else {
+                    return Ok(());
+                };
+                let params = json!({
+                    "textDocument": TextDocumentIdentifier::new(uri.clone()),
+                    "position": to_lsp(text, *offset, negotiated.encoding),
+                    "context": context,
+                });
+                let pending = Pending::Complete {
+                    id: *id,
+                    origin: origin(text, *start),
+                };
+                self.ask(Completion::METHOD, params, pending)
+            }
+            Outgoing::Resolve {
+                id,
+                index,
+                item,
+                text,
+                start,
+            } => {
+                if !completion.is_some_and(CompletionSupport::resolves) {
+                    return Ok(());
+                }
+                let pending = Pending::Resolve {
+                    id: *id,
+                    index: *index,
+                    origin: origin(text, *start),
+                };
+                let params = serde_json::to_value(item)?;
+                self.ask(ResolveCompletionItem::METHOD, params, pending)
             }
             message => message.to_json(negotiated),
         };
         write_message(&mut self.stdin, &json)
     }
+
+    /// Numbers a request and leaves the reader a note of what it is for.
+    fn ask(&mut self, method: &str, params: Value, pending: Pending) -> Value {
+        let id = self.next_id;
+        self.next_id += 1;
+        lock(&self.inbox).requests.insert(id, pending);
+        request(id, method, params)
+    }
 }
 
-/// A pull that a later one in the same batch repeats is not worth the server's time.
+/// A pull or completion that a later one in the same batch repeats is not worth the
+/// server's time.
 fn is_superseded(message: &Outgoing, later: &[Outgoing]) -> bool {
-    let Outgoing::Pull { uri, .. } = message else {
-        return false;
-    };
-    later
-        .iter()
-        .any(|other| matches!(other, Outgoing::Pull { uri: other, .. } if other == uri))
+    later.iter().any(|other| match (message, other) {
+        (Outgoing::Pull { uri, .. }, Outgoing::Pull { uri: other, .. })
+        | (Outgoing::Complete { uri, .. }, Outgoing::Complete { uri: other, .. }) => uri == other,
+        _ => false,
+    })
 }
 
 impl Outgoing {
-    fn to_json(&self, negotiated: Negotiated) -> Value {
+    fn to_json(&self, negotiated: &Negotiated) -> Value {
         match self {
             Outgoing::Open {
                 uri,
@@ -296,7 +423,9 @@ impl Outgoing {
                     text_document: TextDocumentIdentifier::new(uri.clone()),
                 })
             }
-            Outgoing::Pull { .. } => unreachable!("the writer numbers pull requests"),
+            Outgoing::Pull { .. } | Outgoing::Complete { .. } | Outgoing::Resolve { .. } => {
+                unreachable!("the writer numbers requests")
+            }
             Outgoing::Reply { id, result } => {
                 json!({ "jsonrpc": "2.0", "id": id, "result": result })
             }
@@ -308,7 +437,7 @@ fn content_change(
     old: &Snapshot,
     new: &Snapshot,
     edit: Edit,
-    negotiated: Negotiated,
+    negotiated: &Negotiated,
 ) -> TextDocumentContentChangeEvent {
     if !negotiated.incremental {
         return TextDocumentContentChangeEvent {
@@ -372,7 +501,7 @@ impl Reader {
             (Some(PublishDiagnostics::METHOD), None) => self.publish(params),
             (None, Some(id)) => match id.as_u64() {
                 Some(INITIALIZE_ID) => self.initialized(&message),
-                Some(id) => self.pulled(id, message["result"].take()),
+                Some(id) => self.answered(id, message),
                 None => {}
             },
             _ => {}
@@ -416,7 +545,43 @@ impl Reader {
         let _ = agreed.send(Negotiated {
             encoding: self.encoding,
             incremental: !full_sync,
+            completion: CompletionSupport::from_capabilities(capabilities),
         });
+    }
+
+    /// Failed requests, e.g. cancelled by a newer edit, are dropped.
+    fn answered(&mut self, id: u64, mut response: Value) {
+        let Some(pending) = lock(&self.inbox).requests.remove(&id) else {
+            return;
+        };
+        if response.get("error").is_some() {
+            return;
+        }
+        let result = response["result"].take();
+        match pending {
+            Pending::Pull { path, version } => self.pulled(path, version, result),
+            Pending::Complete { id, origin } => {
+                let response = serde_json::from_value(result).unwrap_or_default();
+                let (list, items) = completion::list(response, &origin);
+                self.complete(CompletionAnswer::Listed {
+                    id,
+                    list,
+                    items,
+                    origin,
+                });
+            }
+            Pending::Resolve { id, index, origin } => {
+                if let Ok(item) = serde_json::from_value(result) {
+                    let item = completion::convert(&item, &origin);
+                    self.complete(CompletionAnswer::Resolved { id, index, item });
+                }
+            }
+        }
+    }
+
+    fn complete(&mut self, answer: CompletionAnswer) {
+        lock(&self.inbox).completions.push(answer);
+        (self.notifier)();
     }
 
     fn publish(&mut self, params: Value) {
@@ -428,11 +593,7 @@ impl Reader {
         }
     }
 
-    /// An answer to a pull; failed ones, e.g. cancelled by a newer edit, carry no result.
-    fn pulled(&mut self, id: u64, mut result: Value) {
-        let Some((path, version)) = lock(&self.inbox).pulls.remove(&id) else {
-            return;
-        };
+    fn pulled(&mut self, path: PathBuf, version: i32, mut result: Value) {
         if result["kind"] != "full" {
             return;
         }

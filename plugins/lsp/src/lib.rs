@@ -1,9 +1,13 @@
 //! Built-in plugin: a language server client, like Emacs eglot. It starts a server per
-//! project, keeps it in sync with the buffers and passes its diagnostics on.
+//! project, keeps it in sync with the buffers, passes its diagnostics on and answers the
+//! completion plugin.
 
 mod client;
+mod completion;
 mod document;
+mod markdown;
 mod position;
+mod snippet;
 mod transport;
 mod uri;
 
@@ -20,6 +24,8 @@ pub struct LanguageServer {
     pub languages: &'static [(&'static str, &'static str)],
     /// Files that mark a project root, like `Cargo.toml`.
     pub root_markers: &'static [&'static str],
+    /// JSON for `initializationOptions`, like eglot's per-server settings.
+    pub initialization_options: Option<&'static str>,
     /// The server reports diagnostics only when asked (`textDocument/diagnostic`). Servers
     /// that also publish them unasked are not asked, which would only duplicate them.
     pub pull_diagnostics: bool,

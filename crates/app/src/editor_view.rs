@@ -15,6 +15,7 @@ use crate::display_line::DisplayLine;
 use crate::highlights::{Highlights, combine, face_style, region_style};
 use crate::key_input::to_key;
 use crate::minibuffer_view::{is_problem_list, render_minibuffer, render_scrim};
+use crate::popup_view::{LABEL_INSET, Placement, render_popup};
 use crate::widgets::{cursor_style, hsla, icon, modified_dot};
 
 /// Minified files can hold megabytes on one line; lay out only what can be on screen.
@@ -278,6 +279,44 @@ impl EditorView {
             .into_any_element()
     }
 
+    /// Popups next to the text they belong to, e.g. completions under the word.
+    fn render_popups(
+        &self,
+        metrics: Metrics,
+        gutter_width: Pixels,
+        window: &Window,
+    ) -> Vec<AnyElement> {
+        let window_size = window.viewport_size();
+        let line_height = px(font::CODE_LINE_HEIGHT);
+        self.editor
+            .popups()
+            .iter()
+            .filter_map(|popup| {
+                let line = self.editor.window_buffer().text().line_of(popup.anchor);
+                let row = line.checked_sub(self.editor.viewport.first_line)?;
+                let line_top = px(TEXT_TOP) + line_height * row as f32;
+                if line_top >= window_size.height {
+                    return None;
+                }
+                let visible = self.visible_range(line);
+                let offset = popup.anchor.clamp(visible.start, visible.end) - visible.start;
+                let display_line = self.display_line(line);
+                let byte = display_line.display_range(offset..offset).start;
+                let column = display_line.text[..byte].chars().count();
+                let left = px(ROW_MARGIN) + gutter_width + metrics.char_width * column as f32
+                    - px(LABEL_INSET);
+                let placement = Placement {
+                    left,
+                    line_top,
+                    line_bottom: line_top + line_height,
+                    window_width: window_size.width,
+                    window_height: window_size.height,
+                };
+                Some(render_popup(popup, placement))
+            })
+            .collect()
+    }
+
     fn render_header(&self) -> impl IntoElement {
         let buffer = self.editor.window_buffer();
         div()
@@ -422,6 +461,7 @@ impl Render for EditorView {
         let line_count = self.editor.window_buffer().text().line_count();
         let last_line = (first_line + drawn_rows).min(line_count);
         let lines = (first_line..last_line).map(|line| self.render_line(line, gutter_width));
+        let popups = self.render_popups(metrics, gutter_width, window);
         let minibuffer = self
             .editor
             .minibuffer()
@@ -469,6 +509,7 @@ impl Render for EditorView {
             .children(status_below_scrim)
             .when(minibuffer.is_some(), |root| root.child(render_scrim()))
             .child(self.render_header())
+            .children(popups)
             .children(status_above_scrim)
             .children(minibuffer)
     }
