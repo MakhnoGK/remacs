@@ -23,6 +23,7 @@ remacs-editing.workspace = true
 remacs-files.workspace = true
 remacs-languages.workspace = true
 remacs-minibuffer.workspace = true
+remacs-syntax.workspace = true
 remacs-theme.workspace = true
 
 [lints]

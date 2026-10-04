@@ -12,6 +12,7 @@ use remacs_text::Text;
 use crate::buffer::Buffer;
 use crate::command::{CommandResult, Commands};
 use crate::completion::Completions;
+use crate::decoration::Span;
 use crate::key::{Key, describe_sequence};
 use crate::keymap::{Binding, Keymap};
 use crate::kill_ring::KillRing;
@@ -414,6 +415,22 @@ impl Editor {
     /// Picks up what background work has produced since the last call.
     pub fn refresh(&mut self) {
         self.refresh_minibuffer();
+        self.run_post_command_hooks();
+    }
+
+    /// Faces for `range` of the window buffer, one sorted list per decorator.
+    pub fn decorations(&self, range: Range<usize>) -> Vec<Vec<Span>> {
+        self.registry
+            .decorators
+            .iter()
+            .map(|decorate| decorate(self.window_buffer(), range.clone()))
+            .collect()
+    }
+
+    fn run_post_command_hooks(&mut self) {
+        for hook in self.registry.post_command_hooks.clone() {
+            hook(self);
+        }
     }
 
     fn active_keymaps(&self) -> Vec<&Keymap> {
@@ -480,6 +497,7 @@ impl Editor {
         }
         let point_line = self.window_buffer().point_line();
         self.viewport.ensure_visible(point_line);
+        self.run_post_command_hooks();
     }
 
     fn buffer_index(&self, name: &str) -> Option<usize> {

@@ -1,6 +1,7 @@
 mod assets;
 mod display_line;
 mod editor_view;
+mod highlights;
 mod key_input;
 mod minibuffer_view;
 mod widgets;
@@ -15,8 +16,9 @@ use gpui::{
 use remacs_core::{Editor, Plugin};
 use remacs_editing::EditingPlugin;
 use remacs_files::FilesPlugin;
-use remacs_languages::LanguagesPlugin;
+use remacs_languages::{GRAMMARS, LanguagesPlugin};
 use remacs_minibuffer::MinibufferPlugin;
+use remacs_syntax::SyntaxPlugin;
 
 use assets::Assets;
 use editor_view::EditorView;
@@ -26,6 +28,7 @@ const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
     &MinibufferPlugin,
     &FilesPlugin,
     &LanguagesPlugin,
+    &SyntaxPlugin::new(GRAMMARS),
 ];
 
 fn main() -> ExitCode {

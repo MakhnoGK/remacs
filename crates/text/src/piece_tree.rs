@@ -1,3 +1,4 @@
+use std::iter::Rev;
 use std::mem;
 use std::ops::Range;
 use std::slice;
@@ -56,6 +57,16 @@ impl PieceTree {
 
     pub fn pieces_from(&self, offset: usize) -> Pieces<'_> {
         Pieces::starting_at(&self.root, offset)
+    }
+
+    /// Pieces from the last to the first.
+    pub fn pieces_rev(&self) -> PiecesRev<'_> {
+        let mut pieces = PiecesRev {
+            ancestors: Vec::new(),
+            leaf: [].iter().rev(),
+        };
+        pieces.descend_rightmost(&self.root);
+        pieces
     }
 
     /// The piece holding the `rank`-th newline: its document offset and the rank within it.
@@ -386,6 +397,50 @@ impl<'a> Iterator for Pieces<'a> {
                 }
             };
             self.descend_leftmost(next_node);
+        }
+    }
+}
+
+pub(crate) struct PiecesRev<'a> {
+    ancestors: Vec<Rev<slice::Iter<'a, Arc<Node>>>>,
+    leaf: Rev<slice::Iter<'a, Piece>>,
+}
+
+impl<'a> PiecesRev<'a> {
+    fn descend_rightmost(&mut self, mut node: &'a Node) {
+        loop {
+            match &node.items {
+                Items::Internal(children) => {
+                    let mut siblings = children.iter().rev();
+                    node = siblings.next().expect("internal nodes are non-empty");
+                    self.ancestors.push(siblings);
+                }
+                Items::Leaf(pieces) => {
+                    self.leaf = pieces.iter().rev();
+                    return;
+                }
+            }
+        }
+    }
+}
+
+impl<'a> Iterator for PiecesRev<'a> {
+    type Item = &'a Piece;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(piece) = self.leaf.next() {
+                return Some(piece);
+            }
+            let next_node = loop {
+                match self.ancestors.last_mut()?.next() {
+                    Some(node) => break node,
+                    None => {
+                        self.ancestors.pop();
+                    }
+                }
+            };
+            self.descend_rightmost(next_node);
         }
     }
 }

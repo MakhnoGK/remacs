@@ -16,6 +16,7 @@ remacs-editing = { path = "plugins/editing" }
 remacs-files = { path = "plugins/files" }
 remacs-languages = { path = "plugins/languages" }
 remacs-minibuffer = { path = "plugins/minibuffer" }
+remacs-syntax = { path = "plugins/syntax" }
 
 # Without `font-kit` gpui falls back to a no-op text system on macOS.
 futures = "0.3"
@@ -25,6 +26,16 @@ libc = "0.2"
 memchr = "2.7"
 memmap2 = "0.9"
 notify = "8"
+streaming-iterator = "0.1"
+tree-sitter = "0.27"
+tree-sitter-c = "0.24"
+tree-sitter-cpp = "0.23"
+tree-sitter-css = "0.25"
+tree-sitter-html = "0.23"
+tree-sitter-javascript = "0.25"
+tree-sitter-language = "0.1"
+tree-sitter-rust = "0.24"
+tree-sitter-typescript = "0.23"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

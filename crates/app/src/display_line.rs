@@ -5,8 +5,7 @@ const TAB_WIDTH: usize = 4;
 /// A line as drawn in a monospace grid: tabs expanded to the next tab stop.
 pub struct DisplayLine {
     pub text: String,
-    /// Display column and byte offset in `text` where each source character starts,
-    /// plus one entry for the end of the line.
+    /// Where each source character starts, plus one entry for the end of the line.
     cells: Vec<Cell>,
     /// A space was appended so the end of the line can be drawn on.
     padded: bool,
@@ -14,7 +13,10 @@ pub struct DisplayLine {
 
 #[derive(Clone, Copy)]
 struct Cell {
+    /// Byte offset in the source line.
+    source: usize,
     column: usize,
+    /// Byte offset in `text`.
     byte: usize,
 }
 
@@ -23,8 +25,9 @@ impl DisplayLine {
         let mut text = String::with_capacity(source.len());
         let mut cells = Vec::with_capacity(source.len() + 1);
         let mut column = 0;
-        for character in source.chars() {
+        for (source_byte, character) in source.char_indices() {
             cells.push(Cell {
+                source: source_byte,
                 column,
                 byte: text.len(),
             });
@@ -38,6 +41,7 @@ impl DisplayLine {
             }
         }
         cells.push(Cell {
+            source: source.len(),
             column,
             byte: text.len(),
         });
@@ -71,6 +75,15 @@ impl DisplayLine {
         start..end
     }
 
+    /// Byte range of `text` showing the source line's bytes `source`.
+    pub fn display_range(&self, source: Range<usize>) -> Range<usize> {
+        let byte_at = |offset: usize| {
+            let cell = self.cells.partition_point(|cell| cell.source < offset);
+            self.cells[cell.min(self.end_column())].byte
+        };
+        byte_at(source.start)..byte_at(source.end)
+    }
+
     pub fn char_column_at(&self, display_column: usize) -> usize {
         self.cells
             .partition_point(|cell| cell.column <= display_column)
@@ -102,6 +115,14 @@ mod tests {
         assert_eq!(line.char_column_at(2), 1);
         assert_eq!(line.char_column_at(4), 2);
         assert_eq!(line.char_column_at(40), 3);
+    }
+
+    #[test]
+    fn source_bytes_map_across_tabs_and_wide_chars() {
+        let line = DisplayLine::new("ж\tfn x");
+        assert_eq!(line.display_range(0..2), 0..2);
+        assert_eq!(line.display_range(3..5), 5..7);
+        assert_eq!(line.display_range(6..60), 8..9);
     }
 
     #[test]

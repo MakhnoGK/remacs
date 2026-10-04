@@ -1,3 +1,5 @@
+use std::any::{Any, TypeId};
+use std::collections::HashMap;
 use std::io;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -18,6 +20,7 @@ pub struct Buffer {
     mark_active: bool,
     /// First line shown when the buffer was last in the window, like Emacs `last-window-start`.
     pub window_start: usize,
+    locals: HashMap<TypeId, Box<dyn Any>>,
 }
 
 impl Buffer {
@@ -32,7 +35,33 @@ impl Buffer {
             mark: None,
             mark_active: false,
             window_start: 0,
+            locals: HashMap::new(),
         }
+    }
+
+    /// State a plugin keeps for this buffer, like an Emacs buffer-local variable; it is
+    /// dropped with the buffer.
+    pub fn local<T: 'static>(&self) -> Option<&T> {
+        self.locals.get(&TypeId::of::<T>())?.downcast_ref()
+    }
+
+    pub fn local_mut<T: 'static>(&mut self) -> Option<&mut T> {
+        self.locals.get_mut(&TypeId::of::<T>())?.downcast_mut()
+    }
+
+    pub fn set_local<T: 'static>(&mut self, value: T) -> &mut T {
+        let local = self
+            .locals
+            .entry(TypeId::of::<T>())
+            .insert_entry(Box::new(value))
+            .into_mut();
+        local
+            .downcast_mut()
+            .expect("locals are keyed by their type")
+    }
+
+    pub fn remove_local<T: 'static>(&mut self) {
+        self.locals.remove(&TypeId::of::<T>());
     }
 
     /// Associates the buffer with `path`, which need not exist until the first save.

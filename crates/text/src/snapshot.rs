@@ -56,6 +56,24 @@ impl Snapshot {
             })
     }
 
+    /// The whole text's chunks, last first.
+    pub(crate) fn chunks_rev(&self) -> impl Iterator<Item = &[u8]> {
+        self.pieces
+            .pieces_rev()
+            .map(|piece| self.sources.bytes(piece))
+    }
+
+    /// Whether both are the same revision, which implies equal contents; O(1).
+    pub fn is_same(&self, other: &Snapshot) -> bool {
+        self.pieces.is_same(&other.pieces)
+    }
+
+    /// Line and byte column of `offset`.
+    pub fn position(&self, offset: usize) -> (usize, usize) {
+        let line = self.line_of(offset);
+        (line, offset - self.line_start(line).unwrap_or(0))
+    }
+
     pub fn bytes_in(&self, range: Range<usize>) -> Vec<u8> {
         self.chunks(range).flatten().copied().collect()
     }

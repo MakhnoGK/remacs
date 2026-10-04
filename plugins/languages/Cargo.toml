@@ -8,6 +8,17 @@ publish.workspace = true
 
 [dependencies]
 remacs-core.workspace = true
+remacs-syntax.workspace = true
+tree-sitter-c.workspace = true
+tree-sitter-cpp.workspace = true
+tree-sitter-css.workspace = true
+tree-sitter-html.workspace = true
+tree-sitter-javascript.workspace = true
+tree-sitter-rust.workspace = true
+tree-sitter-typescript.workspace = true
+
+[dev-dependencies]
+tree-sitter.workspace = true
 
 [lints]
 workspace = true

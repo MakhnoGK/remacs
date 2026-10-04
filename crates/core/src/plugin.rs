@@ -1,6 +1,12 @@
+use std::rc::Rc;
+
 use crate::command::Commands;
+use crate::decoration::Decorator;
+use crate::editor::Editor;
 use crate::keymap::Keymap;
 use crate::mode::Modes;
+
+pub type Hook = Rc<dyn Fn(&mut Editor)>;
 
 /// Everything plugins contribute to the editor.
 #[derive(Default)]
@@ -10,6 +16,10 @@ pub struct Registry {
     /// Active over `keymap` while a prompt is open, like `minibuffer-local-map`.
     pub minibuffer_keymap: Keymap,
     pub modes: Modes,
+    /// Run after every command and whenever background work has results, like Emacs
+    /// `post-command-hook`.
+    pub post_command_hooks: Vec<Hook>,
+    pub decorators: Vec<Decorator>,
 }
 
 pub trait Plugin {

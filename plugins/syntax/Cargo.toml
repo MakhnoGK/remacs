@@ -1,0 +1,20 @@
+[package]
+name = "remacs-syntax"
+description = "Built-in plugin: tree-sitter parsing on a background thread and syntax highlighting"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+remacs-core.workspace = true
+remacs-text.workspace = true
+streaming-iterator.workspace = true
+tree-sitter.workspace = true
+tree-sitter-language.workspace = true
+
+[dev-dependencies]
+tree-sitter-rust.workspace = true
+
+[lints]
+workspace = true

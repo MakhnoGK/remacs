@@ -4,14 +4,15 @@ use std::sync::Arc;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
-    AnyElement, ClipboardItem, Context, FocusHandle, HighlightStyle, IntoElement, KeyDownEvent,
-    MouseButton, MouseDownEvent, ParentElement, Pixels, Render, ScrollWheelEvent, StyledText,
-    Subscription, Window, div, font, linear_color_stop, linear_gradient, prelude::*, px, rgb, rgba,
+    AnyElement, ClipboardItem, Context, FocusHandle, IntoElement, KeyDownEvent, MouseButton,
+    MouseDownEvent, ParentElement, Pixels, Render, ScrollWheelEvent, StyledText, Subscription,
+    Window, div, font, linear_color_stop, linear_gradient, prelude::*, px, rgb, rgba,
 };
 use remacs_core::Editor;
 use remacs_theme::{color, font};
 
 use crate::display_line::DisplayLine;
+use crate::highlights::{Highlights, combine, face_style, region_style};
 use crate::key_input::to_key;
 use crate::minibuffer_view::{render_minibuffer, render_scrim};
 use crate::widgets::{cursor_style, hsla, modified_dot};
@@ -74,6 +75,8 @@ impl EditorView {
             _activation: activation,
         };
         view.receive_clipboard(cx);
+        // Lets plugins pick up a file opened from the command line.
+        view.editor.refresh();
         view
     }
 
@@ -178,11 +181,41 @@ impl EditorView {
         metrics.digit_width * digits.max(MIN_GUTTER_DIGITS) as f32 + px(GUTTER_PADDING)
     }
 
+    /// Bytes of `line` that can be on screen.
+    fn visible_range(&self, line: usize) -> Range<usize> {
+        let range = self
+            .editor
+            .window_buffer()
+            .text()
+            .line_range(line)
+            .unwrap_or_default();
+        range.start..range.end.min(range.start + MAX_RENDERED_LINE_BYTES)
+    }
+
     fn display_line(&self, line: usize) -> DisplayLine {
         let text = self.editor.window_buffer().text();
-        let range = text.line_range(line).unwrap_or_default();
-        let visible = range.start..range.end.min(range.start + MAX_RENDERED_LINE_BYTES);
-        DisplayLine::new(&String::from_utf8_lossy(&text.bytes_in(visible)))
+        DisplayLine::new(&String::from_utf8_lossy(
+            &text.bytes_in(self.visible_range(line)),
+        ))
+    }
+
+    /// Each decorator's faces on `line`, mapped onto its display text.
+    fn face_layers(&self, line: usize, display_line: &DisplayLine) -> Vec<Highlights> {
+        let visible = self.visible_range(line);
+        let to_line = |offset: usize| offset.clamp(visible.start, visible.end) - visible.start;
+        self.editor
+            .decorations(visible.clone())
+            .into_iter()
+            .map(|spans| {
+                spans
+                    .into_iter()
+                    .map(|span| {
+                        let range = to_line(span.range.start)..to_line(span.range.end);
+                        (display_line.display_range(range), face_style(span.face))
+                    })
+                    .collect()
+            })
+            .collect()
     }
 
     /// Characters of `line` inside the active region; past the end means the newline too.
@@ -208,12 +241,15 @@ impl EditorView {
         let buffer = self.editor.window_buffer();
         let is_current = line == buffer.point_line();
         let mut display_line = self.display_line(line);
-        let cursor = is_current.then(|| display_line.cursor_cell(buffer.point_column()));
-        let region = self
-            .region_columns(line)
-            .map(|columns| display_line.cell_range(columns));
-        let content =
-            StyledText::new(display_line.text).with_highlights(highlights(region, cursor));
+        let mut layers = self.face_layers(line, &display_line);
+        if let Some(columns) = self.region_columns(line) {
+            layers.push(vec![(display_line.cell_range(columns), region_style())]);
+        }
+        if is_current {
+            let cursor = display_line.cursor_cell(buffer.point_column());
+            layers.push(vec![(cursor, cursor_style())]);
+        }
+        let content = StyledText::new(display_line.text).with_highlights(combine(&layers));
         let number_color = if is_current {
             color::FG_MAIN
         } else {
@@ -375,35 +411,6 @@ impl Render for EditorView {
             .child(self.render_header())
             .children(minibuffer)
     }
-}
-
-/// The region and the cursor as sorted, non-overlapping highlights; the cursor wins.
-fn highlights(
-    region: Option<Range<usize>>,
-    cursor: Option<Range<usize>>,
-) -> Vec<(Range<usize>, HighlightStyle)> {
-    let region_style = HighlightStyle {
-        background_color: Some(hsla(color::BG_SELECTION)),
-        ..Default::default()
-    };
-    let mut highlights = Vec::with_capacity(3);
-    match (region, cursor) {
-        (Some(region), Some(cursor)) => {
-            let before = region.start..region.end.min(cursor.start);
-            let after = region.start.max(cursor.end)..region.end;
-            if !before.is_empty() {
-                highlights.push((before, region_style));
-            }
-            highlights.push((cursor, cursor_style()));
-            if !after.is_empty() {
-                highlights.push((after, region_style));
-            }
-        }
-        (Some(region), None) => highlights.push((region, region_style)),
-        (None, Some(cursor)) => highlights.push((cursor, cursor_style())),
-        (None, None) => {}
-    }
-    highlights
 }
 
 /// Black fading to transparent along `angle`, solid until `solid_until` (0..1).
