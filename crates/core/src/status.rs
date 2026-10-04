@@ -51,6 +51,8 @@ pub enum Tone {
     Warning,
     /// Secondary, like counts beside a name.
     Faint,
+    /// Set apart, like commits folded into others.
+    Special,
 }
 
 /// Describes the window buffer for the status pill, if the plugin has anything to show.

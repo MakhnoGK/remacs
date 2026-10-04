@@ -1,6 +1,9 @@
 use std::borrow::Cow;
 use std::ops::Range;
 
+use crate::outline::CommitChain;
+use crate::status::Tone;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Icon {
     File,
@@ -72,6 +75,10 @@ pub struct Candidate {
     pub kind: Option<SymbolKind>,
     pub modified: bool,
     pub dim: bool,
+    /// Makes the candidate a step of a plan, like a commit of a rebase: the action
+    /// taken on it, drawn as a button before it, then the label as an id and the
+    /// annotation as what it is.
+    pub action: Option<(&'static str, Tone)>,
 }
 
 impl Candidate {
@@ -94,6 +101,16 @@ pub struct Completions {
     pub note: Option<String>,
     /// Keys and what they do for this input, in place of the prompt's.
     pub hints: Option<&'static [(&'static str, &'static str)]>,
+    /// In place of the prompt's label, e.g. as an option changes what the input is.
+    pub label: Option<String>,
+    /// In place of the prompt's subject.
+    pub subject: Option<String>,
+    /// Groups' titles say how many candidates are in them.
+    pub count_groups: bool,
+    /// What choosing would make, under the candidates, with a summary of it.
+    pub outcome: Option<(String, CommitChain)>,
+    /// A note beside the chips, e.g. what a setting will do.
+    pub footnote: Option<String>,
 }
 
 impl From<Vec<Candidate>> for Completions {

@@ -11,7 +11,7 @@ use gpui::{
     Subscription, Window, div, font, linear_color_stop, linear_gradient, prelude::*, px, rgb, rgba,
 };
 use remacs_core::{
-    Action, Code, DocBlock, Editor, Popup, Preview, PreviewBody, Scroll, StatusSegment, Tone,
+    Action, Code, DocBlock, Editor, Popup, Preview, PreviewBody, Scroll, StatusSegment,
 };
 use remacs_theme::{color, font};
 
@@ -28,7 +28,7 @@ use crate::preview_view::render_preview;
 use crate::table_view::{
     LIST_BOTTOM, ROW_PITCH, ROWS_TOP, TableCursor, fits_preview, render_hints, render_table,
 };
-use crate::widgets::{cursor_style, hsla, icon, modified_dot, pill, pill_separator};
+use crate::widgets::{cursor_style, hsla, icon, modified_dot, pill, pill_separator, tone_color};
 
 /// Minified files can hold megabytes on one line; lay out only what can be on screen.
 const MAX_RENDERED_LINE_BYTES: usize = 2048;
@@ -616,13 +616,7 @@ impl EditorView {
                 )
             })
             .children(segment.items.into_iter().map(|item| {
-                let item_color = match item.tone {
-                    Tone::Plain => text_color,
-                    Tone::Accent => color::ACCENT,
-                    Tone::Danger => color::DANGER,
-                    Tone::Warning => color::WARNING,
-                    Tone::Faint => color::FG_FAINT,
-                };
+                let item_color = tone_color(item.tone, text_color);
                 div()
                     .flex()
                     .items_center()

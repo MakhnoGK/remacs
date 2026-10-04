@@ -9,6 +9,7 @@ use crate::command::{CommandError, CommandResult};
 use crate::completion::{Candidate, Completions, Icon, Selection};
 use crate::editor::Editor;
 use crate::key::Key;
+use crate::keymap::Keymap;
 use crate::mode::FUNDAMENTAL_MODE;
 use crate::table::Mark;
 use crate::vc::{FileState, LineCounts};
@@ -66,7 +67,18 @@ pub struct Prompt {
     pub items_title: &'static str,
     /// Right of the title, e.g. a count and a total size.
     pub items_summary: String,
+    /// Says why the answer cannot be taken yet; the prompt then stays open, its input
+    /// kept.
+    pub check: Option<AnswerCheck>,
+    /// Active over every other keymap while the prompt is open, e.g. keys that act on
+    /// the selected candidate.
+    pub keymap: Option<Keymap>,
+    /// The input is not typed: it shows a value the prompt's keys change, and printable
+    /// keys are free for its keymap.
+    pub read_only: bool,
 }
+
+pub type AnswerCheck = Rc<dyn Fn(&str) -> Result<(), String>>;
 
 /// How a prompt's message is written.
 #[derive(Default)]
@@ -77,11 +89,7 @@ pub struct Message {
     pub placeholder: &'static str,
     /// Earlier messages, newest first, brought back by `M-p` and `M-n`.
     pub earlier: Vec<String>,
-    /// Says why the message cannot be the answer yet; the prompt then stays open.
-    pub check: Option<MessageCheck>,
 }
-
-pub type MessageCheck = Rc<dyn Fn(&str) -> Result<(), String>>;
 
 /// One of several values a prompt's answer depends on, e.g. the branch a new one starts
 /// from.
@@ -277,6 +285,11 @@ impl Minibuffer {
         self.input.contents(0..self.input.text().len())
     }
 
+    /// Replaces the input, e.g. with a value a key of the prompt picked.
+    pub fn set_input(&mut self, text: &str) {
+        replace_text(&mut self.input, text);
+    }
+
     /// A message's description, under its subject.
     pub fn description(&self) -> Option<&Buffer> {
         self.description.as_ref()
@@ -363,6 +376,26 @@ impl Minibuffer {
     /// Said in place of the count, e.g. `New folder`.
     pub fn note(&self) -> Option<&str> {
         self.completions.note.as_deref()
+    }
+
+    /// The completions' label if they give one, else the prompt's.
+    pub fn label(&self) -> &str {
+        self.completions
+            .label
+            .as_deref()
+            .unwrap_or(&self.prompt.label)
+    }
+
+    /// The completions' subject if they give one, else the prompt's.
+    pub fn subject(&self) -> &str {
+        self.completions
+            .subject
+            .as_deref()
+            .unwrap_or(&self.prompt.subject)
+    }
+
+    pub fn completions(&self) -> &Completions {
+        &self.completions
     }
 
     /// Keys and what they do now: the completions' if they say, else the prompt's.
@@ -465,12 +498,16 @@ impl Minibuffer {
 
     /// The selected candidate, else the input, else the default.
     pub(crate) fn answer(&self, literal_input: bool) -> Result<String, CommandError> {
-        if let Some(message) = &self.prompt.message {
-            let text = self.message_text();
-            if let Some(check) = &message.check {
-                check(&text)?;
-            }
-            return Ok(text);
+        let answer = self.unchecked_answer(literal_input)?;
+        if let Some(check) = &self.prompt.check {
+            check(&answer)?;
+        }
+        Ok(answer)
+    }
+
+    fn unchecked_answer(&self, literal_input: bool) -> Result<String, CommandError> {
+        if self.prompt.message.is_some() {
+            return Ok(self.message_text());
         }
         let input = self.input_text();
         if !literal_input && let Some(candidate) = self.selected_candidate() {

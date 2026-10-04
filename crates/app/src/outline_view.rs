@@ -12,7 +12,7 @@ use remacs_theme::{color, font};
 use crate::assets::{CHEVRON_DOWN_ICON, CHEVRON_ICON};
 use crate::editor_view::EditorView;
 use crate::table_view::{LIST_BOTTOM, clickable};
-use crate::widgets::{kbd, line_counts, segment, segmented, shadow, state_letter};
+use crate::widgets::{kbd, line_counts, segment, segmented, shadow, state_letter, tone_color};
 
 const PANE_TOP: f32 = 56.0;
 const PANE_SIDE: f32 = 16.0;
@@ -555,10 +555,8 @@ pub fn ref_chip(chip: RefChip) -> Div {
 
 fn render_heading(title: &str, count: usize, open: bool, tone: Tone, selected: bool) -> Div {
     let count_color = match tone {
-        Tone::Danger => color::DANGER,
-        Tone::Accent => color::ACCENT,
-        Tone::Warning => color::WARNING,
-        Tone::Plain | Tone::Faint => color::FG_LINE_NUMBER,
+        Tone::Faint => color::FG_LINE_NUMBER,
+        tone => tone_color(tone, color::FG_LINE_NUMBER),
     };
     div()
         .flex()

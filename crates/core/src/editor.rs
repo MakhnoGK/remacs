@@ -294,7 +294,11 @@ impl Editor {
             Binding::Prefix => {}
             Binding::Unbound => {
                 let keys = mem::take(&mut self.pending_keys);
-                if keys.len() == 1 && key.printable_char().is_some() {
+                let typed = !self
+                    .minibuffer
+                    .as_ref()
+                    .is_some_and(|minibuffer| minibuffer.prompt().read_only);
+                if typed && keys.len() == 1 && key.printable_char().is_some() {
                     self.run_command(SELF_INSERT_COMMAND);
                 } else {
                     self.set_message(format!("{} is undefined", describe_sequence(&keys)));
@@ -669,8 +673,13 @@ impl Editor {
             .iter()
             .filter(|minor| (minor.active)(self))
             .map(|minor| &minor.keymap);
-        message_keymap
+        let prompt_keymap = self
+            .minibuffer
+            .as_ref()
+            .and_then(|minibuffer| minibuffer.prompt().keymap.as_ref());
+        prompt_keymap
             .into_iter()
+            .chain(message_keymap)
             .chain(minibuffer_keymap)
             .chain(minor_keymaps)
             .chain([&self.registry.keymap])

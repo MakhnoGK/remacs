@@ -108,6 +108,16 @@ pub struct RefChip {
     pub kind: RefKind,
 }
 
+/// Commits on top of a branch, drawn as a short line of dots between their refs, e.g.
+/// what a rebase will make.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommitChain {
+    pub base: RefChip,
+    pub tip: RefChip,
+    /// Dots after the base's.
+    pub commits: usize,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RefKind {
     /// Checked out.

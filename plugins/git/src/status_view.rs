@@ -4,15 +4,17 @@
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use remacs_core::{
-    Buffer, DiffRow, Editor, Fact, FactValue, FileState, Icon, LineCounts, Outline, OutlineRow,
-    RefChip, RefKind, StatusItem, StatusSegment, Tone,
+    Buffer, Button, DiffRow, Editor, Fact, FactValue, FileState, Icon, LineCounts, Outline,
+    OutlineRow, RefChip, RefKind, StatusItem, StatusSegment, Tone,
 };
 use remacs_text::Text;
 
 use crate::diff::FileDiff;
 use crate::history_view::{self, HistoryState};
+use crate::integrate;
 use crate::monitor::Wants;
 use crate::repositories::Repositories;
 use crate::status::{DiffKey, Head, Snapshot};
@@ -21,14 +23,14 @@ pub const GIT_MODE: &str = "Git";
 pub const TOGGLE: &str = "git-toggle";
 pub const VISIT: &str = "git-visit";
 pub const NOT_A_STATUS_BUFFER: &str = "Not a Git status buffer";
+/// As the design has them; TAB, k and RET are left to be found, as in magit.
 const HINTS: &[(&str, &str)] = &[
     ("c", "Commit"),
     ("b", "Branch"),
-    ("⇥", "Diff"),
+    ("m", "Merge"),
+    ("r", "Rebase"),
     ("s", "Stage"),
     ("u", "Unstage"),
-    ("k", "Discard"),
-    ("↵", "Visit"),
 ];
 /// Diff lines shown of one file at most, so a huge change does not swamp the buffer.
 const MAX_DIFF_LINES: usize = 2000;
@@ -529,7 +531,18 @@ fn facts(snapshot: &Snapshot) -> Vec<Fact> {
                 count => format!("{count} new {}", plural(count, "commit")),
             },
             note_is_title: false,
-            buttons: Vec::new(),
+            buttons: vec![
+                Button {
+                    label: "Rebase".into(),
+                    selected: false,
+                    action: Rc::new(integrate::rebase),
+                },
+                Button {
+                    label: "Merge".into(),
+                    selected: false,
+                    action: Rc::new(integrate::merge),
+                },
+            ],
         });
     }
     facts

@@ -10,6 +10,7 @@ mod diff;
 mod history;
 mod history_view;
 mod ignore_rules;
+mod integrate;
 mod monitor;
 mod moves;
 mod repositories;
@@ -40,6 +41,15 @@ const COMMANDS: &[Command] = &[
     Command::new("git-quit", "Show the buffer shown before the status", commands::quit),
     Command::new("git-commit", "Commit what is staged, with a message", commit::commit),
     Command::new("git-branch", "Switch to a branch, or create one from a base", branch::branch),
+    Command::new("git-rebase", "Rebase the branch onto its base or another, choosing what to replay", integrate::rebase),
+    Command::new("git-merge", "Merge the base or another branch into this one", integrate::merge),
+    Command::new(integrate::NEXT_TARGET, "Bring in the next branch instead", integrate::next_target),
+    Command::new(integrate::PICK, "Replay the selected commit as it is", integrate::pick),
+    Command::new(integrate::SQUASH, "Fold the selected commit into the one before, messages combined", integrate::squash),
+    Command::new(integrate::FIXUP, "Fold the selected commit into the one before, its message dropped", integrate::fixup),
+    Command::new(integrate::DROP, "Leave the selected commit out", integrate::drop_step),
+    Command::new(integrate::EARLIER, "Replay the selected commit one earlier", integrate::earlier),
+    Command::new(integrate::LATER, "Replay the selected commit one later", integrate::later),
     Command::new("git-history-scope", "Show the history of all branches, or of the current one", history_view::toggle_scope),
     Command::new("git-history-search", "Show the commits whose messages hold some words", history_view::search),
     Command::new("git-history-next-page", "Scroll the history to older commits", history_view::next_page),
@@ -58,6 +68,8 @@ const STATUS_BINDINGS: &[(&str, &str)] = &[
     ("q", "git-quit"),
     ("c", "git-commit"),
     ("b", "git-branch"),
+    ("m", "git-merge"),
+    ("r", "git-rebase"),
     ("l", "git-history-scope"),
     ("/", "git-history-search"),
     ("C-M-v", "git-history-next-page"),

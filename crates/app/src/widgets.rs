@@ -2,7 +2,7 @@ use gpui::{
     BoxShadow, Div, HighlightStyle, Hsla, IntoElement, ParentElement, Styled, Svg, div, point,
     prelude::FluentBuilder, px, rgb, rgba, svg,
 };
-use remacs_core::{FileState, Icon, LineCounts, ListItem, Mark};
+use remacs_core::{FileState, Icon, LineCounts, ListItem, Mark, Tone};
 use remacs_theme::{color, font};
 
 use crate::assets::{
@@ -31,6 +31,18 @@ pub fn icon(icon: Icon, text_color: u32) -> Svg {
         .flex_none()
         .size(px(size))
         .text_color(rgb(color))
+}
+
+/// The theme's color for `tone`; a plain one takes `plain`.
+pub fn tone_color(tone: Tone, plain: u32) -> u32 {
+    match tone {
+        Tone::Plain => plain,
+        Tone::Accent => color::ACCENT,
+        Tone::Danger => color::DANGER,
+        Tone::Warning => color::WARNING,
+        Tone::Faint => color::FG_FAINT,
+        Tone::Special => color::FUNCTION,
+    }
 }
 
 /// A check for a marked row, a `D` for one flagged for deletion.

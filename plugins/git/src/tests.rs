@@ -764,3 +764,101 @@ fn a_commit_message_has_a_subject_and_a_description() {
     wait_for_status(&mut editor, &repository, "");
     assert_eq!(repository.git(&["rev-list", "--count", "HEAD"]).trim(), "2");
 }
+
+/// A branch with commits A, B and C on `main`, which then moved on.
+fn diverged(name: &str) -> Repository {
+    let repository = Repository::new(name);
+    repository.git(&["switch", "-q", "-c", "feature"]);
+    for name in ["A", "B", "C"] {
+        commit(&repository, &format!("{name}.rs"), name, name);
+    }
+    repository.git(&["switch", "-q", "main"]);
+    commit(&repository, "main.rs", "m\n", "Move main on");
+    repository.git(&["switch", "-q", "feature"]);
+    repository
+}
+
+/// The steps in short: `pick A`.
+fn steps(editor: &Editor) -> Vec<String> {
+    editor
+        .minibuffer()
+        .unwrap()
+        .candidates()
+        .iter()
+        .map(|candidate| {
+            let (action, _) = candidate.action.unwrap();
+            format!("{action} {}", candidate.annotation)
+        })
+        .collect()
+}
+
+#[test]
+fn a_rebase_replays_the_commits_as_chosen() {
+    let repository = diverged("rebase");
+    let mut editor = status_buffer(&repository);
+    wait_until(&mut editor, "the base", |editor| {
+        facts(editor).contains(&"Base: main · 1 new commit".to_owned())
+    });
+
+    press(&mut editor, "r");
+    assert_eq!(steps(&editor), ["pick A", "pick B", "pick C"]);
+    let minibuffer = editor.minibuffer().unwrap();
+    assert_eq!(minibuffer.input_text(), "main");
+    assert_eq!(minibuffer.subject(), "feature onto main");
+    let (summary, _) = minibuffer.completions().outcome.clone().unwrap();
+    assert_eq!(summary, "3 commits on top of main");
+
+    press(&mut editor, "s");
+    press(&mut editor, "RET");
+    assert_eq!(
+        editor.echo().as_deref(),
+        Some(&*format!(
+            "{} has nothing before it to fold into",
+            repository
+                .git(&["rev-parse", "--short", "feature~2"])
+                .trim()
+        ))
+    );
+    assert!(editor.minibuffer().is_some());
+
+    press(&mut editor, "d C-n C-n s C-p M-<down>");
+    assert_eq!(steps(&editor), ["drop A", "squash C", "pick B"]);
+    press(&mut editor, "M-<up>");
+    assert_eq!(steps(&editor), ["drop A", "pick B", "squash C"]);
+    press(&mut editor, "RET");
+    wait_until(&mut editor, "the rebase", |_| {
+        repository.git(&["log", "--format=%s", "main..feature"]) == "B\n"
+    });
+    assert_eq!(
+        repository.git(&["log", "-1", "--format=%B"]).trim(),
+        "B\n\nC"
+    );
+    assert!(!repository.0.join("A.rs").exists());
+    assert!(repository.0.join("main.rs").exists());
+}
+
+#[test]
+fn a_merge_brings_the_base_in() {
+    let repository = diverged("merge");
+    let mut editor = status_buffer(&repository);
+    wait_until(&mut editor, "the base", |editor| {
+        facts(editor).contains(&"Base: main · 1 new commit".to_owned())
+    });
+
+    press(&mut editor, "m");
+    let minibuffer = editor.minibuffer().unwrap();
+    assert_eq!(minibuffer.label(), "Merge");
+    assert_eq!(minibuffer.subject(), "main into feature");
+    assert_eq!(minibuffer.candidates()[0].annotation, "Move main on");
+    press(&mut editor, "RET");
+    wait_until(&mut editor, "the merge", |_| {
+        repository
+            .git(&["log", "-1", "--format=%P"])
+            .split_whitespace()
+            .count()
+            == 2
+    });
+    wait_until(&mut editor, "the base caught up", |editor| {
+        facts(editor).contains(&"Base: main · Up to date".to_owned())
+    });
+}

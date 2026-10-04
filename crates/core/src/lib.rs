@@ -31,13 +31,13 @@ pub use key::{Key, KeyCode, Modifiers, describe_sequence, parse_sequence};
 pub use keymap::{Binding, Keymap};
 pub use kill_ring::KillRing;
 pub use minibuffer::{
-    Count, Dialog, DialogOption, ListItem, Message, Minibuffer, Prompt, PromptChoice, PromptOption,
-    VISIBLE_CANDIDATES,
+    AnswerCheck, Count, Dialog, DialogOption, ListItem, Message, Minibuffer, Prompt, PromptChoice,
+    PromptOption, VISIBLE_CANDIDATES,
 };
 pub use mode::{FUNDAMENTAL_MODE, Mode, Modes};
 pub use outline::{
-    CommitRow, DiffRow, Fact, FactValue, GraphEdge, GraphNode, GraphRow, History, Outline,
-    OutlineProvider, OutlineRow, RefChip, RefKind, Scroll,
+    CommitChain, CommitRow, DiffRow, Fact, FactValue, GraphEdge, GraphNode, GraphRow, History,
+    Outline, OutlineProvider, OutlineRow, RefChip, RefKind, Scroll,
 };
 pub use plugin::{Hook, MinorKeymap, Plugin, Registry};
 pub use popup::{Code, CodeHighlighter, DocBlock, Documentation, Popup, PopupProvider};
