@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use lsp_types::{CodeActionOrCommand, CompletionItem, DiagnosticSeverity, NumberOrString, Uri};
-use remacs_actions::Request as ActionRequest;
+use remacs_actions::{Action, Request as ActionRequest};
 use remacs_completion::Request;
 use remacs_core::{Editor, Notifier};
 use remacs_diagnostics::{self as diagnostics, Diagnostic, Severity};
@@ -24,9 +24,53 @@ const MAX_SYNCED_BYTES: usize = 16 << 20;
 /// Sent texts kept for diagnostics that may still arrive for them.
 const MAX_PENDING_VERSIONS: usize = 32;
 
-/// A buffer's file as its server knows it, like an eglot-managed buffer. Dropping it,
+/// A buffer's files on the servers for its mode, in the order the servers are listed.
+/// The first answers questions such as completion; all of them check the buffer and
+/// offer code actions, so linters can serve beside the language's own server.
+#[derive(Default)]
+struct Documents {
+    list: Vec<Document>,
+    /// The code actions of the newest list asked for, until every server offered its own.
+    gathering: Option<Gathering>,
+}
+
+struct Gathering {
+    id: u64,
+    /// Per document; `None` until it answered.
+    menus: Vec<Option<Vec<Action>>>,
+}
+
+impl Documents {
+    /// Action `index` of list `id` as delivered, all servers' actions in their order, and
+    /// the server that offered it.
+    fn offered(
+        &self,
+        id: u64,
+        mut index: usize,
+    ) -> Option<(Rc<Client>, CodeActionOrCommand, Encoding)> {
+        for document in &self.list {
+            let Some(offered) = document.offered.as_ref().filter(|offered| offered.id == id) else {
+                continue;
+            };
+            match offered.actions.get(index) {
+                Some(action) => {
+                    return Some((
+                        Rc::clone(&document.client),
+                        action.clone(),
+                        offered.encoding,
+                    ));
+                }
+                None => index -= offered.actions.len(),
+            }
+        }
+        None
+    }
+}
+
+/// A buffer's file as one server knows it, like an eglot-managed buffer. Dropping it,
 /// e.g. with the buffer, closes the file on the server.
 struct Document {
+    server: &'static LanguageServer,
     client: Rc<Client>,
     path: PathBuf,
     uri: Uri,
@@ -63,6 +107,7 @@ struct Offered {
 
 impl Document {
     fn open(
+        server: &'static LanguageServer,
         client: Rc<Client>,
         path: PathBuf,
         language: &'static str,
@@ -78,6 +123,7 @@ impl Document {
             text: text.clone(),
         });
         Self {
+            server,
             client,
             path,
             uri,
@@ -91,6 +137,12 @@ impl Document {
             reported: None,
             offered: None,
         }
+    }
+
+    fn serves(&self, server: &LanguageServer, language: &str, path: Option<&Path>) -> bool {
+        self.server.name == server.name
+            && self.language == language
+            && Some(self.path.as_path()) == path
     }
 
     /// The text the server has now.
@@ -187,12 +239,6 @@ impl Document {
             range,
             diagnostics,
         });
-    }
-
-    /// Action `index` of list `id` as the server sent it.
-    fn offered(&self, id: u64, index: usize) -> Option<(CodeActionOrCommand, Encoding)> {
-        let offered = self.offered.as_ref().filter(|offered| offered.id == id)?;
-        Some((offered.actions.get(index)?.clone(), offered.encoding))
     }
 
     fn ask(&self, question: Question, id: u64, offset: usize) {
@@ -302,6 +348,10 @@ impl Clients {
             .map(|((_, root), client)| (root.as_path(), client))
     }
 
+    fn has_failed(&self, server: &LanguageServer) -> bool {
+        self.failed.contains(server.name)
+    }
+
     /// The server for `path`'s project, started on first use; `Err` the one time it fails
     /// to start.
     pub(crate) fn client_for(
@@ -331,9 +381,9 @@ impl Clients {
     }
 }
 
-/// Hands answers over, keeps every buffer's server up to date and passes its diagnostics
-/// on, then sends what the plugins ask, including what the answers made them ask. Runs
-/// after every command and whenever a server published or answered something.
+/// Hands answers over, keeps every buffer's servers up to date and passes their
+/// diagnostics on, then sends what the plugins ask, including what the answers made them
+/// ask. Runs after every command and whenever a server published or answered something.
 pub(crate) fn sync(editor: &mut Editor, servers: &'static [LanguageServer]) {
     hand_over_answers(editor);
     // After the answers, so that a file a definition opened is attached at once.
@@ -341,80 +391,124 @@ pub(crate) fn sync(editor: &mut Editor, servers: &'static [LanguageServer]) {
         attach(editor, index, servers);
         let buffer = &mut editor.buffers_mut()[index];
         let (text, modified) = (buffer.text().snapshot(), buffer.is_modified());
-        let reported = buffer
-            .local_mut::<Document>()
-            .and_then(|document| document.sync(text, modified));
-        if let Some((text, diagnostics)) = reported {
-            diagnostics::publish(buffer, text, diagnostics);
+        let Some(documents) = buffer.local_mut::<Documents>() else {
+            continue;
+        };
+        let reported: Vec<_> = documents
+            .list
+            .iter_mut()
+            .filter_map(|document| {
+                let (text, diagnostics) = document.sync(text.clone(), modified)?;
+                Some((document.server.name, text, diagnostics))
+            })
+            .collect();
+        for (checker, text, diagnostics) in reported {
+            diagnostics::publish(buffer, checker, text, diagnostics);
         }
     }
     send_requests(editor);
 }
 
 fn hand_over_answers(editor: &mut Editor) {
-    let Some(document) = editor.window_buffer_mut().local_mut::<Document>() else {
+    let Some(documents) = editor.window_buffer_mut().local_mut::<Documents>() else {
         return;
     };
-    let answers = document.take_answers();
-    let client = Rc::clone(&document.client);
-    for answer in answers {
-        match answer {
-            Answer::Listed { id, list, .. } => remacs_completion::deliver(editor, id, list),
-            Answer::Resolved { id, index, item } => {
-                remacs_completion::resolved(editor, id, index, item);
-            }
-            Answer::Hover { id, answer } => remacs_documentation::deliver(editor, id, answer),
-            Answer::Definitions {
-                id,
-                targets,
-                encoding,
-            } => {
-                let locations = definition::locations(editor, targets, encoding);
-                remacs_xref::deliver(editor, id, locations);
-            }
-            Answer::CodeActions { id, menu, .. } => remacs_actions::deliver(editor, id, menu),
-            Answer::ResolvedAction {
-                id,
-                action,
-                encoding,
-            } => {
-                let action = CodeActionOrCommand::CodeAction(action);
-                let result = code_action::carry_out(editor, &client, id, action, encoding, false);
-                if let Err(error) = result {
-                    remacs_actions::failed(editor, id, &error.0);
-                }
-            }
-            Answer::ActionFailed { id, message } => remacs_actions::failed(editor, id, &message),
-            Answer::ApplyEdit {
-                reply,
-                edit,
-                encoding,
-            } => {
-                let result = match client.executing() {
-                    Some(id) => code_action::apply(editor, id, edit, encoding),
-                    None => Err("No code action asked for edits".into()),
-                };
-                let result = match result {
-                    Ok(()) => json!({ "applied": true }),
-                    Err(error) => {
-                        editor.set_message(error.0.clone());
-                        json!({ "applied": false, "failureReason": error.0 })
-                    }
-                };
-                client.send(Outgoing::Reply { id: reply, result });
-            }
+    let answered: Vec<_> = documents
+        .list
+        .iter_mut()
+        .map(|document| (Rc::clone(&document.client), document.take_answers()))
+        .collect();
+    for (index, (client, answers)) in answered.into_iter().enumerate() {
+        for answer in answers {
+            hand_over(editor, index, &client, answer);
         }
     }
 }
 
-/// Sends the window buffer's requests to its server; without one, questions are answered
+/// Passes on what document `index`'s server answered.
+fn hand_over(editor: &mut Editor, index: usize, client: &Client, answer: Answer) {
+    match answer {
+        Answer::Listed { id, list, .. } => remacs_completion::deliver(editor, id, list),
+        Answer::Resolved { id, index, item } => {
+            remacs_completion::resolved(editor, id, index, item);
+        }
+        Answer::Hover { id, answer } => remacs_documentation::deliver(editor, id, answer),
+        Answer::Definitions {
+            id,
+            targets,
+            encoding,
+        } => {
+            let locations = definition::locations(editor, targets, encoding);
+            remacs_xref::deliver(editor, id, locations);
+        }
+        Answer::CodeActions { id, menu, .. } => gather_actions(editor, id, index, menu),
+        Answer::ResolvedAction {
+            id,
+            action,
+            encoding,
+        } => {
+            let action = CodeActionOrCommand::CodeAction(action);
+            let result = code_action::carry_out(editor, client, id, action, encoding, false);
+            if let Err(error) = result {
+                remacs_actions::failed(editor, id, &error.0);
+            }
+        }
+        Answer::ActionFailed { id, message } => remacs_actions::failed(editor, id, &message),
+        Answer::ApplyEdit {
+            reply,
+            edit,
+            encoding,
+        } => {
+            let result = match client.executing() {
+                Some(id) => code_action::apply(editor, id, edit, encoding),
+                None => Err("No code action asked for edits".into()),
+            };
+            let result = match result {
+                Ok(()) => json!({ "applied": true }),
+                Err(error) => {
+                    editor.set_message(error.0.clone());
+                    json!({ "applied": false, "failureReason": error.0 })
+                }
+            };
+            client.send(Outgoing::Reply { id: reply, result });
+        }
+    }
+}
+
+/// Delivers the code actions of list `id` once every server offered its own, in the
+/// servers' order; older lists are dropped.
+fn gather_actions(editor: &mut Editor, id: u64, index: usize, menu: Vec<Action>) {
+    let Some(documents) = editor.window_buffer_mut().local_mut::<Documents>() else {
+        return;
+    };
+    let Some(gathering) = documents
+        .gathering
+        .as_mut()
+        .filter(|gathering| gathering.id == id)
+    else {
+        return;
+    };
+    let Some(slot) = gathering.menus.get_mut(index) else {
+        return;
+    };
+    *slot = Some(menu);
+    if gathering.menus.iter().any(Option::is_none) {
+        return;
+    }
+    let menus = mem::take(&mut gathering.menus);
+    documents.gathering = None;
+    let menu = menus.into_iter().flatten().flatten().collect();
+    remacs_actions::deliver(editor, id, menu);
+}
+
+/// Sends the window buffer's requests to its servers; without any, questions are answered
 /// with nothing at once.
 fn send_requests(editor: &mut Editor) {
     let completions = remacs_completion::take_requests(editor);
     let hovers = remacs_documentation::take_requests(editor);
     let definitions = remacs_xref::take_requests(editor);
     let actions = remacs_actions::take_requests(editor);
-    let Some(document) = editor.window_buffer().local::<Document>() else {
+    let Some(documents) = editor.window_buffer().local::<Documents>() else {
         for request in hovers {
             remacs_documentation::deliver(editor, request.id, None);
         }
@@ -428,28 +522,42 @@ fn send_requests(editor: &mut Editor) {
         }
         return;
     };
+    let first = &documents.list[0];
     for request in completions {
-        document.request(request);
+        first.request(request);
     }
     for request in hovers {
-        document.ask(Question::Hover, request.id, request.offset);
+        first.ask(Question::Hover, request.id, request.offset);
     }
     for request in definitions {
-        document.ask(Question::Definition, request.id, request.offset);
+        first.ask(Question::Definition, request.id, request.offset);
     }
+    let mut listed = None;
     let mut chosen = Vec::new();
     for request in actions {
         match request {
-            ActionRequest::List { id, range } => document.ask_actions(id, range),
-            ActionRequest::Apply { id, index } => {
-                chosen.push((id, document.offered(id, index)));
+            ActionRequest::List { id, range } => {
+                for document in &documents.list {
+                    document.ask_actions(id, range.clone());
+                }
+                listed = Some(id);
             }
+            ActionRequest::Apply { id, index } => chosen.push((id, documents.offered(id, index))),
         }
     }
-    let client = Rc::clone(&document.client);
+    if let Some(id) = listed {
+        let documents = editor
+            .window_buffer_mut()
+            .local_mut::<Documents>()
+            .expect("the buffer has documents");
+        documents.gathering = Some(Gathering {
+            id,
+            menus: vec![None; documents.list.len()],
+        });
+    }
     for (id, offered) in chosen {
         let result = match offered {
-            Some((action, encoding)) => {
+            Some((client, action, encoding)) => {
                 code_action::carry_out(editor, &client, id, action, encoding, true)
             }
             None => Err("The server no longer offers it".into()),
@@ -460,62 +568,111 @@ fn send_requests(editor: &mut Editor) {
     }
 }
 
-/// Opens the buffer's file on the server for its mode; closes it first when the file or
-/// the mode changed.
+/// Opens the buffer's file on every server for its mode that could start, in the servers'
+/// order; closes it on those that no longer serve its file or mode.
 fn attach(editor: &mut Editor, index: usize, servers: &'static [LanguageServer]) {
     let buffer = &editor.buffers()[index];
-    let wanted = buffer
+    let path = buffer
         .path()
-        .filter(|_| buffer.text().len() <= MAX_SYNCED_BYTES)
-        .and_then(|path| {
-            servers.iter().find_map(|server| {
-                let language = server.language_id(buffer.mode())?;
-                Some((server, language, path.to_path_buf()))
-            })
-        });
-    let current = buffer
-        .local::<Document>()
-        .map(|document| (document.path.as_path(), document.language));
-    if wanted
-        .as_ref()
-        .map(|(_, language, path)| (path.as_path(), *language))
-        == current
+        .filter(|_| buffer.text().len() <= MAX_SYNCED_BYTES);
+    let failed = |server| {
+        editor
+            .find_plugin_state::<Clients>()
+            .is_some_and(|clients| clients.has_failed(server))
+    };
+    let wanted: Vec<_> = servers
+        .iter()
+        .filter(|server| path.is_some() && !failed(server))
+        .filter_map(|server| Some((server, server.language_id(buffer.mode())?)))
+        .collect();
+    let attached = buffer
+        .local::<Documents>()
+        .map_or(&[][..], |documents| &documents.list);
+    if attached.len() == wanted.len()
+        && attached
+            .iter()
+            .zip(&wanted)
+            .all(|(document, &(server, language))| document.serves(server, language, path))
     {
         return;
     }
+    let path = path.map(Path::to_path_buf);
     let buffer = &mut editor.buffers_mut()[index];
-    if buffer.local::<Document>().is_some() {
-        buffer.remove_local::<Document>();
-        diagnostics::clear(buffer);
+    let (mut kept, closed): (Vec<_>, Vec<_>) = buffer
+        .local_mut::<Documents>()
+        .map(mem::take)
+        .unwrap_or_default()
+        .list
+        .into_iter()
+        .partition(|document| {
+            wanted
+                .iter()
+                .any(|&(server, language)| document.serves(server, language, path.as_deref()))
+        });
+    for document in closed {
+        diagnostics::clear(buffer, document.server.name);
     }
-    let Some((server, language, path)) = wanted else {
-        return;
-    };
+    let mut list = Vec::new();
+    for (server, language) in wanted {
+        if let Some(position) = kept
+            .iter()
+            .position(|document| document.serves(server, language, path.as_deref()))
+        {
+            list.push(kept.remove(position));
+            continue;
+        }
+        let path = path.clone().expect("servers are wanted for files only");
+        if let Some(document) = open(editor, index, server, language, path) {
+            list.push(document);
+        }
+    }
+    let buffer = &mut editor.buffers_mut()[index];
+    if list.is_empty() {
+        buffer.remove_local::<Documents>();
+    } else {
+        buffer.set_local(Documents {
+            list,
+            gathering: None,
+        });
+    }
+}
+
+/// Opens buffer `index`'s file on `server`, starting it for the file's project first.
+fn open(
+    editor: &mut Editor,
+    index: usize,
+    server: &'static LanguageServer,
+    language: &'static str,
+    path: PathBuf,
+) -> Option<Document> {
     let notifier = editor.notifier();
     let client = match editor
         .plugin_state::<Clients>()
         .client_for(server, &path, notifier)
     {
-        Ok(Some(client)) => client,
-        Ok(None) => return,
-        Err(message) => return editor.set_message(message),
+        Ok(client) => client?,
+        Err(message) => {
+            editor.set_message(message);
+            return None;
+        }
     };
     let buffer = &mut editor.buffers_mut()[index];
     let text = buffer.text().snapshot();
-    let modified = buffer.is_modified();
     let modes = CodeModes {
         document: buffer.mode(),
         languages: server.languages,
     };
-    buffer.set_local(Document::open(
+    let document = Document::open(
+        server,
         client,
         path,
         language,
         modes,
         text.clone(),
-        modified,
-    ));
-    diagnostics::publish(buffer, text, Vec::new());
+        buffer.is_modified(),
+    );
+    diagnostics::publish(buffer, server.name, text, Vec::new());
+    Some(document)
 }
 
 /// The outermost directory with a root marker inside the Git work tree; else the work

@@ -1,4 +1,5 @@
 use std::cmp::Reverse;
+use std::mem;
 use std::ops::Range;
 
 use remacs_core::{Buffer, Editor, Face, Icon, Span};
@@ -49,24 +50,43 @@ impl Diagnostic {
     }
 }
 
-/// A buffer's diagnostics, sorted by position, and the text their ranges refer to.
+/// A buffer's diagnostics from all its checkers, sorted by position, and the text their
+/// ranges refer to.
 pub(crate) struct BufferDiagnostics {
     snapshot: Snapshot,
+    /// Who checks the buffer, such as language servers, even with nothing to report.
+    checkers: Vec<&'static str>,
     pub list: Vec<Diagnostic>,
+    /// The checker of each diagnostic in `list`; a report replaces only its own.
+    reporters: Vec<&'static str>,
 }
 
 impl BufferDiagnostics {
     /// Moves the ranges along with the edits made since they were reported, so they
     /// stay on their text until the checker reports again.
     fn rebase(&mut self, text: Snapshot) {
-        if let Some(edit) = text.edit_from(&self.snapshot) {
-            for diagnostic in &mut self.list {
-                let range = &diagnostic.range;
-                diagnostic.range =
-                    shift(range.start, edit, edit.start)..shift(range.end, edit, edit.new_end);
-            }
-        }
+        move_ranges(&mut self.list, &self.snapshot, &text);
         self.snapshot = text;
+    }
+
+    /// Replaces `checker`'s diagnostics; both refer to the snapshot.
+    fn replace(&mut self, checker: &'static str, diagnostics: Vec<Diagnostic>) {
+        if !self.checkers.contains(&checker) {
+            self.checkers.push(checker);
+        }
+        let mut merged: Vec<_> = mem::take(&mut self.list)
+            .into_iter()
+            .zip(mem::take(&mut self.reporters))
+            .filter(|&(_, reporter)| reporter != checker)
+            .chain(
+                diagnostics
+                    .into_iter()
+                    .map(|diagnostic| (diagnostic, checker)),
+            )
+            .collect();
+        merged
+            .sort_by_key(|(diagnostic, _)| (diagnostic.range.start, Reverse(diagnostic.severity)));
+        (self.list, self.reporters) = merged.into_iter().unzip();
     }
 
     pub fn count(&self, severity: Severity) -> usize {
@@ -77,21 +97,42 @@ impl BufferDiagnostics {
     }
 }
 
-/// Replaces the buffer's diagnostics; their ranges refer to `text`, which may be older
-/// than the buffer's text.
-pub fn publish(buffer: &mut Buffer, text: Snapshot, mut diagnostics: Vec<Diagnostic>) {
-    diagnostics.sort_by_key(|diagnostic| (diagnostic.range.start, Reverse(diagnostic.severity)));
-    let mut state = BufferDiagnostics {
-        snapshot: text,
-        list: diagnostics,
-    };
-    state.rebase(buffer.text().snapshot());
-    buffer.set_local(state);
+/// Replaces what `checker` reported for the buffer; the ranges refer to `text`, which may
+/// be older than the buffer's text. Other checkers' diagnostics stay.
+pub fn publish(
+    buffer: &mut Buffer,
+    checker: &'static str,
+    text: Snapshot,
+    mut diagnostics: Vec<Diagnostic>,
+) {
+    let current = buffer.text().snapshot();
+    move_ranges(&mut diagnostics, &text, &current);
+    if buffer.local::<BufferDiagnostics>().is_none() {
+        buffer.set_local(BufferDiagnostics {
+            snapshot: current.clone(),
+            checkers: Vec::new(),
+            list: Vec::new(),
+            reporters: Vec::new(),
+        });
+    }
+    let state = buffer
+        .local_mut::<BufferDiagnostics>()
+        .expect("the state was just set");
+    state.rebase(current);
+    state.replace(checker, diagnostics);
 }
 
-/// Forgets the buffer's diagnostics, e.g. when nothing checks it any more.
-pub fn clear(buffer: &mut Buffer) {
-    buffer.remove_local::<BufferDiagnostics>();
+/// Forgets what `checker` reported, e.g. when it no longer checks the buffer; with no
+/// checker left, the buffer has no diagnostics at all.
+pub fn clear(buffer: &mut Buffer, checker: &'static str) {
+    let Some(state) = buffer.local_mut::<BufferDiagnostics>() else {
+        return;
+    };
+    state.replace(checker, Vec::new());
+    state.checkers.retain(|&other| other != checker);
+    if state.checkers.is_empty() {
+        buffer.remove_local::<BufferDiagnostics>();
+    }
 }
 
 pub(crate) fn rebase(editor: &mut Editor) {
@@ -166,6 +207,18 @@ fn flatten(marked: &[(Range<usize>, Severity)], bounds: Range<usize>) -> Vec<Spa
         }
     }
     spans
+}
+
+/// Moves the ranges, which refer to `from`, onto `to`.
+fn move_ranges(diagnostics: &mut [Diagnostic], from: &Snapshot, to: &Snapshot) {
+    let Some(edit) = to.edit_from(from) else {
+        return;
+    };
+    for diagnostic in diagnostics {
+        let range = &diagnostic.range;
+        diagnostic.range =
+            shift(range.start, edit, edit.start)..shift(range.end, edit, edit.new_end);
+    }
 }
 
 /// Where `offset` ends up after `edit`; offsets inside the replaced text go to `inside`.

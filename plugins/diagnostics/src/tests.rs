@@ -2,9 +2,10 @@ use remacs_core::{Buffer, Editor, Face, Icon, StatusItem, parse_sequence};
 use remacs_minibuffer::MinibufferPlugin;
 use remacs_text::Text;
 
-use crate::{Diagnostic, DiagnosticsPlugin, Severity, publish};
+use crate::{Diagnostic, DiagnosticsPlugin, Severity, clear, publish};
 
 const SOURCE: &str = "fn main() {\n    point.advance(1);\n    let unused = 2;\n}\n";
+const CHECKER: &str = "rust-analyzer";
 
 fn diagnostic(source: &str, text: &str, severity: Severity) -> Diagnostic {
     let start = source.find(text).unwrap();
@@ -23,6 +24,7 @@ fn checked_editor() -> Editor {
     let text = buffer.text().snapshot();
     publish(
         buffer,
+        CHECKER,
         text,
         vec![
             diagnostic(SOURCE, "unused", Severity::Warning),
@@ -89,6 +91,7 @@ fn next_and_previous_error_skip_infos() {
     let text = buffer.text().snapshot();
     publish(
         buffer,
+        CHECKER,
         text,
         vec![
             diagnostic(SOURCE, "main", Severity::Info),
@@ -113,6 +116,7 @@ fn next_and_previous_error_skip_infos() {
     let text = buffer.text().snapshot();
     publish(
         buffer,
+        CHECKER,
         text,
         vec![diagnostic(SOURCE, "main", Severity::Info)],
     );
@@ -162,4 +166,35 @@ fn the_status_pill_counts_by_severity() {
         ]
     );
     assert!(!segment.active);
+}
+
+#[test]
+fn each_checker_replaces_and_clears_only_its_own_problems() {
+    let mut editor = checked_editor();
+    let buffer = editor.window_buffer_mut();
+    let text = buffer.text().snapshot();
+    publish(
+        buffer,
+        "oxlint",
+        text.clone(),
+        vec![diagnostic(SOURCE, "let", Severity::Warning)],
+    );
+    let ranges = |editor: &Editor| -> Vec<String> {
+        underlined(editor)
+            .into_iter()
+            .map(|(text, _)| text)
+            .collect()
+    };
+    assert_eq!(ranges(&editor), ["advance", "let", "unused"]);
+
+    let buffer = editor.window_buffer_mut();
+    publish(buffer, CHECKER, text, Vec::new());
+    assert_eq!(ranges(&editor), ["let"]);
+
+    clear(editor.window_buffer_mut(), "oxlint");
+    assert!(ranges(&editor).is_empty());
+    assert_eq!(editor.status_segments().len(), 1);
+
+    clear(editor.window_buffer_mut(), CHECKER);
+    assert!(editor.status_segments().is_empty());
 }
