@@ -17,8 +17,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use gpui::{
-    App, Application, Bounds, TextStrokes, TitlebarOptions, WindowBounds, WindowOptions, point,
-    prelude::*, px, set_text_strokes, size,
+    App, Application, Bounds, TextStrokes, TitlebarOptions, WindowBackgroundAppearance,
+    WindowBounds, WindowOptions, point, prelude::*, px, set_text_strokes, size,
 };
 use remacs_actions::ActionsPlugin;
 use remacs_completion::CompletionPlugin;
@@ -91,6 +91,7 @@ fn main() -> ExitCode {
                     appears_transparent: true,
                     traffic_light_position: Some(point(px(18.0), px(16.0))),
                 }),
+                window_background: WindowBackgroundAppearance::Blurred,
                 ..Default::default()
             };
             cx.open_window(options, |window, cx| {

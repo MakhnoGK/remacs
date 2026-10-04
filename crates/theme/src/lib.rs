@@ -83,6 +83,12 @@ pub mod color {
     pub const COMMENT: u32 = 0x989898;
 }
 
+/// Translucent surfaces over the blurred desktop or editor. Colors are `0xRRGGBBAA`.
+pub mod glass {
+    /// Over the blurred desktop, under everything in the window.
+    pub const WINDOW_TINT: u32 = 0x000000cc;
+}
+
 pub mod font {
     pub const UI: &str = "SF Pro Text";
     pub const MONO: &str = "Monaco";

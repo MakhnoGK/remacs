@@ -8,12 +8,13 @@ use futures::channel::mpsc;
 use gpui::{
     AnyElement, ClipboardItem, Context, Div, FocusHandle, IntoElement, KeyDownEvent, MouseButton,
     MouseDownEvent, ParentElement, Pixels, Render, ScrollHandle, ScrollWheelEvent, StyledText,
-    Subscription, Window, div, font, linear_color_stop, linear_gradient, prelude::*, px, rgb, rgba,
+    Subscription, Window, canvas, div, font, linear_color_stop, linear_gradient, prelude::*, px,
+    rgb, rgba,
 };
 use remacs_core::{
     Action, Code, DocBlock, Editor, Outline, Popup, Preview, PreviewBody, Scroll, StatusSegment,
 };
-use remacs_theme::{color, font};
+use remacs_theme::{color, font, glass};
 
 use crate::changes_view::render_changes;
 use crate::conflict_view::codes as conflict_codes;
@@ -468,7 +469,7 @@ impl EditorView {
             .left_0()
             .right_0()
             .h(px(HEADER_FADE_HEIGHT))
-            .bg(fade(180.0, 0.55))
+            .child(fade_to_glass(180.0, 0.55))
             .child(
                 div()
                     .h(px(TITLE_BAR_HEIGHT))
@@ -777,7 +778,7 @@ impl Render for EditorView {
             .size_full()
             .relative()
             .overflow_hidden()
-            .bg(rgb(color::BG_MAIN))
+            .bg(rgba(glass::WINDOW_TINT))
             .font_family(font::MONO)
             .text_color(rgb(color::FG_MAIN))
             .line_height(px(font::CODE_LINE_HEIGHT))
@@ -789,7 +790,7 @@ impl Render for EditorView {
                     .left_0()
                     .right_0()
                     .h(px(FOOTER_FADE_HEIGHT))
-                    .bg(fade(0.0, 0.0)),
+                    .child(fade_to_glass(0.0, 0.0)),
             )
             .children(hints)
             .children(status_below_scrim)
@@ -801,11 +802,20 @@ impl Render for EditorView {
     }
 }
 
-/// Black fading to transparent along `angle`, solid until `solid_until` (0..1).
-fn fade(angle: f32, solid_until: f32) -> gpui::Background {
-    linear_gradient(
+/// Dissolves what is under it into the window's glass along `angle`, entirely until
+/// `solid_until` (0..1), then less and less.
+fn fade_to_glass(angle: f32, solid_until: f32) -> impl IntoElement {
+    let amount = linear_gradient(
         angle,
-        linear_color_stop(hsla(color::BG_MAIN), solid_until),
+        linear_color_stop(hsla(0x000000), solid_until),
         linear_color_stop(rgba(0x00000000), 1.0),
+    );
+    canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            window.paint_fade(bounds, amount, rgba(glass::WINDOW_TINT).into())
+        },
     )
+    .absolute()
+    .size_full()
 }

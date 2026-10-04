@@ -1,0 +1,37 @@
+# 0035 — Glass: translucent window and surfaces
+
+Status: accepted, 2026-10-05 (issue #3; extended step by step)
+
+## Decision
+
+- **Window (board 22)**: the window is `WindowBackgroundAppearance::Blurred` and the
+  editor's root is tinted `glass::WINDOW_TINT` (`rgba(0,0,0,0.8)`) instead of opaque black.
+  The corners are the system's; a titled window's radius cannot be set.
+- **gpui's blur view uses `UnderWindowBackground`**: on macOS 27 the `Selection` material
+  gpui chose is a flat fill with no backdrop blur, which gpui then strips, leaving the
+  desktop sharp. gpui still removes the material's tint and saturation, so the blur is plain.
+- **Backdrop blur in the vendored gpui** (`Styled::backdrop_filter(radius, saturation)`,
+  `Window::paint_backdrop_filter`): CSS `backdrop-filter: blur() saturate()` for what the
+  window itself draws; the desktop under the window is the window server's. A new
+  `BackdropBlur` primitive ends the render pass, copies the drawable around its bounds (so
+  the layer is no longer `framebufferOnly`), blurs the copy with MPS `MPSImageGaussianBlur`
+  (edges clamped) and draws it back saturated and clipped to the rounded bounds. It takes its
+  draw order from its bounds grown by 3σ, so it comes after everything it samples.
+- **Fades into the glass** (`Window::paint_fade(bounds, amount, color)`): mixes what is
+  drawn toward a color by a gradient's alpha. The header and footer dissolve the text into
+  `WINDOW_TINT`, as the board's mask does, instead of covering it with black.
+- **Both mix with dual-source blending**: `dst = color · m + dst · (1 − m)`; a plain quad
+  cannot, since "over" always raises alpha.
+- **gpui blends alpha "over"** (`1 − src_alpha`) instead of adding it up, which made any
+  translucent element opaque on a translucent window and hid the desktop under it.
+
+## Consequences
+
+- Each blur is a render pass break, a copy and an MPS blur per frame; its two textures are
+  allocated per blur and frame.
+- Changes to the vendored gpui: `scene.rs`, `window.rs`, `style.rs`, `styled.rs`,
+  `build.rs`, `platform/mac/{metal_renderer.rs, shaders.metal, window.rs}`.
+
+## Open
+
+- Steps 3 and 4: glass for the popups, hint at point, side panel, modal and status pill.

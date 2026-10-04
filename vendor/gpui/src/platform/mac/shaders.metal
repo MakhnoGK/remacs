@@ -886,6 +886,108 @@ fragment float4 surface_fragment(SurfaceFragmentInput input [[stage_in]],
   return ycbcrToRGBTransform * ycbcr;
 }
 
+struct BackdropBlurVertexOutput {
+  float4 position [[position]];
+  float clip_distance [[clip_distance]][4];
+};
+
+struct BackdropBlurFragmentInput {
+  float4 position [[position]];
+};
+
+// Dual-source blending mixes what is drawn toward a premultiplied color:
+// dst = color * amount + dst * (1 - amount), `color` already multiplied by `amount`.
+struct MixFragmentOutput {
+  float4 color [[color(0), index(0)]];
+  float4 amount [[color(0), index(1)]];
+};
+
+vertex BackdropBlurVertexOutput backdrop_blur_vertex(
+    uint unit_vertex_id [[vertex_id]],
+    constant float2 *unit_vertices [[buffer(BackdropBlurInputIndex_Vertices)]],
+    constant BackdropBlur *blur [[buffer(BackdropBlurInputIndex_BackdropBlur)]],
+    constant Size_DevicePixels *viewport_size
+    [[buffer(BackdropBlurInputIndex_ViewportSize)]]) {
+  float2 unit_vertex = unit_vertices[unit_vertex_id];
+  float4 device_position =
+      to_device_position(unit_vertex, blur->bounds, viewport_size);
+  float4 clip_distance = distance_from_clip_rect(unit_vertex, blur->bounds,
+                                                 blur->content_mask.bounds);
+  return BackdropBlurVertexOutput{
+      device_position,
+      {clip_distance.x, clip_distance.y, clip_distance.z, clip_distance.w}};
+}
+
+fragment MixFragmentOutput backdrop_blur_fragment(
+    BackdropBlurFragmentInput input [[stage_in]],
+    constant BackdropBlur *blur [[buffer(BackdropBlurInputIndex_BackdropBlur)]],
+    constant float2 *texture_origin
+    [[buffer(BackdropBlurInputIndex_TextureOrigin)]],
+    texture2d<float> blurred [[texture(BackdropBlurInputIndex_Texture)]]) {
+  constexpr sampler pixel_sampler(coord::pixel, address::clamp_to_edge,
+                                  filter::nearest);
+  float4 color = blurred.sample(pixel_sampler, input.position.xy - *texture_origin);
+  // CSS saturate(): Rec. 709 luma, applied to the premultiplied color.
+  float luma = dot(color.rgb, float3(0.2126, 0.7152, 0.0722));
+  color.rgb = clamp(mix(float3(luma), color.rgb, blur->saturation), 0.0, color.a);
+  float coverage =
+      saturate(0.5 - quad_sdf(input.position.xy, blur->bounds, blur->corner_radii));
+  return MixFragmentOutput{color * coverage, float4(coverage)};
+}
+
+struct FadeVertexOutput {
+  uint fade_id [[flat]];
+  float4 position [[position]];
+  float4 amount_solid [[flat]];
+  float4 amount_color0 [[flat]];
+  float4 amount_color1 [[flat]];
+  float clip_distance [[clip_distance]][4];
+};
+
+struct FadeFragmentInput {
+  uint fade_id [[flat]];
+  float4 position [[position]];
+  float4 amount_solid [[flat]];
+  float4 amount_color0 [[flat]];
+  float4 amount_color1 [[flat]];
+};
+
+vertex FadeVertexOutput fade_vertex(
+    uint unit_vertex_id [[vertex_id]], uint fade_id [[instance_id]],
+    constant float2 *unit_vertices [[buffer(FadeInputIndex_Vertices)]],
+    constant Fade *fades [[buffer(FadeInputIndex_Fades)]],
+    constant Size_DevicePixels *viewport_size
+    [[buffer(FadeInputIndex_ViewportSize)]]) {
+  float2 unit_vertex = unit_vertices[unit_vertex_id];
+  Fade fade = fades[fade_id];
+  float4 device_position =
+      to_device_position(unit_vertex, fade.bounds, viewport_size);
+  float4 clip_distance = distance_from_clip_rect(unit_vertex, fade.bounds,
+                                                 fade.content_mask.bounds);
+  GradientColor amount = prepare_fill_color(
+      fade.amount.tag, fade.amount.color_space, fade.amount.solid,
+      fade.amount.colors[0].color, fade.amount.colors[1].color);
+  return FadeVertexOutput{
+      fade_id,
+      device_position,
+      amount.solid,
+      amount.color0,
+      amount.color1,
+      {clip_distance.x, clip_distance.y, clip_distance.z, clip_distance.w}};
+}
+
+fragment MixFragmentOutput fade_fragment(
+    FadeFragmentInput input [[stage_in]],
+    constant Fade *fades [[buffer(FadeInputIndex_Fades)]]) {
+  Fade fade = fades[input.fade_id];
+  float amount = fill_color(fade.amount, input.position.xy, fade.bounds,
+                            input.amount_solid, input.amount_color0,
+                            input.amount_color1).a;
+  float4 color = hsla_to_rgba(fade.color);
+  return MixFragmentOutput{float4(color.rgb * color.a, color.a) * amount,
+                           float4(amount)};
+}
+
 float4 hsla_to_rgba(Hsla hsla) {
   float h = hsla.h * 6.0; // Now, it's an angle but scaled in [0, 6) range
   float s = hsla.s;

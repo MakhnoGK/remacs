@@ -32,6 +32,8 @@ pub(crate) struct Scene {
     pub(crate) monochrome_sprites: Vec<MonochromeSprite>,
     pub(crate) polychrome_sprites: Vec<PolychromeSprite>,
     pub(crate) surfaces: Vec<PaintSurface>,
+    pub(crate) backdrop_blurs: Vec<BackdropBlur>,
+    pub(crate) fades: Vec<Fade>,
 }
 
 impl Scene {
@@ -46,6 +48,8 @@ impl Scene {
         self.monochrome_sprites.clear();
         self.polychrome_sprites.clear();
         self.surfaces.clear();
+        self.backdrop_blurs.clear();
+        self.fades.clear();
     }
 
     pub fn len(&self) -> usize {
@@ -74,11 +78,16 @@ impl Scene {
             return;
         }
 
+        // A blur reads the pixels around its bounds too: order it after everything it samples.
+        let ordered_bounds = match &primitive {
+            Primitive::BackdropBlur(blur) => clipped_bounds.dilate(blur.sampled_margin()),
+            _ => clipped_bounds,
+        };
         let order = self
             .layer_stack
             .last()
             .copied()
-            .unwrap_or_else(|| self.primitive_bounds.insert(clipped_bounds));
+            .unwrap_or_else(|| self.primitive_bounds.insert(ordered_bounds));
         match &mut primitive {
             Primitive::Shadow(shadow) => {
                 shadow.order = order;
@@ -109,6 +118,14 @@ impl Scene {
                 surface.order = order;
                 self.surfaces.push(surface.clone());
             }
+            Primitive::BackdropBlur(blur) => {
+                blur.order = order;
+                self.backdrop_blurs.push(blur.clone());
+            }
+            Primitive::Fade(fade) => {
+                fade.order = order;
+                self.fades.push(fade.clone());
+            }
         }
         self.paint_operations
             .push(PaintOperation::Primitive(primitive));
@@ -134,6 +151,8 @@ impl Scene {
         self.polychrome_sprites
             .sort_by_key(|sprite| (sprite.order, sprite.tile.tile_id));
         self.surfaces.sort_by_key(|surface| surface.order);
+        self.backdrop_blurs.sort_by_key(|blur| blur.order);
+        self.fades.sort_by_key(|fade| fade.order);
     }
 
     #[cfg_attr(
@@ -166,6 +185,12 @@ impl Scene {
             surfaces: &self.surfaces,
             surfaces_start: 0,
             surfaces_iter: self.surfaces.iter().peekable(),
+            backdrop_blurs: &self.backdrop_blurs,
+            backdrop_blurs_start: 0,
+            backdrop_blurs_iter: self.backdrop_blurs.iter().peekable(),
+            fades: &self.fades,
+            fades_start: 0,
+            fades_iter: self.fades.iter().peekable(),
         }
     }
 }
@@ -187,6 +212,8 @@ pub(crate) enum PrimitiveKind {
     MonochromeSprite,
     PolychromeSprite,
     Surface,
+    BackdropBlur,
+    Fade,
 }
 
 pub(crate) enum PaintOperation {
@@ -204,6 +231,8 @@ pub(crate) enum Primitive {
     MonochromeSprite(MonochromeSprite),
     PolychromeSprite(PolychromeSprite),
     Surface(PaintSurface),
+    BackdropBlur(BackdropBlur),
+    Fade(Fade),
 }
 
 impl Primitive {
@@ -216,6 +245,8 @@ impl Primitive {
             Primitive::MonochromeSprite(sprite) => &sprite.bounds,
             Primitive::PolychromeSprite(sprite) => &sprite.bounds,
             Primitive::Surface(surface) => &surface.bounds,
+            Primitive::BackdropBlur(blur) => &blur.bounds,
+            Primitive::Fade(fade) => &fade.bounds,
         }
     }
 
@@ -228,6 +259,8 @@ impl Primitive {
             Primitive::MonochromeSprite(sprite) => &sprite.content_mask,
             Primitive::PolychromeSprite(sprite) => &sprite.content_mask,
             Primitive::Surface(surface) => &surface.content_mask,
+            Primitive::BackdropBlur(blur) => &blur.content_mask,
+            Primitive::Fade(fade) => &fade.content_mask,
         }
     }
 }
@@ -261,6 +294,12 @@ struct BatchIterator<'a> {
     surfaces: &'a [PaintSurface],
     surfaces_start: usize,
     surfaces_iter: Peekable<slice::Iter<'a, PaintSurface>>,
+    backdrop_blurs: &'a [BackdropBlur],
+    backdrop_blurs_start: usize,
+    backdrop_blurs_iter: Peekable<slice::Iter<'a, BackdropBlur>>,
+    fades: &'a [Fade],
+    fades_start: usize,
+    fades_iter: Peekable<slice::Iter<'a, Fade>>,
 }
 
 impl<'a> Iterator for BatchIterator<'a> {
@@ -290,6 +329,11 @@ impl<'a> Iterator for BatchIterator<'a> {
                 self.surfaces_iter.peek().map(|s| s.order),
                 PrimitiveKind::Surface,
             ),
+            (
+                self.backdrop_blurs_iter.peek().map(|b| b.order),
+                PrimitiveKind::BackdropBlur,
+            ),
+            (self.fades_iter.peek().map(|f| f.order), PrimitiveKind::Fade),
         ];
         orders_and_kinds.sort_by_key(|(order, kind)| (order.unwrap_or(u32::MAX), *kind));
 
@@ -420,6 +464,36 @@ impl<'a> Iterator for BatchIterator<'a> {
                     &self.surfaces[surfaces_start..surfaces_end],
                 ))
             }
+            PrimitiveKind::BackdropBlur => {
+                let blurs_start = self.backdrop_blurs_start;
+                let mut blurs_end = blurs_start + 1;
+                self.backdrop_blurs_iter.next();
+                while self
+                    .backdrop_blurs_iter
+                    .next_if(|blur| (blur.order, batch_kind) < max_order_and_kind)
+                    .is_some()
+                {
+                    blurs_end += 1;
+                }
+                self.backdrop_blurs_start = blurs_end;
+                Some(PrimitiveBatch::BackdropBlurs(
+                    &self.backdrop_blurs[blurs_start..blurs_end],
+                ))
+            }
+            PrimitiveKind::Fade => {
+                let fades_start = self.fades_start;
+                let mut fades_end = fades_start + 1;
+                self.fades_iter.next();
+                while self
+                    .fades_iter
+                    .next_if(|fade| (fade.order, batch_kind) < max_order_and_kind)
+                    .is_some()
+                {
+                    fades_end += 1;
+                }
+                self.fades_start = fades_end;
+                Some(PrimitiveBatch::Fades(&self.fades[fades_start..fades_end]))
+            }
         }
     }
 }
@@ -446,6 +520,51 @@ pub(crate) enum PrimitiveBatch<'a> {
         sprites: &'a [PolychromeSprite],
     },
     Surfaces(&'a [PaintSurface]),
+    BackdropBlurs(&'a [BackdropBlur]),
+    Fades(&'a [Fade]),
+}
+
+/// Mixes what was painted under `bounds` toward `color`, by the alpha of `amount` at each pixel.
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub(crate) struct Fade {
+    pub order: DrawOrder,
+    pub bounds: Bounds<ScaledPixels>,
+    pub content_mask: ContentMask<ScaledPixels>,
+    pub amount: Background,
+    pub color: Hsla,
+}
+
+impl From<Fade> for Primitive {
+    fn from(fade: Fade) -> Self {
+        Primitive::Fade(fade)
+    }
+}
+
+/// Blurs and saturates what was painted under `bounds`, like CSS `backdrop-filter`.
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub(crate) struct BackdropBlur {
+    pub order: DrawOrder,
+    /// The standard deviation of the Gaussian, as in CSS `blur()`.
+    pub blur_radius: ScaledPixels,
+    pub bounds: Bounds<ScaledPixels>,
+    pub corner_radii: Corners<ScaledPixels>,
+    pub content_mask: ContentMask<ScaledPixels>,
+    pub saturation: f32,
+}
+
+impl BackdropBlur {
+    /// How far past its bounds the Gaussian reaches noticeably.
+    pub fn sampled_margin(&self) -> ScaledPixels {
+        ScaledPixels(self.blur_radius.0 * 3.0)
+    }
+}
+
+impl From<BackdropBlur> for Primitive {
+    fn from(blur: BackdropBlur) -> Self {
+        Primitive::BackdropBlur(blur)
+    }
 }
 
 #[derive(Default, Debug, Clone)]

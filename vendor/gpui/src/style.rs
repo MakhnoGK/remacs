@@ -251,6 +251,9 @@ pub struct Style {
     /// Box shadow of the element
     pub box_shadow: Vec<BoxShadow>,
 
+    /// Blurs what is painted behind the element; macOS only.
+    pub backdrop_filter: Option<BackdropFilter>,
+
     /// The text style of this element
     pub text: TextStyleRefinement,
 
@@ -314,6 +317,15 @@ pub struct BoxShadow {
     pub blur_radius: Pixels,
     /// How much should the shadow spread?
     pub spread_radius: Pixels,
+}
+
+/// CSS `backdrop-filter: blur() saturate()`: what is painted behind an element, blurred.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct BackdropFilter {
+    /// The standard deviation of the Gaussian, as in CSS `blur()`.
+    pub blur_radius: Pixels,
+    /// 1 keeps the colors, more than 1 saturates them, as in CSS `saturate()`.
+    pub saturation: f32,
 }
 
 /// How to handle whitespace in text
@@ -625,6 +637,9 @@ impl Style {
             .clamp_radii_for_quad_size(bounds.size);
 
         window.paint_shadows(bounds, corner_radii, &self.box_shadow);
+        if let Some(filter) = self.backdrop_filter {
+            window.paint_backdrop_filter(bounds, corner_radii, filter);
+        }
 
         let background_color = self.background.as_ref().and_then(Fill::color);
         if background_color.is_some_and(|color| !color.is_transparent()) {
@@ -766,6 +781,7 @@ impl Default for Style {
             border_style: BorderStyle::default(),
             corner_radii: Corners::default(),
             box_shadow: Default::default(),
+            backdrop_filter: None,
             text: TextStyleRefinement::default(),
             mouse_cursor: None,
             opacity: None,

@@ -143,6 +143,10 @@ mod macos {
             "PathSprite".into(),
             "SurfaceInputIndex".into(),
             "SurfaceBounds".into(),
+            "BackdropBlurInputIndex".into(),
+            "BackdropBlur".into(),
+            "FadeInputIndex".into(),
+            "Fade".into(),
             "TransformationMatrix".into(),
         ]);
         config.no_includes = true;
