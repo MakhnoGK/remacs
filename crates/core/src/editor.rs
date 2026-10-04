@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::io;
 use std::mem;
 use std::ops::Range;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, PoisonError, RwLock};
 
@@ -22,6 +22,7 @@ use crate::plugin::{Plugin, Registry};
 use crate::popup::Popup;
 use crate::status::StatusSegment;
 use crate::table::{Action, Table};
+use crate::vc::{FileStatus, VersionControl};
 use crate::viewport::Viewport;
 
 pub const SELF_INSERT_COMMAND: &str = "self-insert-command";
@@ -549,7 +550,38 @@ impl Editor {
         self.registry
             .tables
             .iter()
-            .find_map(|describe| describe(self.window_buffer(), lines.clone()))
+            .find_map(|describe| describe(self, lines.clone()))
+    }
+
+    /// The version control keeping `path`, if any.
+    pub fn version_control(&self, path: &Path) -> Option<Rc<dyn VersionControl>> {
+        self.registry
+            .version_controls
+            .iter()
+            .find(|control| control.controls(self, path))
+            .cloned()
+    }
+
+    /// How `path` differs from the last commit, if version control knows.
+    pub fn file_status(&self, path: &Path) -> Option<FileStatus> {
+        self.version_control(path)?.status(self, path)
+    }
+
+    /// Tells version control of files moved, from and to, as its move command would.
+    pub fn record_moves(&mut self, moves: &[(PathBuf, PathBuf)]) {
+        for control in self.registry.version_controls.clone() {
+            let kept: Vec<_> = moves
+                .iter()
+                .filter(|(from, _)| {
+                    self.version_control(from)
+                        .is_some_and(|keeper| Rc::ptr_eq(&keeper, &control))
+                })
+                .cloned()
+                .collect();
+            if !kept.is_empty() {
+                control.record_moves(self, &kept);
+            }
+        }
     }
 
     /// Faces for `range` of the window buffer, one sorted list per decorator.

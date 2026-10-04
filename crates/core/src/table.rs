@@ -1,11 +1,11 @@
 use std::ops::Range;
 use std::rc::Rc;
 
-use crate::buffer::Buffer;
 use crate::command::CommandResult;
 use crate::completion::Icon;
 use crate::editor::Editor;
 use crate::popup::Code;
+use crate::vc::{FileState, FileStatus};
 
 /// What a click on a table's control does to the window buffer.
 pub type Action = Rc<dyn Fn(&mut Editor) -> CommandResult>;
@@ -78,6 +78,8 @@ pub struct Preview {
     pub body: PreviewBody,
     /// Labels and values under the body, e.g. the size.
     pub details: Vec<(&'static str, String)>,
+    /// What version control, by name, says of it: beside the title and after the details.
+    pub version: Option<(&'static str, FileStatus)>,
 }
 
 pub enum PreviewBody {
@@ -119,6 +121,8 @@ pub enum CellStyle {
     Label,
     /// Like `Figure`, fainter.
     Faint,
+    /// The row's version control state as a letter, colored by it.
+    State,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -130,6 +134,8 @@ pub struct Row {
     pub face: RowFace,
     /// The first cell is a text field while the rows are edited in place.
     pub field: Option<Field>,
+    /// How the row's file differs from the last commit, for a `State` column.
+    pub state: Option<FileState>,
 }
 
 /// An editable first cell; its text is the row's line, with point's cursor and region.
@@ -157,5 +163,5 @@ pub enum RowFace {
     Dim,
 }
 
-/// Describes `lines` of a buffer as a table, if the plugin draws that buffer.
-pub type TableProvider = Rc<dyn Fn(&Buffer, Range<usize>) -> Option<Table>>;
+/// Describes `lines` of the window buffer as a table, if the plugin draws that buffer.
+pub type TableProvider = Rc<dyn Fn(&Editor, Range<usize>) -> Option<Table>>;

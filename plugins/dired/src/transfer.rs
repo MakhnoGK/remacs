@@ -48,10 +48,13 @@ struct Transfer {
     what: String,
     moving: bool,
     overwrite: bool,
+    /// Whether version control is told of the moves.
+    record_moves: bool,
 }
 
-/// Reads where to put the files; `M-m` switches between copying and moving, `M-o`
-/// whether files already there are replaced.
+/// Reads where to put the files; `M-m` switches between copying and moving, `M-g` in
+/// a working tree whether version control is told of a move, `M-o` whether files already
+/// there are replaced.
 fn read_destination(editor: &mut Editor, moving: bool) -> CommandResult {
     let buffer = editor.window_buffer();
     let directory = buffer
@@ -61,6 +64,28 @@ fn read_destination(editor: &mut Editor, moving: bool) -> CommandResult {
     let (sources, marked) = marked_or_at_point(buffer)?;
     let moving = Rc::new(Cell::new(moving));
     let overwrite = Rc::new(Cell::new(false));
+    let record_moves = Rc::new(Cell::new(true));
+    let record_option = editor
+        .version_control(&directory)
+        .map(|control| PromptOption {
+            key: 'g',
+            labels: vec![format!("Move with {}", control.move_command())],
+            state: Rc::clone(&record_moves),
+            shown_while: Some(Rc::clone(&moving)),
+        });
+    let mut options = vec![PromptOption {
+        key: 'm',
+        labels: vec!["Copy".into(), "Move".into()],
+        state: Rc::clone(&moving),
+        shown_while: None,
+    }];
+    options.extend(record_option);
+    options.push(PromptOption {
+        key: 'o',
+        labels: vec!["Overwrite existing".into()],
+        state: Rc::clone(&overwrite),
+        shown_while: None,
+    });
     let bytes: u64 = sources
         .iter()
         .filter(|entry| !entry.is_directory)
@@ -72,18 +97,7 @@ fn read_destination(editor: &mut Editor, moving: bool) -> CommandResult {
         category: DESTINATION_CATEGORY,
         initial_input: with_slash(&abbreviate_home(&directory)),
         hints: MOVE_HINTS,
-        options: vec![
-            PromptOption {
-                key: 'm',
-                labels: &["Copy", "Move"],
-                state: Rc::clone(&moving),
-            },
-            PromptOption {
-                key: 'o',
-                labels: &["Overwrite existing"],
-                state: Rc::clone(&overwrite),
-            },
-        ],
+        options,
         subject: describe_entries(&sources, if marked { "marked " } else { "" }),
         items: sources
             .iter()
@@ -117,6 +131,7 @@ fn read_destination(editor: &mut Editor, moving: bool) -> CommandResult {
             what,
             moving: moving.get(),
             overwrite: overwrite.get(),
+            record_moves: record_moves.get(),
         };
         start(editor, transfer, &answer)
     })
@@ -201,7 +216,9 @@ fn start(editor: &mut Editor, transfer: Transfer, answer: &str) -> CommandResult
         what,
         moving,
         overwrite,
+        record_moves,
     } = transfer;
+    let record_moves = moving && record_moves;
     let destination = directory.join(expand_home(answer));
     let into = destination.is_dir() || answer.ends_with('/') || names.len() > 1;
     let pairs: Vec<(PathBuf, PathBuf)> = names
@@ -275,6 +292,7 @@ fn start(editor: &mut Editor, transfer: Transfer, answer: &str) -> CommandResult
         Report {
             directories: vec![directory, target_directory],
             moved,
+            record_moves,
             message,
         }
     });

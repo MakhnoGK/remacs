@@ -35,6 +35,8 @@ pub struct Editing {
     pub references: References,
     /// Whether applying also updates references to the renamed files.
     pub update_references: bool,
+    /// Whether version control is told of the renames.
+    pub record_moves: bool,
 }
 
 impl Default for Editing {
@@ -42,6 +44,7 @@ impl Default for Editing {
         Self {
             references: References::default(),
             update_references: true,
+            record_moves: true,
         }
     }
 }
@@ -113,7 +116,7 @@ pub fn apply(editor: &mut Editor) -> CommandResult {
     let updated = update_references(editor, updates)?;
     let buffer = editor.window_buffer_mut();
     let renamed = rename_entries(buffer, &renames);
-    stop_editing(buffer)?;
+    let record_moves = stop_editing(buffer)?.record_moves;
     let what = match renames.as_slice() {
         [] => {
             editor.set_message("No changes to apply");
@@ -136,6 +139,7 @@ pub fn apply(editor: &mut Editor) -> CommandResult {
         Report {
             directories: vec![directory],
             moved,
+            record_moves,
             message,
         }
     });
@@ -190,6 +194,13 @@ pub fn toggle_reference_updates(editor: &mut Editor) -> CommandResult {
     Ok(())
 }
 
+/// Switches whether applying tells version control of the renames.
+pub fn toggle_move_recording(editor: &mut Editor) -> CommandResult {
+    let editing = editing_mut(editor.window_buffer_mut())?;
+    editing.record_moves = !editing.record_moves;
+    Ok(())
+}
+
 /// Keeps one name per line and `..` as it is by undoing a command that changed that, then
 /// asks about the references the renames would update. Runs after every command.
 pub fn after_command(editor: &mut Editor) {
@@ -215,7 +226,8 @@ pub fn status(editor: &Editor) -> Option<StatusSegment> {
 }
 
 /// The renames so far and what they would update elsewhere.
-pub fn changes(buffer: &Buffer, editing: &Editing) -> Changes {
+pub fn changes(editor: &Editor, editing: &Editing) -> Changes {
+    let buffer = editor.window_buffer();
     let renames = edited_names(buffer);
     let summary = match renames.len() {
         0 => "None yet".to_owned(),
@@ -249,14 +261,21 @@ pub fn changes(buffer: &Buffer, editing: &Editing) -> Changes {
         State::Known { diffs, .. } => Elsewhere::Files(diffs.clone()),
         _ => Elsewhere::Checking,
     };
-    let options = has_updates
-        .then(|| Button {
-            label: "Update references".into(),
-            selected: editing.update_references,
-            action: Rc::new(toggle_reference_updates),
-        })
-        .into_iter()
-        .collect();
+    let record_option = buffer
+        .default_directory()
+        .filter(|_| !renames.is_empty())
+        .and_then(|directory| editor.version_control(directory))
+        .map(|control| Button {
+            label: format!("Rename with {}", control.move_command()),
+            selected: editing.record_moves,
+            action: Rc::new(toggle_move_recording),
+        });
+    let references_option = has_updates.then(|| Button {
+        label: "Update references".into(),
+        selected: editing.update_references,
+        action: Rc::new(toggle_reference_updates),
+    });
+    let options = record_option.into_iter().chain(references_option).collect();
     Changes {
         summary,
         edits,

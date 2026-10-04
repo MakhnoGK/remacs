@@ -64,9 +64,12 @@ pub struct Prompt {
 pub struct PromptOption {
     pub key: char,
     /// Off, then on: two labels make a switch between them, one a chip lit while on.
-    pub labels: &'static [&'static str],
+    pub labels: Vec<String>,
     /// Shared with the code that reads the prompt, which sees it as it is.
     pub state: Rc<Cell<bool>>,
+    /// Shown, and switched, only while this other state is on, e.g. a setting of moving
+    /// while the prompt moves rather than copies.
+    pub shown_while: Option<Rc<Cell<bool>>>,
 }
 
 impl PromptOption {
@@ -76,6 +79,10 @@ impl PromptOption {
 
     pub fn is_on(&self) -> bool {
         self.state.get()
+    }
+
+    pub fn is_shown(&self) -> bool {
+        self.shown_while.as_ref().is_none_or(|state| state.get())
     }
 }
 
@@ -229,16 +236,20 @@ impl Minibuffer {
         self.completions.hints.unwrap_or(self.prompt.hints)
     }
 
-    /// The prompt option `M-key` switches.
+    /// The shown prompt option `M-key` switches.
     pub(crate) fn option_for_key(&self, key: Key) -> Option<usize> {
-        self.prompt
-            .options
-            .iter()
-            .position(|option| Key::parse(&format!("M-{}", option.key)) == Some(key))
+        self.prompt.options.iter().position(|option| {
+            option.is_shown() && Key::parse(&format!("M-{}", option.key)) == Some(key)
+        })
     }
 
     pub(crate) fn toggle_prompt_option(&self, index: usize) {
-        if let Some(option) = self.prompt.options.get(index) {
+        if let Some(option) = self
+            .prompt
+            .options
+            .get(index)
+            .filter(|option| option.is_shown())
+        {
             option.state.set(!option.state.get());
         }
     }

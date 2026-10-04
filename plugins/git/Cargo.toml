@@ -1,0 +1,21 @@
+[package]
+name = "remacs-git"
+description = "Built-in plugin: Git working trees, their status and history, like Emacs magit"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+ignore.workspace = true
+notify.workspace = true
+remacs-core.workspace = true
+
+[dev-dependencies]
+remacs-dired.workspace = true
+remacs-editing.workspace = true
+remacs-files.workspace = true
+remacs-minibuffer.workspace = true
+
+[lints]
+workspace = true

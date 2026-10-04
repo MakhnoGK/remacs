@@ -3877,6 +3877,7 @@ dependencies = [
  "remacs-documentation",
  "remacs-editing",
  "remacs-files",
+ "remacs-git",
  "remacs-languages",
  "remacs-lsp",
  "remacs-minibuffer",
@@ -3952,6 +3953,19 @@ dependencies = [
  "remacs-editing",
  "remacs-minibuffer",
  "remacs-text",
+]
+
+[[package]]
+name = "remacs-git"
+version = "0.1.0"
+dependencies = [
+ "ignore",
+ "notify",
+ "remacs-core",
+ "remacs-dired",
+ "remacs-editing",
+ "remacs-files",
+ "remacs-minibuffer",
 ]
 
 [[package]]

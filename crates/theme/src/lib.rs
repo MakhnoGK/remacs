@@ -46,6 +46,12 @@ pub mod color {
     pub const BG_REMOVED: u32 = 0x4f1119;
     pub const FG_REMOVED: u32 = 0xffbfbf;
 
+    /// Version control: new files and added lines.
+    pub const VC_ADDED: u32 = 0x44bc44;
+    pub const VC_MODIFIED: u32 = 0x79a8ff;
+    /// Deleted files and removed lines.
+    pub const VC_REMOVED: u32 = 0xff7f86;
+
     pub const KEYWORD: u32 = 0xb6a0ff;
     pub const TYPE: u32 = 0x6ae4b9;
     pub const FUNCTION: u32 = 0xfeacd0;

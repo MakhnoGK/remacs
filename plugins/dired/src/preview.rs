@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use remacs_core::{
-    Buffer, Code, Editor, FUNDAMENTAL_MODE, Notifier, Preview, PreviewBody, PreviewItem,
+    Buffer, Code, Editor, FUNDAMENTAL_MODE, FileStatus, Notifier, Preview, PreviewBody, PreviewItem,
 };
 use remacs_files::abbreviate_home;
 
@@ -61,7 +61,12 @@ pub fn sync(editor: &mut Editor) {
 }
 
 /// The preview of `entry` of the listing of `directory`.
-pub fn describe(listing: &Listing, directory: &Path, entry: &Entry) -> Option<Preview> {
+pub fn describe(
+    editor: &Editor,
+    listing: &Listing,
+    directory: &Path,
+    entry: &Entry,
+) -> Option<Preview> {
     let path = entry_path(directory, entry)?;
     let contents = listing.preview.contents.as_ref().filter(|contents| {
         let request = &contents.request;
@@ -108,7 +113,21 @@ pub fn describe(listing: &Listing, directory: &Path, entry: &Entry) -> Option<Pr
             ("Modified", full_modified_label(entry.modified)),
             ("Permissions", entry.permissions.clone()),
         ],
+        version: version_status(editor, &path, entry),
     })
+}
+
+/// What version control says of the entry, unless it is the parent directory.
+fn version_status(
+    editor: &Editor,
+    path: &Path,
+    entry: &Entry,
+) -> Option<(&'static str, FileStatus)> {
+    if entry.name == PARENT {
+        return None;
+    }
+    let control = editor.version_control(path)?;
+    Some((control.name(), control.status(editor, path)?))
 }
 
 fn entry_path_at_point(buffer: &Buffer) -> Option<(PathBuf, &Entry)> {

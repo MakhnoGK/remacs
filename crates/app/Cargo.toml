@@ -26,6 +26,7 @@ remacs-dired.workspace = true
 remacs-documentation.workspace = true
 remacs-editing.workspace = true
 remacs-files.workspace = true
+remacs-git.workspace = true
 remacs-languages.workspace = true
 remacs-lsp.workspace = true
 remacs-minibuffer.workspace = true

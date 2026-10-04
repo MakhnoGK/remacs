@@ -8,6 +8,7 @@ use crate::mode::Modes;
 use crate::popup::{CodeHighlighter, PopupProvider};
 use crate::status::StatusProvider;
 use crate::table::TableProvider;
+use crate::vc::VersionControl;
 
 pub type Hook = Rc<dyn Fn(&mut Editor)>;
 
@@ -38,6 +39,8 @@ pub struct Registry {
     pub code_highlighters: Vec<CodeHighlighter>,
     /// Draw buffers as tables; the first that knows the buffer does.
     pub tables: Vec<TableProvider>,
+    /// For each file, the first that controls it.
+    pub version_controls: Vec<Rc<dyn VersionControl>>,
 }
 
 pub trait Plugin {

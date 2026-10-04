@@ -1,11 +1,11 @@
 use std::ops::Range;
 
-use gpui::{Div, ParentElement, StyledText, div, prelude::*, px, rgb, rgba};
-use remacs_core::{Code, Preview, PreviewBody, PreviewItem, RowFace};
+use gpui::{Div, HighlightStyle, ParentElement, StyledText, div, prelude::*, px, rgb, rgba};
+use remacs_core::{Code, FileStatus, Preview, PreviewBody, PreviewItem, RowFace};
 use remacs_theme::{color, font};
 
 use crate::highlights::Highlights;
-use crate::widgets::icon;
+use crate::widgets::{hsla, icon, state_color, state_letter};
 
 pub const PREVIEW_WIDTH: f32 = 440.0;
 const PADDING: f32 = 8.0;
@@ -22,6 +22,7 @@ pub fn render_preview(preview: Preview, code_faces: &dyn Fn(&Code) -> Highlights
         kind,
         body,
         details,
+        version,
     } = preview;
     let header = div()
         .flex()
@@ -33,13 +34,14 @@ pub fn render_preview(preview: Preview, code_faces: &dyn Fn(&Code) -> Highlights
         .child(icon(preview_icon, color::FG_FAINT))
         .child(
             div()
-                .flex_1()
                 .min_w_0()
                 .truncate()
                 .font_family(font::MONO)
                 .text_size(px(font::CODE_SIZE))
                 .child(title),
         )
+        .children(version.map(|(_, status)| state_letter(Some(status.state), false)))
+        .child(div().flex_1())
         .child(
             div()
                 .flex_none()
@@ -51,7 +53,7 @@ pub fn render_preview(preview: Preview, code_faces: &dyn Fn(&Code) -> Highlights
     pane()
         .child(header)
         .child(render_body(body, code_faces))
-        .child(render_details(details))
+        .child(render_details(details, version))
 }
 
 /// The frame of what is shown beside a table's rows.
@@ -158,7 +160,45 @@ fn render_item(item: PreviewItem) -> Div {
         .child(div().min_w_0().truncate().child(item.name))
 }
 
-fn render_details(details: Vec<(&'static str, String)>) -> Div {
+/// Labels and values, then what version control says, e.g. `Modified · +24 −3`.
+fn render_details(
+    details: Vec<(&'static str, String)>,
+    version: Option<(&'static str, FileStatus)>,
+) -> Div {
+    let plain = details.into_iter().map(|(label, value)| {
+        let value = div()
+            .min_w_0()
+            .truncate()
+            .font_family(font::MONO)
+            .text_color(rgb(color::FG_BODY))
+            .child(value);
+        (label, value)
+    });
+    let version = version.map(|(name, status)| {
+        let mut text = String::new();
+        let mut faces = Vec::new();
+        let mut push = |part: &str, text_color: Option<u32>| {
+            let start = text.len();
+            text.push_str(part);
+            if let Some(text_color) = text_color {
+                let style = HighlightStyle::color(hsla(text_color));
+                faces.push((start..text.len(), style));
+            }
+        };
+        push(status.state.label(), Some(state_color(status.state, false)));
+        if let Some(lines) = status.lines {
+            push(" · ", None);
+            push(&format!("+{}", lines.added), Some(color::VC_ADDED));
+            push(" ", None);
+            push(&format!("−{}", lines.removed), Some(color::VC_REMOVED));
+        }
+        let value = div()
+            .flex_none()
+            .font_family(font::MONO)
+            .text_color(rgb(color::FG_BODY))
+            .child(StyledText::new(text).with_highlights(faces));
+        (name, value)
+    });
     div()
         .flex()
         .flex_col()
@@ -168,8 +208,8 @@ fn render_details(details: Vec<(&'static str, String)>) -> Div {
         .text_size(px(font::STATUS_SIZE))
         .text_color(rgb(color::FG_FAINT))
         .children(
-            details
-                .into_iter()
+            plain
+                .chain(version)
                 .enumerate()
                 .map(|(index, (label, value))| {
                     div()
@@ -181,14 +221,7 @@ fn render_details(details: Vec<(&'static str, String)>) -> Div {
                             row.border_t_1().border_color(rgba(0xffffff0f))
                         })
                         .child(div().flex_none().child(label))
-                        .child(
-                            div()
-                                .min_w_0()
-                                .truncate()
-                                .font_family(font::MONO)
-                                .text_color(rgb(color::FG_BODY))
-                                .child(value),
-                        )
+                        .child(value)
                 }),
         )
 }

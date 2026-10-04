@@ -2,7 +2,7 @@ use gpui::{
     BoxShadow, Div, HighlightStyle, Hsla, IntoElement, ParentElement, Styled, Svg, div, point,
     prelude::FluentBuilder, px, rgb, rgba, svg,
 };
-use remacs_core::{Icon, ListItem, Mark};
+use remacs_core::{FileState, Icon, ListItem, Mark};
 use remacs_theme::{color, font};
 
 use crate::assets::{CHECK_ICON, ERROR_ICON, FILE_ICON, FOLDER_ICON, INFO_ICON, WARNING_ICON};
@@ -52,6 +52,32 @@ pub fn mark_badge(mark: Mark) -> Div {
             .text_color(rgb(color::FG_ON_DANGER))
             .child("D"),
     }
+}
+
+/// The color of a file's version control state; on a selected row a modified one takes
+/// the selection's text color.
+pub fn state_color(state: FileState, selected: bool) -> u32 {
+    match state {
+        FileState::Added => color::VC_ADDED,
+        FileState::Modified | FileState::Renamed if selected => color::FG_ALT,
+        FileState::Modified | FileState::Renamed => color::VC_MODIFIED,
+        FileState::Deleted => color::VC_REMOVED,
+        FileState::Conflicted => color::ERROR,
+        FileState::Untracked => color::FG_DIM,
+    }
+}
+
+/// A file's version control state as its letter, centered in its slot.
+pub fn state_letter(state: Option<FileState>, selected: bool) -> Div {
+    div()
+        .flex_none()
+        .text_center()
+        .font_family(font::MONO)
+        .text_size(px(font::STATUS_SIZE))
+        .when_some(state, |slot, state| {
+            slot.text_color(rgb(state_color(state, selected)))
+                .child(state.letter())
+        })
 }
 
 /// Rows of `items` `row_height` tall, at most `max` of them and a line saying how many

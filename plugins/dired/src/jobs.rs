@@ -18,6 +18,8 @@ pub struct Report {
     pub directories: Vec<PathBuf>,
     /// Files now elsewhere, from and to; buffers visiting them follow.
     pub moved: Vec<(PathBuf, PathBuf)>,
+    /// Whether version control is told of the moves, as if they were `git mv`s.
+    pub record_moves: bool,
     pub message: String,
 }
 
@@ -54,6 +56,9 @@ pub fn pick_up(editor: &mut Editor) {
     for report in reports {
         for (from, to) in &report.moved {
             editor.file_moved(from, to);
+        }
+        if report.record_moves {
+            editor.record_moves(&report.moved);
         }
         for buffer in editor.buffers() {
             let changed = buffer

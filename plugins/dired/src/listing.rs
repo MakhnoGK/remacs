@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use remacs_core::{
-    Buffer, Button, CellStyle, Column, Editor, Field, Icon, Mark, Notice, Notifier, Row, RowFace,
-    StatusItem, StatusSegment, Table, Tone,
+    Buffer, Button, CellStyle, Column, Editor, Field, FileState, Icon, Mark, Notice, Notifier, Row,
+    RowFace, StatusItem, StatusSegment, Table, Tone,
 };
 use remacs_files::abbreviate_home;
 use remacs_text::Text;
@@ -23,6 +23,11 @@ const COLUMNS: &[Column] = &[
         title: "Name",
         width: None,
         style: CellStyle::Primary,
+    },
+    Column {
+        title: "",
+        width: Some(14.0),
+        style: CellStyle::State,
     },
     Column {
         title: "Size",
@@ -206,7 +211,8 @@ fn redisplay(buffer: &mut Buffer, target: Option<String>, first_load: bool) {
     buffer.set_point(offset);
 }
 
-pub fn table(buffer: &Buffer, lines: Range<usize>) -> Option<Table> {
+pub fn table(editor: &Editor, lines: Range<usize>) -> Option<Table> {
+    let buffer = editor.window_buffer();
     let listing = buffer.local::<Listing>()?;
     let directory = buffer.default_directory()?;
     let shown = lines.start.min(listing.entries.len())..lines.end.min(listing.entries.len());
@@ -218,7 +224,16 @@ pub fn table(buffer: &Buffer, lines: Range<usize>) -> Option<Table> {
             let edited = editing
                 .filter(|_| entry.name != PARENT)
                 .map(|_| line_text(buffer, line));
-            row(entry, listing.marks.get(&entry.name).copied(), edited)
+            let state = (entry.name != PARENT)
+                .then(|| editor.file_status(&directory.join(&entry.name)))
+                .flatten()
+                .map(|status| status.state);
+            row(
+                entry,
+                listing.marks.get(&entry.name).copied(),
+                edited,
+                state,
+            )
         })
         .collect();
     let sort = match editing {
@@ -235,7 +250,8 @@ pub fn table(buffer: &Buffer, lines: Range<usize>) -> Option<Table> {
     let preview = editing
         .is_none()
         .then(|| {
-            entry_at_point(buffer).and_then(|entry| preview::describe(listing, directory, entry))
+            entry_at_point(buffer)
+                .and_then(|entry| preview::describe(editor, listing, directory, entry))
         })
         .flatten();
     Some(Table {
@@ -254,7 +270,7 @@ pub fn table(buffer: &Buffer, lines: Range<usize>) -> Option<Table> {
             label: "Editing names",
             keys: wdired::NOTICE_KEYS,
         }),
-        changes: editing.map(|editing| wdired::changes(buffer, editing)),
+        changes: editing.map(|editing| wdired::changes(editor, editing)),
     })
 }
 
@@ -302,7 +318,7 @@ pub fn marks_status(editor: &Editor) -> Option<StatusSegment> {
 }
 
 /// With `edited`, the name as it is being edited, in a field.
-fn row(entry: &Entry, mark: Option<Mark>, edited: Option<String>) -> Row {
+fn row(entry: &Entry, mark: Option<Mark>, edited: Option<String>, state: Option<FileState>) -> Row {
     let field = edited.as_ref().map(|name| Field {
         original: (*name != entry.name).then(|| entry.name.clone()),
     });
@@ -311,12 +327,14 @@ fn row(entry: &Entry, mark: Option<Mark>, edited: Option<String>) -> Row {
         icon: Some(file_icon(entry.is_directory)),
         cells: vec![
             edited.unwrap_or_else(|| display_name(entry)),
+            state.map(FileState::letter).unwrap_or_default().to_owned(),
             entry.size_label.clone(),
             entry.modified_label.clone(),
             entry.permissions.clone(),
         ],
         face: file_face(&entry.name, entry.is_directory),
         field,
+        state,
     }
 }
 

@@ -62,6 +62,7 @@ const COMMANDS: &[Command] = &[
     Command::new("wdired-previous-name", "Move to the end of the previous name", wdired::previous_name),
     Command::new("wdired-replace-in-names", "Replace text in every name", wdired::replace_in_names),
     Command::new("wdired-toggle-reference-updates", "Switch whether renaming updates references to the files", wdired::toggle_reference_updates),
+    Command::new("wdired-toggle-move-recording", "Switch whether renaming tells version control, like git mv", wdired::toggle_move_recording),
 ];
 
 const BINDINGS: &[(&str, &str)] = &[("C-x d", "dired"), ("C-x C-j", "dired-jump")];

@@ -15,6 +15,7 @@ mod plugin;
 mod popup;
 mod status;
 mod table;
+mod vc;
 mod viewport;
 
 pub use buffer::{Buffer, FileEdits};
@@ -39,4 +40,5 @@ pub use table::{
     Action, Button, CellStyle, Changes, Column, DiffLine, Elsewhere, Field, FileDiff, Mark, Notice,
     Preview, PreviewBody, PreviewItem, Row, RowFace, Table, TableProvider,
 };
+pub use vc::{FileState, FileStatus, LineCounts, VersionControl};
 pub use viewport::Viewport;

@@ -114,7 +114,7 @@ fn render_switches(prompt: &Prompt, cx: &mut Context<EditorView>) -> Div {
         .options
         .iter()
         .enumerate()
-        .filter(|(_, option)| option.is_switch())
+        .filter(|(_, option)| option.is_switch() && option.is_shown())
         .map(|(index, option)| {
             let segments = option.labels.iter().enumerate().map(|(position, label)| {
                 let selected = (position == 1) == option.is_on();
@@ -152,10 +152,10 @@ fn render_chips(prompt: &Prompt, cx: &mut Context<EditorView>) -> Option<Div> {
         .options
         .iter()
         .enumerate()
-        .filter(|(_, option)| !option.is_switch())
+        .filter(|(_, option)| !option.is_switch() && option.is_shown())
         .map(|(index, option)| {
             let chip = option_chip(
-                option.labels[0],
+                &option.labels[0],
                 &format!("M-{}", option.key),
                 option.is_on(),
             );

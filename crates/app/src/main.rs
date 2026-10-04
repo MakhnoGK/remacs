@@ -26,6 +26,7 @@ use remacs_dired::{DiredPlugin, list_directory};
 use remacs_documentation::DocumentationPlugin;
 use remacs_editing::EditingPlugin;
 use remacs_files::FilesPlugin;
+use remacs_git::GitPlugin;
 use remacs_languages::{GRAMMARS, LanguagesPlugin, SERVERS};
 use remacs_lsp::LspPlugin;
 use remacs_minibuffer::MinibufferPlugin;
@@ -40,6 +41,7 @@ const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
     &MinibufferPlugin,
     &FilesPlugin,
     &DiredPlugin,
+    &GitPlugin,
     &LanguagesPlugin,
     &SyntaxPlugin::new(GRAMMARS),
     &DiagnosticsPlugin,

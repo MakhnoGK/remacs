@@ -19,6 +19,7 @@ remacs-dired = { path = "plugins/dired" }
 remacs-documentation = { path = "plugins/documentation" }
 remacs-editing = { path = "plugins/editing" }
 remacs-files = { path = "plugins/files" }
+remacs-git = { path = "plugins/git" }
 remacs-languages = { path = "plugins/languages" }
 remacs-lsp = { path = "plugins/lsp" }
 remacs-minibuffer = { path = "plugins/minibuffer" }

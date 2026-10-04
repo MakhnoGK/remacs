@@ -14,6 +14,7 @@ use crate::highlights::{combine, region_style};
 use crate::preview_view::PREVIEW_WIDTH;
 use crate::widgets::{
     cursor_style, icon, kbd, key_caps, mark_badge, modified_dot, pill, segment, segmented, shadow,
+    state_letter,
 };
 
 const LIST_TOP: f32 = 52.0;
@@ -321,12 +322,16 @@ fn render_row(
         (false, _) => color::FG_FAINT,
     };
     let mut field = row.field;
+    let state = row.state;
     let cells = row.cells.into_iter().zip(columns).map(|(text, column)| {
         let (family, size, text_color) = match column.style {
             CellStyle::Primary => (font::MONO, font::CODE_SIZE, primary_color),
             CellStyle::Figure => (font::MONO, font::STATUS_SIZE, color::FG_DIM),
             CellStyle::Label => (font::UI, font::STATUS_SIZE, color::FG_FAINT),
             CellStyle::Faint => (font::MONO, font::STATUS_SIZE, color::FG_LINE_NUMBER),
+            CellStyle::State => {
+                return state_letter(state, highlighted).w(px(column.width.unwrap_or_default()));
+            }
         };
         let text_color = if highlighted && column.style != CellStyle::Primary {
             color::FG_ALT

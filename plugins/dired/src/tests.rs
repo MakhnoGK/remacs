@@ -181,11 +181,12 @@ fn a_listing_is_a_read_only_table_with_point_on_the_first_entry() {
 
     let table = editor.table(0..20).unwrap();
     assert_eq!(table.rows.len(), 5);
-    assert_eq!(table.rows[1].cells[..2], ["sub/", "2 items"]);
+    assert_eq!(table.rows[1].cells[..3], ["sub/", "", "2 items"]);
     assert_eq!(table.rows[1].face, RowFace::Directory);
     assert_eq!(table.rows[2].face, RowFace::Dim);
-    assert_eq!(table.rows[3].cells[1], "13 B");
-    assert_eq!(table.rows[3].cells[3], "-rw-r--r--");
+    assert_eq!(table.rows[3].cells[2], "13 B");
+    assert_eq!(table.rows[3].cells[4], "-rw-r--r--");
+    assert!(table.rows.iter().all(|row| row.state.is_none()));
     assert_eq!(
         table.crumbs.last().unwrap().label,
         editor.window_buffer().name()

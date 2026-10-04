@@ -123,6 +123,7 @@ fn start(
         Report {
             directories: vec![directory],
             moved: Vec::new(),
+            record_moves: false,
             message,
         }
     });
