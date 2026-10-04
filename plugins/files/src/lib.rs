@@ -8,6 +8,9 @@ mod saving;
 
 use remacs_core::{Command, Plugin, Registry};
 
+pub use find_file::directory_candidates;
+pub use project::{abbreviate_home, default_directory, expand_home, with_slash};
+
 pub struct FilesPlugin;
 
 #[rustfmt::skip]

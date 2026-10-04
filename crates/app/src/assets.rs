@@ -7,6 +7,7 @@ pub const FOLDER_ICON: &str = "icons/folder.svg";
 pub const ERROR_ICON: &str = "icons/error.svg";
 pub const WARNING_ICON: &str = "icons/warning.svg";
 pub const INFO_ICON: &str = "icons/info.svg";
+pub const CHEVRON_ICON: &str = "icons/chevron.svg";
 
 /// Compiled into the binary, so the app needs no resource directory.
 const ASSETS: &[(&str, &[u8])] = &[
@@ -15,6 +16,7 @@ const ASSETS: &[(&str, &[u8])] = &[
     (ERROR_ICON, include_bytes!("../assets/icons/error.svg")),
     (WARNING_ICON, include_bytes!("../assets/icons/warning.svg")),
     (INFO_ICON, include_bytes!("../assets/icons/info.svg")),
+    (CHEVRON_ICON, include_bytes!("../assets/icons/chevron.svg")),
 ];
 
 pub struct Assets;

@@ -20,6 +20,7 @@ use crate::minibuffer::{Minibuffer, Prompt};
 use crate::plugin::{Plugin, Registry};
 use crate::popup::Popup;
 use crate::status::StatusSegment;
+use crate::table::{Action, Table};
 use crate::viewport::Viewport;
 
 pub const SELF_INSERT_COMMAND: &str = "self-insert-command";
@@ -430,6 +431,26 @@ impl Editor {
     pub fn refresh(&mut self) {
         self.refresh_minibuffer();
         self.run_post_command_hooks();
+        // A regenerated buffer, like a directory listing, may have moved point.
+        let point_line = self.window_buffer().point_line();
+        self.viewport.ensure_visible(point_line);
+    }
+
+    /// Runs a table control's action as if it were a command.
+    pub fn run_action(&mut self, action: &Action) {
+        self.message = None;
+        if let Err(error) = action(self) {
+            self.set_message(error.0);
+        }
+        self.after_command();
+    }
+
+    /// `lines` of the window buffer as a table, if a plugin draws it as one.
+    pub fn table(&self, lines: Range<usize>) -> Option<Table> {
+        self.registry
+            .tables
+            .iter()
+            .find_map(|describe| describe(self.window_buffer(), lines.clone()))
     }
 
     /// Faces for `range` of the window buffer, one sorted list per decorator.

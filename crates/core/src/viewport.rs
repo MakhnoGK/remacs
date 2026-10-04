@@ -1,22 +1,14 @@
 /// The lines of a buffer shown in a window, like Emacs `window-start` plus height.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Viewport {
     pub first_line: usize,
+    /// 0 until the window is first laid out.
     pub height: usize,
-}
-
-impl Default for Viewport {
-    fn default() -> Self {
-        Self {
-            first_line: 0,
-            height: 1,
-        }
-    }
 }
 
 impl Viewport {
     pub fn last_line(&self) -> usize {
-        self.first_line + self.height - 1
+        self.first_line + self.height.max(1) - 1
     }
 
     pub fn contains(&self, line: usize) -> bool {
@@ -36,7 +28,12 @@ impl Viewport {
         moved
     }
 
+    /// Does nothing before the first layout: a window of unknown height would scroll
+    /// lines that will fit into view out of it.
     pub fn ensure_visible(&mut self, line: usize) {
+        if self.height == 0 {
+            return;
+        }
         if line < self.first_line {
             self.first_line = line;
         } else if line > self.last_line() {

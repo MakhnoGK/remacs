@@ -72,9 +72,9 @@ pub(crate) fn status(editor: &Editor) -> Option<StatusSegment> {
     Some(StatusSegment {
         items: Severity::ALL
             .iter()
-            .map(|&severity| (severity.icon(), state.count(severity).to_string()))
+            .map(|&severity| (Some(severity.icon()), state.count(severity).to_string()))
             .collect(),
-        command: LIST_PROBLEMS,
+        command: Some(LIST_PROBLEMS),
         active: is_listing(editor),
     })
 }

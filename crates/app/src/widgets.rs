@@ -54,6 +54,27 @@ pub fn modified_dot() -> impl IntoElement {
         .shadow(vec![shadow(0xfec43f2e, 0.0, 0.0, 2.0)])
 }
 
+/// A translucent floating bar over the bottom of the window, like the status pill.
+pub fn pill() -> Div {
+    div()
+        .absolute()
+        .bottom(px(14.0))
+        .flex()
+        .items_center()
+        .gap(px(2.0))
+        .p(px(3.0))
+        .rounded(px(9.0))
+        .bg(rgba(0x1e1e1eb8))
+        .border_1()
+        .border_color(rgba(0xffffff12))
+        .text_size(px(font::STATUS_SIZE))
+        .text_color(rgb(color::FG_FAINT))
+}
+
+pub fn pill_separator() -> Div {
+    div().w(px(1.0)).h(px(14.0)).bg(rgba(0xffffff14))
+}
+
 /// A key cap, e.g. `C-x`.
 pub fn kbd(key: &str, selected: bool) -> Div {
     let (background, foreground) = if selected {

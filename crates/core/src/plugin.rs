@@ -7,6 +7,7 @@ use crate::keymap::Keymap;
 use crate::mode::Modes;
 use crate::popup::{CodeHighlighter, PopupProvider};
 use crate::status::StatusProvider;
+use crate::table::TableProvider;
 
 pub type Hook = Rc<dyn Fn(&mut Editor)>;
 
@@ -35,6 +36,8 @@ pub struct Registry {
     /// Highlight code that is not in a buffer, e.g. in documentation; the first that
     /// knows the mode does.
     pub code_highlighters: Vec<CodeHighlighter>,
+    /// Draw buffers as tables; the first that knows the buffer does.
+    pub tables: Vec<TableProvider>,
 }
 
 pub trait Plugin {

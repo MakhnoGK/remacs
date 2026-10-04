@@ -156,9 +156,9 @@ fn the_status_pill_counts_by_severity() {
     assert_eq!(
         segment.items,
         [
-            (Icon::Error, "1".to_owned()),
-            (Icon::Warning, "1".to_owned()),
-            (Icon::Info, "0".to_owned()),
+            (Some(Icon::Error), "1".to_owned()),
+            (Some(Icon::Warning), "1".to_owned()),
+            (Some(Icon::Info), "0".to_owned()),
         ]
     );
     assert!(!segment.active);

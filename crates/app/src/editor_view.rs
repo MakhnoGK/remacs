@@ -9,7 +9,7 @@ use gpui::{
     MouseDownEvent, ParentElement, Pixels, Render, ScrollWheelEvent, StyledText, Subscription,
     Window, div, font, linear_color_stop, linear_gradient, prelude::*, px, rgb, rgba,
 };
-use remacs_core::{Code, DocBlock, Editor, Popup, StatusSegment};
+use remacs_core::{Action, Code, DocBlock, Editor, Popup, StatusSegment};
 use remacs_theme::{color, font};
 
 use crate::display_line::DisplayLine;
@@ -17,7 +17,8 @@ use crate::highlights::{Highlights, combine, face_style, region_style};
 use crate::key_input::to_key;
 use crate::minibuffer_view::{is_problem_list, render_minibuffer, render_scrim};
 use crate::popup_view::{DocumentationScroll, DocumentationView, Placement, render_popup};
-use crate::widgets::{cursor_style, hsla, icon, modified_dot};
+use crate::table_view::{LIST_BOTTOM, ROW_PITCH, ROWS_TOP, render_hints, render_table};
+use crate::widgets::{cursor_style, hsla, icon, modified_dot, pill, pill_separator};
 
 /// Minified files can hold megabytes on one line; lay out only what can be on screen.
 const MAX_RENDERED_LINE_BYTES: usize = 2048;
@@ -39,6 +40,8 @@ pub struct EditorView {
     documentation_scroll: DocumentationScroll,
     /// Faces of code shown in popups, by mode and text.
     code_faces: HashMap<&'static str, HashMap<String, Highlights>>,
+    /// The window buffer was last drawn as a table, so input maps to rows, not text.
+    showing_table: bool,
     _activation: Subscription,
 }
 
@@ -81,6 +84,7 @@ impl EditorView {
             scroll_remainder: px(0.0),
             documentation_scroll: DocumentationScroll::default(),
             code_faces: HashMap::new(),
+            showing_table: false,
             _activation: activation,
         };
         view.receive_clipboard(cx);
@@ -128,7 +132,11 @@ impl EditorView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let line_height = px(font::CODE_LINE_HEIGHT);
+        let line_height = px(if self.showing_table {
+            ROW_PITCH
+        } else {
+            font::CODE_LINE_HEIGHT
+        });
         self.scroll_remainder += event.delta.pixel_delta(line_height).y;
         let lines = (self.scroll_remainder / line_height).trunc();
         if lines != 0.0 {
@@ -145,8 +153,12 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) {
         window.focus(&self.focus_handle);
-        // An open prompt is modal: clicks choose candidates or do nothing.
-        let Some(metrics) = self.metrics.filter(|_| self.editor.minibuffer().is_none()) else {
+        // An open prompt is modal: clicks choose candidates or do nothing. Table rows
+        // handle their own clicks.
+        let Some(metrics) = self
+            .metrics
+            .filter(|_| self.editor.minibuffer().is_none() && !self.showing_table)
+        else {
             return;
         };
         let row = ((event.position.y - px(TEXT_TOP)) / px(font::CODE_LINE_HEIGHT)).floor();
@@ -398,18 +410,73 @@ impl EditorView {
             )
     }
 
+    /// The window buffer's lines from the viewport on, with the popups placed over them.
+    fn render_text(&mut self, window: &Window) -> (AnyElement, Vec<AnyElement>) {
+        let metrics = self.metrics(window);
+        // Point stays above the footer fade; lines under it are drawn but not counted.
+        let line_height = px(font::CODE_LINE_HEIGHT);
+        let text_height = window.viewport_size().height - px(TEXT_TOP);
+        let clear_rows = ((text_height - px(FOOTER_FADE_HEIGHT)) / line_height).floor();
+        let drawn_rows = (text_height / line_height).ceil() as usize;
+        self.editor
+            .viewport
+            .set_height(clear_rows.max(1.0) as usize);
+
+        let gutter_width = self.gutter_width(metrics);
+        let first_line = self.editor.viewport.first_line;
+        let line_count = self.editor.window_buffer().text().line_count();
+        let last_line = (first_line + drawn_rows).min(line_count);
+        let popups = self.render_popups(metrics, gutter_width, window);
+        let lines = (first_line..last_line).map(|line| self.render_line(line, gutter_width));
+        let body = div()
+            .absolute()
+            .top(px(TEXT_TOP))
+            .left_0()
+            .right_0()
+            .flex()
+            .flex_col()
+            .children(lines)
+            .into_any_element();
+        (body, popups)
+    }
+
     fn run_command(&mut self, name: &str, cx: &mut Context<Self>) {
         self.editor.run_command(name);
         self.after_input(cx);
     }
 
+    pub fn run_action(&mut self, action: &Action, cx: &mut Context<Self>) {
+        if self.editor.minibuffer().is_none() {
+            self.editor.run_action(action);
+            self.after_input(cx);
+        }
+    }
+
+    /// Selects a table row; a double click also runs the table's `activate` command.
+    pub fn click_row(
+        &mut self,
+        line: usize,
+        click_count: usize,
+        activate: &'static str,
+        cx: &mut Context<Self>,
+    ) {
+        if self.editor.minibuffer().is_some() {
+            return;
+        }
+        self.editor.set_point_at(line, 0);
+        if click_count == 2 {
+            self.editor.run_command(activate);
+        }
+        self.after_input(cx);
+    }
+
     /// A plugin's group of the status pill, e.g. problem counts; a click runs its command.
+    /// One without a command is a plain label, like the mode.
     fn render_segment(segment: StatusSegment, cx: &mut Context<Self>) -> impl IntoElement {
-        let command = segment.command;
-        let text_color = if segment.active {
-            color::FG_MAIN
-        } else {
-            color::FG_KBD
+        let text_color = match (segment.active, segment.command) {
+            (true, _) => color::FG_MAIN,
+            (false, Some(_)) => color::FG_KBD,
+            (false, None) => color::FG_FAINT,
         };
         div()
             .flex()
@@ -419,21 +486,27 @@ impl EditorView {
             .px(px(8.0))
             .rounded(px(6.0))
             .when(segment.active, |button| button.bg(rgb(color::BG_SELECTION)))
-            .font_family(font::MONO)
+            .font_family(if segment.command.is_some() {
+                font::MONO
+            } else {
+                font::UI
+            })
             .text_color(rgb(text_color))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |view, _: &MouseDownEvent, _, cx| {
-                    cx.stop_propagation();
-                    view.run_command(command, cx);
-                }),
-            )
+            .when_some(segment.command, |button, command| {
+                button.on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |view, _: &MouseDownEvent, _, cx| {
+                        cx.stop_propagation();
+                        view.run_command(command, cx);
+                    }),
+                )
+            })
             .children(segment.items.into_iter().map(|(item_icon, text)| {
                 div()
                     .flex()
                     .items_center()
                     .gap(px(5.0))
-                    .child(icon(item_icon, text_color))
+                    .children(item_icon.map(|item_icon| icon(item_icon, text_color)))
                     .child(text)
             }))
     }
@@ -441,7 +514,6 @@ impl EditorView {
     fn render_status(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let buffer = self.editor.window_buffer();
         let position = format!("{}:{}", buffer.point_line() + 1, buffer.point_column() + 1);
-        let separator = || div().w(px(1.0)).h(px(14.0)).bg(rgba(0xffffff14));
         let segments = self
             .editor
             .status_segments()
@@ -449,44 +521,36 @@ impl EditorView {
             .flat_map(|segment| {
                 [
                     Self::render_segment(segment, cx).into_any_element(),
-                    separator().into_any_element(),
+                    pill_separator().into_any_element(),
                 ]
             })
             .collect::<Vec<_>>();
 
-        div()
-            .absolute()
+        pill()
             .right(px(16.0))
-            .bottom(px(14.0))
-            .flex()
-            .items_center()
-            .gap(px(2.0))
-            .p(px(3.0))
-            .rounded(px(9.0))
-            .bg(rgba(0x1e1e1eb8))
-            .border_1()
-            .border_color(rgba(0xffffff12))
-            .text_size(px(font::STATUS_SIZE))
-            .text_color(rgb(color::FG_FAINT))
             .when_some(self.editor.echo(), |status, echo| {
                 status
                     .child(div().px(px(8.0)).text_color(rgb(color::FG_ALT)).child(echo))
-                    .child(separator())
+                    .child(pill_separator())
             })
             .children(segments)
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.0))
-                    .px(px(8.0))
-                    .font_family(font::MONO)
-                    .when(buffer.is_modified(), |position| {
-                        position.child(modified_dot())
-                    })
-                    .child(position),
-            )
-            .child(separator())
+            // A table's selected row is its position.
+            .when(!self.showing_table, |status| {
+                status
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(6.0))
+                            .px(px(8.0))
+                            .font_family(font::MONO)
+                            .when(buffer.is_modified(), |position| {
+                                position.child(modified_dot())
+                            })
+                            .child(position),
+                    )
+                    .child(pill_separator())
+            })
             .child(
                 div()
                     .pl(px(8.0))
@@ -499,23 +563,27 @@ impl EditorView {
 
 impl Render for EditorView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let metrics = self.metrics(window);
-        // Point stays above the footer fade; lines under it are drawn but not counted.
-        let line_height = px(font::CODE_LINE_HEIGHT);
-        let text_height = window.viewport_size().height - px(TEXT_TOP);
-        let clear_rows = ((text_height - px(FOOTER_FADE_HEIGHT)) / line_height).floor();
-        let drawn_rows = (text_height / line_height).ceil() as usize;
-        self.editor
-            .viewport
-            .set_height(clear_rows.max(1.0) as usize);
         window.set_window_title(&format!("{} — remacs", self.editor.window_buffer().name()));
-
-        let gutter_width = self.gutter_width(metrics);
         let first_line = self.editor.viewport.first_line;
-        let line_count = self.editor.window_buffer().text().line_count();
-        let last_line = (first_line + drawn_rows).min(line_count);
-        let popups = self.render_popups(metrics, gutter_width, window);
-        let lines = (first_line..last_line).map(|line| self.render_line(line, gutter_width));
+        let table_rows = ((window.viewport_size().height - px(ROWS_TOP) - px(LIST_BOTTOM))
+            / px(ROW_PITCH))
+        .floor()
+        .max(1.0) as usize;
+        let table = self.editor.table(first_line..first_line + table_rows);
+        self.showing_table = table.is_some();
+        let (body, hints, popups) = match table {
+            Some(table) => {
+                self.editor.viewport.set_height(table_rows);
+                let point_line = self.editor.window_buffer().point_line();
+                let hints = render_hints(table.hints).into_any_element();
+                let body = render_table(table, first_line, point_line, cx).into_any_element();
+                (body, Some(hints), Vec::new())
+            }
+            None => {
+                let (body, popups) = self.render_text(window);
+                (body, None, popups)
+            }
+        };
         let minibuffer = self
             .editor
             .minibuffer()
@@ -541,16 +609,7 @@ impl Render for EditorView {
             .font_family(font::MONO)
             .text_color(rgb(color::FG_MAIN))
             .line_height(px(font::CODE_LINE_HEIGHT))
-            .child(
-                div()
-                    .absolute()
-                    .top(px(TEXT_TOP))
-                    .left_0()
-                    .right_0()
-                    .flex()
-                    .flex_col()
-                    .children(lines),
-            )
+            .child(body)
             .child(
                 div()
                     .absolute()
@@ -560,6 +619,7 @@ impl Render for EditorView {
                     .h(px(FOOTER_FADE_HEIGHT))
                     .bg(fade(0.0, 0.0)),
             )
+            .children(hints)
             .children(status_below_scrim)
             .when(minibuffer.is_some(), |root| root.child(render_scrim()))
             .child(self.render_header())

@@ -15,6 +15,7 @@ remacs-theme = { path = "crates/theme" }
 remacs-actions = { path = "plugins/actions" }
 remacs-completion = { path = "plugins/completion" }
 remacs-diagnostics = { path = "plugins/diagnostics" }
+remacs-dired = { path = "plugins/dired" }
 remacs-documentation = { path = "plugins/documentation" }
 remacs-editing = { path = "plugins/editing" }
 remacs-files = { path = "plugins/files" }

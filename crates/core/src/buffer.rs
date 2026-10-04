@@ -6,12 +6,16 @@ use std::path::{Path, PathBuf};
 
 use remacs_text::Text;
 
+use crate::command::CommandResult;
+
 /// A text with a point (cursor), a mark, a name and a major mode.
 pub struct Buffer {
     name: String,
     mode: &'static str,
     text: Text,
     file: Option<PathBuf>,
+    directory: Option<PathBuf>,
+    read_only: bool,
     point: usize,
     /// Column that vertical motion keeps returning to, like Emacs `temporary-goal-column`.
     goal_column: Option<usize>,
@@ -30,6 +34,8 @@ impl Buffer {
             mode,
             text,
             file: None,
+            directory: None,
+            read_only: false,
             point: 0,
             goal_column: None,
             mark: None,
@@ -70,6 +76,37 @@ impl Buffer {
         self
     }
 
+    /// Sets the directory the buffer is about, for a buffer that visits no file.
+    pub fn with_directory(mut self, directory: PathBuf) -> Self {
+        self.directory = Some(directory);
+        self
+    }
+
+    /// Where file names typed in this buffer are relative to, like Emacs
+    /// `default-directory`: its own directory, else its file's.
+    pub fn default_directory(&self) -> Option<&Path> {
+        self.directory
+            .as_deref()
+            .or_else(|| self.file.as_deref()?.parent())
+    }
+
+    pub fn read_only(mut self) -> Self {
+        self.read_only = true;
+        self
+    }
+
+    pub fn is_read_only(&self) -> bool {
+        self.read_only
+    }
+
+    /// Fails in a read-only buffer, like Emacs `barf-if-buffer-read-only`.
+    pub fn ensure_writable(&self) -> CommandResult {
+        if self.read_only {
+            return Err(format!("Buffer is read-only: {}", self.name).into());
+        }
+        Ok(())
+    }
+
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -89,6 +126,15 @@ impl Buffer {
 
     pub fn text(&self) -> &Text {
         &self.text
+    }
+
+    /// Swaps in a new text, read-only or not, dropping undo history and the mark; for a
+    /// buffer that a plugin regenerates, like a directory listing.
+    pub fn replace_text(&mut self, text: Text) {
+        self.text = text;
+        self.mark = None;
+        self.mark_active = false;
+        self.set_point(self.point);
     }
 
     pub fn contents(&self, range: Range<usize>) -> String {

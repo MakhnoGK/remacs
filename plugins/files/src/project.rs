@@ -3,12 +3,11 @@ use std::path::{Path, PathBuf};
 
 use remacs_core::Editor;
 
-/// Directory of the window's file, else the working directory.
+/// The window buffer's default directory, else the working directory.
 pub fn default_directory(editor: &Editor) -> PathBuf {
     editor
         .window_buffer()
-        .path()
-        .and_then(Path::parent)
+        .default_directory()
         .map(Path::to_path_buf)
         .or_else(|| env::current_dir().ok())
         .unwrap_or_else(|| PathBuf::from("/"))

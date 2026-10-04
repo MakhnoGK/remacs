@@ -14,6 +14,7 @@ mod mode;
 mod plugin;
 mod popup;
 mod status;
+mod table;
 mod viewport;
 
 pub use buffer::Buffer;
@@ -32,4 +33,5 @@ pub use mode::{FUNDAMENTAL_MODE, Mode, Modes};
 pub use plugin::{Hook, MinorKeymap, Plugin, Registry};
 pub use popup::{Code, CodeHighlighter, DocBlock, Documentation, Popup, PopupProvider};
 pub use status::{StatusProvider, StatusSegment};
+pub use table::{Action, Button, CellStyle, Column, Row, RowFace, Table, TableProvider};
 pub use viewport::Viewport;

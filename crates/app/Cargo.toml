@@ -22,6 +22,7 @@ remacs-actions.workspace = true
 remacs-completion.workspace = true
 remacs-core.workspace = true
 remacs-diagnostics.workspace = true
+remacs-dired.workspace = true
 remacs-documentation.workspace = true
 remacs-editing.workspace = true
 remacs-files.workspace = true

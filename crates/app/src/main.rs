@@ -5,6 +5,7 @@ mod highlights;
 mod key_input;
 mod minibuffer_view;
 mod popup_view;
+mod table_view;
 mod widgets;
 
 use std::path::PathBuf;
@@ -18,6 +19,7 @@ use remacs_actions::ActionsPlugin;
 use remacs_completion::CompletionPlugin;
 use remacs_core::{Editor, Plugin};
 use remacs_diagnostics::DiagnosticsPlugin;
+use remacs_dired::{DiredPlugin, list_directory};
 use remacs_documentation::DocumentationPlugin;
 use remacs_editing::EditingPlugin;
 use remacs_files::FilesPlugin;
@@ -34,6 +36,7 @@ const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
     &EditingPlugin,
     &MinibufferPlugin,
     &FilesPlugin,
+    &DiredPlugin,
     &LanguagesPlugin,
     &SyntaxPlugin::new(GRAMMARS),
     &DiagnosticsPlugin,
@@ -48,11 +51,16 @@ const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
 fn main() -> ExitCode {
     let mut editor = Editor::new(BUILTIN_PLUGINS);
 
-    if let Some(path) = std::env::args_os().nth(1).map(PathBuf::from)
-        && let Err(error) = editor.visit_file(&path)
-    {
-        eprintln!("remacs: {}: {error}", path.display());
-        return ExitCode::FAILURE;
+    if let Some(path) = std::env::args_os().nth(1).map(PathBuf::from) {
+        let opened = if path.is_dir() {
+            list_directory(&mut editor, &path).map_err(|error| error.0)
+        } else {
+            editor.visit_file(&path).map_err(|error| error.to_string())
+        };
+        if let Err(error) = opened {
+            eprintln!("remacs: {}: {error}", path.display());
+            return ExitCode::FAILURE;
+        }
     }
 
     Application::new()

@@ -3848,6 +3848,7 @@ dependencies = [
  "remacs-completion",
  "remacs-core",
  "remacs-diagnostics",
+ "remacs-dired",
  "remacs-documentation",
  "remacs-editing",
  "remacs-files",
@@ -3880,6 +3881,19 @@ name = "remacs-diagnostics"
 version = "0.1.0"
 dependencies = [
  "remacs-core",
+ "remacs-minibuffer",
+ "remacs-text",
+]
+
+[[package]]
+name = "remacs-dired"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "notify",
+ "remacs-core",
+ "remacs-editing",
+ "remacs-files",
  "remacs-minibuffer",
  "remacs-text",
 ]

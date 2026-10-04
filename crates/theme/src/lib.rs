@@ -19,6 +19,8 @@ pub mod color {
     pub const FG_FAINT: u32 = 0x8a8a8a;
     pub const FG_PLACEHOLDER: u32 = 0x7a7a7a;
     pub const FG_LINE_NUMBER: u32 = 0x6b6b6b;
+    pub const FG_MUTED: u32 = 0x5a5a5a;
+    pub const FG_DIRECTORY: u32 = 0x79a8ff;
 
     pub const ACCENT: u32 = 0x2fafff;
     pub const ACCENT_ON_SELECTION: u32 = 0x9cd7ff;
