@@ -6,8 +6,8 @@ use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
     AnyElement, ClipboardItem, Context, Div, FocusHandle, IntoElement, KeyDownEvent, MouseButton,
-    MouseDownEvent, ParentElement, Pixels, Render, ScrollWheelEvent, StyledText, Subscription,
-    Window, div, font, linear_color_stop, linear_gradient, prelude::*, px, rgb, rgba,
+    MouseDownEvent, ParentElement, Pixels, Render, ScrollHandle, ScrollWheelEvent, StyledText,
+    Subscription, Window, div, font, linear_color_stop, linear_gradient, prelude::*, px, rgb, rgba,
 };
 use remacs_core::{
     Action, Code, DocBlock, Editor, Popup, Preview, PreviewBody, StatusSegment, Tone,
@@ -43,6 +43,8 @@ pub struct EditorView {
     metrics: Option<Metrics>,
     scroll_remainder: Pixels,
     documentation_scroll: DocumentationScroll,
+    /// How far the minibuffer input is scrolled sideways.
+    input_scroll: ScrollHandle,
     /// Faces of code shown in popups, by mode and text.
     code_faces: HashMap<&'static str, HashMap<String, Highlights>>,
     /// The window buffer was last drawn as a table, so input maps to rows, not text.
@@ -88,6 +90,7 @@ impl EditorView {
             metrics: None,
             scroll_remainder: px(0.0),
             documentation_scroll: DocumentationScroll::default(),
+            input_scroll: ScrollHandle::new(),
             code_faces: HashMap::new(),
             showing_table: false,
             _activation: activation,
@@ -633,7 +636,11 @@ impl Render for EditorView {
         let minibuffer = self
             .editor
             .minibuffer()
-            .map(|minibuffer| render_minibuffer(minibuffer, cx));
+            .map(|minibuffer| render_minibuffer(minibuffer, &self.input_scroll, cx));
+        // gpui scrolls the input to the cursor only once it has laid it out.
+        if minibuffer.is_some() && self.input_scroll.bounds().size.width == px(0.0) {
+            window.request_animation_frame();
+        }
         // The pill stays lit above the scrim while the list it opened is shown.
         let status = self.render_status(cx).into_any_element();
         let (status_below_scrim, status_above_scrim) =

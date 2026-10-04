@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use gpui::{
     AnyElement, Context, Div, FontWeight, HighlightStyle, IntoElement, MouseButton, MouseDownEvent,
-    ParentElement, StyledText, div, prelude::*, px, rgb, rgba,
+    ParentElement, ScrollHandle, StyledText, div, prelude::*, px, rgb, rgba,
 };
 use remacs_core::{Candidate, Count, Icon, Minibuffer, Prompt, PromptOption, parse_sequence};
 use remacs_theme::{color, font};
@@ -30,6 +30,8 @@ const WIDE_ROW_HEIGHT: f32 = 36.0;
 /// M-x lines command names up in a column, with their documentation beside them.
 const COMMAND_CATEGORY: &str = "command";
 const COMMAND_NAME_WIDTH: f32 = 232.0;
+/// The input's children are the text before the cursor, the cursor and the rest.
+const CURSOR_CHILD: usize = 1;
 /// Items listed for reference give way to the candidates beyond this many.
 const MAX_LISTED_ITEMS: usize = 5;
 
@@ -60,7 +62,12 @@ pub fn popover(width: f32) -> Div {
         .text_color(rgb(color::FG_MAIN))
 }
 
-pub fn render_minibuffer(minibuffer: &Minibuffer, cx: &mut Context<EditorView>) -> AnyElement {
+/// `input_scroll` keeps the input's sideways scroll between frames.
+pub fn render_minibuffer(
+    minibuffer: &Minibuffer,
+    input_scroll: &ScrollHandle,
+    cx: &mut Context<EditorView>,
+) -> AnyElement {
     if let Some(dialog) = minibuffer.dialog() {
         return centered(render_dialog(dialog, cx));
     }
@@ -75,7 +82,7 @@ pub fn render_minibuffer(minibuffer: &Minibuffer, cx: &mut Context<EditorView>) 
         .when(has_switch || !prompt.subject.is_empty(), |popover| {
             popover.child(render_switches(prompt, cx))
         })
-        .child(render_field(minibuffer))
+        .child(render_field(minibuffer, input_scroll))
         .when(!minibuffer.candidates().is_empty(), |popover| {
             popover.child(render_candidates(minibuffer, cx))
         })
@@ -190,7 +197,7 @@ fn centered(popover: impl IntoElement) -> AnyElement {
         .into_any_element()
 }
 
-fn render_field(minibuffer: &Minibuffer) -> impl IntoElement {
+fn render_field(minibuffer: &Minibuffer, input_scroll: &ScrollHandle) -> impl IntoElement {
     let prompt = minibuffer.prompt();
     let field = div()
         .flex()
@@ -233,7 +240,7 @@ fn render_field(minibuffer: &Minibuffer) -> impl IntoElement {
                     .child(prompt.prefix.clone()),
             )
         })
-        .child(render_input(minibuffer))
+        .child(render_input(minibuffer, input_scroll))
         .child(if is_problem_list(minibuffer) {
             render_severity_counts(minibuffer.candidates()).into_any_element()
         } else {
@@ -281,19 +288,34 @@ fn render_severity_counts(candidates: &[Candidate]) -> impl IntoElement {
         }))
 }
 
-fn render_input(minibuffer: &Minibuffer) -> impl IntoElement {
+/// Scrolled sideways just enough to keep the cursor in view, like Emacs `hscroll`: the
+/// text before it, the cursor and the text after it are separate children so the view
+/// can scroll to the cursor's.
+fn render_input(minibuffer: &Minibuffer, scroll: &ScrollHandle) -> impl IntoElement {
     let input = minibuffer.input();
     let mut line = DisplayLine::new(&minibuffer.input_text());
     let cursor = line.cursor_cell(input.point_column());
+    let part = |range: Range<usize>| div().flex_none().child(line.text[range].to_owned());
+    let cursor_text = line.text[cursor.clone()].to_owned();
+    scroll.scroll_to_item(CURSOR_CHILD);
     div()
+        .id("minibuffer-input")
         .flex()
         .flex_1()
         .min_w_0()
-        .overflow_hidden()
+        .overflow_x_scroll()
+        .track_scroll(scroll)
         .whitespace_nowrap()
         .font_family(font::MONO)
         .text_size(px(font::INPUT_SIZE))
-        .child(StyledText::new(line.text).with_highlights([(cursor, cursor_style())]))
+        .child(part(0..cursor.start))
+        .child(
+            div().flex_none().child(
+                StyledText::new(cursor_text.clone())
+                    .with_highlights([(0..cursor_text.len(), cursor_style())]),
+            ),
+        )
+        .child(part(cursor.end..line.text.len()))
         .when(input.text().is_empty(), |field| {
             field.child(
                 div()
