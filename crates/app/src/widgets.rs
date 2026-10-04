@@ -6,7 +6,8 @@ use remacs_core::{FileState, Icon, LineCounts, ListItem, Mark};
 use remacs_theme::{color, font};
 
 use crate::assets::{
-    BRANCH_ICON, CHECK_ICON, ERROR_ICON, FILE_ICON, FOLDER_ICON, INFO_ICON, WARNING_ICON,
+    BRANCH_ICON, CHECK_ICON, CHEVRON_DOWN_ICON, ERROR_ICON, FILE_ICON, FOLDER_ICON, INFO_ICON,
+    PLUS_ICON, REMOTE_ICON, WARNING_ICON,
 };
 
 pub fn hsla(hex: u32) -> Hsla {
@@ -22,6 +23,8 @@ pub fn icon(icon: Icon, text_color: u32) -> Svg {
         Icon::Warning => (WARNING_ICON, 10.0, color::WARNING),
         Icon::Info => (INFO_ICON, 10.0, color::INFO),
         Icon::Branch => (BRANCH_ICON, 12.0, text_color),
+        Icon::Remote => (REMOTE_ICON, 14.0, text_color),
+        Icon::Create => (PLUS_ICON, 14.0, text_color),
     };
     svg()
         .path(path)
@@ -204,6 +207,23 @@ pub fn segment(label: &str, selected: bool) -> Div {
 /// A setting's chip, lit while it is on, with the key that switches it.
 pub fn option_chip(label: &str, key: &str, on: bool) -> Div {
     toggle_chip(label, on).child(kbd(key, false))
+}
+
+/// A choice's chip: its label and value, which a click changes.
+pub fn choice_chip(label: &str, value: &str) -> Div {
+    toggle_chip(&format!("{label}:"), false)
+        .child(
+            div()
+                .font_family(font::MONO)
+                .text_color(rgb(color::FG_MAIN))
+                .child(value.to_owned()),
+        )
+        .child(
+            svg()
+                .path(CHEVRON_DOWN_ICON)
+                .size(px(10.0))
+                .text_color(rgb(color::FG_KBD)),
+        )
 }
 
 /// A setting's chip, lit and checked while it is on.

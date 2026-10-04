@@ -622,6 +622,81 @@ fn the_history_shows_all_branches_or_the_current_one_and_searches_messages() {
     assert_eq!(history(&editor), ["[feature] Grow the feature"]);
 }
 
+fn candidates(editor: &Editor) -> Vec<String> {
+    editor
+        .minibuffer()
+        .unwrap()
+        .candidates()
+        .iter()
+        .map(|candidate| {
+            let verb = candidate
+                .verb
+                .map_or(String::new(), |verb| format!("{verb} "));
+            let tag = candidate
+                .tag
+                .map_or(String::new(), |tag| format!(" [{tag}]"));
+            format!("{verb}{}{tag} · {}", candidate.label, candidate.annotation)
+        })
+        .collect()
+}
+
+#[test]
+fn branches_are_switched_to_or_created_from_a_base_they_remember() {
+    let repository = Repository::new("branch");
+    let _remote = Remote::for_repository(&repository);
+    repository.git(&["switch", "-q", "-c", "other"]);
+    commit(&repository, "other.rs", "o\n", "Other work");
+    repository.git(&["push", "-q", "origin", "other"]);
+    repository.git(&["switch", "-q", "main"]);
+    repository.git(&["branch", "-q", "-D", "other"]);
+    let main_id = repository.git(&["rev-parse", "--short", "main"]);
+    let mut editor = status_buffer(&repository);
+
+    press(&mut editor, "b");
+    assert_eq!(
+        candidates(&editor),
+        [
+            "main [current] · ",
+            "origin/main · remote",
+            "origin/other · remote"
+        ]
+    );
+    type_text(&mut editor, "topic");
+    assert_eq!(
+        candidates(&editor),
+        [format!("Create topic · from main · {}", main_id.trim())]
+    );
+    press(&mut editor, "TAB");
+    assert!(candidates(&editor)[0].starts_with("Create topic · from origin/main · "));
+    press(&mut editor, "RET");
+    wait_until(&mut editor, "the new branch", |_| {
+        repository.git(&["branch", "--show-current"]).trim() == "topic"
+    });
+    assert_eq!(
+        repository
+            .git(&["config", "branch.topic.remacs-base"])
+            .trim(),
+        "origin/main"
+    );
+    wait_until(&mut editor, "its base", |editor| {
+        facts(editor).contains(&"Base: origin/main · Up to date".to_owned())
+    });
+
+    press(&mut editor, "b");
+    type_text(&mut editor, "other");
+    assert_eq!(candidates(&editor), ["origin/other · remote"]);
+    press(&mut editor, "RET");
+    wait_until(&mut editor, "the tracking branch", |_| {
+        repository.git(&["branch", "--show-current"]).trim() == "other"
+    });
+    assert_eq!(
+        repository
+            .git(&["rev-parse", "--abbrev-ref", "other@{upstream}"])
+            .trim(),
+        "origin/other"
+    );
+}
+
 /// Waits for the last commit's message to be `expected`.
 fn wait_for_message(editor: &mut Editor, repository: &Repository, expected: &str) {
     let start = Instant::now();

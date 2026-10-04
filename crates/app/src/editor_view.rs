@@ -131,6 +131,11 @@ impl EditorView {
         cx.notify();
     }
 
+    pub fn next_prompt_choice(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.editor.next_prompt_choice(index);
+        cx.notify();
+    }
+
     fn on_key_down(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(key) = to_key(&event.keystroke) else {
             return;

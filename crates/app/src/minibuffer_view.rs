@@ -11,8 +11,8 @@ use crate::dialog_view::render_dialog;
 use crate::display_line::DisplayLine;
 use crate::editor_view::EditorView;
 use crate::widgets::{
-    cursor_style, hsla, icon, kbd, list_items, modified_dot, option_chip, segment, segmented,
-    shadow,
+    choice_chip, cursor_style, hsla, icon, kbd, list_items, modified_dot, option_chip, segment,
+    segmented, shadow,
 };
 
 const POPOVER_TOP: f32 = 60.0;
@@ -81,7 +81,8 @@ pub fn render_minibuffer(
         POPOVER_WIDTH
     };
     let has_switch = prompt.options.iter().any(PromptOption::is_switch);
-    let has_chip = prompt.options.iter().any(|option| !option.is_switch());
+    let has_chip =
+        !prompt.choices.is_empty() || prompt.options.iter().any(|option| !option.is_switch());
     let popover = popover(width)
         .when(
             has_switch || (!has_chip && !prompt.subject.is_empty()),
@@ -152,10 +153,24 @@ fn render_switches(prompt: &Prompt, cx: &mut Context<EditorView>) -> Div {
         )
 }
 
-/// Settings that are on or off, under the lists; then what the prompt acts on, if
-/// `with_subject`.
+/// Choices, then settings that are on or off, under the lists; then what the prompt acts
+/// on, if `with_subject`.
 fn render_chips(prompt: &Prompt, with_subject: bool, cx: &mut Context<EditorView>) -> Option<Div> {
-    let chips: Vec<Div> = prompt
+    let mut chips: Vec<Div> = prompt
+        .choices
+        .iter()
+        .enumerate()
+        .map(|(index, choice)| {
+            choice_chip(choice.label, choice.value().unwrap_or_default()).on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |view, _: &MouseDownEvent, _, cx| {
+                    cx.stop_propagation();
+                    view.next_prompt_choice(index, cx);
+                }),
+            )
+        })
+        .collect();
+    let options = prompt
         .options
         .iter()
         .enumerate()
@@ -167,8 +182,8 @@ fn render_chips(prompt: &Prompt, with_subject: bool, cx: &mut Context<EditorView
                 option.is_on(),
             );
             option_click(chip, index, cx)
-        })
-        .collect();
+        });
+    chips.extend(options);
     (!chips.is_empty()).then(|| {
         div()
             .flex()

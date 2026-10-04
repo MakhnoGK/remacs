@@ -23,6 +23,7 @@ pub const VISIT: &str = "git-visit";
 pub const NOT_A_STATUS_BUFFER: &str = "Not a Git status buffer";
 const HINTS: &[(&str, &str)] = &[
     ("c", "Commit"),
+    ("b", "Branch"),
     ("⇥", "Diff"),
     ("s", "Stage"),
     ("u", "Unstage"),

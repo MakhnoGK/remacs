@@ -8,7 +8,9 @@ use crate::status::{Head, Snapshot};
 
 /// Per-branch settings naming its base, ours first: GitHub CLI's and VS Code's are read
 /// too, so a base set there carries over.
-const BASE_KEYS: [&str; 3] = ["remacs-base", "gh-merge-base", "vscode-merge-base"];
+const BASE_KEYS: [&str; 3] = [BASE_KEY, "gh-merge-base", "vscode-merge-base"];
+/// Where a branch created here records its base: `branch.<name>.remacs-base`.
+pub const BASE_KEY: &str = "remacs-base";
 /// Taken as the base, in this order, when nothing names one and the remote has no
 /// default branch.
 const USUAL_BASES: [&str; 2] = ["main", "master"];

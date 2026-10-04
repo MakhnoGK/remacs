@@ -314,7 +314,7 @@ fn args<const N: usize>(
         .collect()
 }
 
-fn git_job(args: impl IntoIterator<Item = impl Into<OsString>>) -> Job {
+pub fn git_job(args: impl IntoIterator<Item = impl Into<OsString>>) -> Job {
     let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
     Box::new(move |root| {
         output(git(root).args(&args))

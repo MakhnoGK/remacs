@@ -57,6 +57,9 @@ pub struct Prompt {
     /// The input is the subject of a message with a description under it, like a commit
     /// message; the answer is both, a blank line between them.
     pub message: Option<Message>,
+    /// Values the answer depends on, picked in turn by a key or a click; chips before the
+    /// options'.
+    pub choices: Vec<PromptChoice>,
     /// Listed for reference under the candidates, not chosen from, e.g. the files a
     /// command acts on.
     pub items: Vec<ListItem>,
@@ -79,6 +82,30 @@ pub struct Message {
 }
 
 pub type MessageCheck = Rc<dyn Fn(&str) -> Result<(), String>>;
+
+/// One of several values a prompt's answer depends on, e.g. the branch a new one starts
+/// from.
+pub struct PromptChoice {
+    pub label: &'static str,
+    /// Emacs notation, e.g. `TAB`; it takes the next value.
+    pub key: &'static str,
+    pub values: Vec<String>,
+    /// Shared with the code that reads the prompt.
+    pub selected: Rc<Cell<usize>>,
+}
+
+impl PromptChoice {
+    pub fn value(&self) -> Option<&str> {
+        self.values.get(self.selected.get()).map(String::as_str)
+    }
+
+    fn next(&self) {
+        if !self.values.is_empty() {
+            self.selected
+                .set((self.selected.get() + 1) % self.values.len());
+        }
+    }
+}
 
 /// A setting a prompt's answer depends on, switched by `M-` and `key`, or a click.
 pub struct PromptOption {
@@ -348,6 +375,20 @@ impl Minibuffer {
         self.prompt.options.iter().position(|option| {
             option.is_shown() && Key::parse(&format!("M-{}", option.key)) == Some(key)
         })
+    }
+
+    /// The choice `key` picks the next value of.
+    pub(crate) fn choice_for_key(&self, key: Key) -> Option<usize> {
+        self.prompt
+            .choices
+            .iter()
+            .position(|choice| Key::parse(choice.key) == Some(key))
+    }
+
+    pub(crate) fn next_choice(&self, index: usize) {
+        if let Some(choice) = self.prompt.choices.get(index) {
+            choice.next();
+        }
     }
 
     pub(crate) fn toggle_prompt_option(&self, index: usize) {

@@ -10,6 +10,10 @@ pub enum Icon {
     Info,
     /// A version control branch.
     Branch,
+    /// A branch of a remote repository.
+    Remote,
+    /// Something made by choosing it.
+    Create,
 }
 
 /// What a completion candidate or a documented symbol is; the UI gives each its own badge.

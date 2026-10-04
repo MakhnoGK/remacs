@@ -275,6 +275,15 @@ impl Editor {
             self.toggle_prompt_option(index);
             return;
         }
+        if self.pending_keys.is_empty()
+            && let Some(index) = self
+                .minibuffer
+                .as_ref()
+                .and_then(|minibuffer| minibuffer.choice_for_key(key))
+        {
+            self.next_prompt_choice(index);
+            return;
+        }
         self.pending_keys.push(key);
         self.last_key = Some(key);
         match Keymap::lookup_in(&self.active_keymaps(), &self.pending_keys) {
@@ -392,6 +401,15 @@ impl Editor {
     pub fn toggle_prompt_option(&mut self, index: usize) {
         if let Some(minibuffer) = &self.minibuffer {
             minibuffer.toggle_prompt_option(index);
+            self.refresh_minibuffer();
+        }
+    }
+
+    /// Picks the next value of choice `index` of the open prompt, as its key or a click
+    /// does; the candidates may depend on it, so they are listed again.
+    pub fn next_prompt_choice(&mut self, index: usize) {
+        if let Some(minibuffer) = &self.minibuffer {
+            minibuffer.next_choice(index);
             self.refresh_minibuffer();
         }
     }
