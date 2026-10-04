@@ -1,4 +1,5 @@
 use std::any::{Any, TypeId};
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::io;
 use std::mem;
@@ -16,7 +17,7 @@ use crate::decoration::Span;
 use crate::key::{Key, describe_sequence};
 use crate::keymap::{Binding, Keymap};
 use crate::kill_ring::KillRing;
-use crate::minibuffer::{Minibuffer, Prompt};
+use crate::minibuffer::{Dialog, Minibuffer, Prompt};
 use crate::plugin::{Plugin, Registry};
 use crate::popup::Popup;
 use crate::status::StatusSegment;
@@ -225,7 +226,7 @@ impl Editor {
             .as_ref()
             .is_some_and(Minibuffer::is_question)
         {
-            self.answer_question(key);
+            self.answer_question_key(key);
             return;
         }
         self.pending_keys.push(key);
@@ -298,6 +299,46 @@ impl Editor {
             question.into(),
             Box::new(move |editor, answer| on_answer(editor, answer == "y")),
         ))
+    }
+
+    /// Asks a y-or-n question drawn as a dialog; `describe` draws it with its option on
+    /// or off, and `on_answer` gets the answer and the option as it was then.
+    pub fn ask_dialog(
+        &mut self,
+        option_on: bool,
+        describe: impl Fn(bool) -> Dialog + 'static,
+        on_answer: impl FnOnce(&mut Editor, bool, bool) -> CommandResult + 'static,
+    ) -> CommandResult {
+        let option = Rc::new(Cell::new(option_on));
+        let answered_option = Rc::clone(&option);
+        self.open_minibuffer(Minibuffer::dialog_question(
+            Rc::new(describe),
+            option,
+            Box::new(move |editor, answer| on_answer(editor, answer == "y", answered_option.get())),
+        ))
+    }
+
+    /// Answers the open question, as a click on its buttons does.
+    pub fn answer_question(&mut self, yes: bool) {
+        if !self
+            .minibuffer
+            .as_ref()
+            .is_some_and(Minibuffer::is_question)
+        {
+            return;
+        }
+        let answer = if yes { "y" } else { "n" };
+        if let Err(error) = self.finish_minibuffer(answer.to_owned()) {
+            self.set_message(error.0);
+        }
+        self.after_command();
+    }
+
+    /// Switches the open dialog's option, as a click on it does.
+    pub fn toggle_dialog_option(&mut self) {
+        if let Some(minibuffer) = &self.minibuffer {
+            minibuffer.toggle_option(None);
+        }
     }
 
     pub fn minibuffer(&self) -> Option<&Minibuffer> {
@@ -529,15 +570,16 @@ impl Editor {
         true
     }
 
-    fn answer_question(&mut self, key: Key) {
-        let answer = match key.printable_char() {
-            Some(answer @ ('y' | 'n')) => answer.to_string(),
-            _ => return self.set_message("Please answer y or n"),
-        };
-        if let Err(error) = self.finish_minibuffer(answer) {
-            self.set_message(error.0);
+    fn answer_question_key(&mut self, key: Key) {
+        match key.printable_char() {
+            Some('y') => self.answer_question(true),
+            Some('n') => self.answer_question(false),
+            key if self
+                .minibuffer
+                .as_ref()
+                .is_some_and(|minibuffer| key.is_some() && minibuffer.toggle_option(key)) => {}
+            _ => self.set_message("Please answer y or n"),
         }
-        self.after_command();
     }
 
     fn open_minibuffer(&mut self, minibuffer: Minibuffer) -> CommandResult {

@@ -27,6 +27,13 @@ pub mod color {
     pub const ACCENT_ON_SELECTION: u32 = 0x9cd7ff;
 
     pub const ERROR: u32 = 0xff5f59;
+    /// Text about something to be destroyed, e.g. the flagged count.
+    pub const DANGER: u32 = 0xff7f86;
+    /// Names of files flagged for deletion.
+    pub const FG_FLAGGED: u32 = 0xff9a95;
+    pub const BG_DANGER: u32 = 0x9d1f1f;
+    pub const BG_DANGER_KBD: u32 = 0x7a1616;
+    pub const FG_ON_DANGER: u32 = 0xffdede;
     pub const WARNING: u32 = 0xfec43f;
     pub const INFO: u32 = 0x00d3d0;
 

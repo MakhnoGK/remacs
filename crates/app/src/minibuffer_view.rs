@@ -7,6 +7,7 @@ use gpui::{
 use remacs_core::{Candidate, Count, Icon, Minibuffer, parse_sequence};
 use remacs_theme::{color, font};
 
+use crate::dialog_view::render_dialog;
 use crate::display_line::DisplayLine;
 use crate::editor_view::EditorView;
 use crate::widgets::{cursor_style, hsla, icon, kbd, modified_dot, shadow};
@@ -37,14 +38,9 @@ pub fn is_problem_list(minibuffer: &Minibuffer) -> bool {
     minibuffer.prompt().category == PROBLEM_CATEGORY
 }
 
-pub fn render_minibuffer(minibuffer: &Minibuffer, cx: &mut Context<EditorView>) -> AnyElement {
-    let prompt = minibuffer.prompt();
-    let width = if prompt.wide {
-        WIDE_POPOVER_WIDTH
-    } else {
-        POPOVER_WIDTH
-    };
-    let popover = div()
+/// A floating panel, like the prompt's.
+pub fn popover(width: f32) -> Div {
+    div()
         .w(px(width))
         .p(px(8.0))
         .bg(rgb(color::BG_POPUP))
@@ -57,6 +53,19 @@ pub fn render_minibuffer(minibuffer: &Minibuffer, cx: &mut Context<EditorView>) 
         ])
         .font_family(font::UI)
         .text_color(rgb(color::FG_MAIN))
+}
+
+pub fn render_minibuffer(minibuffer: &Minibuffer, cx: &mut Context<EditorView>) -> AnyElement {
+    if let Some(dialog) = minibuffer.dialog() {
+        return centered(render_dialog(dialog, cx));
+    }
+    let prompt = minibuffer.prompt();
+    let width = if prompt.wide {
+        WIDE_POPOVER_WIDTH
+    } else {
+        POPOVER_WIDTH
+    };
+    let popover = popover(width)
         .child(render_field(minibuffer))
         .when(!minibuffer.candidates().is_empty(), |popover| {
             popover.child(render_candidates(minibuffer, cx))
@@ -70,6 +79,11 @@ pub fn render_minibuffer(minibuffer: &Minibuffer, cx: &mut Context<EditorView>) 
             .child(popover)
             .into_any_element();
     }
+    centered(popover)
+}
+
+/// Near the top of the window, centered across it.
+fn centered(popover: impl IntoElement) -> AnyElement {
     div()
         .absolute()
         .top(px(POPOVER_TOP))

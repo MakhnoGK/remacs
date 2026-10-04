@@ -2,7 +2,8 @@ use std::borrow::Cow;
 use std::path::Path;
 
 use remacs_core::{
-    Buffer, Candidate, CommandResult, Completions, Editor, Prompt, StatusSegment, filter_candidates,
+    Buffer, Candidate, CommandResult, Completions, Editor, Prompt, StatusItem, StatusSegment,
+    filter_candidates,
 };
 
 use crate::buffer_diagnostics::{BufferDiagnostics, Severity};
@@ -72,7 +73,9 @@ pub(crate) fn status(editor: &Editor) -> Option<StatusSegment> {
     Some(StatusSegment {
         items: Severity::ALL
             .iter()
-            .map(|&severity| (Some(severity.icon()), state.count(severity).to_string()))
+            .map(|&severity| {
+                StatusItem::new(Some(severity.icon()), state.count(severity).to_string())
+            })
             .collect(),
         command: Some(LIST_PROBLEMS),
         active: is_listing(editor),

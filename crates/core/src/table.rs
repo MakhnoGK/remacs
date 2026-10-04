@@ -81,10 +81,20 @@ pub enum CellStyle {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Row {
+    pub mark: Option<Mark>,
     pub icon: Option<Icon>,
     /// One per column.
     pub cells: Vec<String>,
     pub face: RowFace,
+}
+
+/// What a row is marked for, like the character before a file in Emacs dired.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mark {
+    /// Chosen for the next command, `*`.
+    Marked,
+    /// To be deleted, `D`.
+    Flagged,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

@@ -13,6 +13,7 @@ notify.workspace = true
 remacs-core.workspace = true
 remacs-files.workspace = true
 remacs-text.workspace = true
+trash.workspace = true
 
 [dev-dependencies]
 remacs-editing.workspace = true

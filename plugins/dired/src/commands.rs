@@ -1,3 +1,4 @@
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use remacs_core::{Candidate, CommandResult, Completions, Editor, Icon, Prompt};
@@ -10,7 +11,7 @@ use crate::listing::{DIRED_MODE, Listing, entry_at_point, new_listing, select_en
 
 pub const FIND_FILE: &str = "dired-find-file";
 const DIRECTORY_CATEGORY: &str = "directory";
-const NOT_A_LISTING: &str = "Not a directory listing";
+pub const NOT_A_LISTING: &str = "Not a directory listing";
 
 /// Reads a directory name and lists it.
 pub fn dired(editor: &mut Editor) -> CommandResult {
@@ -107,6 +108,50 @@ pub fn sort_by(editor: &mut Editor, key: SortKey) -> CommandResult {
     set_sort(editor.window_buffer_mut(), key);
     editor.set_message(format!("Sorted by {}", key.label().to_lowercase()));
     Ok(())
+}
+
+/// Reads a name and creates that directory in the listing, with point on it once it is
+/// listed, like Emacs `dired-create-directory`.
+pub fn create_directory(editor: &mut Editor) -> CommandResult {
+    let directory = listing_directory(editor)?;
+    let prompt = Prompt {
+        label: "New folder".into(),
+        prefix: with_slash(&abbreviate_home(&directory)),
+        placeholder: "name",
+        hints: &[("↵", "Create"), ("C-g", "Cancel")],
+        ..Prompt::default()
+    };
+    editor.read(
+        prompt,
+        |_, _| Completions::default(),
+        move |editor, answer| {
+            let answer = answer.trim();
+            if answer.is_empty() {
+                return Err("No name given".into());
+            }
+            let path = directory.join(expand_home(answer));
+            if fs::symlink_metadata(&path).is_ok() {
+                return Err(format!("{} already exists", abbreviate_home(&path)).into());
+            }
+            fs::create_dir_all(&path)?;
+            let created = path
+                .strip_prefix(&directory)
+                .ok()
+                .and_then(|relative| relative.components().next())
+                .map(|first| first.as_os_str().to_string_lossy().into_owned());
+            let listing = editor.buffers_mut().iter_mut().find(|buffer| {
+                buffer.local::<Listing>().is_some()
+                    && buffer.default_directory() == Some(directory.as_path())
+            });
+            if let (Some(buffer), Some(created)) = (listing, created) {
+                select_entry(buffer, created);
+                if let Some(listing) = buffer.local::<Listing>() {
+                    listing.reader.reread();
+                }
+            }
+            Ok(())
+        },
+    )
 }
 
 /// Shows a listing of `directory`, reusing one already open. With `replace`, the listing

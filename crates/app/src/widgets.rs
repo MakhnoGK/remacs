@@ -2,10 +2,10 @@ use gpui::{
     BoxShadow, Div, HighlightStyle, Hsla, IntoElement, ParentElement, Styled, Svg, div, point, px,
     rgb, rgba, svg,
 };
-use remacs_core::Icon;
+use remacs_core::{Icon, Mark};
 use remacs_theme::{color, font};
 
-use crate::assets::{ERROR_ICON, FILE_ICON, FOLDER_ICON, INFO_ICON, WARNING_ICON};
+use crate::assets::{CHECK_ICON, ERROR_ICON, FILE_ICON, FOLDER_ICON, INFO_ICON, WARNING_ICON};
 
 pub fn hsla(hex: u32) -> Hsla {
     rgb(hex).into()
@@ -25,6 +25,33 @@ pub fn icon(icon: Icon, text_color: u32) -> Svg {
         .flex_none()
         .size(px(size))
         .text_color(rgb(color))
+}
+
+/// A check for a marked row, a `D` for one flagged for deletion.
+pub fn mark_badge(mark: Mark) -> Div {
+    let badge = div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .rounded(px(4.0))
+        .shadow(vec![shadow(0x00000080, 1.0, 2.0, 0.0)]);
+    match mark {
+        Mark::Marked => badge.size(px(14.0)).bg(rgb(color::ACCENT)).child(
+            svg()
+                .path(CHECK_ICON)
+                .size(px(10.0))
+                .text_color(rgb(color::BG_MAIN)),
+        ),
+        Mark::Flagged => badge
+            .size(px(16.0))
+            .bg(rgb(color::BG_DANGER))
+            .font_family(font::MONO)
+            .text_size(px(10.0))
+            .line_height(px(16.0))
+            .text_color(rgb(color::FG_ON_DANGER))
+            .child("D"),
+    }
 }
 
 /// The block cursor: the character under it drawn inverted.

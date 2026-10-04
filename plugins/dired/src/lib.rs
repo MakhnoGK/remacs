@@ -2,8 +2,10 @@
 //! current from file system events, like Emacs dired.
 
 mod commands;
+mod delete;
 mod entry;
 mod listing;
+mod marks;
 mod preview;
 mod preview_reader;
 mod reader;
@@ -33,6 +35,17 @@ const COMMANDS: &[Command] = &[
     Command::new("dired-sort-by-name", "Sort the listing by name", commands::sort_by_name),
     Command::new("dired-sort-by-modified", "Sort the listing by modified time, newest first", commands::sort_by_modified),
     Command::new("dired-sort-by-size", "Sort the listing by size, biggest first", commands::sort_by_size),
+    Command::new("dired-mark", "Mark the file at point and move to the next", marks::mark),
+    Command::new("dired-unmark", "Unmark the file at point and move to the next", marks::unmark),
+    Command::new("dired-unmark-backward", "Move to the previous file and unmark it", marks::unmark_backward),
+    Command::new("dired-unmark-all-marks", "Remove every mark and flag", marks::unmark_all),
+    Command::new("dired-toggle-marks", "Mark the unmarked files and unmark the marked ones", marks::toggle_marks),
+    Command::new("dired-flag-file-deletion", "Flag the file at point for deletion and move to the next", marks::flag),
+    Command::new("dired-flag-backup-files", "Flag backup files (name~) for deletion", marks::flag_backup_files),
+    Command::new("dired-flag-auto-save-files", "Flag auto-save files (#name#) for deletion", marks::flag_auto_save_files),
+    Command::new("dired-do-flagged-delete", "Delete the flagged files, after asking", delete::delete_flagged),
+    Command::new("dired-do-delete", "Delete the marked files, or the one at point, after asking", delete::delete_marked),
+    Command::new("dired-create-directory", "Create a folder in the listed directory", commands::create_directory),
 ];
 
 const BINDINGS: &[(&str, &str)] = &[("C-x d", "dired"), ("C-x C-j", "dired-jump")];
@@ -47,6 +60,17 @@ const DIRED_BINDINGS: &[(&str, &str)] = &[
     ("n", "next-line"),
     ("SPC", "next-line"),
     ("p", "previous-line"),
+    ("m", "dired-mark"),
+    ("u", "dired-unmark"),
+    ("DEL", "dired-unmark-backward"),
+    ("U", "dired-unmark-all-marks"),
+    ("t", "dired-toggle-marks"),
+    ("d", "dired-flag-file-deletion"),
+    ("~", "dired-flag-backup-files"),
+    ("#", "dired-flag-auto-save-files"),
+    ("x", "dired-do-flagged-delete"),
+    ("D", "dired-do-delete"),
+    ("+", "dired-create-directory"),
 ];
 
 impl Plugin for DiredPlugin {
@@ -66,11 +90,17 @@ impl Plugin for DiredPlugin {
             keymap,
         });
         registry.tables.push(Rc::new(listing::table));
+        registry
+            .status_providers
+            .push(Rc::new(listing::marks_status));
         registry.status_providers.push(Rc::new(listing::status));
         registry
             .post_command_hooks
             .push(Rc::new(listing::pick_up_listings));
         registry.post_command_hooks.push(Rc::new(preview::sync));
+        registry
+            .post_command_hooks
+            .push(Rc::new(delete::pick_up_deletions));
     }
 }
 

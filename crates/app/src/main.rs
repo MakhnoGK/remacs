@@ -1,4 +1,5 @@
 mod assets;
+mod dialog_view;
 mod display_line;
 mod editor_view;
 mod highlights;

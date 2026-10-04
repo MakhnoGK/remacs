@@ -87,9 +87,17 @@ impl Entry {
 
 /// Usually ignored: hidden, backup and auto-save files.
 pub fn is_dim_name(name: &str) -> bool {
-    (name.starts_with('.') && name != PARENT)
-        || name.ends_with('~')
-        || (name.len() > 1 && name.starts_with('#') && name.ends_with('#'))
+    (name.starts_with('.') && name != PARENT) || is_backup_name(name) || is_auto_save_name(name)
+}
+
+/// `name~`, as Emacs saves the previous version of a file.
+pub fn is_backup_name(name: &str) -> bool {
+    name.ends_with('~')
+}
+
+/// `#name#`, as Emacs auto-saves unsaved changes.
+pub fn is_auto_save_name(name: &str) -> bool {
+    name.len() > 1 && name.starts_with('#') && name.ends_with('#')
 }
 
 /// The entries of `directory`, its parent first, in no particular order after that.

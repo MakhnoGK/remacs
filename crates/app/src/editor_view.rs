@@ -9,7 +9,9 @@ use gpui::{
     MouseDownEvent, ParentElement, Pixels, Render, ScrollWheelEvent, StyledText, Subscription,
     Window, div, font, linear_color_stop, linear_gradient, prelude::*, px, rgb, rgba,
 };
-use remacs_core::{Action, Code, DocBlock, Editor, Popup, Preview, PreviewBody, StatusSegment};
+use remacs_core::{
+    Action, Code, DocBlock, Editor, Popup, Preview, PreviewBody, StatusSegment, Tone,
+};
 use remacs_theme::{color, font};
 
 use crate::display_line::DisplayLine;
@@ -103,6 +105,16 @@ impl EditorView {
     pub fn choose_candidate(&mut self, index: usize, cx: &mut Context<Self>) {
         self.editor.choose_candidate(index);
         self.after_input(cx);
+    }
+
+    pub fn answer_question(&mut self, yes: bool, cx: &mut Context<Self>) {
+        self.editor.answer_question(yes);
+        self.after_input(cx);
+    }
+
+    pub fn toggle_dialog_option(&mut self, cx: &mut Context<Self>) {
+        self.editor.toggle_dialog_option();
+        cx.notify();
     }
 
     fn on_key_down(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
@@ -518,13 +530,19 @@ impl EditorView {
                     }),
                 )
             })
-            .children(segment.items.into_iter().map(|(item_icon, text)| {
+            .children(segment.items.into_iter().map(|item| {
+                let item_color = match item.tone {
+                    Tone::Plain => text_color,
+                    Tone::Accent => color::ACCENT,
+                    Tone::Danger => color::DANGER,
+                };
                 div()
                     .flex()
                     .items_center()
                     .gap(px(5.0))
-                    .children(item_icon.map(|item_icon| icon(item_icon, text_color)))
-                    .child(text)
+                    .text_color(rgb(item_color))
+                    .children(item.icon.map(|item_icon| icon(item_icon, item_color)))
+                    .child(item.text)
             }))
     }
 

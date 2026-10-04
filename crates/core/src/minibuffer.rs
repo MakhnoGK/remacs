@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::ops::Range;
 use std::rc::Rc;
 
@@ -8,6 +9,7 @@ use crate::command::{CommandError, CommandResult};
 use crate::completion::{Candidate, Completions, Selection};
 use crate::editor::Editor;
 use crate::mode::FUNDAMENTAL_MODE;
+use crate::table::Mark;
 
 /// Rows shown at once, like `vertico-count`.
 pub const VISIBLE_CANDIDATES: usize = 10;
@@ -46,6 +48,37 @@ pub struct Prompt {
     pub hints: &'static [(&'static str, &'static str)],
 }
 
+/// A y-or-n question drawn as a dialog that lists what it is about, like the window Emacs
+/// dired pops up before deleting files.
+pub struct Dialog {
+    pub title: String,
+    /// What answering yes does.
+    pub explanation: String,
+    pub items: Vec<DialogItem>,
+    pub option: Option<DialogOption>,
+    pub yes_label: String,
+    pub no_label: &'static str,
+    /// Yes destroys something; drawn as a warning.
+    pub destructive: bool,
+}
+
+pub struct DialogItem {
+    pub mark: Option<Mark>,
+    pub label: String,
+    /// E.g. a size.
+    pub detail: String,
+}
+
+/// A setting the answer depends on, switched by `key` or a click before answering.
+pub struct DialogOption {
+    pub key: char,
+    pub label: &'static str,
+    pub on: bool,
+}
+
+/// Draws a dialog with its option on or off.
+pub(crate) type DialogDescription = Rc<dyn Fn(bool) -> Dialog>;
+
 pub(crate) type CompletionSource = Rc<dyn Fn(&Editor, &str) -> Completions>;
 pub(crate) type AnswerHandler = Box<dyn FnOnce(&mut Editor, String) -> CommandResult>;
 
@@ -56,6 +89,8 @@ pub struct Minibuffer {
     /// `None` for a y-or-n question.
     pub(crate) source: Option<CompletionSource>,
     pub(crate) on_answer: AnswerHandler,
+    /// For a question drawn as a dialog, with its option's current state.
+    dialog: Option<(DialogDescription, Rc<Cell<bool>>)>,
     completions: Completions,
     selection: Selection,
     /// The input `completions` were computed for.
@@ -79,6 +114,7 @@ impl Minibuffer {
             input,
             source,
             on_answer,
+            dialog: None,
             completions: Completions::default(),
             selection: Selection::default(),
             completed_input: None,
@@ -92,6 +128,36 @@ impl Minibuffer {
             ..Prompt::default()
         };
         Self::new(prompt, None, on_answer)
+    }
+
+    pub(crate) fn dialog_question(
+        describe: DialogDescription,
+        option: Rc<Cell<bool>>,
+        on_answer: AnswerHandler,
+    ) -> Self {
+        let mut minibuffer = Self::question(describe(option.get()).title, on_answer);
+        minibuffer.dialog = Some((describe, option));
+        minibuffer
+    }
+
+    /// How a question drawn as a dialog looks now.
+    pub fn dialog(&self) -> Option<Dialog> {
+        let (describe, option) = self.dialog.as_ref()?;
+        Some(describe(option.get()))
+    }
+
+    /// Switches the dialog's option when `key` is its key, or for a click, `None`.
+    pub(crate) fn toggle_option(&self, key: Option<char>) -> bool {
+        let Some((describe, option)) = &self.dialog else {
+            return false;
+        };
+        let matches = describe(option.get())
+            .option
+            .is_some_and(|dialog_option| key.is_none_or(|key| key == dialog_option.key));
+        if matches {
+            option.set(!option.get());
+        }
+        matches
     }
 
     pub fn prompt(&self) -> &Prompt {

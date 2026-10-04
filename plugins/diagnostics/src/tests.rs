@@ -1,4 +1,4 @@
-use remacs_core::{Buffer, Editor, Face, Icon, parse_sequence};
+use remacs_core::{Buffer, Editor, Face, Icon, StatusItem, parse_sequence};
 use remacs_minibuffer::MinibufferPlugin;
 use remacs_text::Text;
 
@@ -156,9 +156,9 @@ fn the_status_pill_counts_by_severity() {
     assert_eq!(
         segment.items,
         [
-            (Some(Icon::Error), "1".to_owned()),
-            (Some(Icon::Warning), "1".to_owned()),
-            (Some(Icon::Info), "0".to_owned()),
+            StatusItem::new(Some(Icon::Error), "1"),
+            StatusItem::new(Some(Icon::Warning), "1"),
+            StatusItem::new(Some(Icon::Info), "0"),
         ]
     );
     assert!(!segment.active);

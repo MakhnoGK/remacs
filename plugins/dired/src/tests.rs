@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use remacs_core::{Editor, Preview, PreviewBody, RowFace, parse_sequence};
+use remacs_core::{Editor, Mark, Preview, PreviewBody, RowFace, Tone, parse_sequence};
 use remacs_editing::EditingPlugin;
 use remacs_files::FilesPlugin;
 use remacs_minibuffer::MinibufferPlugin;
@@ -188,9 +188,9 @@ fn a_listing_is_a_read_only_table_with_point_on_the_first_entry() {
         editor.window_buffer().name()
     );
     let status = editor.status_segments();
-    assert_eq!(status[0].items[0].1, "4 items");
+    assert_eq!(status[0].items[0].text, "4 items");
 
-    press(&mut editor, "x");
+    press(&mut editor, "z");
     assert!(editor.echo().unwrap().starts_with("Buffer is read-only"));
     assert_eq!(lines(&editor).len(), 5);
 }
@@ -309,4 +309,93 @@ fn the_preview_shows_the_items_of_a_directory_and_the_head_of_a_file() {
     assert_eq!(code.text, "fn main() {}");
     assert_eq!(file.details[1], ("Size", "13 B · 1 line".to_owned()));
     assert_eq!(file.details[3], ("Permissions", "-rw-r--r--".to_owned()));
+}
+
+fn marks(editor: &Editor) -> Vec<Option<Mark>> {
+    let table = editor.table(0..20).unwrap();
+    table.rows.iter().map(|row| row.mark).collect()
+}
+
+#[test]
+fn marks_and_flags_move_point_on_and_are_counted() {
+    let tree = Tree::new("marks");
+    let mut editor = editor();
+    open_directory(&mut editor, &tree.0, None, false).unwrap();
+    wait_for_listing(&mut editor);
+    let (marked, flagged) = (Some(Mark::Marked), Some(Mark::Flagged));
+
+    press(&mut editor, "m d");
+    assert_eq!(line_at_point(&editor), "lib.rs");
+    assert_eq!(marks(&editor), [None, marked, flagged, None, None]);
+    let counts = &editor.status_segments()[0].items;
+    assert_eq!(counts[0].text, "1 marked");
+    assert_eq!(counts[0].tone, Tone::Accent);
+    assert_eq!(counts[1].text, "1 flagged");
+
+    press(&mut editor, "DEL");
+    assert_eq!(line_at_point(&editor), ".hidden");
+    press(&mut editor, "t ~");
+    assert_eq!(marks(&editor), [None, None, marked, marked, flagged]);
+
+    press(&mut editor, "M-< m");
+    assert_eq!(marks(&editor)[0], None, "`..` is never marked");
+    press(&mut editor, "U");
+    assert!(marks(&editor).iter().all(Option::is_none));
+    assert_eq!(editor.status_segments()[0].items[0].text, "4 items");
+}
+
+#[test]
+fn deleting_flagged_files_asks_first_and_keeps_marks_of_the_rest() {
+    let tree = Tree::new("delete");
+    let mut editor = editor();
+    open_directory(&mut editor, &tree.0, None, false).unwrap();
+    wait_for_listing(&mut editor);
+
+    press(&mut editor, "x");
+    assert_eq!(editor.echo().unwrap(), "No files flagged for deletion");
+    press(&mut editor, "~ n m");
+    assert_eq!(line_at_point(&editor), "lib.rs");
+    press(&mut editor, "x");
+    let dialog = editor.minibuffer().unwrap().dialog().unwrap();
+    assert_eq!(dialog.title, "Delete lib.rs~?");
+    assert_eq!(dialog.yes_label, "Move to Trash");
+    assert_eq!(dialog.items[0].mark, Some(Mark::Flagged));
+
+    // Deleting for good keeps the user's Trash out of the test.
+    press(&mut editor, "t");
+    let dialog = editor.minibuffer().unwrap().dialog().unwrap();
+    assert_eq!(dialog.yes_label, "Delete");
+    assert!(!dialog.option.unwrap().on);
+    press(&mut editor, "y");
+    wait_until(&mut editor, |editor| {
+        !lines(editor).contains(&"lib.rs~".to_owned())
+    });
+    assert!(!tree.0.join("lib.rs~").exists());
+    assert_eq!(editor.echo().unwrap(), "Deleted lib.rs~");
+    assert_eq!(marks(&editor)[2], Some(Mark::Marked));
+
+    press(&mut editor, "U M-< n n n D");
+    assert_eq!(line_at_point(&editor), "lib.rs");
+    assert_eq!(
+        editor.minibuffer().unwrap().dialog().unwrap().title,
+        "Delete lib.rs?"
+    );
+    press(&mut editor, "n");
+    assert!(editor.minibuffer().is_none());
+    assert!(tree.0.join("lib.rs").exists());
+}
+
+#[test]
+fn a_new_folder_is_listed_with_point_on_it() {
+    let tree = Tree::new("mkdir");
+    let mut editor = editor();
+    open_directory(&mut editor, &tree.0, None, false).unwrap();
+    wait_for_listing(&mut editor);
+
+    press(&mut editor, "+ n e w RET");
+    assert!(tree.0.join("new").is_dir());
+    wait_until(&mut editor, |editor| line_at_point(editor) == "new");
+
+    press(&mut editor, "+ n e w RET");
+    assert!(editor.echo().unwrap().ends_with("new already exists"));
 }

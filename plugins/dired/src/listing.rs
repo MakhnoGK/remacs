@@ -1,9 +1,11 @@
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use remacs_core::{
-    Buffer, Button, CellStyle, Column, Editor, Icon, Notifier, Row, RowFace, StatusSegment, Table,
+    Buffer, Button, CellStyle, Column, Editor, Icon, Mark, Notifier, Row, RowFace, StatusItem,
+    StatusSegment, Table, Tone,
 };
 use remacs_files::abbreviate_home;
 use remacs_text::Text;
@@ -38,7 +40,13 @@ const COLUMNS: &[Column] = &[
     },
 ];
 
-const HINTS: &[(&str, &str)] = &[("↵", "Open"), ("^", "Up"), ("s", "Sort"), ("g", "Refresh")];
+const HINTS: &[(&str, &str)] = &[
+    ("↵", "Open"),
+    ("m", "Mark"),
+    ("d", "Flag"),
+    ("x", "Delete flagged"),
+    ("+", "Folder"),
+];
 
 /// A directory listing's state; its buffer's lines are the entries' names, in order.
 pub struct Listing {
@@ -49,6 +57,8 @@ pub struct Listing {
     select: Option<String>,
     pub reader: DirectoryReader,
     pub preview: PreviewState,
+    /// By entry name, so they survive sorting and reading again.
+    pub marks: HashMap<String, Mark>,
 }
 
 /// A read-only buffer listing `directory`, read in the background.
@@ -69,6 +79,7 @@ pub fn new_listing(directory: PathBuf, select: Option<String>, notifier: Notifie
         select,
         reader,
         preview,
+        marks: HashMap::new(),
     });
     buffer
 }
@@ -104,6 +115,11 @@ pub fn set_entries(buffer: &mut Buffer, mut entries: Vec<Entry>) {
         return;
     };
     sort(&mut entries, listing.sort);
+    // Marks of files that are gone go with them.
+    let names: HashSet<&str> = entries.iter().map(|entry| entry.name.as_str()).collect();
+    listing
+        .marks
+        .retain(|name, _| names.contains(name.as_str()));
     listing.entries = entries;
     let target = listing.select.take().or(current);
     let first_load = !std::mem::replace(&mut listing.loaded, true);
@@ -120,12 +136,12 @@ pub fn set_sort(buffer: &mut Buffer, key: SortKey) {
     redisplay(buffer, current, false);
 }
 
-/// Puts point on the entry called `name`, now or once the listing is read.
+/// Puts point on the entry called `name`, now or once a read lists it.
 pub fn select_entry(buffer: &mut Buffer, name: String) {
     let Some(listing) = buffer.local_mut::<Listing>() else {
         return;
     };
-    if listing.loaded {
+    if listing.entries.iter().any(|entry| entry.name == name) {
         redisplay(buffer, Some(name), false);
     } else {
         listing.select = Some(name);
@@ -178,7 +194,10 @@ pub fn table(buffer: &Buffer, lines: Range<usize>) -> Option<Table> {
             })
             .collect(),
         columns: COLUMNS,
-        rows: listing.entries[shown].iter().map(row).collect(),
+        rows: listing.entries[shown]
+            .iter()
+            .map(|entry| row(entry, listing.marks.get(&entry.name).copied()))
+            .collect(),
         activate: FIND_FILE,
         hints: HINTS,
         preview: entry_at_point(buffer)
@@ -198,19 +217,40 @@ pub fn status(editor: &Editor) -> Option<StatusSegment> {
         "Reading…".into()
     };
     Some(StatusSegment {
-        items: vec![(None, label)],
+        items: vec![StatusItem::new(None, label)],
         command: None,
         active: false,
     })
 }
 
-fn row(entry: &Entry) -> Row {
+/// How many entries are marked and flagged, when any are.
+pub fn marks_status(editor: &Editor) -> Option<StatusSegment> {
+    let listing = editor.window_buffer().local::<Listing>()?;
+    let count = |mark| listing.marks.values().filter(|&&each| each == mark).count();
+    let (marked, flagged) = (count(Mark::Marked), count(Mark::Flagged));
+    let items: Vec<_> = [
+        (marked, "marked", Tone::Accent),
+        (flagged, "flagged", Tone::Danger),
+    ]
+    .into_iter()
+    .filter(|&(count, ..)| count > 0)
+    .map(|(count, label, tone)| StatusItem::toned(format!("{count} {label}"), tone))
+    .collect();
+    (!items.is_empty()).then_some(StatusSegment {
+        items,
+        command: None,
+        active: false,
+    })
+}
+
+fn row(entry: &Entry, mark: Option<Mark>) -> Row {
     let name = if entry.is_directory && entry.name != PARENT {
         format!("{}/", entry.name)
     } else {
         entry.name.clone()
     };
     Row {
+        mark,
         icon: Some(file_icon(entry.is_directory)),
         cells: vec![
             name,

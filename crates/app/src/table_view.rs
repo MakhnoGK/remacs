@@ -2,13 +2,13 @@ use gpui::{
     AnyElement, Context, Div, FontWeight, IntoElement, MouseButton, MouseDownEvent, ParentElement,
     Pixels, div, prelude::*, px, rgb, rgba, svg,
 };
-use remacs_core::{Action, Button, CellStyle, Column, Row, RowFace, Table};
+use remacs_core::{Action, Button, CellStyle, Column, Mark, Row, RowFace, Table};
 use remacs_theme::{color, font};
 
 use crate::assets::CHEVRON_ICON;
 use crate::editor_view::EditorView;
 use crate::preview_view::PREVIEW_WIDTH;
-use crate::widgets::{icon, kbd, pill, shadow};
+use crate::widgets::{icon, kbd, mark_badge, pill, shadow};
 
 const LIST_TOP: f32 = 52.0;
 const LIST_SIDE: f32 = 16.0;
@@ -22,6 +22,7 @@ const ROW_GAP: f32 = 1.0;
 pub const ROW_PITCH: f32 = ROW_HEIGHT + ROW_GAP;
 const CELL_GAP: f32 = 12.0;
 const ICON_WIDTH: f32 = 16.0;
+const MARK_WIDTH: f32 = 18.0;
 const PREVIEW_GAP: f32 = 20.0;
 /// Narrower, the names would be cut short to make room for a preview.
 const MIN_LIST_WIDTH: f32 = 520.0;
@@ -129,7 +130,14 @@ fn render_bar(crumbs: Vec<Button>, sort: Vec<Button>, cx: &mut Context<EditorVie
         .h(px(BAR_HEIGHT))
         .pl(px(8.0))
         .pr(px(4.0))
-        .child(div().flex().items_center().gap(px(2.0)).children(crumbs))
+        .child(
+            div()
+                .flex()
+                .min_w_0()
+                .items_center()
+                .gap(px(2.0))
+                .children(crumbs),
+        )
         .child(div().flex_1())
         .when(!options.is_empty(), |bar| {
             bar.child(
@@ -170,7 +178,15 @@ fn render_crumb(crumb: Button, cx: &mut Context<EditorView>) -> AnyElement {
                 .text_color(rgb(color::FG_MAIN))
                 .shadow(vec![shadow(0x00000099, 1.0, 2.0, 0.0)])
         })
-        .child(crumb.label)
+        // On a long path the outer directories give way, so the sort controls stay.
+        .map(|element| {
+            if crumb.selected {
+                element.flex_none()
+            } else {
+                element.min_w_0()
+            }
+        })
+        .child(div().min_w_0().truncate().child(crumb.label))
         .into_any_element()
 }
 
@@ -215,6 +231,7 @@ fn render_header(columns: &[Column]) -> Div {
         .font_weight(FontWeight::SEMIBOLD)
         .text_size(px(font::SMALL_SIZE))
         .text_color(rgb(color::FG_FAINT))
+        .child(div().flex_none().w(px(MARK_WIDTH)))
         .child(div().flex_none().w(px(ICON_WIDTH)))
         .children(
             columns
@@ -231,11 +248,17 @@ fn render_row(
     activate: &'static str,
     cx: &mut Context<EditorView>,
 ) -> Div {
+    let flagged = row.mark == Some(Mark::Flagged);
     let primary_color = match row.face {
+        _ if flagged => color::FG_FLAGGED,
         RowFace::Normal => color::FG_MAIN,
         RowFace::Directory => color::FG_DIRECTORY,
         RowFace::Dim => color::FG_FAINT,
     };
+    let mark_tint = row.mark.map(|mark| match mark {
+        Mark::Marked => color::ACCENT,
+        Mark::Flagged => color::ERROR,
+    });
     let icon_color = match (selected, row.face) {
         (true, _) => color::FG_ALT,
         (false, RowFace::Directory) => color::FG_DIRECTORY,
@@ -257,6 +280,10 @@ fn render_row(
             .font_family(family)
             .text_size(px(size))
             .text_color(rgb(text_color))
+            .when(
+                flagged && column.style == CellStyle::Primary,
+                Styled::line_through,
+            )
             .child(text)
     });
     div()
@@ -267,6 +294,9 @@ fn render_row(
         .h(px(ROW_HEIGHT))
         .px(px(12.0))
         .rounded(px(8.0))
+        .when_some(mark_tint.filter(|_| !selected), |row, tint| {
+            row.bg(rgba(tint << 8 | 0x14))
+        })
         .when(selected, |row| {
             row.bg(rgb(color::BG_SELECTION))
                 .shadow(vec![shadow(0x00000073, 1.0, 3.0, 0.0)])
@@ -277,6 +307,14 @@ fn render_row(
                 cx.stop_propagation();
                 view.click_row(line, event.click_count, activate, cx);
             }),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_none()
+                .justify_center()
+                .w(px(MARK_WIDTH))
+                .children(row.mark.map(mark_badge)),
         )
         .child(
             div()
