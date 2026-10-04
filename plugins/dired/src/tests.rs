@@ -3,18 +3,21 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use remacs_core::{Editor, Mark, Preview, PreviewBody, RowFace, Tone, parse_sequence};
+use remacs_core::{
+    Changes, DiffLine, Editor, Elsewhere, FileDiff, FileEdits, Mark, Preview, PreviewBody, RowFace,
+    Tone, parse_sequence,
+};
 use remacs_editing::EditingPlugin;
 use remacs_files::FilesPlugin;
 use remacs_minibuffer::MinibufferPlugin;
 
-use crate::DiredPlugin;
 use crate::commands::open_directory;
 use crate::entry::{
     Entry, LocalTime, PARENT, SortKey, date_label, full_date_label, items_label, mode_label,
     size_label, sort,
 };
 use crate::listing::{DIRED_MODE, Listing};
+use crate::{DiredPlugin, deliver_rename_edits, take_rename_requests};
 
 const READ_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -507,4 +510,216 @@ fn files_already_there_are_kept_unless_overwriting() {
     type_text(&mut editor, "sub/inside/");
     press(&mut editor, "RET");
     assert!(editor.echo().unwrap().contains("onto or into itself"));
+}
+
+/// A listing of a fresh tree with its names editable, point on `sub`.
+fn editing(name: &str) -> (Tree, Editor) {
+    let tree = Tree::new(name);
+    let mut editor = editor();
+    open_directory(&mut editor, &tree.0, None, false).unwrap();
+    wait_for_listing(&mut editor);
+    press(&mut editor, "w");
+    (tree, editor)
+}
+
+fn changes(editor: &Editor) -> Changes {
+    editor.table(0..20).unwrap().changes.unwrap()
+}
+
+#[test]
+fn edited_names_are_fields_and_applying_renames_their_files() {
+    let (tree, mut editor) = editing("wdired");
+    editor.find_file_noselect(&tree.0.join("lib.rs")).unwrap();
+    assert!(!editor.window_buffer().is_read_only());
+    assert_eq!(line_at_point(&editor), "sub");
+
+    press(&mut editor, "TAB TAB C-a");
+    type_text(&mut editor, "new_");
+    assert_eq!(line_at_point(&editor), "new_lib.rs");
+    let table = editor.table(0..20).unwrap();
+    assert_eq!(table.notice.unwrap().label, "Editing names");
+    assert!(table.sort.is_empty() && table.preview.is_none());
+    assert_eq!(table.rows[0].field, None);
+    assert_eq!(table.rows[3].cells[0], "new_lib.rs");
+    assert_eq!(
+        table.rows[3].field.as_ref().unwrap().original.as_deref(),
+        Some("lib.rs")
+    );
+    let changes = changes(&editor);
+    assert_eq!(changes.summary, "1 rename");
+    assert_eq!(changes.edits, [("lib.rs".into(), "new_lib.rs".into())]);
+    assert_eq!(changes.elsewhere, Elsewhere::Nothing);
+    let status = editor.status_segments();
+    assert_eq!(status[0].items[0].text, "Editing · 1 change");
+    assert_eq!(status[0].items[0].tone, Tone::Warning);
+
+    press(&mut editor, "C-c C-c");
+    assert!(editor.window_buffer().is_read_only());
+    assert_eq!(line_at_point(&editor), "new_lib.rs");
+    wait_for_message(&mut editor, "Renamed lib.rs to new_lib.rs");
+    assert!(tree.0.join("new_lib.rs").exists() && !tree.0.join("lib.rs").exists());
+    assert!(
+        editor
+            .buffers()
+            .iter()
+            .any(|buffer| buffer.path() == Some(tree.0.join("new_lib.rs").as_path()))
+    );
+    wait_until(&mut editor, |editor| line_at_point(editor) == "new_lib.rs");
+}
+
+#[test]
+fn names_stay_one_per_line_and_the_parent_stays_as_it_is() {
+    let (_tree, mut editor) = editing("wdired-lines");
+    let before = lines(&editor);
+    press(&mut editor, "C-e C-d");
+    assert_eq!(lines(&editor), before);
+    assert_eq!(editor.echo().as_deref(), Some("Names stay one per line"));
+
+    press(&mut editor, "C-k C-k C-y");
+    assert_eq!(lines(&editor), before);
+
+    press(&mut editor, "M-<");
+    type_text(&mut editor, "x");
+    assert_eq!(lines(&editor), before);
+    assert_eq!(editor.echo().as_deref(), Some(".. cannot be renamed"));
+}
+
+#[test]
+fn swapped_names_pass_through_temporary_names() {
+    let (tree, mut editor) = editing("wdired-swap");
+    fs::write(tree.0.join("lib.rs~"), "backup").unwrap();
+    press(&mut editor, "C-n C-n C-e");
+    type_text(&mut editor, "~");
+    press(&mut editor, "C-n C-e DEL");
+    assert_eq!(changes(&editor).summary, "2 renames");
+
+    press(&mut editor, "C-c C-c");
+    wait_for_message(&mut editor, "Renamed 2 files");
+    assert_eq!(
+        fs::read_to_string(tree.0.join("lib.rs~")).unwrap(),
+        "fn main() {}\n"
+    );
+    assert_eq!(fs::read_to_string(tree.0.join("lib.rs")).unwrap(), "backup");
+}
+
+#[test]
+fn names_that_cannot_be_are_refused_and_editing_goes_on() {
+    let (_tree, mut editor) = editing("wdired-refuse");
+    press(&mut editor, "C-n C-n C-a C-k");
+    type_text(&mut editor, "sub");
+    press(&mut editor, "C-c C-c");
+    assert_eq!(
+        editor.echo().as_deref(),
+        Some("Two files would be named sub")
+    );
+
+    press(&mut editor, "C-a C-k C-c C-c");
+    assert_eq!(
+        editor.echo().as_deref(),
+        Some("Cannot rename lib.rs: the new name is empty")
+    );
+    assert!(!editor.window_buffer().is_read_only());
+}
+
+#[test]
+fn cancelling_puts_the_names_back() {
+    let (_tree, mut editor) = editing("wdired-cancel");
+    let before = lines(&editor);
+    type_text(&mut editor, "renamed");
+    press(&mut editor, "C-c C-k");
+    assert_eq!(lines(&editor), before);
+    assert!(editor.window_buffer().is_read_only());
+    assert_eq!(editor.echo().as_deref(), Some("Edits discarded"));
+    assert!(editor.table(0..20).unwrap().changes.is_none());
+}
+
+#[test]
+fn replacing_in_names_changes_every_name_and_undoes_at_once() {
+    let (_tree, mut editor) = editing("wdired-replace");
+    press(&mut editor, "M-%");
+    type_text(&mut editor, "lib");
+    press(&mut editor, "RET");
+    type_text(&mut editor, "core");
+    press(&mut editor, "RET");
+    assert_eq!(
+        lines(&editor),
+        ["..", "sub", ".hidden", "core.rs", "core.rs~"]
+    );
+    assert_eq!(editor.echo().as_deref(), Some("Replaced 2 occurrences"));
+
+    press(&mut editor, "C-/");
+    assert_eq!(
+        lines(&editor),
+        ["..", "sub", ".hidden", "lib.rs", "lib.rs~"]
+    );
+}
+
+#[test]
+fn references_a_backend_finds_are_shown_and_updated_with_the_rename() {
+    let (tree, mut editor) = editing("wdired-references");
+    let refs = tree.0.join("refs.txt");
+    fs::write(&refs, "use lib;\nfn x() {}\n").unwrap();
+    press(&mut editor, "TAB TAB C-a M-d");
+    type_text(&mut editor, "core");
+
+    // Asked again as each letter was typed; only the newest question counts.
+    let request = take_rename_requests(&mut editor).pop().unwrap();
+    assert_eq!(
+        request.renames,
+        [(tree.0.join("lib.rs"), tree.0.join("core.rs"))]
+    );
+    assert_eq!(changes(&editor).elsewhere, Elsewhere::Checking);
+    press(&mut editor, "C-c C-c");
+    assert!(
+        editor
+            .echo()
+            .unwrap()
+            .starts_with("Still finding references")
+    );
+
+    let edits = FileEdits {
+        path: refs.clone(),
+        edits: vec![(4..7, "core".into())],
+    };
+    deliver_rename_edits(&mut editor, request.id, vec![edits]);
+    let changes = changes(&editor);
+    assert_eq!(
+        changes.elsewhere,
+        Elsewhere::Files(vec![FileDiff {
+            name: "refs.txt".into(),
+            lines: vec![
+                DiffLine::Removed("use lib;".into()),
+                DiffLine::Added("use core;".into())
+            ],
+        }])
+    );
+    assert!(changes.options[0].selected);
+
+    press(&mut editor, "C-c C-c");
+    wait_for_message(&mut editor, "Renamed lib.rs to core.rs; updated refs.txt");
+    assert_eq!(fs::read_to_string(&refs).unwrap(), "use core;\nfn x() {}\n");
+    assert!(tree.0.join("core.rs").exists());
+}
+
+#[test]
+fn references_are_left_alone_when_switched_off() {
+    let (tree, mut editor) = editing("wdired-no-references");
+    let refs = tree.0.join("refs.txt");
+    fs::write(&refs, "use lib;\n").unwrap();
+    press(&mut editor, "TAB TAB C-a M-d");
+    type_text(&mut editor, "core");
+    let request = take_rename_requests(&mut editor).pop().unwrap();
+    let edits = FileEdits {
+        path: refs.clone(),
+        edits: vec![(4..7, "core".into())],
+    };
+    deliver_rename_edits(&mut editor, request.id, vec![edits]);
+    editor.run_command("wdired-toggle-reference-updates");
+    let changes = changes(&editor);
+    assert_eq!(changes.elsewhere, Elsewhere::Nothing);
+    assert!(!changes.options[0].selected);
+
+    press(&mut editor, "C-c C-c");
+    wait_for_message(&mut editor, "Renamed lib.rs to core.rs");
+    assert_eq!(fs::read_to_string(&refs).unwrap(), "use lib;\n");
 }

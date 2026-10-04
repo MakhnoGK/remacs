@@ -22,6 +22,7 @@ tree-sitter-typescript.workspace = true
 remacs-actions.workspace = true
 remacs-completion.workspace = true
 remacs-diagnostics.workspace = true
+remacs-dired.workspace = true
 remacs-documentation.workspace = true
 remacs-xref.workspace = true
 tree-sitter.workspace = true

@@ -10,6 +10,7 @@ mod document;
 mod hover;
 mod markdown;
 mod position;
+mod rename;
 mod snippet;
 mod transport;
 mod uri;
@@ -56,8 +57,9 @@ impl LspPlugin {
 impl Plugin for LspPlugin {
     fn register(&self, registry: &mut Registry) {
         let servers = self.servers;
-        registry
-            .post_command_hooks
-            .push(Rc::new(move |editor| document::sync(editor, servers)));
+        registry.post_command_hooks.push(Rc::new(move |editor| {
+            document::sync(editor, servers);
+            rename::sync(editor, servers);
+        }));
     }
 }

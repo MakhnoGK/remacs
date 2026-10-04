@@ -1,4 +1,5 @@
 use std::any::{Any, TypeId};
+use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::io;
 use std::ops::Range;
@@ -97,6 +98,11 @@ impl Buffer {
 
     pub fn is_read_only(&self) -> bool {
         self.read_only
+    }
+
+    /// Lets commands edit the buffer, or stops them, like Emacs `read-only-mode`.
+    pub fn set_read_only(&mut self, read_only: bool) {
+        self.read_only = read_only;
     }
 
     /// Fails in a read-only buffer, like Emacs `barf-if-buffer-read-only`.
@@ -244,6 +250,23 @@ impl Buffer {
         self.set_point(point);
     }
 
+    /// Makes `edits`, all in offsets of the current text, last first so the others stay
+    /// valid; inserts at one offset keep their order and point stays on its character.
+    pub fn apply_edits(&mut self, edits: Vec<(Range<usize>, String)>) {
+        let mut edits: Vec<_> = edits.into_iter().enumerate().collect();
+        edits.sort_by_key(|(index, (range, _))| Reverse((range.start, *index)));
+        let mut point = self.point;
+        let len = self.text.len();
+        for (_, (range, text)) in edits {
+            let range = range.start.min(len)..range.end.min(len);
+            point = shift(point, &range, text.len());
+            self.delete(range.clone());
+            self.set_point(range.start);
+            self.insert(&text);
+        }
+        self.set_point(point);
+    }
+
     pub fn undo(&mut self) -> bool {
         let offset = self.text.undo();
         self.restore_point(offset)
@@ -278,5 +301,25 @@ impl Buffer {
             }
         });
         offset.inspect(|&offset| self.set_point(offset)).is_some()
+    }
+}
+
+/// Edits to one file, in offsets of the text of the buffer visiting it, else of the file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileEdits {
+    pub path: PathBuf,
+    /// Replacements that do not overlap; inserts at one offset keep their order.
+    pub edits: Vec<(Range<usize>, String)>,
+}
+
+/// Where `offset` ends up when `range` is replaced with `inserted` bytes: text inserted
+/// at it goes after it, like an Emacs marker.
+fn shift(offset: usize, range: &Range<usize>, inserted: usize) -> usize {
+    if offset <= range.start {
+        offset
+    } else if offset >= range.end {
+        offset - range.len() + inserted
+    } else {
+        range.start
     }
 }

@@ -10,7 +10,7 @@ use std::rc::Rc;
 
 use remacs_core::{Command, Keymap, MinorKeymap, Plugin, Registry};
 
-pub use edits::{FileEdits, apply, failed};
+pub use edits::{apply, failed};
 pub use menu::{Action, Request, deliver, take_requests};
 
 pub struct ActionsPlugin;

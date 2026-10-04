@@ -8,6 +8,7 @@ use remacs_files::{
 
 use crate::entry::{PARENT, SortKey};
 use crate::listing::{DIRED_MODE, Listing, entry_at_point, new_listing, select_entry, set_sort};
+use crate::wdired::is_editing;
 
 pub const FIND_FILE: &str = "dired-find-file";
 const DIRECTORY_CATEGORY: &str = "directory";
@@ -105,6 +106,9 @@ pub fn sort_by_size(editor: &mut Editor) -> CommandResult {
 
 pub fn sort_by(editor: &mut Editor, key: SortKey) -> CommandResult {
     listing_directory(editor)?;
+    if is_editing(editor) {
+        return Err("Apply or cancel the edited names first".into());
+    }
     set_sort(editor.window_buffer_mut(), key);
     editor.set_message(format!("Sorted by {}", key.label().to_lowercase()));
     Ok(())
@@ -155,8 +159,8 @@ pub fn create_directory(editor: &mut Editor) -> CommandResult {
 }
 
 /// Shows a listing of `directory`, reusing one already open. With `replace`, the listing
-/// in the window is killed, so moving around keeps one buffer, like Emacs
-/// `dired-kill-when-opening-new-dired-buffer`.
+/// in the window is killed, unless its names are being edited, so moving around keeps one
+/// buffer, like Emacs `dired-kill-when-opening-new-dired-buffer`.
 pub fn open_directory(
     editor: &mut Editor,
     directory: &Path,
@@ -168,7 +172,8 @@ pub fn open_directory(
         return Err(format!("Not a directory: {}", abbreviate_home(&directory)).into());
     }
     let window = editor.window_buffer();
-    let left = (replace && window.local::<Listing>().is_some()).then(|| window.name().to_owned());
+    let left = (replace && window.local::<Listing>().is_some() && !is_editing(editor))
+        .then(|| window.name().to_owned());
     let existing = editor
         .buffers()
         .iter()

@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use remacs_core::{
-    Buffer, Button, CellStyle, Column, Editor, Icon, Mark, Notifier, Row, RowFace, StatusItem,
-    StatusSegment, Table, Tone,
+    Buffer, Button, CellStyle, Column, Editor, Field, Icon, Mark, Notice, Notifier, Row, RowFace,
+    StatusItem, StatusSegment, Table, Tone,
 };
 use remacs_files::abbreviate_home;
 use remacs_text::Text;
@@ -14,6 +14,7 @@ use crate::commands::{FIND_FILE, open_directory, sort_by};
 use crate::entry::{Entry, PARENT, SortKey, display_name, is_dim_name, items_label, sort};
 use crate::preview::{self, PreviewState};
 use crate::reader::DirectoryReader;
+use crate::wdired::{self, Editing};
 
 pub const DIRED_MODE: &str = "Dired";
 
@@ -61,6 +62,15 @@ pub struct Listing {
     pub preview: PreviewState,
     /// By entry name, so they survive sorting and reading again.
     pub marks: HashMap<String, Mark>,
+    /// While the names are edited, the lines stand for the entries as they are, so the
+    /// listing is neither read again nor sorted.
+    pub editing: Option<Editing>,
+}
+
+impl Listing {
+    pub fn is_loaded(&self) -> bool {
+        self.loaded
+    }
 }
 
 /// A read-only buffer listing `directory`, read in the background.
@@ -82,6 +92,7 @@ pub fn new_listing(directory: PathBuf, select: Option<String>, notifier: Notifie
         reader,
         preview,
         marks: HashMap::new(),
+        editing: None,
     });
     buffer
 }
@@ -113,7 +124,10 @@ pub fn pick_up_listings(editor: &mut Editor) {
 /// Shows `entries`, keeping point on the entry it was on.
 pub fn set_entries(buffer: &mut Buffer, mut entries: Vec<Entry>) {
     let current = entry_at_point(buffer).map(|entry| entry.name.clone());
-    let Some(listing) = buffer.local_mut::<Listing>() else {
+    let Some(listing) = buffer
+        .local_mut::<Listing>()
+        .filter(|listing| listing.editing.is_none())
+    else {
         return;
     };
     sort(&mut entries, listing.sort);
@@ -130,7 +144,10 @@ pub fn set_entries(buffer: &mut Buffer, mut entries: Vec<Entry>) {
 
 pub fn set_sort(buffer: &mut Buffer, key: SortKey) {
     let current = entry_at_point(buffer).map(|entry| entry.name.clone());
-    let Some(listing) = buffer.local_mut::<Listing>() else {
+    let Some(listing) = buffer
+        .local_mut::<Listing>()
+        .filter(|listing| listing.editing.is_none())
+    else {
         return;
     };
     listing.sort = key;
@@ -150,10 +167,18 @@ pub fn select_entry(buffer: &mut Buffer, name: String) {
     }
 }
 
-/// Rewrites the buffer from the entries; point goes to `target`, else stays on its line,
-/// or on the first real entry the first time.
+/// Rewrites the buffer from the entries, point staying on its line.
+pub fn redraw(buffer: &mut Buffer) {
+    redisplay(buffer, None, false);
+}
+
+/// Rewrites the buffer from the entries, unless their names are being edited; point goes
+/// to `target`, else stays on its line, or on the first real entry the first time.
 fn redisplay(buffer: &mut Buffer, target: Option<String>, first_load: bool) {
-    let Some(listing) = buffer.local::<Listing>() else {
+    let Some(listing) = buffer
+        .local::<Listing>()
+        .filter(|listing| listing.editing.is_none())
+    else {
         return;
     };
     let names: Vec<String> = listing
@@ -185,9 +210,20 @@ pub fn table(buffer: &Buffer, lines: Range<usize>) -> Option<Table> {
     let listing = buffer.local::<Listing>()?;
     let directory = buffer.default_directory()?;
     let shown = lines.start.min(listing.entries.len())..lines.end.min(listing.entries.len());
-    Some(Table {
-        crumbs: crumbs(directory),
-        sort: SortKey::ALL
+    let editing = listing.editing.as_ref();
+    let rows = listing.entries[shown.clone()]
+        .iter()
+        .zip(shown)
+        .map(|(entry, line)| {
+            let edited = editing
+                .filter(|_| entry.name != PARENT)
+                .map(|_| line_text(buffer, line));
+            row(entry, listing.marks.get(&entry.name).copied(), edited)
+        })
+        .collect();
+    let sort = match editing {
+        Some(_) => Vec::new(),
+        None => SortKey::ALL
             .into_iter()
             .map(|key| Button {
                 label: key.label().into(),
@@ -195,16 +231,36 @@ pub fn table(buffer: &Buffer, lines: Range<usize>) -> Option<Table> {
                 action: Rc::new(move |editor| sort_by(editor, key)),
             })
             .collect(),
+    };
+    let preview = editing
+        .is_none()
+        .then(|| {
+            entry_at_point(buffer).and_then(|entry| preview::describe(listing, directory, entry))
+        })
+        .flatten();
+    Some(Table {
+        crumbs: crumbs(directory),
+        sort,
         columns: COLUMNS,
-        rows: listing.entries[shown]
-            .iter()
-            .map(|entry| row(entry, listing.marks.get(&entry.name).copied()))
-            .collect(),
+        rows,
         activate: FIND_FILE,
-        hints: HINTS,
-        preview: entry_at_point(buffer)
-            .and_then(|entry| preview::describe(listing, directory, entry)),
+        hints: if editing.is_some() {
+            wdired::HINTS
+        } else {
+            HINTS
+        },
+        preview,
+        notice: editing.map(|_| Notice {
+            label: "Editing names",
+            keys: wdired::NOTICE_KEYS,
+        }),
+        changes: editing.map(|editing| wdired::changes(buffer, editing)),
     })
+}
+
+fn line_text(buffer: &Buffer, line: usize) -> String {
+    let range = buffer.text().line_range(line).unwrap_or_default();
+    buffer.contents(range)
 }
 
 pub fn status(editor: &Editor) -> Option<StatusSegment> {
@@ -245,18 +301,22 @@ pub fn marks_status(editor: &Editor) -> Option<StatusSegment> {
     })
 }
 
-fn row(entry: &Entry, mark: Option<Mark>) -> Row {
-    let name = display_name(entry);
+/// With `edited`, the name as it is being edited, in a field.
+fn row(entry: &Entry, mark: Option<Mark>, edited: Option<String>) -> Row {
+    let field = edited.as_ref().map(|name| Field {
+        original: (*name != entry.name).then(|| entry.name.clone()),
+    });
     Row {
         mark,
         icon: Some(file_icon(entry.is_directory)),
         cells: vec![
-            name,
+            edited.unwrap_or_else(|| display_name(entry)),
             entry.size_label.clone(),
             entry.modified_label.clone(),
             entry.permissions.clone(),
         ],
         face: file_face(&entry.name, entry.is_directory),
+        field,
     }
 }
 

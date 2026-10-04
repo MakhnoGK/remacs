@@ -45,6 +45,8 @@ pub enum Tone {
     Accent,
     /// About to be destroyed, like files flagged for deletion.
     Danger,
+    /// Not yet done, like edits waiting to be applied.
+    Warning,
 }
 
 /// Describes the window buffer for the status pill, if the plugin has anything to show.

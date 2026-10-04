@@ -10,7 +10,7 @@ use std::sync::{Arc, PoisonError, RwLock};
 
 use remacs_text::Text;
 
-use crate::buffer::Buffer;
+use crate::buffer::{Buffer, FileEdits};
 use crate::command::{CommandResult, Commands};
 use crate::completion::Completions;
 use crate::decoration::Span;
@@ -145,6 +145,15 @@ impl Editor {
     pub fn find_file_noselect(&mut self, path: &Path) -> io::Result<&mut Buffer> {
         let index = self.find_file(path)?;
         Ok(&mut self.buffers[index])
+    }
+
+    /// Makes `edits` in the buffer visiting their file, opened without showing it if
+    /// needed; they undo together and are left unsaved.
+    pub fn edit_file(&mut self, edits: FileEdits) -> io::Result<&mut Buffer> {
+        let buffer = self.find_file_noselect(&edits.path)?;
+        buffer.add_undo_boundary();
+        buffer.apply_edits(edits.edits);
+        Ok(buffer)
     }
 
     /// Makes the window buffer visit `path` from now on, renamed after it, like Emacs

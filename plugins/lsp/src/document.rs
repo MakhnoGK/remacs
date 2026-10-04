@@ -288,16 +288,23 @@ impl Drop for Document {
 
 /// Servers started so far, one per server and project root.
 #[derive(Default)]
-struct Clients {
+pub(crate) struct Clients {
     running: HashMap<(&'static str, PathBuf), Rc<Client>>,
     /// Servers that could not start; they are not tried again.
     failed: HashSet<&'static str>,
 }
 
 impl Clients {
+    /// The running servers and their project roots.
+    pub(crate) fn running(&self) -> impl Iterator<Item = (&Path, &Rc<Client>)> {
+        self.running
+            .iter()
+            .map(|((_, root), client)| (root.as_path(), client))
+    }
+
     /// The server for `path`'s project, started on first use; `Err` the one time it fails
     /// to start.
-    fn client_for(
+    pub(crate) fn client_for(
         &mut self,
         server: &'static LanguageServer,
         path: &Path,

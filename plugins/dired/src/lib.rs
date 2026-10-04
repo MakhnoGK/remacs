@@ -11,7 +11,9 @@ mod marks;
 mod preview;
 mod preview_reader;
 mod reader;
+mod references;
 mod transfer;
+mod wdired;
 
 use std::path::Path;
 use std::rc::Rc;
@@ -19,6 +21,8 @@ use std::rc::Rc;
 use remacs_core::{Command, CommandResult, Editor, Keymap, MinorKeymap, Plugin, Registry};
 
 use crate::listing::DIRED_MODE;
+
+pub use references::{RenameRequest, deliver_rename_edits, take_rename_requests};
 
 pub struct DiredPlugin;
 
@@ -51,6 +55,13 @@ const COMMANDS: &[Command] = &[
     Command::new("dired-create-directory", "Create a folder in the listed directory", commands::create_directory),
     Command::new("dired-do-copy", "Copy the marked files, or the one at point, elsewhere", transfer::copy),
     Command::new("dired-do-rename", "Move or rename the marked files, or the one at point", transfer::rename),
+    Command::new("wdired-change-to-wdired-mode", "Edit the names in the listing to rename files", wdired::edit_names),
+    Command::new("wdired-finish-edit", "Rename the files whose names were edited", wdired::apply),
+    Command::new("wdired-abort-changes", "Put the edited names back as they are", wdired::cancel),
+    Command::new("wdired-next-name", "Move to the end of the next name", wdired::next_name),
+    Command::new("wdired-previous-name", "Move to the end of the previous name", wdired::previous_name),
+    Command::new("wdired-replace-in-names", "Replace text in every name", wdired::replace_in_names),
+    Command::new("wdired-toggle-reference-updates", "Switch whether renaming updates references to the files", wdired::toggle_reference_updates),
 ];
 
 const BINDINGS: &[(&str, &str)] = &[("C-x d", "dired"), ("C-x C-j", "dired-jump")];
@@ -78,6 +89,20 @@ const DIRED_BINDINGS: &[(&str, &str)] = &[
     ("+", "dired-create-directory"),
     ("C", "dired-do-copy"),
     ("R", "dired-do-rename"),
+    ("w", "wdired-change-to-wdired-mode"),
+    ("C-x C-q", "wdired-change-to-wdired-mode"),
+];
+
+/// Over the editing keys; letters type into the names.
+const WDIRED_BINDINGS: &[(&str, &str)] = &[
+    ("C-c C-c", "wdired-finish-edit"),
+    ("C-x C-s", "wdired-finish-edit"),
+    ("C-c C-k", "wdired-abort-changes"),
+    ("C-c ESC", "wdired-abort-changes"),
+    ("TAB", "wdired-next-name"),
+    ("RET", "wdired-next-name"),
+    ("S-TAB", "wdired-previous-name"),
+    ("M-%", "wdired-replace-in-names"),
 ];
 
 impl Plugin for DiredPlugin {
@@ -88,15 +113,16 @@ impl Plugin for DiredPlugin {
         for &(keys, command) in BINDINGS {
             registry.keymap.bind(keys, command);
         }
-        let mut keymap = Keymap::default();
-        for &(keys, command) in DIRED_BINDINGS {
-            keymap.bind(keys, command);
-        }
         registry.minor_keymaps.push(MinorKeymap {
-            active: |editor| editor.buffer().mode() == DIRED_MODE,
-            keymap,
+            active: |editor| editor.buffer().mode() == DIRED_MODE && !wdired::is_editing(editor),
+            keymap: keymap(DIRED_BINDINGS),
+        });
+        registry.minor_keymaps.push(MinorKeymap {
+            active: wdired::is_editing,
+            keymap: keymap(WDIRED_BINDINGS),
         });
         registry.tables.push(Rc::new(listing::table));
+        registry.status_providers.push(Rc::new(wdired::status));
         registry
             .status_providers
             .push(Rc::new(listing::marks_status));
@@ -106,7 +132,18 @@ impl Plugin for DiredPlugin {
             .push(Rc::new(listing::pick_up_listings));
         registry.post_command_hooks.push(Rc::new(preview::sync));
         registry.post_command_hooks.push(Rc::new(jobs::pick_up));
+        registry
+            .post_command_hooks
+            .push(Rc::new(wdired::after_command));
     }
+}
+
+fn keymap(bindings: &[(&str, &'static str)]) -> Keymap {
+    let mut keymap = Keymap::default();
+    for &(keys, command) in bindings {
+        keymap.bind(keys, command);
+    }
+    keymap
 }
 
 #[cfg(test)]

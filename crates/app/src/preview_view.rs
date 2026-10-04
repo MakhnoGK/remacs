@@ -48,6 +48,14 @@ pub fn render_preview(preview: Preview, code_faces: &dyn Fn(&Code) -> Highlights
                 .text_color(rgb(color::FG_FAINT))
                 .child(kind),
         );
+    pane()
+        .child(header)
+        .child(render_body(body, code_faces))
+        .child(render_details(details))
+}
+
+/// The frame of what is shown beside a table's rows.
+pub fn pane() -> Div {
     div()
         .flex()
         .flex_col()
@@ -60,9 +68,6 @@ pub fn render_preview(preview: Preview, code_faces: &dyn Fn(&Code) -> Highlights
         .border_color(rgba(0xffffff12))
         .rounded(px(12.0))
         .overflow_hidden()
-        .child(header)
-        .child(render_body(body, code_faces))
-        .child(render_details(details))
 }
 
 /// Fills the room the header and details leave; what does not fit is cut off.

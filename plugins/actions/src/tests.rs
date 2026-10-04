@@ -1,10 +1,10 @@
 use std::fs;
 use std::path::PathBuf;
 
-use remacs_core::{Editor, parse_sequence};
+use remacs_core::{Editor, FileEdits, parse_sequence};
 use remacs_editing::EditingPlugin;
 
-use crate::{Action, ActionsPlugin, FileEdits, Request, apply, deliver, failed, take_requests};
+use crate::{Action, ActionsPlugin, Request, apply, deliver, failed, take_requests};
 
 const MAIN: &str = "fn main() {\n    let x = 1;\n}\n";
 

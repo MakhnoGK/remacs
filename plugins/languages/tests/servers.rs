@@ -7,8 +7,9 @@ use std::time::{Duration, Instant};
 
 use remacs_actions::ActionsPlugin;
 use remacs_completion::CompletionPlugin;
-use remacs_core::{Documentation, Editor, Icon, Plugin, Popup};
+use remacs_core::{Changes, Documentation, Editor, Elsewhere, Icon, Plugin, Popup};
 use remacs_diagnostics::DiagnosticsPlugin;
+use remacs_dired::{DiredPlugin, list_directory};
 use remacs_documentation::DocumentationPlugin;
 use remacs_languages::{LanguagesPlugin, SERVERS};
 use remacs_lsp::LspPlugin;
@@ -445,4 +446,61 @@ fn servers_offer_and_apply_code_actions() {
     );
     let text = apply_action(&typescript.join("index.ts"), "helper", "import");
     assert!(text.contains("import { helper } from"), "{text}");
+}
+
+/// Refreshes until `done`, as the listing and the server's answers arrive.
+fn refresh_until(editor: &mut Editor, what: &str, done: impl Fn(&Editor) -> bool) {
+    let started = Instant::now();
+    while !done(editor) {
+        assert!(started.elapsed() < TIMEOUT, "{what} never happened");
+        thread::sleep(Duration::from_millis(100));
+        editor.refresh();
+    }
+}
+
+#[test]
+#[ignore]
+fn rust_analyzer_updates_mod_declarations_of_files_renamed_in_dired() {
+    let root = project(
+        "rust-rename",
+        &[
+            (
+                "Cargo.toml",
+                "[package]\nname = \"demo\"\nedition = \"2024\"\n",
+            ),
+            ("src/lib.rs", "mod casefiddle;\n\npub use casefiddle::up;\n"),
+            ("src/casefiddle.rs", "pub fn up() {}\n"),
+        ],
+    );
+    let src = root.join("src").canonicalize().unwrap();
+    let plugins: Vec<&dyn Plugin> = [&DiredPlugin as &dyn Plugin]
+        .into_iter()
+        .chain(PLUGINS.iter().copied())
+        .collect();
+    let mut editor = Editor::new(&plugins);
+    list_directory(&mut editor, &src).unwrap();
+    refresh_until(&mut editor, "listing", |editor| {
+        editor.window_buffer().text().line_count() > 1
+    });
+    editor.run_command("wdired-change-to-wdired-mode");
+    let buffer = editor.window_buffer_mut();
+    let source = buffer.contents(0..buffer.text().len());
+    buffer.set_point(source.find("casefiddle").unwrap() + "case".len());
+    buffer.insert("_");
+    editor.refresh();
+
+    refresh_until(&mut editor, "the mod update", |editor| {
+        let changes = editor.table(0..10).and_then(|table| table.changes);
+        matches!(changes, Some(Changes { elsewhere: Elsewhere::Files(files), .. }) if !files.is_empty())
+    });
+    editor.run_command("wdired-finish-edit");
+    refresh_until(&mut editor, "the rename", |editor| {
+        editor
+            .echo()
+            .is_some_and(|echo| echo.starts_with("Renamed"))
+    });
+    eprintln!("{}", editor.echo().unwrap());
+    let lib = fs::read_to_string(src.join("lib.rs")).unwrap();
+    assert!(lib.starts_with("mod case_fiddle;"), "{lib}");
+    assert!(src.join("case_fiddle.rs").exists());
 }

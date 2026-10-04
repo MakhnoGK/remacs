@@ -26,6 +26,48 @@ pub struct Table {
     pub hints: &'static [(&'static str, &'static str)],
     /// About the selected row, beside the rows when there is room.
     pub preview: Option<Preview>,
+    /// Says the rows are being edited, in place of the sort controls.
+    pub notice: Option<Notice>,
+    /// Edits to the rows not yet applied, beside them in place of the preview.
+    pub changes: Option<Changes>,
+}
+
+pub struct Notice {
+    pub label: &'static str,
+    /// Keys that end the editing and what they do.
+    pub keys: &'static [(&'static str, &'static str)],
+}
+
+pub struct Changes {
+    /// E.g. `2 renames`.
+    pub summary: String,
+    /// What each edited row said and says now.
+    pub edits: Vec<(String, String)>,
+    /// What applying them also changes in other files.
+    pub elsewhere: Elsewhere,
+    /// Settings of how they are applied, switched by a click.
+    pub options: Vec<Button>,
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+pub enum Elsewhere {
+    #[default]
+    Nothing,
+    /// Still being worked out.
+    Checking,
+    Files(Vec<FileDiff>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileDiff {
+    pub name: String,
+    pub lines: Vec<DiffLine>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DiffLine {
+    Removed(String),
+    Added(String),
 }
 
 pub struct Preview {
@@ -86,6 +128,15 @@ pub struct Row {
     /// One per column.
     pub cells: Vec<String>,
     pub face: RowFace,
+    /// The first cell is a text field while the rows are edited in place.
+    pub field: Option<Field>,
+}
+
+/// An editable first cell; its text is the row's line, with point's cursor and region.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Field {
+    /// What the cell said before, once it was edited.
+    pub original: Option<String>,
 }
 
 /// What a row is marked for, like the character before a file in Emacs dired.

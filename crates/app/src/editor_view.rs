@@ -14,6 +14,7 @@ use remacs_core::{
 };
 use remacs_theme::{color, font};
 
+use crate::changes_view::render_changes;
 use crate::display_line::DisplayLine;
 use crate::highlights::{Highlights, combine, face_style, region_style};
 use crate::key_input::to_key;
@@ -21,7 +22,7 @@ use crate::minibuffer_view::{is_problem_list, render_minibuffer, render_scrim};
 use crate::popup_view::{DocumentationScroll, DocumentationView, Placement, render_popup};
 use crate::preview_view::render_preview;
 use crate::table_view::{
-    LIST_BOTTOM, ROW_PITCH, ROWS_TOP, fits_preview, render_hints, render_table,
+    LIST_BOTTOM, ROW_PITCH, ROWS_TOP, TableCursor, fits_preview, render_hints, render_table,
 };
 use crate::widgets::{cursor_style, hsla, icon, modified_dot, pill, pill_separator};
 
@@ -543,6 +544,7 @@ impl EditorView {
                     Tone::Plain => text_color,
                     Tone::Accent => color::ACCENT,
                     Tone::Danger => color::DANGER,
+                    Tone::Warning => color::WARNING,
                 };
                 div()
                     .flex()
@@ -617,15 +619,22 @@ impl Render for EditorView {
         let (body, hints, popups) = match table {
             Some(mut table) => {
                 self.editor.viewport.set_height(table_rows);
-                let point_line = self.editor.window_buffer().point_line();
+                let buffer = self.editor.window_buffer();
+                let cursor = TableCursor {
+                    line: buffer.point_line(),
+                    column: buffer.point_column(),
+                    regions: (first_line..first_line + table.rows.len())
+                        .map(|line| self.region_columns(line))
+                        .collect(),
+                };
                 let hints = render_hints(table.hints).into_any_element();
-                let preview = table
-                    .preview
-                    .take()
-                    .filter(|_| fits_preview(window.viewport_size().width))
-                    .map(|preview| self.render_preview(preview));
-                let body =
-                    render_table(table, first_line, point_line, preview, cx).into_any_element();
+                let fits = fits_preview(window.viewport_size().width);
+                let side = match (table.changes.take(), table.preview.take()) {
+                    _ if !fits => None,
+                    (Some(changes), _) => Some(render_changes(changes, cx)),
+                    (None, preview) => preview.map(|preview| self.render_preview(preview)),
+                };
+                let body = render_table(table, first_line, cursor, side, cx).into_any_element();
                 (body, Some(hints), Vec::new())
             }
             None => {

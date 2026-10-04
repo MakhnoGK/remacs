@@ -130,6 +130,11 @@ pub fn segment(label: &str, selected: bool) -> Div {
 
 /// A setting's chip, lit while it is on, with the key that switches it.
 pub fn option_chip(label: &str, key: &str, on: bool) -> Div {
+    toggle_chip(label, on).child(kbd(key, false))
+}
+
+/// A setting's chip, lit and checked while it is on.
+pub fn toggle_chip(label: &str, on: bool) -> Div {
     let (background, border, text) = if on {
         (
             rgba(color::ACCENT << 8 | 0x29),
@@ -157,7 +162,11 @@ pub fn option_chip(label: &str, key: &str, on: bool) -> Div {
             chip.child(svg().path(CHECK_ICON).size(px(10.0)).text_color(rgb(text)))
         })
         .child(label.to_owned())
-        .child(kbd(key, false))
+}
+
+/// A cap for each key of a sequence, e.g. two for `C-c C-c`.
+pub fn key_caps(sequence: &str) -> impl Iterator<Item = Div> + '_ {
+    sequence.split_whitespace().map(|key| kbd(key, false))
 }
 
 /// The block cursor: the character under it drawn inverted.

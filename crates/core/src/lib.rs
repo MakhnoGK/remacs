@@ -17,7 +17,7 @@ mod status;
 mod table;
 mod viewport;
 
-pub use buffer::Buffer;
+pub use buffer::{Buffer, FileEdits};
 pub use command::{Command, CommandError, CommandResult, Commands};
 pub use completion::{
     Candidate, Completions, Icon, Match, Selection, SymbolKind, filter, filter_candidates,
@@ -36,7 +36,7 @@ pub use plugin::{Hook, MinorKeymap, Plugin, Registry};
 pub use popup::{Code, CodeHighlighter, DocBlock, Documentation, Popup, PopupProvider};
 pub use status::{StatusItem, StatusProvider, StatusSegment, Tone};
 pub use table::{
-    Action, Button, CellStyle, Column, Mark, Preview, PreviewBody, PreviewItem, Row, RowFace,
-    Table, TableProvider,
+    Action, Button, CellStyle, Changes, Column, DiffLine, Elsewhere, Field, FileDiff, Mark, Notice,
+    Preview, PreviewBody, PreviewItem, Row, RowFace, Table, TableProvider,
 };
 pub use viewport::Viewport;

@@ -2,8 +2,8 @@ use lsp_types::{
     CodeActionKind, CodeActionOrCommand, DocumentChangeOperation, DocumentChanges, OneOf, TextEdit,
     Uri, WorkspaceEdit,
 };
-use remacs_actions::{Action, FileEdits};
-use remacs_core::{CommandResult, Editor};
+use remacs_actions::Action;
+use remacs_core::{CommandResult, Editor, FileEdits};
 
 use crate::client::{Client, Outgoing};
 use crate::position::{Encoding, from_lsp, text_of};
@@ -89,7 +89,7 @@ pub(crate) fn apply(
 
 /// The edits per file, in offsets of the texts the server has. `documentChanges` wins
 /// over `changes`, as the protocol says.
-fn file_edits(
+pub(crate) fn file_edits(
     editor: &Editor,
     edit: WorkspaceEdit,
     encoding: Encoding,

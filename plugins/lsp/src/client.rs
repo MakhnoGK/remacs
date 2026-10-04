@@ -5,7 +5,7 @@ use std::iter;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::process::{ChildStdin, ChildStdout, Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
@@ -17,7 +17,7 @@ use lsp_types::notification::{
 use lsp_types::request::{
     ApplyWorkspaceEdit, CodeActionRequest, CodeActionResolveRequest, Completion,
     DocumentDiagnosticRequest, ExecuteCommand, GotoDefinition, HoverRequest, Initialize, Request,
-    ResolveCompletionItem, WorkspaceConfiguration, WorkspaceDiagnosticRefresh,
+    ResolveCompletionItem, WillRenameFiles, WorkspaceConfiguration, WorkspaceDiagnosticRefresh,
 };
 use lsp_types::{
     ApplyWorkspaceEditParams, CodeAction, CodeActionOrCommand, CompletionItem,
@@ -40,6 +40,8 @@ use crate::transport::{read_message, write_message};
 use crate::{code_action, definition, hover, uri};
 
 const INITIALIZE_ID: u64 = 0;
+/// rust-analyzer's, with `quiescent` false while it loads the project.
+const SERVER_STATUS: &str = "experimental/serverStatus";
 
 /// What the editor tells a server; the writer thread turns it into JSON once it knows how
 /// the server counts positions.
@@ -118,11 +120,25 @@ pub(crate) enum Outgoing {
         id: u64,
         command: lsp_types::Command,
     },
+    /// Asks what renaming files, from and to, would change in others; `id` is dired's.
+    WillRename {
+        id: u64,
+        files: Vec<(Uri, Uri)>,
+    },
     /// Answers a request the server made.
     Reply {
         id: Value,
         result: Value,
     },
+}
+
+/// The edits a server says renaming files calls for; none when it cannot tell.
+pub(crate) struct Renamed {
+    pub id: u64,
+    pub edit: Option<WorkspaceEdit>,
+    pub encoding: Encoding,
+    /// Given while the server was still loading the project, so it may have missed files.
+    pub settled: bool,
 }
 
 /// The newest diagnostics a server reported for a file.
@@ -226,6 +242,9 @@ enum Pending {
     Execute {
         id: u64,
     },
+    WillRename {
+        id: u64,
+    },
 }
 
 impl Pending {
@@ -245,6 +264,8 @@ struct Inbox {
     published: HashMap<PathBuf, Published>,
     requests: HashMap<u64, Pending>,
     answers: Vec<Answer>,
+    /// Kept apart from `answers`, which are for the window buffer's document.
+    renamed: Vec<Renamed>,
 }
 
 type SharedInbox = Arc<Mutex<Inbox>>;
@@ -259,6 +280,7 @@ struct Negotiated {
     encoding: Encoding,
     incremental: bool,
     completion: Option<CompletionSupport>,
+    will_rename: bool,
 }
 
 /// A language server process for one project root. A writer thread sends what the editor
@@ -272,6 +294,9 @@ pub(crate) struct Client {
     notifier: Notifier,
     /// The action whose command ran last, which edits the server asks for belong to.
     executing: Cell<Option<u64>>,
+    /// False while the server says it is busy loading the project; servers that never say
+    /// are taken as settled.
+    settled: Arc<AtomicBool>,
 }
 
 impl Client {
@@ -289,9 +314,11 @@ impl Client {
         let (agreed, negotiated) = mpsc::channel();
         let inbox = SharedInbox::default();
         let pull_generation = Arc::new(AtomicU64::new(0));
+        let settled = Arc::new(AtomicBool::new(true));
         let writer = Writer {
             stdin: BufWriter::new(stdin),
             inbox: Arc::clone(&inbox),
+            notifier: Arc::clone(&notifier),
             next_id: INITIALIZE_ID + 1,
         };
         let initialize = initialize_params(server, root);
@@ -306,6 +333,7 @@ impl Client {
             inbox: Arc::clone(&inbox),
             pull_generation: Arc::clone(&pull_generation),
             notifier: Arc::clone(&notifier),
+            settled: Arc::clone(&settled),
         };
         thread::Builder::new()
             .name(format!("{} reader", server.name))
@@ -320,7 +348,12 @@ impl Client {
             pull_generation,
             notifier,
             executing: Cell::new(None),
+            settled,
         })
+    }
+
+    pub fn is_settled(&self) -> bool {
+        self.settled.load(Ordering::Relaxed)
     }
 
     /// Runs the command of action `id` of the actions plugin.
@@ -344,6 +377,10 @@ impl Client {
 
     pub fn take_answers(&self) -> Vec<Answer> {
         std::mem::take(&mut lock(&self.inbox).answers)
+    }
+
+    pub fn take_renamed(&self) -> Vec<Renamed> {
+        std::mem::take(&mut lock(&self.inbox).renamed)
     }
 
     pub fn pulls_diagnostics(&self) -> bool {
@@ -375,6 +412,8 @@ fn initialize_params(server: &LanguageServer, root: &Path) -> Value {
         "initializationOptions": options,
         "capabilities": {
             "general": { "positionEncodings": ["utf-8", "utf-16"] },
+            // rust-analyzer then says when it is done loading the project.
+            "experimental": { "serverStatusNotification": true },
             "textDocument": {
                 "synchronization": { "didSave": true },
                 "publishDiagnostics": { "versionSupport": true },
@@ -408,6 +447,7 @@ fn initialize_params(server: &LanguageServer, root: &Path) -> Value {
             "workspace": {
                 "applyEdit": true,
                 "workspaceEdit": { "documentChanges": true },
+                "fileOperations": { "willRename": true },
             },
         },
     })
@@ -416,6 +456,7 @@ fn initialize_params(server: &LanguageServer, root: &Path) -> Value {
 struct Writer {
     stdin: BufWriter<ChildStdin>,
     inbox: SharedInbox,
+    notifier: Notifier,
     next_id: u64,
 }
 
@@ -567,6 +608,25 @@ impl Writer {
                 }
                 self.ask(ExecuteCommand::METHOD, params, Pending::Execute { id: *id })
             }
+            Outgoing::WillRename { id, files } => {
+                if !negotiated.will_rename {
+                    lock(&self.inbox).renamed.push(Renamed {
+                        id: *id,
+                        edit: None,
+                        encoding: negotiated.encoding,
+                        settled: true,
+                    });
+                    (self.notifier)();
+                    return Ok(());
+                }
+                let files: Vec<_> = files
+                    .iter()
+                    .map(|(old, new)| json!({ "oldUri": old, "newUri": new }))
+                    .collect();
+                let params = json!({ "files": files });
+                let pending = Pending::WillRename { id: *id };
+                self.ask(WillRenameFiles::METHOD, params, pending)
+            }
             message => message.to_json(negotiated),
         };
         write_message(&mut self.stdin, &json)
@@ -643,7 +703,8 @@ impl Outgoing {
             | Outgoing::AtPoint { .. }
             | Outgoing::CodeActions { .. }
             | Outgoing::ResolveAction { .. }
-            | Outgoing::Execute { .. } => unreachable!("the writer numbers requests"),
+            | Outgoing::Execute { .. }
+            | Outgoing::WillRename { .. } => unreachable!("the writer numbers requests"),
             Outgoing::Reply { id, result } => {
                 json!({ "jsonrpc": "2.0", "id": id, "result": result })
             }
@@ -694,6 +755,7 @@ struct Reader {
     inbox: SharedInbox,
     pull_generation: Arc<AtomicU64>,
     notifier: Notifier,
+    settled: Arc<AtomicBool>,
 }
 
 impl Reader {
@@ -717,6 +779,12 @@ impl Reader {
         match (message["method"].as_str(), id) {
             (Some(method), Some(id)) => self.answer(method, &params, id),
             (Some(PublishDiagnostics::METHOD), None) => self.publish(params),
+            (Some(SERVER_STATUS), None) => {
+                let settled = params["quiescent"].as_bool().unwrap_or(true);
+                if self.settled.swap(settled, Ordering::Relaxed) != settled {
+                    (self.notifier)();
+                }
+            }
             (None, Some(id)) => match id.as_u64() {
                 Some(INITIALIZE_ID) => self.initialized(&message),
                 Some(id) => self.answered(id, message),
@@ -778,6 +846,7 @@ impl Reader {
             encoding: self.encoding,
             incremental: !full_sync,
             completion: CompletionSupport::from_capabilities(capabilities),
+            will_rename: capabilities["workspace"]["fileOperations"]["willRename"].is_object(),
         });
     }
 
@@ -867,6 +936,19 @@ impl Reader {
                 if let Some(message) = error {
                     self.deliver(Answer::ActionFailed { id, message });
                 }
+            }
+            Pending::WillRename { id } => {
+                let edit = error
+                    .is_none()
+                    .then(|| serde_json::from_value(result).ok())
+                    .flatten();
+                lock(&self.inbox).renamed.push(Renamed {
+                    id,
+                    edit,
+                    encoding: self.encoding,
+                    settled: self.settled.load(Ordering::Relaxed),
+                });
+                (self.notifier)();
             }
         }
     }

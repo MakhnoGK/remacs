@@ -35,7 +35,16 @@ pub mod color {
     pub const BG_DANGER_KBD: u32 = 0x7a1616;
     pub const FG_ON_DANGER: u32 = 0xffdede;
     pub const WARNING: u32 = 0xfec43f;
+    /// Text on a warning tint, e.g. the editing notice.
+    pub const FG_ON_WARNING: u32 = 0xffe08a;
     pub const INFO: u32 = 0x00d3d0;
+
+    /// A row in a pane, e.g. a pending rename.
+    pub const BG_CARD: u32 = 0x161616;
+    pub const BG_ADDED: u32 = 0x00381f;
+    pub const FG_ADDED: u32 = 0xa0e0a0;
+    pub const BG_REMOVED: u32 = 0x4f1119;
+    pub const FG_REMOVED: u32 = 0xffbfbf;
 
     pub const KEYWORD: u32 = 0xb6a0ff;
     pub const TYPE: u32 = 0x6ae4b9;
