@@ -3890,6 +3890,7 @@ name = "remacs-dired"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "memchr",
  "notify",
  "remacs-core",
  "remacs-editing",

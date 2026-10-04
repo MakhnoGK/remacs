@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use remacs_core::{Editor, RowFace, parse_sequence};
+use remacs_core::{Editor, Preview, PreviewBody, RowFace, parse_sequence};
 use remacs_editing::EditingPlugin;
 use remacs_files::FilesPlugin;
 use remacs_minibuffer::MinibufferPlugin;
@@ -11,7 +11,8 @@ use remacs_minibuffer::MinibufferPlugin;
 use crate::DiredPlugin;
 use crate::commands::open_directory;
 use crate::entry::{
-    Entry, LocalTime, PARENT, SortKey, date_label, items_label, mode_label, size_label, sort,
+    Entry, LocalTime, PARENT, SortKey, date_label, full_date_label, items_label, mode_label,
+    size_label, sort,
 };
 use crate::listing::{DIRED_MODE, Listing};
 
@@ -117,6 +118,15 @@ fn sizes_dates_and_permissions_read_like_finder_and_ls() {
     };
     assert_eq!(date_label(time, 2026), "Oct 4, 09:05");
     assert_eq!(date_label(time, 2027), "Oct 4, 2026");
+    let day = |day| LocalTime { day, ..time };
+    assert_eq!(full_date_label(time, time, day(3)), "Today, 09:05");
+    assert_eq!(full_date_label(time, day(5), time), "Yesterday, 09:05");
+    assert_eq!(full_date_label(time, day(9), day(8)), "Oct 4, 09:05");
+    let next_year = LocalTime { year: 2027, ..time };
+    assert_eq!(
+        full_date_label(time, next_year, next_year),
+        "Oct 4, 2026, 09:05"
+    );
     assert_eq!(mode_label(0o755), "rwxr-xr-x");
     assert_eq!(mode_label(0o4755), "rwsr-xr-x");
     assert_eq!(mode_label(0o1777), "rwxrwxrwt");
@@ -247,4 +257,56 @@ fn changes_on_disk_show_up_by_themselves() {
         lines(editor).contains(&"added.txt".to_owned())
     });
     assert_eq!(line_at_point(&editor), "sub");
+}
+
+fn preview(editor: &Editor) -> Option<Preview> {
+    editor.table(0..20)?.preview
+}
+
+#[test]
+fn the_preview_shows_the_items_of_a_directory_and_the_head_of_a_file() {
+    let tree = Tree::new("preview");
+    let mut editor = editor();
+    open_directory(&mut editor, &tree.0, None, false).unwrap();
+    wait_for_listing(&mut editor);
+
+    wait_until(&mut editor, |editor| {
+        preview(editor).is_some_and(|preview| matches!(preview.body, PreviewBody::Items(_)))
+    });
+    let directory = preview(&editor).unwrap();
+    assert_eq!(
+        (directory.title.as_str(), directory.kind.as_str()),
+        ("sub", "Folder")
+    );
+    let PreviewBody::Items(items) = directory.body else {
+        unreachable!()
+    };
+    let names: Vec<_> = items
+        .iter()
+        .map(|item| (item.name.as_str(), item.face))
+        .collect();
+    assert_eq!(
+        names,
+        [
+            ("deeper", RowFace::Directory),
+            ("inner.rs", RowFace::Normal)
+        ]
+    );
+    assert_eq!(directory.details[1], ("Size", "2 items".to_owned()));
+
+    press(&mut editor, "n n");
+    wait_until(&mut editor, |editor| {
+        preview(editor).is_some_and(|preview| preview.details[1].1.contains("line"))
+    });
+    let file = preview(&editor).unwrap();
+    assert_eq!(
+        (file.title.as_str(), file.kind.as_str()),
+        ("lib.rs", "Plain text")
+    );
+    let PreviewBody::Code(code) = file.body else {
+        unreachable!()
+    };
+    assert_eq!(code.text, "fn main() {}");
+    assert_eq!(file.details[1], ("Size", "13 B · 1 line".to_owned()));
+    assert_eq!(file.details[3], ("Permissions", "-rw-r--r--".to_owned()));
 }

@@ -5,7 +5,7 @@ use std::mem;
 use std::ops::Range;
 use std::path::Path;
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError, RwLock};
 
 use remacs_text::Text;
 
@@ -55,7 +55,7 @@ pub struct Editor {
     message: Option<String>,
     quit_requested: bool,
     plugin_states: HashMap<TypeId, Box<dyn Any>>,
-    notifier: Notifier,
+    notifier: Arc<RwLock<Notifier>>,
 }
 
 impl Editor {
@@ -87,7 +87,7 @@ impl Editor {
             message: None,
             quit_requested: false,
             plugin_states: HashMap::new(),
-            notifier: Arc::new(|| {}),
+            notifier: Arc::new(RwLock::new(Arc::new(|| {}))),
         }
     }
 
@@ -420,11 +420,17 @@ impl Editor {
     }
 
     pub fn set_notifier(&mut self, notifier: Notifier) {
-        self.notifier = notifier;
+        *self
+            .notifier
+            .write()
+            .unwrap_or_else(PoisonError::into_inner) = notifier;
     }
 
+    /// Calls whichever notifier is set when it is called, so work started before the UI
+    /// exists, e.g. for a directory given on the command line, still wakes it.
     pub fn notifier(&self) -> Notifier {
-        Arc::clone(&self.notifier)
+        let notifier = Arc::clone(&self.notifier);
+        Arc::new(move || (notifier.read().unwrap_or_else(PoisonError::into_inner))())
     }
 
     /// Picks up what background work has produced since the last call.
@@ -661,6 +667,19 @@ mod tests {
         assert!(editor.kill_buffer(SCRATCH_BUFFER));
         assert!(editor.kill_buffer("a<2>") && editor.kill_buffer("a"));
         assert_eq!(names(&editor), [SCRATCH_BUFFER]);
+    }
+
+    #[test]
+    fn a_notifier_taken_early_calls_the_one_set_later() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let mut editor = Editor::new(&[]);
+        let early = editor.notifier();
+        let called = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&called);
+        editor.set_notifier(Arc::new(move || flag.store(true, Ordering::Relaxed)));
+        early();
+        assert!(called.load(Ordering::Relaxed));
     }
 
     #[test]

@@ -1,12 +1,13 @@
 use gpui::{
     AnyElement, Context, Div, FontWeight, IntoElement, MouseButton, MouseDownEvent, ParentElement,
-    div, prelude::*, px, rgb, rgba, svg,
+    Pixels, div, prelude::*, px, rgb, rgba, svg,
 };
 use remacs_core::{Action, Button, CellStyle, Column, Row, RowFace, Table};
 use remacs_theme::{color, font};
 
 use crate::assets::CHEVRON_ICON;
 use crate::editor_view::EditorView;
+use crate::preview_view::PREVIEW_WIDTH;
 use crate::widgets::{icon, kbd, pill, shadow};
 
 const LIST_TOP: f32 = 52.0;
@@ -21,12 +22,17 @@ const ROW_GAP: f32 = 1.0;
 pub const ROW_PITCH: f32 = ROW_HEIGHT + ROW_GAP;
 const CELL_GAP: f32 = 12.0;
 const ICON_WIDTH: f32 = 16.0;
+const PREVIEW_GAP: f32 = 20.0;
+/// Narrower, the names would be cut short to make room for a preview.
+const MIN_LIST_WIDTH: f32 = 520.0;
 
-/// The rows of a table buffer from `first_line` on, under its path and sort controls.
+/// The rows of a table buffer from `first_line` on, under its path and sort controls, with
+/// the selected row's preview beside them.
 pub fn render_table(
     table: Table,
     first_line: usize,
     point_line: usize,
+    preview: Option<Div>,
     cx: &mut Context<EditorView>,
 ) -> impl IntoElement {
     let Table {
@@ -42,19 +48,31 @@ pub fn render_table(
         render_row(row, columns, line == point_line, line, activate, cx)
     });
     let rows: Vec<_> = rows.collect();
-    div()
-        .absolute()
-        .top(px(LIST_TOP))
-        .left(px(LIST_SIDE))
-        .right(px(LIST_SIDE))
-        .bottom(px(LIST_BOTTOM))
+    let list = div()
+        .flex_1()
+        .min_w_0()
         .overflow_hidden()
         .flex()
         .flex_col()
         .gap(px(SECTION_GAP))
         .child(render_bar(crumbs, sort, cx))
         .child(render_header(columns))
-        .child(div().flex().flex_col().gap(px(ROW_GAP)).children(rows))
+        .child(div().flex().flex_col().gap(px(ROW_GAP)).children(rows));
+    div()
+        .absolute()
+        .top(px(LIST_TOP))
+        .left(px(LIST_SIDE))
+        .right(px(LIST_SIDE))
+        .bottom(px(LIST_BOTTOM))
+        .flex()
+        .gap(px(PREVIEW_GAP))
+        .child(list)
+        .children(preview)
+}
+
+/// Whether a window this wide has room for a preview beside the rows.
+pub fn fits_preview(window_width: Pixels) -> bool {
+    window_width >= px(MIN_LIST_WIDTH + PREVIEW_GAP + PREVIEW_WIDTH + 2.0 * LIST_SIDE)
 }
 
 /// Keys and what they do, centered under the rows.

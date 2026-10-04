@@ -9,7 +9,8 @@ use remacs_files::abbreviate_home;
 use remacs_text::Text;
 
 use crate::commands::{FIND_FILE, open_directory, sort_by};
-use crate::entry::{Entry, PARENT, SortKey, items_label, sort};
+use crate::entry::{Entry, PARENT, SortKey, is_dim_name, items_label, sort};
+use crate::preview::{self, PreviewState};
 use crate::reader::DirectoryReader;
 
 pub const DIRED_MODE: &str = "Dired";
@@ -47,6 +48,7 @@ pub struct Listing {
     /// Entry to put point on once the listing is read, e.g. the directory just left.
     select: Option<String>,
     pub reader: DirectoryReader,
+    pub preview: PreviewState,
 }
 
 /// A read-only buffer listing `directory`, read in the background.
@@ -55,6 +57,7 @@ pub fn new_listing(directory: PathBuf, select: Option<String>, notifier: Notifie
         || directory.display().to_string(),
         |name| name.to_string_lossy().into_owned(),
     );
+    let preview = PreviewState::new(notifier.clone());
     let reader = DirectoryReader::start(directory.clone(), notifier);
     let mut buffer = Buffer::new(name, Text::default(), DIRED_MODE)
         .with_directory(directory)
@@ -65,6 +68,7 @@ pub fn new_listing(directory: PathBuf, select: Option<String>, notifier: Notifie
         loaded: false,
         select,
         reader,
+        preview,
     });
     buffer
 }
@@ -177,6 +181,8 @@ pub fn table(buffer: &Buffer, lines: Range<usize>) -> Option<Table> {
         rows: listing.entries[shown].iter().map(row).collect(),
         activate: FIND_FILE,
         hints: HINTS,
+        preview: entry_at_point(buffer)
+            .and_then(|entry| preview::describe(listing, directory, entry)),
     })
 }
 
@@ -204,26 +210,33 @@ fn row(entry: &Entry) -> Row {
     } else {
         entry.name.clone()
     };
-    let face = if entry.is_dim() {
-        RowFace::Dim
-    } else if entry.is_directory {
-        RowFace::Directory
-    } else {
-        RowFace::Normal
-    };
     Row {
-        icon: Some(if entry.is_directory {
-            Icon::Directory
-        } else {
-            Icon::File
-        }),
+        icon: Some(file_icon(entry.is_directory)),
         cells: vec![
             name,
             entry.size_label.clone(),
             entry.modified_label.clone(),
             entry.permissions.clone(),
         ],
-        face,
+        face: file_face(&entry.name, entry.is_directory),
+    }
+}
+
+pub fn file_icon(is_directory: bool) -> Icon {
+    if is_directory {
+        Icon::Directory
+    } else {
+        Icon::File
+    }
+}
+
+pub fn file_face(name: &str, is_directory: bool) -> RowFace {
+    if is_dim_name(name) {
+        RowFace::Dim
+    } else if is_directory {
+        RowFace::Directory
+    } else {
+        RowFace::Normal
     }
 }
 

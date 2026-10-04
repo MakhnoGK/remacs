@@ -5,6 +5,7 @@ use crate::buffer::Buffer;
 use crate::command::CommandResult;
 use crate::completion::Icon;
 use crate::editor::Editor;
+use crate::popup::Code;
 
 /// What a click on a table's control does to the window buffer.
 pub type Action = Rc<dyn Fn(&mut Editor) -> CommandResult>;
@@ -23,6 +24,33 @@ pub struct Table {
     pub activate: &'static str,
     /// Keys and what they do, under the rows.
     pub hints: &'static [(&'static str, &'static str)],
+    /// About the selected row, beside the rows when there is room.
+    pub preview: Option<Preview>,
+}
+
+pub struct Preview {
+    pub icon: Icon,
+    pub title: String,
+    /// What the contents are, e.g. the major mode.
+    pub kind: String,
+    pub body: PreviewBody,
+    /// Labels and values under the body, e.g. the size.
+    pub details: Vec<(&'static str, String)>,
+}
+
+pub enum PreviewBody {
+    /// The first lines of a file, drawn numbered.
+    Code(Code),
+    /// What a directory holds, by name.
+    Items(Vec<PreviewItem>),
+    /// Why there is nothing to show, e.g. a binary file; empty while it is read.
+    Message(String),
+}
+
+pub struct PreviewItem {
+    pub icon: Icon,
+    pub name: String,
+    pub face: RowFace,
 }
 
 pub struct Button {

@@ -5,6 +5,7 @@ mod highlights;
 mod key_input;
 mod minibuffer_view;
 mod popup_view;
+mod preview_view;
 mod table_view;
 mod widgets;
 

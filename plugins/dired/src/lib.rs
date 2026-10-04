@@ -4,6 +4,8 @@
 mod commands;
 mod entry;
 mod listing;
+mod preview;
+mod preview_reader;
 mod reader;
 
 use std::path::Path;
@@ -68,6 +70,7 @@ impl Plugin for DiredPlugin {
         registry
             .post_command_hooks
             .push(Rc::new(listing::pick_up_listings));
+        registry.post_command_hooks.push(Rc::new(preview::sync));
     }
 }
 

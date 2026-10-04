@@ -5,11 +5,11 @@ use std::sync::Arc;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
-    AnyElement, ClipboardItem, Context, FocusHandle, IntoElement, KeyDownEvent, MouseButton,
+    AnyElement, ClipboardItem, Context, Div, FocusHandle, IntoElement, KeyDownEvent, MouseButton,
     MouseDownEvent, ParentElement, Pixels, Render, ScrollWheelEvent, StyledText, Subscription,
     Window, div, font, linear_color_stop, linear_gradient, prelude::*, px, rgb, rgba,
 };
-use remacs_core::{Action, Code, DocBlock, Editor, Popup, StatusSegment};
+use remacs_core::{Action, Code, DocBlock, Editor, Popup, Preview, PreviewBody, StatusSegment};
 use remacs_theme::{color, font};
 
 use crate::display_line::DisplayLine;
@@ -17,7 +17,10 @@ use crate::highlights::{Highlights, combine, face_style, region_style};
 use crate::key_input::to_key;
 use crate::minibuffer_view::{is_problem_list, render_minibuffer, render_scrim};
 use crate::popup_view::{DocumentationScroll, DocumentationView, Placement, render_popup};
-use crate::table_view::{LIST_BOTTOM, ROW_PITCH, ROWS_TOP, render_hints, render_table};
+use crate::preview_view::render_preview;
+use crate::table_view::{
+    LIST_BOTTOM, ROW_PITCH, ROWS_TOP, fits_preview, render_hints, render_table,
+};
 use crate::widgets::{cursor_style, hsla, icon, modified_dot, pill, pill_separator};
 
 /// Minified files can hold megabytes on one line; lay out only what can be on screen.
@@ -312,12 +315,7 @@ impl EditorView {
         let popups = self.editor.popups();
         self.documentation_scroll.update(&popups);
         self.highlight_code_in(&popups);
-        let code_faces = |code: &Code| {
-            code.mode
-                .and_then(|mode| self.code_faces.get(mode)?.get(&code.text))
-                .cloned()
-                .unwrap_or_default()
-        };
+        let code_faces = |code: &Code| self.faces_of(code);
         let view = DocumentationView {
             code_faces: &code_faces,
             scroll: &self.documentation_scroll.handle,
@@ -350,7 +348,7 @@ impl EditorView {
             .collect()
     }
 
-    /// Faces for the code in the popups' documentation, parsed once per snippet.
+    /// Faces for the code in the popups' documentation.
     fn highlight_code_in(&mut self, popups: &[Popup]) {
         let codes = popups
             .iter()
@@ -363,24 +361,43 @@ impl EditorView {
                 documentation.signature.iter().chain(blocks)
             });
         for code in codes {
-            let Some(mode) = code.mode else {
-                continue;
-            };
-            let known = self.code_faces.entry(mode).or_default();
-            if known.contains_key(&code.text) {
-                continue;
-            }
-            if known.len() >= MAX_HIGHLIGHTED_SNIPPETS {
-                known.clear();
-            }
-            let faces = self
-                .editor
-                .highlight_code(mode, &code.text)
-                .into_iter()
-                .map(|span| (span.range, face_style(span.face)))
-                .collect();
-            known.insert(code.text.clone(), faces);
+            self.highlight_code(code);
         }
+    }
+
+    /// Parses `code` for [`Self::faces_of`] unless it already was.
+    fn highlight_code(&mut self, code: &Code) {
+        let Some(mode) = code.mode else {
+            return;
+        };
+        let known = self.code_faces.entry(mode).or_default();
+        if known.contains_key(&code.text) {
+            return;
+        }
+        if known.len() >= MAX_HIGHLIGHTED_SNIPPETS {
+            known.clear();
+        }
+        let faces = self
+            .editor
+            .highlight_code(mode, &code.text)
+            .into_iter()
+            .map(|span| (span.range, face_style(span.face)))
+            .collect();
+        known.insert(code.text.clone(), faces);
+    }
+
+    fn faces_of(&self, code: &Code) -> Highlights {
+        code.mode
+            .and_then(|mode| self.code_faces.get(mode)?.get(&code.text))
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    fn render_preview(&mut self, preview: Preview) -> Div {
+        if let PreviewBody::Code(code) = &preview.body {
+            self.highlight_code(code);
+        }
+        render_preview(preview, &|code| self.faces_of(code))
     }
 
     fn render_header(&self) -> impl IntoElement {
@@ -572,11 +589,17 @@ impl Render for EditorView {
         let table = self.editor.table(first_line..first_line + table_rows);
         self.showing_table = table.is_some();
         let (body, hints, popups) = match table {
-            Some(table) => {
+            Some(mut table) => {
                 self.editor.viewport.set_height(table_rows);
                 let point_line = self.editor.window_buffer().point_line();
                 let hints = render_hints(table.hints).into_any_element();
-                let body = render_table(table, first_line, point_line, cx).into_any_element();
+                let preview = table
+                    .preview
+                    .take()
+                    .filter(|_| fits_preview(window.viewport_size().width))
+                    .map(|preview| self.render_preview(preview));
+                let body =
+                    render_table(table, first_line, point_line, preview, cx).into_any_element();
                 (body, Some(hints), Vec::new())
             }
             None => {

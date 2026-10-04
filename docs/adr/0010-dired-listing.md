@@ -33,5 +33,5 @@ Status: accepted, 2026-10-04 (dired, step 1)
 
 ## Later
 
-Preview pane (step 2), marks and deletion (3), copy/move (4), editing names (5); the Git
+Preview pane (step 2, ADR 0011), marks and deletion (3), copy/move (4), editing names (5); the Git
 column and preview line come with the Git milestone.

@@ -4,6 +4,7 @@ pub mod color {
     pub const BG_MAIN: u32 = 0x000000;
     pub const BG_POPUP: u32 = 0x1e1e1e;
     pub const BG_FIELD: u32 = 0x121212;
+    pub const BG_PANE: u32 = 0x0e0e0e;
     pub const BG_CHIP: u32 = 0x303030;
     pub const BG_BUTTON: u32 = 0x262626;
     pub const BG_KBD: u32 = 0x2b2b2b;

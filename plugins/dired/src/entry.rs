@@ -4,7 +4,7 @@ use std::io;
 use std::mem::MaybeUninit;
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub const PARENT: &str = "..";
 
@@ -83,14 +83,13 @@ impl Entry {
             size_label,
         })
     }
+}
 
-    /// Usually ignored: hidden, backup and auto-save files.
-    pub fn is_dim(&self) -> bool {
-        let name = self.name.as_str();
-        (name.starts_with('.') && name != PARENT)
-            || name.ends_with('~')
-            || (name.len() > 1 && name.starts_with('#') && name.ends_with('#'))
-    }
+/// Usually ignored: hidden, backup and auto-save files.
+pub fn is_dim_name(name: &str) -> bool {
+    (name.starts_with('.') && name != PARENT)
+        || name.ends_with('~')
+        || (name.len() > 1 && name.starts_with('#') && name.ends_with('#'))
 }
 
 /// The entries of `directory`, its parent first, in no particular order after that.
@@ -123,9 +122,13 @@ pub fn sort(entries: &mut [Entry], key: SortKey) {
         group(a)
             .cmp(&group(b))
             .then(by_key)
-            .then_with(|| folded(&a.name).cmp(folded(&b.name)))
-            .then_with(|| a.name.cmp(&b.name))
+            .then_with(|| compare_names(&a.name, &b.name))
     });
+}
+
+/// Case-folded, then exact.
+pub fn compare_names(a: &str, b: &str) -> Ordering {
+    folded(a).cmp(folded(b)).then_with(|| a.cmp(b))
 }
 
 fn folded(name: &str) -> impl Iterator<Item = char> {
@@ -184,6 +187,39 @@ pub fn date_label(time: LocalTime, this_year: i32) -> String {
     } else {
         format!("{month} {day}, {year}")
     }
+}
+
+/// `Today, 10:36`, `Yesterday, 18:20`, else the date and time, with the year when it is
+/// not this year.
+pub fn full_date_label(time: LocalTime, today: LocalTime, yesterday: LocalTime) -> String {
+    let same_day = |other: LocalTime| {
+        (time.year, time.month, time.day) == (other.year, other.month, other.day)
+    };
+    let clock = format!("{:02}:{:02}", time.hour, time.minute);
+    let (month, day) = (MONTHS[time.month.min(11)], time.day);
+    if same_day(today) {
+        format!("Today, {clock}")
+    } else if same_day(yesterday) {
+        format!("Yesterday, {clock}")
+    } else if time.year == today.year {
+        format!("{month} {day}, {clock}")
+    } else {
+        format!("{month} {day}, {}, {clock}", time.year)
+    }
+}
+
+/// [`full_date_label`] of `time`, as of now.
+pub fn full_modified_label(time: Option<SystemTime>) -> String {
+    let now = SystemTime::now();
+    let labelled = || {
+        let yesterday = local_time(now.checked_sub(Duration::from_secs(24 * 60 * 60))?)?;
+        Some(full_date_label(
+            local_time(time?)?,
+            local_time(now)?,
+            yesterday,
+        ))
+    };
+    labelled().unwrap_or_default()
 }
 
 fn local_time(time: SystemTime) -> Option<LocalTime> {
