@@ -22,6 +22,10 @@ impl Plugin for CodeModePlugin {
                 start: "// ",
                 end: "",
             }),
+            markup_comment: Some(CommentSyntax {
+                start: "{/* ",
+                end: " */}",
+            }),
         });
         registry.modes.add(Mode {
             name: STYLE_MODE,
@@ -31,17 +35,21 @@ impl Plugin for CodeModePlugin {
                 start: "/* ",
                 end: " */",
             }),
+            markup_comment: None,
         });
         registry.syntax_probes.push(Rc::new(in_double_quotes));
     }
 }
 
-/// Stands in for a parser: an offset after an odd number of `"` on its line is in a string.
+/// Stands in for a parser: an offset after an odd number of `"` on its line is in a string,
+/// one right after `<` is in markup.
 fn in_double_quotes(buffer: &Buffer, offset: usize) -> Option<SyntaxContext> {
     let line_start = buffer.text().line_start(buffer.text().line_of(offset))?;
-    let quotes = buffer.contents(line_start..offset).matches('"').count();
-    Some(if quotes % 2 == 1 {
+    let before = buffer.contents(line_start..offset);
+    Some(if before.matches('"').count() % 2 == 1 {
         SyntaxContext::String
+    } else if before.ends_with('<') {
+        SyntaxContext::Markup
     } else {
         SyntaxContext::Code
     })
@@ -321,6 +329,21 @@ fn comment_line_uses_block_comments_where_there_are_no_others() {
     assert_eq!(contents(&editor), "  /* a { b: c; } */  ");
     press(&mut editor, "M-;");
     assert_eq!(contents(&editor), "  a { b: c; }  ");
+}
+
+#[test]
+fn comment_line_uses_the_markup_comment_in_markup() {
+    let text = "return (\n  <div>\n    <b>hi</b>\n  </div>\n);";
+    let mut editor = code_editor_with(text);
+    press(&mut editor, "C-n C-n M-;");
+    assert_eq!(
+        contents(&editor),
+        "return (\n  <div>\n    {/* <b>hi</b> */}\n  </div>\n);"
+    );
+    press(&mut editor, "M-;");
+    assert_eq!(contents(&editor), text);
+    press(&mut editor, "M-< M-;");
+    assert_eq!(contents(&editor), text.replacen("return", "// return", 1));
 }
 
 #[test]

@@ -9,6 +9,8 @@ pub struct Mode {
     /// Brackets and quotes typed in pairs, opener first.
     pub pairs: &'static [(char, char)],
     pub comment: Option<CommentSyntax>,
+    /// For lines of markup embedded in code, like JSX children.
+    pub markup_comment: Option<CommentSyntax>,
 }
 
 /// How a line is commented out: `start` before it, and `end` after it for languages

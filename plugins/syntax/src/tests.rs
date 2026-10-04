@@ -113,7 +113,7 @@ fn context_after(mode: &'static str, marked: &str) -> SyntaxContext {
 
 #[test]
 fn tells_strings_and_comments_from_code() {
-    use SyntaxContext::{Code, Comment, String};
+    use SyntaxContext::{Code, Comment, Markup, String};
     for (marked, context) in [
         (r#"let s = "a|b";"#, String),
         (r#"let s = "|";"#, String),
@@ -132,6 +132,12 @@ fn tells_strings_and_comments_from_code() {
         ("const s = `a|${b}`;", String),
         ("const s = `a${b|}`;", Code),
         ("const s = 'a|';", String),
+        ("const a = (\n  <div>\n    <|b>x</b>\n  </div>\n);", Markup),
+        ("const a = <|div>x</div>;", Markup),
+        ("const a = <div>hi|</div>;", Markup),
+        ("const a = <div id|=\"x\">y</div>;", Code),
+        ("const a = <div>{b|}</div>;", Code),
+        ("const a = <div title=\"t|\">y</div>;", String),
     ] {
         assert_eq!(context_after("JavaScript", marked), context, "{marked}");
     }

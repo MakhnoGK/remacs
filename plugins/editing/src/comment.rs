@@ -1,29 +1,38 @@
 use std::ops::Range;
 
-use remacs_core::{Buffer, CommandResult, CommentSyntax, Editor};
+use remacs_core::{Buffer, CommandResult, CommentSyntax, Editor, SyntaxContext};
 
 use crate::editing::writable_buffer;
 
 /// Comments out the region's lines, or point's line, or uncomments them when every one
 /// is commented already. Blank lines are left alone; an active region stays active, so
-/// the toggle can be repeated.
+/// the toggle can be repeated. Lines starting in embedded markup, like JSX children, take
+/// the mode's markup comment.
 pub fn comment_line(editor: &mut Editor) -> CommandResult {
-    let syntax = editor
-        .buffer_mode()
+    let mode = editor.buffer_mode().copied();
+    let code_syntax = mode
         .and_then(|mode| mode.comment)
         .ok_or("No comment syntax in this mode")?;
-    let buffer = writable_buffer(editor)?;
-    let region = buffer.region();
-    let lines = filled_lines(buffer, region.clone());
-    if lines.is_empty() {
+    let markup_syntax = mode.and_then(|mode| mode.markup_comment);
+    let region = editor.buffer().region();
+    let lines = filled_lines(editor.buffer(), region.clone());
+    let Some((first_range, first_line)) = lines.first() else {
         return Ok(());
-    }
-    let edits = if lines.iter().all(|(_, line)| is_commented(line, syntax)) {
+    };
+    let first_character = first_range.start + blanks(first_line) + 1;
+    let in_markup = editor.syntax_at(first_character) == SyntaxContext::Markup;
+
+    let commented_with = [markup_syntax, Some(code_syntax)]
+        .into_iter()
+        .flatten()
+        .find(|&syntax| lines.iter().all(|(_, line)| is_commented(line, syntax)));
+    let edits = if let Some(syntax) = commented_with {
         lines
             .iter()
             .flat_map(|(range, line)| uncomment(range.start, line, syntax))
             .collect()
     } else {
+        let syntax = markup_syntax.filter(|_| in_markup).unwrap_or(code_syntax);
         let column = lines
             .iter()
             .map(|(_, line)| blanks(line))
@@ -34,6 +43,7 @@ pub fn comment_line(editor: &mut Editor) -> CommandResult {
             .flat_map(|(range, line)| comment(range.start, line, column, syntax))
             .collect()
     };
+    let buffer = writable_buffer(editor)?;
     buffer.apply_edits(edits);
     if region.is_some() {
         buffer.activate_mark();

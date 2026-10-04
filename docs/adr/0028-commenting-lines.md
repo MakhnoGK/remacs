@@ -14,10 +14,13 @@ Status: accepted, 2026-10-04 (issue #1 editing experience, step 5)
   space included): `// ` for Rust, C, C++ and JS/TS; `/* … */` for CSS; `<!-- … -->` for
   HTML. Uncommenting removes one padding space beside each token if it is there.
   Fundamental mode has none and says so.
+- **Markup embedded in code** has its own syntax, `Mode::markup_comment`: `{/* … */}` in
+  JavaScript, JSX and TSX. It is used when the first commented line starts in markup
+  (`SyntaxContext::Markup`, ADR 0027): a JSX element or its text, not an attribute or a
+  `{…}` expression. Uncommenting recognises either syntax by the text.
 - One undo step; point stays on its character; an active region stays active, so the
   toggle can be repeated.
 
 ## Open
 
-- JSX children need `{/* … */}`; they get `//` for now.
 - `M-;` is Emacs's `comment-dwim` (end-of-line comments) only by key; here it toggles lines.

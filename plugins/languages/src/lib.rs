@@ -59,6 +59,10 @@ const HTML_COMMENT: CommentSyntax = CommentSyntax {
     start: "<!-- ",
     end: " -->",
 };
+const JSX_COMMENT: CommentSyntax = CommentSyntax {
+    start: "{/* ",
+    end: " */}",
+};
 
 const fn mode(
     name: &'static str,
@@ -71,6 +75,15 @@ const fn mode(
         extensions,
         pairs,
         comment: Some(comment),
+        markup_comment: None,
+    }
+}
+
+/// A JavaScript dialect whose markup lines comment out as JSX children.
+const fn with_jsx(mode: Mode) -> Mode {
+    Mode {
+        markup_comment: Some(JSX_COMMENT),
+        ..mode
     }
 }
 
@@ -84,9 +97,15 @@ const MODES: &[Mode] = &[
         LINE_COMMENT,
     ),
     mode(TYPESCRIPT, &["ts", "mts", "cts"], JS_PAIRS, LINE_COMMENT),
-    mode(TSX, &["tsx"], JSX_PAIRS, LINE_COMMENT),
-    mode(JAVASCRIPT, &["js", "mjs", "cjs"], JS_PAIRS, LINE_COMMENT),
-    mode(JSX, &["jsx"], JSX_PAIRS, LINE_COMMENT),
+    with_jsx(mode(TSX, &["tsx"], JSX_PAIRS, LINE_COMMENT)),
+    // React projects write JSX in plain `.js` files too.
+    with_jsx(mode(
+        JAVASCRIPT,
+        &["js", "mjs", "cjs"],
+        JS_PAIRS,
+        LINE_COMMENT,
+    )),
+    with_jsx(mode(JSX, &["jsx"], JSX_PAIRS, LINE_COMMENT)),
     mode(HTML, &["html", "htm"], HTML_PAIRS, HTML_COMMENT),
     mode(CSS, &["css"], C_PAIRS, BLOCK_COMMENT),
 ];

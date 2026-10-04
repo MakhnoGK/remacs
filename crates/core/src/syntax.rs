@@ -8,6 +8,8 @@ pub enum SyntaxContext {
     Code,
     String,
     Comment,
+    /// Markup embedded in code, like JSX elements and their text.
+    Markup,
 }
 
 /// Tells the context of an offset in a buffer, or `None` when it does not know the buffer.

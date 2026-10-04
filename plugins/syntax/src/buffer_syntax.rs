@@ -108,8 +108,8 @@ pub(crate) fn highlight(buffer: &Buffer, range: Range<usize>) -> Vec<Span> {
     }
 }
 
-/// The string or comment the character before `offset` belongs to, read from the tree;
-/// `None` until the buffer's tree matches its text.
+/// The string, comment or embedded markup the character before `offset` belongs to, read
+/// from the tree; `None` until the buffer's tree matches its text.
 pub(crate) fn context_at(buffer: &Buffer, offset: usize) -> Option<SyntaxContext> {
     let syntax = buffer.local::<BufferSyntax>()?;
     let tree = syntax.tree.as_ref()?;
@@ -125,8 +125,16 @@ pub(crate) fn context_at(buffer: &Buffer, offset: usize) -> Option<SyntaxContext
     while let Some(current) = node {
         let kind = current.kind();
         let (start, end) = (current.start_byte(), current.end_byte());
-        if kind.ends_with("substitution") || kind == "interpolation" {
+        // Code nested in strings and markup: `${…}`, `#{…}`, JSX `{…}` and attributes.
+        let nested_code = kind.ends_with("substitution")
+            || kind == "interpolation"
+            || kind == "jsx_expression"
+            || kind == "jsx_attribute";
+        if nested_code {
             return Some(SyntaxContext::Code);
+        }
+        if kind.starts_with("jsx_") {
+            return Some(SyntaxContext::Markup);
         }
         if kind.contains("comment") && start < offset && (offset < end || !closes(syntax, end)) {
             return Some(SyntaxContext::Comment);

@@ -19,6 +19,8 @@ Status: accepted, 2026-10-04 (issue #1 editing experience, step 4)
   `quoted_attribute_value` are strings when they strictly contain the offset; kinds
   containing `comment` are comments, including at the end of a line comment but not after
   `*/` or `-->`; a template substitution or interpolation inside a string is code again.
+  JSX nodes are `Markup`, except attributes and `{…}` expressions, which are code (added
+  with ADR 0028); quotes do not pair in markup text.
 - The tree is read as of the last command; between a keystroke and its reparse it may be
   one edit behind, which the empty-pair rule above covers.
 
