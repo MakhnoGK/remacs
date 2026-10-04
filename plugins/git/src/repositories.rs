@@ -3,8 +3,9 @@ use std::path::{Path, PathBuf};
 
 use remacs_core::Editor;
 
-use crate::monitor::{Monitor, Update};
+use crate::monitor::{Monitor, Update, Wants};
 use crate::status::Snapshot;
+use crate::status_view;
 
 /// The working trees the buffers are in, each watched while a buffer is in it.
 #[derive(Default)]
@@ -15,12 +16,19 @@ pub struct Repositories {
 }
 
 pub struct Repository {
-    monitor: Monitor,
+    pub monitor: Monitor,
     /// `None` until first read.
     pub snapshot: Option<Snapshot>,
+    /// Counts the snapshots read, so views know when to redraw.
+    pub generation: u64,
+    wants: Wants,
 }
 
 impl Repositories {
+    pub fn get(&self, root: &Path) -> Option<&Repository> {
+        self.open.get(root)
+    }
+
     /// The open working tree `path` is in, innermost first, with `path` relative to it.
     pub fn find<'a>(&'a self, path: &'a Path) -> Option<(&'a Path, &'a Repository, &'a Path)> {
         self.open
@@ -40,6 +48,7 @@ pub fn track(editor: &mut Editor) {
         .iter()
         .filter_map(|buffer| buffer.default_directory().map(Path::to_path_buf))
         .collect();
+    let mut wanted = status_view::wants(editor);
     let notifier = editor.notifier();
     let repositories = editor.plugin_state::<Repositories>();
     repositories
@@ -55,18 +64,29 @@ pub fn track(editor: &mut Editor) {
     repositories.open.retain(|root, _| used.contains(root));
     for root in used {
         if !repositories.open.contains_key(root) {
+            let wants = wanted.get(root).cloned().unwrap_or_default();
             let repository = Repository {
-                monitor: Monitor::start(root.clone(), notifier.clone()),
+                monitor: Monitor::start(root.clone(), wants.clone(), notifier.clone()),
                 snapshot: None,
+                generation: 0,
+                wants,
             };
             repositories.open.insert(root.clone(), repository);
         }
     }
     let mut failure = None;
-    for repository in repositories.open.values_mut() {
+    for (root, repository) in &mut repositories.open {
+        let wants = wanted.remove(root).unwrap_or_default();
+        if wants != repository.wants {
+            repository.monitor.want(wants.clone());
+            repository.wants = wants;
+        }
         for update in repository.monitor.updates() {
             match update {
-                Update::Status(snapshot) => repository.snapshot = Some(snapshot),
+                Update::Status(snapshot) => {
+                    repository.snapshot = Some(*snapshot);
+                    repository.generation += 1;
+                }
                 Update::Failed(error) => failure = Some(error),
             }
         }
@@ -100,7 +120,7 @@ pub fn record_moves(editor: &mut Editor, moves: &[(PathBuf, PathBuf)]) {
 
 /// The nearest enclosing directory with a `.git`, a directory or, for a linked working
 /// tree or a submodule, a file.
-fn working_tree(directory: &Path) -> Option<PathBuf> {
+pub fn working_tree(directory: &Path) -> Option<PathBuf> {
     directory
         .ancestors()
         .find(|ancestor| ancestor.join(".git").exists())

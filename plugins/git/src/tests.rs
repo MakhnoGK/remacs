@@ -3,7 +3,9 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use remacs_core::{Editor, FileState, FileStatus, LineCounts, parse_sequence};
+use remacs_core::{
+    DiffRow, Editor, FactValue, FileState, FileStatus, LineCounts, OutlineRow, parse_sequence,
+};
 use remacs_dired::{DiredPlugin, list_directory};
 use remacs_editing::EditingPlugin;
 use remacs_files::FilesPlugin;
@@ -270,4 +272,283 @@ fn renaming_in_place_tells_git_unless_switched_off() {
         &repository,
         " D kept.rs\nR  lib.rs -> main.rs\n?? other.rs\n",
     );
+}
+
+/// A bare repository the tests push to, removed with it.
+struct Remote(PathBuf);
+
+impl Remote {
+    /// Pushes `main` of `repository` to a new remote, `origin`, whose default it is.
+    fn for_repository(repository: &Repository) -> Self {
+        let path = repository.0.with_extension("remote.git");
+        let _ = fs::remove_dir_all(&path);
+        output(
+            git(&repository.0)
+                .args(["init", "-q", "--bare", "-b", "main"])
+                .arg(&path),
+        )
+        .unwrap();
+        repository.git(&["remote", "add", "origin", path.to_str().unwrap()]);
+        repository.git(&["push", "-q", "-u", "origin", "main"]);
+        repository.git(&["remote", "set-head", "origin", "main"]);
+        Self(path)
+    }
+}
+
+impl Drop for Remote {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+fn commit(repository: &Repository, name: &str, contents: &str, message: &str) {
+    repository.write(name, contents);
+    repository.git(&["add", name]);
+    repository.git(&["commit", "-q", "-m", message]);
+}
+
+/// The status buffer of `repository`, once its status is shown.
+fn status_buffer(repository: &Repository) -> Editor {
+    let mut editor = editor();
+    editor.visit_file(&repository.0.join("lib.rs")).unwrap();
+    editor.run_command("git-status");
+    assert_eq!(editor.window_buffer().mode(), "Git");
+    wait_until(&mut editor, "the status", |editor| {
+        editor
+            .outline(0..100)
+            .is_some_and(|outline| !outline.facts.is_empty())
+    });
+    editor
+}
+
+/// Each row in short: `> Staged 2`, `A src/x.rs +3`, `+line`.
+fn rows(editor: &Editor) -> Vec<String> {
+    editor
+        .outline(0..100)
+        .unwrap()
+        .rows
+        .into_iter()
+        .map(|row| match row {
+            OutlineRow::Heading {
+                title, count, open, ..
+            } => {
+                format!("{} {title} {count}", if open { "v" } else { ">" })
+            }
+            OutlineRow::File {
+                state,
+                name,
+                directory,
+                lines,
+                ..
+            } => {
+                let lines = lines.map_or(String::new(), |lines| {
+                    format!(" +{} -{}", lines.added, lines.removed)
+                });
+                format!("{} {directory}{name}{lines}", state.letter())
+            }
+            OutlineRow::Diff(DiffRow::Hunk(text)) => text,
+            OutlineRow::Diff(DiffRow::Added(text)) => format!("+{text}"),
+            OutlineRow::Diff(DiffRow::Removed(text)) => format!("-{text}"),
+            OutlineRow::Diff(DiffRow::Context(text)) => format!(" {text}"),
+            OutlineRow::Item { name, description } => format!("{name} {description}"),
+        })
+        .collect()
+}
+
+fn facts(editor: &Editor) -> Vec<String> {
+    editor
+        .outline(0..100)
+        .unwrap()
+        .facts
+        .into_iter()
+        .map(|fact| {
+            let value = match fact.value {
+                FactValue::Ref(chip) => chip.name,
+                FactValue::Code(text) => text,
+            };
+            format!("{}: {value} · {}", fact.label, fact.note)
+        })
+        .collect()
+}
+
+fn go_to_row(editor: &mut Editor, row: &str) {
+    let line = rows(editor).iter().position(|each| each == row).unwrap();
+    editor.set_point_at(line, 0);
+}
+
+#[test]
+fn the_status_shows_the_branch_and_the_changes_by_section() {
+    let repository = Repository::new("status");
+    repository.write("lib.rs", "one\ntwo\n");
+    repository.write("src/added.rs", "a\nb\n");
+    repository.git(&["add", "src/added.rs"]);
+    repository.write("notes/idea.md", "");
+    repository.write("draft.md", "");
+    let mut editor = status_buffer(&repository);
+
+    wait_until(&mut editor, "the line counts", |editor| {
+        rows(editor).contains(&"M ./lib.rs +1 -0".to_owned())
+    });
+    assert_eq!(
+        rows(&editor),
+        [
+            "v Staged 1",
+            "A src/added.rs +2 -0",
+            "v Unstaged 1",
+            "M ./lib.rs +1 -0",
+            "v Untracked 2",
+            "? ./draft.md",
+            "? ./notes/",
+        ]
+    );
+    assert_eq!(facts(&editor), ["Head: main · First"]);
+    assert_eq!(
+        rows(&editor)[editor.window_buffer().point_line()],
+        "A src/added.rs +2 -0"
+    );
+    let pill: Vec<String> = editor
+        .status_segments()
+        .into_iter()
+        .flat_map(|segment| segment.items)
+        .map(|item| item.text)
+        .collect();
+    assert_eq!(pill, ["main"]);
+
+    go_to_row(&mut editor, "v Untracked 2");
+    press(&mut editor, "TAB");
+    assert_eq!(rows(&editor).last().unwrap(), "> Untracked 2");
+}
+
+#[test]
+fn upstream_and_base_say_how_far_the_branch_is() {
+    let repository = Repository::new("base");
+    let _remote = Remote::for_repository(&repository);
+    repository.git(&["switch", "-q", "-c", "feature"]);
+    commit(&repository, "feature.rs", "f\n", "Start the feature");
+    repository.git(&["push", "-q", "-u", "origin", "feature"]);
+    commit(&repository, "feature.rs", "f\ng\n", "Grow the feature");
+    repository.git(&["switch", "-q", "main"]);
+    commit(&repository, "main.rs", "m\n", "Move main on");
+    repository.git(&["switch", "-q", "feature"]);
+    let mut editor = status_buffer(&repository);
+
+    assert_eq!(
+        facts(&editor),
+        [
+            "Head: feature · Grow the feature",
+            "Upstream: origin/feature · 1 commit to push",
+            "Base: main · 1 new commit",
+        ]
+    );
+    let pill: Vec<String> = editor
+        .status_segments()
+        .into_iter()
+        .flat_map(|segment| segment.items)
+        .map(|item| item.text)
+        .collect();
+    assert_eq!(pill, ["feature", "↑1 ↓0"]);
+
+    repository.git(&["branch", "-q", "develop", "main~1"]);
+    repository.git(&["config", "branch.feature.gh-merge-base", "develop"]);
+    editor.run_command("git-refresh");
+    wait_until(&mut editor, "the configured base", |editor| {
+        facts(editor)[2] == "Base: develop · Up to date"
+    });
+
+    repository.write("feature.rs", "draft\n");
+    repository.git(&["stash", "push", "-q", "-m", "Try a draft"]);
+    wait_until(&mut editor, "the stash", |editor| {
+        rows(editor) == ["> Stashes 1"]
+    });
+    editor.set_point_at(0, 0);
+    press(&mut editor, "TAB");
+    assert_eq!(
+        rows(&editor),
+        ["v Stashes 1", "stash@{0} On feature: Try a draft"]
+    );
+}
+
+#[test]
+fn hunks_and_files_are_staged_unstaged_and_discarded() {
+    let repository = Repository::new("stage");
+    let lines: String = (1..=20).map(|line| format!("line {line}\n")).collect();
+    commit(&repository, "long.rs", &lines, "Long file");
+    let changed = lines
+        .replace("line 2\n", "line two\n")
+        .replace("line 19\n", "line nineteen\n");
+    repository.write("long.rs", &changed);
+    let mut editor = status_buffer(&repository);
+    wait_until(&mut editor, "the change", |editor| {
+        rows(editor).contains(&"M ./long.rs +2 -2".to_owned())
+    });
+
+    go_to_row(&mut editor, "M ./long.rs +2 -2");
+    press(&mut editor, "TAB");
+    wait_until(&mut editor, "the diff", |editor| {
+        rows(editor)
+            .iter()
+            .filter(|row| row.starts_with("@@"))
+            .count()
+            == 2
+    });
+    assert!(rows(&editor).contains(&"-line 2".to_owned()));
+    assert!(rows(&editor).contains(&"+line two".to_owned()));
+
+    let second_hunk = rows(&editor)
+        .iter()
+        .rposition(|row| row.starts_with("@@"))
+        .unwrap();
+    editor.set_point_at(second_hunk, 0);
+    press(&mut editor, "s");
+    wait_for_status(&mut editor, &repository, "MM long.rs\n");
+    assert!(
+        repository
+            .git(&["diff", "--cached"])
+            .contains("+line nineteen")
+    );
+    assert!(!repository.git(&["diff", "--cached"]).contains("+line two"));
+
+    wait_until(&mut editor, "the staged file", |editor| {
+        rows(editor).contains(&"M ./long.rs +1 -1".to_owned()) && rows(editor)[0] == "v Staged 1"
+    });
+    editor.set_point_at(1, 0);
+    press(&mut editor, "u");
+    wait_for_status(&mut editor, &repository, " M long.rs\n");
+
+    wait_until(&mut editor, "the unstaged file", |editor| {
+        rows(editor)
+            .first()
+            .is_some_and(|row| row == "v Unstaged 1")
+    });
+    go_to_row(&mut editor, "M ./long.rs +2 -2");
+    press(&mut editor, "k");
+    assert!(editor.minibuffer().is_some());
+    press(&mut editor, "y");
+    wait_for_status(&mut editor, &repository, "");
+    assert_eq!(
+        fs::read_to_string(repository.0.join("long.rs")).unwrap(),
+        lines
+    );
+}
+
+#[test]
+fn visiting_a_diff_line_opens_the_file_there() {
+    let repository = Repository::new("visit");
+    let lines: String = (1..=10).map(|line| format!("line {line}\n")).collect();
+    commit(&repository, "long.rs", &lines, "Long file");
+    repository.write("long.rs", &lines.replace("line 7\n", "line seven\n"));
+    let mut editor = status_buffer(&repository);
+    wait_until(&mut editor, "the change", |editor| {
+        rows(editor).contains(&"M ./long.rs +1 -1".to_owned())
+    });
+    go_to_row(&mut editor, "M ./long.rs +1 -1");
+    press(&mut editor, "TAB");
+    wait_until(&mut editor, "the diff", |editor| {
+        rows(editor).contains(&"+line seven".to_owned())
+    });
+    go_to_row(&mut editor, "+line seven");
+    press(&mut editor, "RET");
+    let buffer = editor.window_buffer();
+    assert_eq!(buffer.path(), Some(repository.0.join("long.rs").as_path()));
+    assert_eq!(buffer.point_line(), 6);
 }

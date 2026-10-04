@@ -5,7 +5,9 @@ use gpui::{
 use remacs_core::{FileState, Icon, ListItem, Mark};
 use remacs_theme::{color, font};
 
-use crate::assets::{CHECK_ICON, ERROR_ICON, FILE_ICON, FOLDER_ICON, INFO_ICON, WARNING_ICON};
+use crate::assets::{
+    BRANCH_ICON, CHECK_ICON, ERROR_ICON, FILE_ICON, FOLDER_ICON, INFO_ICON, WARNING_ICON,
+};
 
 pub fn hsla(hex: u32) -> Hsla {
     rgb(hex).into()
@@ -19,6 +21,7 @@ pub fn icon(icon: Icon, text_color: u32) -> Svg {
         Icon::Error => (ERROR_ICON, 10.0, color::ERROR),
         Icon::Warning => (WARNING_ICON, 10.0, color::WARNING),
         Icon::Info => (INFO_ICON, 10.0, color::INFO),
+        Icon::Branch => (BRANCH_ICON, 12.0, text_color),
     };
     svg()
         .path(path)

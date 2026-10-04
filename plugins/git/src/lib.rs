@@ -2,27 +2,82 @@
 //! and kept current from file system events, like Emacs magit.
 
 mod command;
+mod commands;
+mod details;
+mod diff;
 mod ignore_rules;
 mod monitor;
 mod moves;
 mod repositories;
 mod status;
+mod status_view;
 
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use remacs_core::{Editor, FileStatus, Plugin, Registry, VersionControl};
+use remacs_core::{
+    Command, Editor, FileStatus, Keymap, MinorKeymap, Plugin, Registry, VersionControl,
+};
 
 use crate::repositories::Repositories;
+use crate::status_view::{GIT_MODE, TOGGLE, VISIT};
 
 pub struct GitPlugin;
 
+#[rustfmt::skip]
+const COMMANDS: &[Command] = &[
+    Command::new("git-status", "Show the status of the Git working tree", commands::status),
+    Command::new(TOGGLE, "Fold or unfold the section at point, or show the file's diff", commands::toggle),
+    Command::new("git-stage", "Stage the section, file or hunk at point", commands::stage),
+    Command::new("git-unstage", "Unstage the section, file or hunk at point", commands::unstage),
+    Command::new("git-discard", "Throw away the unstaged change at point, after asking", commands::discard),
+    Command::new(VISIT, "Visit the file at point, at the diff line", commands::visit),
+    Command::new("git-refresh", "Read the status again", commands::refresh),
+    Command::new("git-quit", "Show the buffer shown before the status", commands::quit),
+];
+
+const BINDINGS: &[(&str, &str)] = &[("C-x g", "git-status")];
+
+const STATUS_BINDINGS: &[(&str, &str)] = &[
+    ("TAB", TOGGLE),
+    ("s", "git-stage"),
+    ("u", "git-unstage"),
+    ("k", "git-discard"),
+    ("RET", VISIT),
+    ("g", "git-refresh"),
+    ("q", "git-quit"),
+    ("n", "next-line"),
+    ("p", "previous-line"),
+];
+
 impl Plugin for GitPlugin {
     fn register(&self, registry: &mut Registry) {
+        for command in COMMANDS {
+            registry.commands.add(*command);
+        }
+        for &(keys, command) in BINDINGS {
+            registry.keymap.bind(keys, command);
+        }
+        let mut status_keymap = Keymap::default();
+        for &(keys, command) in STATUS_BINDINGS {
+            status_keymap.bind(keys, command);
+        }
+        registry.minor_keymaps.push(MinorKeymap {
+            active: |editor| editor.buffer().mode() == GIT_MODE,
+            keymap: status_keymap,
+        });
         registry.version_controls.push(Rc::new(Git));
         registry
             .post_command_hooks
             .push(Rc::new(repositories::track));
+        registry.post_command_hooks.push(Rc::new(status_view::sync));
+        registry.outlines.push(Rc::new(status_view::outline));
+        registry
+            .status_providers
+            .push(Rc::new(status_view::branch_status));
+        registry
+            .status_providers
+            .push(Rc::new(status_view::sync_status));
     }
 }
 

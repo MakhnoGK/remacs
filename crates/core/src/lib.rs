@@ -11,6 +11,7 @@ mod keymap;
 mod kill_ring;
 mod minibuffer;
 mod mode;
+mod outline;
 mod plugin;
 mod popup;
 mod status;
@@ -33,6 +34,9 @@ pub use minibuffer::{
     Count, Dialog, DialogOption, ListItem, Minibuffer, Prompt, PromptOption, VISIBLE_CANDIDATES,
 };
 pub use mode::{FUNDAMENTAL_MODE, Mode, Modes};
+pub use outline::{
+    DiffRow, Fact, FactValue, Outline, OutlineProvider, OutlineRow, RefChip, RefKind,
+};
 pub use plugin::{Hook, MinorKeymap, Plugin, Registry};
 pub use popup::{Code, CodeHighlighter, DocBlock, Documentation, Popup, PopupProvider};
 pub use status::{StatusItem, StatusProvider, StatusSegment, Tone};

@@ -222,6 +222,7 @@ pub fn status(editor: &Editor) -> Option<StatusSegment> {
         items: vec![StatusItem::toned(text, Tone::Warning)],
         command: None,
         active: false,
+        code: false,
     })
 }
 

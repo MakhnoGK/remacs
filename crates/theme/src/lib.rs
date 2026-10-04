@@ -51,6 +51,14 @@ pub mod color {
     pub const VC_MODIFIED: u32 = 0x79a8ff;
     /// Deleted files and removed lines.
     pub const VC_REMOVED: u32 = 0xff7f86;
+    pub const VC_ADDED_ON_SELECTION: u32 = 0x9cf09c;
+    pub const VC_REMOVED_ON_SELECTION: u32 = 0xffb8bc;
+
+    /// Branch and tag chips: the one checked out, the main one, others, remote ones.
+    pub const FG_REF_HEAD: u32 = 0xbfe6ff;
+    pub const FG_REF_MAIN: u32 = 0xd6ccff;
+    pub const FG_REF_BRANCH: u32 = 0xb2f2da;
+    pub const FG_REF_REMOTE: u32 = 0xa8a8a8;
 
     pub const KEYWORD: u32 = 0xb6a0ff;
     pub const TYPE: u32 = 0x6ae4b9;

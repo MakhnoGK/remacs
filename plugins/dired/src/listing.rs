@@ -294,6 +294,7 @@ pub fn status(editor: &Editor) -> Option<StatusSegment> {
         items: vec![StatusItem::new(None, label)],
         command: None,
         active: false,
+        code: false,
     })
 }
 
@@ -314,6 +315,7 @@ pub fn marks_status(editor: &Editor) -> Option<StatusSegment> {
         items,
         command: None,
         active: false,
+        code: false,
     })
 }
 

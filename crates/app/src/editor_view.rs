@@ -19,6 +19,7 @@ use crate::display_line::DisplayLine;
 use crate::highlights::{Highlights, combine, face_style, region_style};
 use crate::key_input::to_key;
 use crate::minibuffer_view::{is_problem_list, render_minibuffer, render_scrim};
+use crate::outline_view::{fitting_rows, max_outline_lines, render_outline};
 use crate::popup_view::{DocumentationScroll, DocumentationView, Placement, render_popup};
 use crate::preview_view::render_preview;
 use crate::table_view::{
@@ -48,8 +49,9 @@ pub struct EditorView {
     input_scroll: ScrollHandle,
     /// Faces of code shown in popups, by mode and text.
     code_faces: HashMap<&'static str, HashMap<String, Highlights>>,
-    /// The window buffer was last drawn as a table, so input maps to rows, not text.
-    showing_table: bool,
+    /// The window buffer was last drawn as rows, a table's or an outline's, so input maps
+    /// to rows, not text.
+    showing_rows: bool,
     _activation: Subscription,
 }
 
@@ -93,7 +95,7 @@ impl EditorView {
             documentation_scroll: DocumentationScroll::default(),
             input_scroll: ScrollHandle::new(),
             code_faces: HashMap::new(),
-            showing_table: false,
+            showing_rows: false,
             _activation: activation,
         };
         view.receive_clipboard(cx);
@@ -156,7 +158,7 @@ impl EditorView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let line_height = px(if self.showing_table {
+        let line_height = px(if self.showing_rows {
             ROW_PITCH
         } else {
             font::CODE_LINE_HEIGHT
@@ -177,11 +179,11 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) {
         window.focus(&self.focus_handle);
-        // An open prompt is modal: clicks choose candidates or do nothing. Table rows
-        // handle their own clicks.
+        // An open prompt is modal: clicks choose candidates or do nothing. Rows handle
+        // their own clicks.
         let Some(metrics) = self
             .metrics
-            .filter(|_| self.editor.minibuffer().is_none() && !self.showing_table)
+            .filter(|_| self.editor.minibuffer().is_none() && !self.showing_rows)
         else {
             return;
         };
@@ -508,13 +510,55 @@ impl EditorView {
         self.after_input(cx);
     }
 
+    /// Selects an outline's heading and runs `toggle`, folding or unfolding it.
+    pub fn click_heading(&mut self, line: usize, toggle: &'static str, cx: &mut Context<Self>) {
+        if self.editor.minibuffer().is_some() {
+            return;
+        }
+        self.editor.set_point_at(line, 0);
+        self.editor.run_command(toggle);
+        self.after_input(cx);
+    }
+
+    /// The window buffer's outline in the rows that fit, the viewport set to them.
+    fn render_outline(
+        &mut self,
+        outline_lines: usize,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Option<(AnyElement, AnyElement)> {
+        let height = window.viewport_size().height;
+        let mut outline = self.editor.outline(
+            self.editor.viewport.first_line..self.editor.viewport.first_line + outline_lines,
+        )?;
+        let mut fitting = fitting_rows(&outline.rows, outline.facts.len(), height);
+        let point_line = self.editor.window_buffer().point_line();
+        if !self.editor.viewport.contains(point_line)
+            || point_line >= self.editor.viewport.first_line + fitting
+        {
+            self.editor.viewport.set_height(fitting);
+            self.editor.viewport.ensure_visible(point_line);
+            let first_line = self.editor.viewport.first_line;
+            outline = self
+                .editor
+                .outline(first_line..first_line + outline_lines)?;
+            fitting = fitting_rows(&outline.rows, outline.facts.len(), height);
+        }
+        self.editor.viewport.set_height(fitting);
+        outline.rows.truncate(fitting);
+        let hints = render_hints(outline.hints).into_any_element();
+        let body = render_outline(outline, self.editor.viewport.first_line, point_line, cx)
+            .into_any_element();
+        Some((body, hints))
+    }
+
     /// A plugin's group of the status pill, e.g. problem counts; a click runs its command.
     /// One without a command is a plain label, like the mode.
     fn render_segment(segment: StatusSegment, cx: &mut Context<Self>) -> impl IntoElement {
-        let text_color = match (segment.active, segment.command) {
-            (true, _) => color::FG_MAIN,
-            (false, Some(_)) => color::FG_KBD,
-            (false, None) => color::FG_FAINT,
+        let text_color = match (segment.active, segment.command, segment.code) {
+            (true, ..) => color::FG_MAIN,
+            (false, Some(_), _) | (false, None, true) => color::FG_KBD,
+            (false, None, false) => color::FG_FAINT,
         };
         div()
             .flex()
@@ -524,11 +568,7 @@ impl EditorView {
             .px(px(8.0))
             .rounded(px(6.0))
             .when(segment.active, |button| button.bg(rgb(color::BG_SELECTION)))
-            .font_family(if segment.command.is_some() {
-                font::MONO
-            } else {
-                font::UI
-            })
+            .font_family(if segment.code { font::MONO } else { font::UI })
             .text_color(rgb(text_color))
             .when_some(segment.command, |button, command| {
                 button.on_mouse_down(
@@ -545,6 +585,7 @@ impl EditorView {
                     Tone::Accent => color::ACCENT,
                     Tone::Danger => color::DANGER,
                     Tone::Warning => color::WARNING,
+                    Tone::Faint => color::FG_FAINT,
                 };
                 div()
                     .flex()
@@ -579,8 +620,8 @@ impl EditorView {
                     .child(pill_separator())
             })
             .children(segments)
-            // A table's selected row is its position.
-            .when(!self.showing_table, |status| {
+            // The selected row is the position.
+            .when(!self.showing_rows, |status| {
                 status
                     .child(
                         div()
@@ -615,9 +656,17 @@ impl Render for EditorView {
         .floor()
         .max(1.0) as usize;
         let table = self.editor.table(first_line..first_line + table_rows);
-        self.showing_table = table.is_some();
-        let (body, hints, popups) = match table {
-            Some(mut table) => {
+        let outline = match table {
+            Some(_) => None,
+            None => {
+                let lines = max_outline_lines(window.viewport_size().height);
+                self.render_outline(lines, window, cx)
+            }
+        };
+        self.showing_rows = table.is_some() || outline.is_some();
+        let (body, hints, popups) = match (table, outline) {
+            (None, Some((body, hints))) => (body, Some(hints), Vec::new()),
+            (Some(mut table), _) => {
                 self.editor.viewport.set_height(table_rows);
                 let buffer = self.editor.window_buffer();
                 let cursor = TableCursor {
@@ -637,7 +686,7 @@ impl Render for EditorView {
                 let body = render_table(table, first_line, cursor, side, cx).into_any_element();
                 (body, Some(hints), Vec::new())
             }
-            None => {
+            (None, None) => {
                 let (body, popups) = self.render_text(window);
                 (body, None, popups)
             }

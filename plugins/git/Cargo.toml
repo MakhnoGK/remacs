@@ -10,6 +10,8 @@ publish.workspace = true
 ignore.workspace = true
 notify.workspace = true
 remacs-core.workspace = true
+remacs-text.workspace = true
+trash.workspace = true
 
 [dev-dependencies]
 remacs-dired.workspace = true

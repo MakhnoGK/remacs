@@ -3966,6 +3966,8 @@ dependencies = [
  "remacs-editing",
  "remacs-files",
  "remacs-minibuffer",
+ "remacs-text",
+ "trash",
 ]
 
 [[package]]

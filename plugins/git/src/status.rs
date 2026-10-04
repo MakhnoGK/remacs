@@ -7,6 +7,9 @@ use std::path::{Path, PathBuf};
 
 use remacs_core::{FileState, FileStatus, LineCounts};
 
+use crate::details::Details;
+use crate::diff::FileDiff;
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Snapshot {
     pub head: Head,
@@ -16,6 +19,17 @@ pub struct Snapshot {
     pub files: HashMap<PathBuf, FileEntry>,
     /// Relative, listed whole rather than file by file.
     pub untracked_directories: Vec<PathBuf>,
+    /// Read while a status buffer shows the tree.
+    pub details: Option<Details>,
+    /// Of the files a status buffer shows unfolded.
+    pub diffs: HashMap<DiffKey, FileDiff>,
+}
+
+/// One side of a file's changes: staged, or not yet.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct DiffKey {
+    pub staged: bool,
+    pub path: PathBuf,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -48,7 +62,19 @@ pub struct FileEntry {
     pub conflicted: bool,
     /// Where a renamed or copied file came from.
     pub original: Option<PathBuf>,
+    /// Since the last commit.
     pub lines: Option<LineCounts>,
+    /// Read with the details: what is staged, and what is not yet.
+    pub staged_lines: Option<LineCounts>,
+    pub unstaged_lines: Option<LineCounts>,
+}
+
+/// Which of a file's line counts a `git diff --numstat` gives.
+#[derive(Clone, Copy)]
+pub enum Counted {
+    SinceCommit,
+    Staged,
+    Unstaged,
 }
 
 impl FileEntry {
@@ -87,10 +113,14 @@ impl Snapshot {
     }
 
     /// Adds the line counts of `git diff --numstat -z`.
-    pub fn add_line_counts(&mut self, numstat: &[u8]) {
+    pub fn add_line_counts(&mut self, numstat: &[u8], counted: Counted) {
         for (path, lines) in parse_numstat(numstat) {
             if let Some(entry) = self.files.get_mut(&path) {
-                entry.lines = lines;
+                *match counted {
+                    Counted::SinceCommit => &mut entry.lines,
+                    Counted::Staged => &mut entry.staged_lines,
+                    Counted::Unstaged => &mut entry.unstaged_lines,
+                } = lines;
             }
         }
     }
@@ -184,6 +214,8 @@ fn entry(xy: &[u8], conflicted: bool, original: Option<PathBuf>) -> FileEntry {
         conflicted,
         original,
         lines: None,
+        staged_lines: None,
+        unstaged_lines: None,
     }
 }
 
@@ -298,6 +330,7 @@ u UU N... 100644 100644 100644 100644 4444 5555 6666 src/conflict.rs\0\
 4\t1\tsrc/buffer with space.rs\0\
 2\t2\t\0src/old.rs\0src/new.rs\0\
 -\t-\tsrc/conflict.rs\0",
+            Counted::SinceCommit,
         );
         let lines = |path: &str| snapshot.files[Path::new(path)].lines;
         let counts = |added, removed| Some(LineCounts { added, removed });

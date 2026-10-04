@@ -79,6 +79,7 @@ pub(crate) fn status(editor: &Editor) -> Option<StatusSegment> {
             .collect(),
         command: Some(LIST_PROBLEMS),
         active: is_listing(editor),
+        code: true,
     })
 }
 

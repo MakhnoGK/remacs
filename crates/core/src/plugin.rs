@@ -5,6 +5,7 @@ use crate::decoration::Decorator;
 use crate::editor::Editor;
 use crate::keymap::Keymap;
 use crate::mode::Modes;
+use crate::outline::OutlineProvider;
 use crate::popup::{CodeHighlighter, PopupProvider};
 use crate::status::StatusProvider;
 use crate::table::TableProvider;
@@ -39,6 +40,8 @@ pub struct Registry {
     pub code_highlighters: Vec<CodeHighlighter>,
     /// Draw buffers as tables; the first that knows the buffer does.
     pub tables: Vec<TableProvider>,
+    /// Draw buffers as outlines; the first that knows the buffer does.
+    pub outlines: Vec<OutlineProvider>,
     /// For each file, the first that controls it.
     pub version_controls: Vec<Rc<dyn VersionControl>>,
 }

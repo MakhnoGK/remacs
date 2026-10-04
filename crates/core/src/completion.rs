@@ -8,6 +8,8 @@ pub enum Icon {
     Error,
     Warning,
     Info,
+    /// A version control branch.
+    Branch,
 }
 
 /// What a completion candidate or a documented symbol is; the UI gives each its own badge.

@@ -10,6 +10,8 @@ pub struct StatusSegment {
     pub command: Option<&'static str>,
     /// Drawn pressed, e.g. while the list it toggles is open.
     pub active: bool,
+    /// Drawn in the code font, e.g. counts or a branch name; prose is not.
+    pub code: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -47,6 +49,8 @@ pub enum Tone {
     Danger,
     /// Not yet done, like edits waiting to be applied.
     Warning,
+    /// Secondary, like counts beside a name.
+    Faint,
 }
 
 /// Describes the window buffer for the status pill, if the plugin has anything to show.

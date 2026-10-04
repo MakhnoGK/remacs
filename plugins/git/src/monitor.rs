@@ -8,9 +8,11 @@ use notify::{Event, EventKind, RecursiveMode, Watcher};
 use remacs_core::Notifier;
 
 use crate::command::{git, output};
+use crate::details;
+use crate::diff::parse_diff;
 use crate::ignore_rules::IgnoreRules;
 use crate::moves;
-use crate::status::{Snapshot, parse_status};
+use crate::status::{Counted, DiffKey, Snapshot, parse_status};
 
 /// Changes arriving this close together cause one read.
 const SETTLE_TIME: Duration = Duration::from_millis(100);
@@ -30,16 +32,29 @@ enum Message {
     Changed(notify::Result<Event>),
     /// Relative to the root, from and to.
     RecordMoves(Vec<(PathBuf, PathBuf)>),
+    Want(Wants),
+    Run(Job),
+    Refresh,
     Stop,
 }
 
 pub enum Update {
-    Status(Snapshot),
+    Status(Box<Snapshot>),
     Failed(String),
 }
 
+/// What is read besides the status, for the status buffers showing the tree.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Wants {
+    pub details: bool,
+    pub diffs: Vec<DiffKey>,
+}
+
+/// Changes the repository, run in its root; the error is said to the user.
+pub type Job = Box<dyn FnOnce(&Path) -> Result<(), String> + Send>;
+
 impl Monitor {
-    pub fn start(root: PathBuf, notifier: Notifier) -> Self {
+    pub fn start(root: PathBuf, wants: Wants, notifier: Notifier) -> Self {
         let (messages, received) = mpsc::channel();
         let (send_update, updates) = mpsc::channel();
         let events = messages.clone();
@@ -51,7 +66,7 @@ impl Monitor {
                     updates: send_update,
                     notifier,
                 };
-                worker.run(events, &received);
+                worker.run(events, &received, wants);
             })
             .expect("spawning the git monitor thread");
         Self { messages, updates }
@@ -59,6 +74,20 @@ impl Monitor {
 
     pub fn record_moves(&self, moves: Vec<(PathBuf, PathBuf)>) {
         let _ = self.messages.send(Message::RecordMoves(moves));
+    }
+
+    /// Reads `wants` from now on, starting at once.
+    pub fn want(&self, wants: Wants) {
+        let _ = self.messages.send(Message::Want(wants));
+    }
+
+    /// Runs `job` after what is already queued, then reads the status again.
+    pub fn run(&self, job: Job) {
+        let _ = self.messages.send(Message::Run(job));
+    }
+
+    pub fn refresh(&self) {
+        let _ = self.messages.send(Message::Refresh);
     }
 
     /// What happened since the last call, oldest first.
@@ -80,7 +109,7 @@ struct Worker {
 }
 
 impl Worker {
-    fn run(&self, events: Sender<Message>, messages: &Receiver<Message>) {
+    fn run(&self, events: Sender<Message>, messages: &Receiver<Message>, mut wants: Wants) {
         let git_directories = match git_directories(&self.root) {
             Ok(directories) => directories,
             Err(error) => return self.send(Update::Failed(format!("Git: {error}"))),
@@ -106,10 +135,10 @@ impl Worker {
         };
         let mut reported_failure = false;
         loop {
-            match read(&self.root) {
+            match read(&self.root, &wants) {
                 Ok(snapshot) => {
                     reported_failure = false;
-                    self.send(Update::Status(snapshot));
+                    self.send(Update::Status(Box::new(snapshot)));
                 }
                 Err(error) if !reported_failure => {
                     reported_failure = true;
@@ -117,15 +146,20 @@ impl Worker {
                 }
                 Err(_) => {}
             }
-            if !self.wait_for_change(&mut filter, messages) {
+            if !self.wait_for_change(&mut filter, &mut wants, messages) {
                 return;
             }
         }
     }
 
-    /// Waits until something that may change the status happened and things settled;
-    /// false once the monitor is stopped.
-    fn wait_for_change(&self, filter: &mut EventFilter, messages: &Receiver<Message>) -> bool {
+    /// Waits until something that may change the status happened and things settled,
+    /// or a read is asked for; false once the monitor is stopped.
+    fn wait_for_change(
+        &self,
+        filter: &mut EventFilter,
+        wants: &mut Wants,
+        messages: &Receiver<Message>,
+    ) -> bool {
         let mut deadline = None;
         loop {
             let message = match deadline {
@@ -149,7 +183,17 @@ impl Worker {
                     }
                     deadline.get_or_insert_with(|| Instant::now() + MAX_DELAY);
                 }
-                Err(RecvTimeoutError::Timeout) => return true,
+                Ok(Message::Want(wanted)) => {
+                    *wants = wanted;
+                    return true;
+                }
+                Ok(Message::Run(job)) => {
+                    if let Err(error) = job(&self.root) {
+                        self.send(Update::Failed(error));
+                    }
+                    return true;
+                }
+                Ok(Message::Refresh) | Err(RecvTimeoutError::Timeout) => return true,
                 Ok(Message::Stop) | Err(RecvTimeoutError::Disconnected) => return false,
             }
         }
@@ -230,7 +274,7 @@ fn git_directories(root: &Path) -> io::Result<Vec<PathBuf>> {
     Ok(directories)
 }
 
-fn read(root: &Path) -> io::Result<Snapshot> {
+fn read(root: &Path, wants: &Wants) -> io::Result<Snapshot> {
     let mut snapshot = parse_status(&output(git(root).args([
         "status",
         "--porcelain=v2",
@@ -239,15 +283,46 @@ fn read(root: &Path) -> io::Result<Snapshot> {
         "--show-stash",
     ]))?);
     if !snapshot.files.is_empty() {
-        let mut diff = git(root);
-        diff.args(["diff", "--numstat", "-z", "--no-ext-diff"]);
         // Without a commit, what is staged is all there is to count.
-        diff.arg(if snapshot.is_unborn() {
+        let since = if snapshot.is_unborn() {
             "--cached"
         } else {
             "HEAD"
-        });
-        snapshot.add_line_counts(&output(diff.arg("--"))?);
+        };
+        snapshot.add_line_counts(&numstat(root, Some(since))?, Counted::SinceCommit);
+        if wants.details {
+            snapshot.add_line_counts(&numstat(root, Some("--cached"))?, Counted::Staged);
+            snapshot.add_line_counts(&numstat(root, None)?, Counted::Unstaged);
+        }
+    }
+    if wants.details {
+        snapshot.details = Some(details::read(root, &snapshot));
+    }
+    for key in &wants.diffs {
+        let Some(entry) = snapshot.files.get(&key.path) else {
+            continue;
+        };
+        let mut command = git(root);
+        command.args(["diff", "--no-color", "--no-ext-diff", "--no-textconv"]);
+        if key.staged {
+            command.arg("--cached");
+        }
+        command.arg("--").arg(&key.path);
+        if key.staged {
+            command.args(&entry.original);
+        }
+        let printed = output(&mut command)?;
+        if let Some(diff) = parse_diff(&String::from_utf8_lossy(&printed)) {
+            snapshot.diffs.insert(key.clone(), diff);
+        }
     }
     Ok(snapshot)
+}
+
+/// `git diff --numstat` against `against`, else of what is not staged.
+fn numstat(root: &Path, against: Option<&str>) -> io::Result<Vec<u8>> {
+    let mut command = git(root);
+    command.args(["diff", "--numstat", "-z", "--no-ext-diff"]);
+    command.args(against);
+    output(command.arg("--"))
 }

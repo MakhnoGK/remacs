@@ -18,6 +18,7 @@ use crate::key::{Key, describe_sequence};
 use crate::keymap::{Binding, Keymap};
 use crate::kill_ring::KillRing;
 use crate::minibuffer::{Dialog, Minibuffer, Prompt};
+use crate::outline::Outline;
 use crate::plugin::{Plugin, Registry};
 use crate::popup::Popup;
 use crate::status::StatusSegment;
@@ -549,6 +550,14 @@ impl Editor {
     pub fn table(&self, lines: Range<usize>) -> Option<Table> {
         self.registry
             .tables
+            .iter()
+            .find_map(|describe| describe(self, lines.clone()))
+    }
+
+    /// `lines` of the window buffer as an outline, if a plugin draws it as one.
+    pub fn outline(&self, lines: Range<usize>) -> Option<Outline> {
+        self.registry
+            .outlines
             .iter()
             .find_map(|describe| describe(self, lines.clone()))
     }
