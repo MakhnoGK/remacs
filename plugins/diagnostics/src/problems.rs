@@ -57,6 +57,16 @@ pub(crate) fn previous_problem(editor: &mut Editor) -> CommandResult {
     step(editor, false)
 }
 
+/// Moves to the next error or warning, wrapping around, while editing; the list, if
+/// open, stays as it is.
+pub(crate) fn next_error(editor: &mut Editor) -> CommandResult {
+    go_to_next(editor, true, Severity::Warning)
+}
+
+pub(crate) fn previous_error(editor: &mut Editor) -> CommandResult {
+    go_to_next(editor, false, Severity::Warning)
+}
+
 pub(crate) fn status(editor: &Editor) -> Option<StatusSegment> {
     let state = editor.window_buffer().local::<BufferDiagnostics>()?;
     Some(StatusSegment {
@@ -79,12 +89,24 @@ fn step(editor: &mut Editor, forward: bool) -> CommandResult {
         }
         return Ok(());
     }
+    go_to_next(editor, forward, Severity::Info)
+}
+
+/// Moves to the next problem at least as severe as `least`, wrapping around.
+fn go_to_next(editor: &mut Editor, forward: bool, least: Severity) -> CommandResult {
+    let missing = if least == Severity::Info {
+        "No problems"
+    } else {
+        "No errors or warnings"
+    };
     let buffer = editor.window_buffer();
     let point = buffer.point();
-    let mut starts = buffer
-        .local::<BufferDiagnostics>()
-        .map(|state| state.list.iter().map(|diagnostic| diagnostic.range.start))
-        .ok_or("No problems")?;
+    let state = buffer.local::<BufferDiagnostics>().ok_or(missing)?;
+    let mut starts = state
+        .list
+        .iter()
+        .filter(|diagnostic| diagnostic.severity >= least)
+        .map(|diagnostic| diagnostic.range.start);
     let target = if forward {
         starts
             .clone()
@@ -96,7 +118,7 @@ fn step(editor: &mut Editor, forward: bool) -> CommandResult {
             .rfind(|&start| start < point)
             .or(starts.next_back())
     };
-    go_to(editor, target.ok_or("No problems")?);
+    go_to(editor, target.ok_or(missing)?);
     Ok(())
 }
 

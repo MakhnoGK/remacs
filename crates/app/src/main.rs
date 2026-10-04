@@ -14,6 +14,7 @@ use gpui::{
     App, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions, point, prelude::*, px,
     size,
 };
+use remacs_actions::ActionsPlugin;
 use remacs_completion::CompletionPlugin;
 use remacs_core::{Editor, Plugin};
 use remacs_diagnostics::DiagnosticsPlugin;
@@ -40,6 +41,7 @@ const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
     &CompletionPlugin,
     &DocumentationPlugin,
     &XrefPlugin,
+    &ActionsPlugin,
     &LspPlugin::new(SERVERS),
 ];
 

@@ -83,6 +83,44 @@ fn next_and_previous_problem_wrap_around() {
 }
 
 #[test]
+fn next_and_previous_error_skip_infos() {
+    let mut editor = checked_editor();
+    let buffer = editor.window_buffer_mut();
+    let text = buffer.text().snapshot();
+    publish(
+        buffer,
+        text,
+        vec![
+            diagnostic(SOURCE, "main", Severity::Info),
+            diagnostic(SOURCE, "advance", Severity::Error),
+            diagnostic(SOURCE, "let", Severity::Info),
+            diagnostic(SOURCE, "unused", Severity::Warning),
+        ],
+    );
+    press(&mut editor, "M-g n");
+    assert_eq!(point_text(&editor, 7), "advance");
+    press(&mut editor, "M-g n");
+    assert_eq!(point_text(&editor, 6), "unused");
+    press(&mut editor, "M-g n");
+    assert_eq!(point_text(&editor, 7), "advance");
+    press(&mut editor, "M-g p");
+    assert_eq!(point_text(&editor, 6), "unused");
+    assert_eq!(editor.echo().as_deref(), Some("problem with `unused`"));
+    press(&mut editor, "M-p");
+    assert_eq!(point_text(&editor, 3), "let");
+
+    let buffer = editor.window_buffer_mut();
+    let text = buffer.text().snapshot();
+    publish(
+        buffer,
+        text,
+        vec![diagnostic(SOURCE, "main", Severity::Info)],
+    );
+    press(&mut editor, "M-g n");
+    assert_eq!(editor.echo().as_deref(), Some("No errors or warnings"));
+}
+
+#[test]
 fn the_list_starts_at_the_next_problem_and_goes_to_the_chosen_one() {
     let mut editor = checked_editor();
     let after_advance = SOURCE.find("(1)").unwrap();

@@ -2,10 +2,9 @@ use std::path::PathBuf;
 
 use lsp_types::{GotoDefinitionResponse, Position};
 use remacs_core::Editor;
-use remacs_text::Text;
 use remacs_xref::Location;
 
-use crate::position::{Encoding, from_lsp};
+use crate::position::{Encoding, from_lsp, text_of};
 use crate::uri;
 
 /// Where each definition starts: a link's name rather than its whole item.
@@ -39,16 +38,7 @@ pub(crate) fn locations(
     targets
         .into_iter()
         .filter_map(|(path, position)| {
-            let visited = editor
-                .buffers()
-                .iter()
-                .find(|buffer| buffer.path() == Some(&path))
-                .map(|buffer| buffer.text().snapshot());
-            let text = match visited {
-                Some(text) => text,
-                None => Text::open(&path).ok()?.snapshot(),
-            };
-            let offset = from_lsp(&text, position, encoding);
+            let offset = from_lsp(&text_of(editor, &path)?, position, encoding);
             Some(Location { path, offset })
         })
         .collect()

@@ -1,8 +1,9 @@
 //! Built-in plugin: a language server client, like Emacs eglot. It starts a server per
 //! project, keeps it in sync with the buffers, passes its diagnostics on and answers the
-//! completion, documentation and xref plugins.
+//! completion, documentation, xref and actions plugins.
 
 mod client;
+mod code_action;
 mod completion;
 mod definition;
 mod document;

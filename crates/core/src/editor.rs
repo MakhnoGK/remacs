@@ -133,26 +133,16 @@ impl Editor {
     /// Shows the buffer visiting `path`, opening it first if needed; a missing file
     /// becomes an empty buffer that creates it on save.
     pub fn visit_file(&mut self, path: &Path) -> io::Result<()> {
-        let path = path.canonicalize().or_else(|_| std::path::absolute(path))?;
-        if let Some(index) = self
-            .buffers
-            .iter()
-            .position(|buffer| buffer.path() == Some(&path))
-        {
-            self.select_buffer(index);
-            return Ok(());
-        }
-        let text = match Text::open(&path) {
-            Ok(text) => text,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                self.set_message("(New file)");
-                Text::default()
-            }
-            Err(error) => return Err(error),
-        };
-        let mode = self.mode_for(Some(&path));
-        self.add_buffer(Buffer::new(file_buffer_name(&path), text, mode).with_file(path));
+        let index = self.find_file(path)?;
+        self.select_buffer(index);
         Ok(())
+    }
+
+    /// The buffer visiting `path`, opened without showing it if needed, like Emacs
+    /// `find-file-noselect`.
+    pub fn find_file_noselect(&mut self, path: &Path) -> io::Result<&mut Buffer> {
+        let index = self.find_file(path)?;
+        Ok(&mut self.buffers[index])
     }
 
     /// Makes the window buffer visit `path` from now on, renamed after it, like Emacs
@@ -181,10 +171,9 @@ impl Editor {
     }
 
     /// Adds `buffer` under a unique name (`name<2>`) and shows it.
-    pub fn add_buffer(&mut self, mut buffer: Buffer) {
-        buffer.set_name(self.unique_name(buffer.name()));
-        self.buffers.push(buffer);
-        self.select_buffer(self.buffers.len() - 1);
+    pub fn add_buffer(&mut self, buffer: Buffer) {
+        let index = self.push_buffer(buffer);
+        self.select_buffer(index);
     }
 
     pub fn switch_to_buffer(&mut self, name: &str) -> bool {
@@ -556,6 +545,35 @@ impl Editor {
         let point_line = self.window_buffer().point_line();
         self.viewport.ensure_visible(point_line);
         self.run_post_command_hooks();
+    }
+
+    /// Index of the buffer visiting `path`, opened as the least recent one if needed.
+    fn find_file(&mut self, path: &Path) -> io::Result<usize> {
+        let path = path.canonicalize().or_else(|_| std::path::absolute(path))?;
+        if let Some(index) = self
+            .buffers
+            .iter()
+            .position(|buffer| buffer.path() == Some(&path))
+        {
+            return Ok(index);
+        }
+        let text = match Text::open(&path) {
+            Ok(text) => text,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                self.set_message("(New file)");
+                Text::default()
+            }
+            Err(error) => return Err(error),
+        };
+        let mode = self.mode_for(Some(&path));
+        Ok(self.push_buffer(Buffer::new(file_buffer_name(&path), text, mode).with_file(path)))
+    }
+
+    /// Adds `buffer` as the least recent one under a unique name and returns its index.
+    fn push_buffer(&mut self, mut buffer: Buffer) -> usize {
+        buffer.set_name(self.unique_name(buffer.name()));
+        self.buffers.push(buffer);
+        self.buffers.len() - 1
     }
 
     fn buffer_index(&self, name: &str) -> Option<usize> {

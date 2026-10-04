@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use remacs_actions::ActionsPlugin;
 use remacs_completion::CompletionPlugin;
 use remacs_core::{Documentation, Editor, Icon, Plugin, Popup};
 use remacs_diagnostics::DiagnosticsPlugin;
@@ -20,6 +21,7 @@ const PLUGINS: &[&dyn Plugin] = &[
     &CompletionPlugin,
     &DocumentationPlugin,
     &XrefPlugin,
+    &ActionsPlugin,
     &LSP,
 ];
 const TIMEOUT: Duration = Duration::from_secs(120);
@@ -368,4 +370,79 @@ fn typescript_reports_type_errors() {
 fn css_language_server_reports_unknown_properties() {
     let root = project("css", &[("style.css", "a { colr: red; }\n")]);
     check(&root.join("style.css"), Icon::Warning);
+}
+
+/// Asks for code actions at `at` until `wanted` is offered, applies it and returns the
+/// buffer once it changed.
+fn apply_action(file: &Path, at: &str, wanted: &str) -> String {
+    let mut editor = Editor::new(PLUGINS);
+    editor.visit_file(file).unwrap();
+    let source = fs::read_to_string(file).unwrap();
+    let point = source.find(at).unwrap();
+    let started = Instant::now();
+    let offered = |popup: &Popup| popup.rows.iter().position(|row| row.label.contains(wanted));
+    let index = loop {
+        assert!(started.elapsed() < TIMEOUT, "{wanted} never offered");
+        editor.window_buffer_mut().set_point(point);
+        editor.run_command("code-actions");
+        thread::sleep(Duration::from_millis(300));
+        editor.refresh();
+        if let Some(popup) = editor.popups().pop() {
+            let titles: Vec<_> = popup.rows.iter().map(|row| row.label.as_str()).collect();
+            eprintln!("{}: {titles:?}", file.display());
+            if let Some(index) = offered(&popup) {
+                break index;
+            }
+        }
+    };
+    for _ in 0..index {
+        editor.run_command("code-actions-next");
+    }
+    editor.run_command("code-actions-apply");
+    let contents = |editor: &Editor| {
+        let buffer = editor.window_buffer();
+        buffer.contents(0..buffer.text().len())
+    };
+    while contents(&editor) == source {
+        assert!(started.elapsed() < TIMEOUT, "{wanted} never applied");
+        let echo = editor.echo().unwrap_or_default();
+        assert!(!echo.starts_with("Code action"), "{echo}");
+        thread::sleep(Duration::from_millis(100));
+        editor.refresh();
+    }
+    contents(&editor)
+}
+
+#[test]
+#[ignore]
+fn servers_offer_and_apply_code_actions() {
+    let rust = project(
+        "rust-actions",
+        &[
+            (
+                "Cargo.toml",
+                "[package]\nname = \"demo\"\nedition = \"2024\"\n",
+            ),
+            (
+                "src/main.rs",
+                "fn main() {\n    let x = 1;\n    let _ = x;\n}\n",
+            ),
+        ],
+    );
+    let c = project("c-actions", &[("main.c", "int main(void) { return 0 }\n")]);
+    let text = apply_action(&rust.join("src/main.rs"), "x = 1", "explicit type");
+    assert!(text.contains("let x: i32 = 1;"), "{text}");
+    let text = apply_action(&c.join("main.c"), "}", "insert ';'");
+    assert!(text.contains("return 0; }"), "{text}");
+    let typescript = project(
+        "ts-actions",
+        &[
+            ("package.json", "{}\n"),
+            ("tsconfig.json", "{}\n"),
+            ("index.ts", "helper();\n"),
+            ("util.ts", "export function helper() {}\n"),
+        ],
+    );
+    let text = apply_action(&typescript.join("index.ts"), "helper", "import");
+    assert!(text.contains("import { helper } from"), "{text}");
 }

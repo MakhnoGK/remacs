@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::io::{self, BufReader, BufWriter};
 use std::iter;
@@ -14,15 +15,18 @@ use lsp_types::notification::{
     Initialized, Notification, PublishDiagnostics,
 };
 use lsp_types::request::{
-    Completion, DocumentDiagnosticRequest, GotoDefinition, HoverRequest, Initialize, Request,
+    ApplyWorkspaceEdit, CodeActionRequest, CodeActionResolveRequest, Completion,
+    DocumentDiagnosticRequest, ExecuteCommand, GotoDefinition, HoverRequest, Initialize, Request,
     ResolveCompletionItem, WorkspaceConfiguration, WorkspaceDiagnosticRefresh,
 };
 use lsp_types::{
-    CompletionItem, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, InitializedParams, Position,
-    PublishDiagnosticsParams, TextDocumentContentChangeEvent, TextDocumentIdentifier,
-    TextDocumentItem, Uri, VersionedTextDocumentIdentifier,
+    ApplyWorkspaceEditParams, CodeAction, CodeActionOrCommand, CompletionItem,
+    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    DidSaveTextDocumentParams, InitializedParams, Position, PublishDiagnosticsParams,
+    TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem, Uri,
+    VersionedTextDocumentIdentifier, WorkspaceEdit,
 };
+use remacs_actions::Action;
 use remacs_completion::{Item, List, Trigger};
 use remacs_core::Notifier;
 use remacs_text::{Edit, Snapshot};
@@ -33,7 +37,7 @@ use crate::completion::{self, CompletionSupport, Origin};
 use crate::markdown::CodeModes;
 use crate::position::{Encoding, to_lsp};
 use crate::transport::{read_message, write_message};
-use crate::{definition, hover, uri};
+use crate::{code_action, definition, hover, uri};
 
 const INITIALIZE_ID: u64 = 0;
 
@@ -94,6 +98,26 @@ pub(crate) enum Outgoing {
         offset: usize,
         modes: CodeModes,
     },
+    /// Asks for the actions for `range` of `text`, passing back the problems reported
+    /// there; `id` is the actions plugin's.
+    CodeActions {
+        uri: Uri,
+        id: u64,
+        text: Snapshot,
+        range: Range<usize>,
+        /// As the server reported them for `text`.
+        diagnostics: Vec<lsp_types::Diagnostic>,
+    },
+    /// Asks for what an action left out, such as its edit.
+    ResolveAction {
+        id: u64,
+        action: Box<CodeAction>,
+    },
+    /// Runs an action's command; the server may then ask to apply edits.
+    Execute {
+        id: u64,
+        command: lsp_types::Command,
+    },
     /// Answers a request the server made.
     Reply {
         id: Value,
@@ -148,6 +172,29 @@ pub(crate) enum Answer {
         targets: Vec<(PathBuf, Position)>,
         encoding: Encoding,
     },
+    CodeActions {
+        id: u64,
+        menu: Vec<Action>,
+        /// As the server sent them, to carry one out later.
+        actions: Vec<CodeActionOrCommand>,
+        encoding: Encoding,
+    },
+    ResolvedAction {
+        id: u64,
+        action: CodeAction,
+        encoding: Encoding,
+    },
+    ActionFailed {
+        id: u64,
+        message: String,
+    },
+    /// The server asks for edits, e.g. from an action's command; `reply` is the request's
+    /// id, to answer whether they were made.
+    ApplyEdit {
+        reply: Value,
+        edit: WorkspaceEdit,
+        encoding: Encoding,
+    },
 }
 
 /// A request in flight and what its answer is for.
@@ -170,6 +217,26 @@ enum Pending {
         id: u64,
         origin: Origin,
     },
+    CodeActions {
+        id: u64,
+    },
+    ResolveAction {
+        id: u64,
+    },
+    Execute {
+        id: u64,
+    },
+}
+
+impl Pending {
+    /// Whether a failure is answered too, so the user hears of it; other failed
+    /// requests, e.g. cancelled by a newer edit, are dropped.
+    fn answers_failure(&self) -> bool {
+        !matches!(
+            self,
+            Pending::Pull { .. } | Pending::Complete { .. } | Pending::Resolve { .. }
+        )
+    }
 }
 
 /// What the reader thread collects for the editor.
@@ -203,6 +270,8 @@ pub(crate) struct Client {
     /// Bumped whenever every file's diagnostics should be pulled again.
     pull_generation: Arc<AtomicU64>,
     notifier: Notifier,
+    /// The action whose command ran last, which edits the server asks for belong to.
+    executing: Cell<Option<u64>>,
 }
 
 impl Client {
@@ -250,7 +319,18 @@ impl Client {
             pulls_diagnostics: server.pull_diagnostics,
             pull_generation,
             notifier,
+            executing: Cell::new(None),
         })
+    }
+
+    /// Runs the command of action `id` of the actions plugin.
+    pub fn execute(&self, id: u64, command: lsp_types::Command) {
+        self.executing.set(Some(id));
+        self.send(Outgoing::Execute { id, command });
+    }
+
+    pub fn executing(&self) -> Option<u64> {
+        self.executing.get()
     }
 
     pub fn send(&self, message: Outgoing) {
@@ -310,6 +390,24 @@ fn initialize_params(server: &LanguageServer, root: &Path) -> Value {
                 },
                 "hover": { "contentFormat": ["markdown", "plaintext"] },
                 "definition": { "linkSupport": true },
+                // Without literal support servers send bare commands only.
+                "codeAction": {
+                    "codeActionLiteralSupport": {
+                        "codeActionKind": {
+                            "valueSet": [
+                                "", "quickfix", "refactor", "refactor.extract", "refactor.inline",
+                                "refactor.rewrite", "source", "source.organizeImports",
+                            ],
+                        },
+                    },
+                    "isPreferredSupport": true,
+                    "dataSupport": true,
+                    "resolveSupport": { "properties": ["edit"] },
+                },
+            },
+            "workspace": {
+                "applyEdit": true,
+                "workspaceEdit": { "documentChanges": true },
             },
         },
     })
@@ -429,6 +527,46 @@ impl Writer {
                 };
                 self.ask(question.method(), params, pending)
             }
+            Outgoing::CodeActions {
+                uri,
+                id,
+                text,
+                range,
+                diagnostics,
+            } => {
+                let range = lsp_types::Range::new(
+                    to_lsp(text, range.start, negotiated.encoding),
+                    to_lsp(text, range.end, negotiated.encoding),
+                );
+                let diagnostics: Vec<_> = diagnostics
+                    .iter()
+                    .filter(|diagnostic| {
+                        diagnostic.range.start <= range.end && diagnostic.range.end >= range.start
+                    })
+                    .collect();
+                let params = json!({
+                    "textDocument": TextDocumentIdentifier::new(uri.clone()),
+                    "range": range,
+                    "context": { "diagnostics": diagnostics, "triggerKind": 1 },
+                });
+                self.ask(
+                    CodeActionRequest::METHOD,
+                    params,
+                    Pending::CodeActions { id: *id },
+                )
+            }
+            Outgoing::ResolveAction { id, action } => {
+                let params = serde_json::to_value(action)?;
+                let pending = Pending::ResolveAction { id: *id };
+                self.ask(CodeActionResolveRequest::METHOD, params, pending)
+            }
+            Outgoing::Execute { id, command } => {
+                let mut params = json!({ "command": command.command });
+                if let Some(arguments) = &command.arguments {
+                    params["arguments"] = json!(arguments);
+                }
+                self.ask(ExecuteCommand::METHOD, params, Pending::Execute { id: *id })
+            }
             message => message.to_json(negotiated),
         };
         write_message(&mut self.stdin, &json)
@@ -448,7 +586,10 @@ impl Writer {
 fn is_superseded(message: &Outgoing, later: &[Outgoing]) -> bool {
     later.iter().any(|other| match (message, other) {
         (Outgoing::Pull { uri, .. }, Outgoing::Pull { uri: other, .. })
-        | (Outgoing::Complete { uri, .. }, Outgoing::Complete { uri: other, .. }) => uri == other,
+        | (Outgoing::Complete { uri, .. }, Outgoing::Complete { uri: other, .. })
+        | (Outgoing::CodeActions { uri, .. }, Outgoing::CodeActions { uri: other, .. }) => {
+            uri == other
+        }
         (
             Outgoing::AtPoint { question, .. },
             Outgoing::AtPoint {
@@ -499,7 +640,10 @@ impl Outgoing {
             Outgoing::Pull { .. }
             | Outgoing::Complete { .. }
             | Outgoing::Resolve { .. }
-            | Outgoing::AtPoint { .. } => unreachable!("the writer numbers requests"),
+            | Outgoing::AtPoint { .. }
+            | Outgoing::CodeActions { .. }
+            | Outgoing::ResolveAction { .. }
+            | Outgoing::Execute { .. } => unreachable!("the writer numbers requests"),
             Outgoing::Reply { id, result } => {
                 json!({ "jsonrpc": "2.0", "id": id, "result": result })
             }
@@ -582,10 +726,24 @@ impl Reader {
         }
     }
 
-    /// We take no part in what servers ask of the client: configuration falls back to the
-    /// server's defaults and everything else gets an empty answer.
+    /// Edits the server asks for are answered by the editor once it made them.
+    /// Configuration falls back to the server's defaults and everything else gets an empty
+    /// answer.
     fn answer(&mut self, method: &str, params: &Value, id: Value) {
         let result = match method {
+            ApplyWorkspaceEdit::METHOD => {
+                match serde_json::from_value::<ApplyWorkspaceEditParams>(params.clone()) {
+                    Ok(params) => {
+                        let encoding = self.encoding;
+                        return self.deliver(Answer::ApplyEdit {
+                            reply: id,
+                            edit: params.edit,
+                            encoding,
+                        });
+                    }
+                    Err(error) => json!({ "applied": false, "failureReason": error.to_string() }),
+                }
+            }
             WorkspaceConfiguration::METHOD => {
                 let items = params["items"].as_array().map_or(0, Vec::len);
                 Value::Array(vec![Value::Null; items])
@@ -623,13 +781,19 @@ impl Reader {
         });
     }
 
-    /// Failed requests, e.g. cancelled by a newer edit, are dropped; a failed question is
-    /// answered with nothing, so the user hears that there is nothing to show.
+    /// A failed question is answered with nothing, so the user hears that there is
+    /// nothing to show; a failed action with why.
     fn answered(&mut self, id: u64, mut response: Value) {
         let Some(pending) = lock(&self.inbox).requests.remove(&id) else {
             return;
         };
-        if response.get("error").is_some() && !matches!(pending, Pending::AtPoint { .. }) {
+        let error = response.get("error").map(|error| {
+            error["message"]
+                .as_str()
+                .unwrap_or("no reason given")
+                .to_owned()
+        });
+        if error.is_some() && !pending.answers_failure() {
             return;
         }
         let result = response["result"].take();
@@ -671,6 +835,38 @@ impl Reader {
                     targets: definition::targets(response),
                     encoding: self.encoding,
                 });
+            }
+            Pending::CodeActions { id } => {
+                let mut actions: Vec<CodeActionOrCommand> =
+                    serde_json::from_value(result).unwrap_or_default();
+                actions.retain(|action| {
+                    !matches!(action, CodeActionOrCommand::CodeAction(action) if action.disabled.is_some())
+                });
+                self.deliver(Answer::CodeActions {
+                    id,
+                    menu: code_action::menu(&actions),
+                    actions,
+                    encoding: self.encoding,
+                });
+            }
+            Pending::ResolveAction { id } => {
+                let answer = match (error, serde_json::from_value(result)) {
+                    (None, Ok(action)) => Answer::ResolvedAction {
+                        id,
+                        action,
+                        encoding: self.encoding,
+                    },
+                    (error, _) => Answer::ActionFailed {
+                        id,
+                        message: error.unwrap_or_else(|| "the server sent no action".into()),
+                    },
+                };
+                self.deliver(answer);
+            }
+            Pending::Execute { id } => {
+                if let Some(message) = error {
+                    self.deliver(Answer::ActionFailed { id, message });
+                }
             }
         }
     }

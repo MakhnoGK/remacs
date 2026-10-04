@@ -19,6 +19,7 @@ tree-sitter-rust.workspace = true
 tree-sitter-typescript.workspace = true
 
 [dev-dependencies]
+remacs-actions.workspace = true
 remacs-completion.workspace = true
 remacs-diagnostics.workspace = true
 remacs-documentation.workspace = true

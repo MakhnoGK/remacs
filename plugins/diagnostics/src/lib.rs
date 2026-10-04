@@ -17,12 +17,16 @@ const COMMANDS: &[Command] = &[
     Command::new(problems::LIST_PROBLEMS, "Show the buffer's problems, or hide them", problems::list_problems),
     Command::new("next-problem", "Go to the next problem in the buffer", problems::next_problem),
     Command::new("previous-problem", "Go to the previous problem in the buffer", problems::previous_problem),
+    Command::new("next-error", "Go to the next error or warning in the buffer", problems::next_error),
+    Command::new("previous-error", "Go to the previous error or warning in the buffer", problems::previous_error),
 ];
 
 const BINDINGS: &[(&str, &str)] = &[
     ("C-c ! l", problems::LIST_PROBLEMS),
     ("M-n", "next-problem"),
     ("M-p", "previous-problem"),
+    ("M-g n", "next-error"),
+    ("M-g p", "previous-error"),
 ];
 
 impl Plugin for DiagnosticsPlugin {

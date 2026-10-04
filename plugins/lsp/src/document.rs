@@ -1,20 +1,23 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::mem;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use lsp_types::{CompletionItem, DiagnosticSeverity, NumberOrString, Uri};
+use lsp_types::{CodeActionOrCommand, CompletionItem, DiagnosticSeverity, NumberOrString, Uri};
+use remacs_actions::Request as ActionRequest;
 use remacs_completion::Request;
 use remacs_core::{Editor, Notifier};
 use remacs_diagnostics::{self as diagnostics, Diagnostic, Severity};
 use remacs_text::Snapshot;
+use serde_json::json;
 
 use crate::LanguageServer;
 use crate::client::{Answer, Client, Outgoing, Published, Question};
 use crate::completion::Origin;
 use crate::markdown::CodeModes;
 use crate::position::{Encoding, from_lsp};
-use crate::{definition, uri};
+use crate::{code_action, definition, uri};
 
 /// Servers hold whole files in memory and reparse them; larger ones stay unsynced.
 const MAX_SYNCED_BYTES: usize = 16 << 20;
@@ -39,12 +42,23 @@ struct Document {
     pulled: Option<u64>,
     /// The newest completion list, as the server sent it, for resolving its items.
     listed: Option<Listed>,
+    /// The diagnostics last taken, as the server sent them, and the text they refer to;
+    /// code action requests pass them back.
+    reported: Option<(Snapshot, Vec<lsp_types::Diagnostic>)>,
+    /// The newest code actions, as the server sent them, for carrying one out.
+    offered: Option<Offered>,
 }
 
 struct Listed {
     id: u64,
     items: Vec<CompletionItem>,
     origin: Origin,
+}
+
+struct Offered {
+    id: u64,
+    actions: Vec<CodeActionOrCommand>,
+    encoding: Encoding,
 }
 
 impl Document {
@@ -74,6 +88,8 @@ impl Document {
             pending: VecDeque::from([(0, text)]),
             pulled: None,
             listed: None,
+            reported: None,
+            offered: None,
         }
     }
 
@@ -146,11 +162,37 @@ impl Document {
         };
         self.pending.drain(..index);
         let text = self.pending[0].1.clone();
+        self.reported = Some((text.clone(), diagnostics.clone()));
         let diagnostics = diagnostics
             .into_iter()
             .filter_map(|diagnostic| convert(diagnostic, &text, encoding))
             .collect();
         Some((text, diagnostics))
+    }
+
+    /// Asks for the actions for `range`. The problems are passed back only while the
+    /// server has the text they were reported for, since it matches them by position.
+    fn ask_actions(&self, id: u64, range: Range<usize>) {
+        let text = self.sent_text();
+        let diagnostics = self
+            .reported
+            .as_ref()
+            .filter(|(reported, _)| text.edit_from(reported).is_none())
+            .map(|(_, diagnostics)| diagnostics.clone())
+            .unwrap_or_default();
+        self.client.send(Outgoing::CodeActions {
+            uri: self.uri.clone(),
+            id,
+            text,
+            range,
+            diagnostics,
+        });
+    }
+
+    /// Action `index` of list `id` as the server sent it.
+    fn offered(&self, id: u64, index: usize) -> Option<(CodeActionOrCommand, Encoding)> {
+        let offered = self.offered.as_ref().filter(|offered| offered.id == id)?;
+        Some((offered.actions.get(index)?.clone(), offered.encoding))
     }
 
     fn ask(&self, question: Question, id: u64, offset: usize) {
@@ -200,19 +242,35 @@ impl Document {
         self.client.send(message);
     }
 
-    /// Answers since the last call; the newest completion list is kept for resolving.
+    /// Answers since the last call; the newest completion list is kept for resolving, the
+    /// newest code actions for carrying one out. Servers such as rust-analyzer answer out
+    /// of order, so older actions arriving late do not replace newer ones.
     fn take_answers(&mut self) -> Vec<Answer> {
         let mut answers = self.client.take_answers();
         for answer in &mut answers {
-            if let Answer::Listed {
-                id, items, origin, ..
-            } = answer
-            {
-                self.listed = Some(Listed {
-                    id: *id,
-                    items: mem::take(items),
-                    origin: origin.clone(),
-                });
+            match answer {
+                Answer::Listed {
+                    id, items, origin, ..
+                } => {
+                    self.listed = Some(Listed {
+                        id: *id,
+                        items: mem::take(items),
+                        origin: origin.clone(),
+                    });
+                }
+                Answer::CodeActions {
+                    id,
+                    actions,
+                    encoding,
+                    ..
+                } if self.offered.as_ref().is_none_or(|offered| offered.id < *id) => {
+                    self.offered = Some(Offered {
+                        id: *id,
+                        actions: mem::take(actions),
+                        encoding: *encoding,
+                    });
+                }
+                _ => {}
             }
         }
         answers
@@ -287,11 +345,11 @@ pub(crate) fn sync(editor: &mut Editor, servers: &'static [LanguageServer]) {
 }
 
 fn hand_over_answers(editor: &mut Editor) {
-    let answers = editor
-        .window_buffer_mut()
-        .local_mut::<Document>()
-        .map(Document::take_answers)
-        .unwrap_or_default();
+    let Some(document) = editor.window_buffer_mut().local_mut::<Document>() else {
+        return;
+    };
+    let answers = document.take_answers();
+    let client = Rc::clone(&document.client);
     for answer in answers {
         match answer {
             Answer::Listed { id, list, .. } => remacs_completion::deliver(editor, id, list),
@@ -307,6 +365,37 @@ fn hand_over_answers(editor: &mut Editor) {
                 let locations = definition::locations(editor, targets, encoding);
                 remacs_xref::deliver(editor, id, locations);
             }
+            Answer::CodeActions { id, menu, .. } => remacs_actions::deliver(editor, id, menu),
+            Answer::ResolvedAction {
+                id,
+                action,
+                encoding,
+            } => {
+                let action = CodeActionOrCommand::CodeAction(action);
+                let result = code_action::carry_out(editor, &client, id, action, encoding, false);
+                if let Err(error) = result {
+                    remacs_actions::failed(editor, id, &error.0);
+                }
+            }
+            Answer::ActionFailed { id, message } => remacs_actions::failed(editor, id, &message),
+            Answer::ApplyEdit {
+                reply,
+                edit,
+                encoding,
+            } => {
+                let result = match client.executing() {
+                    Some(id) => code_action::apply(editor, id, edit, encoding),
+                    None => Err("No code action asked for edits".into()),
+                };
+                let result = match result {
+                    Ok(()) => json!({ "applied": true }),
+                    Err(error) => {
+                        editor.set_message(error.0.clone());
+                        json!({ "applied": false, "failureReason": error.0 })
+                    }
+                };
+                client.send(Outgoing::Reply { id: reply, result });
+            }
         }
     }
 }
@@ -317,12 +406,18 @@ fn send_requests(editor: &mut Editor) {
     let completions = remacs_completion::take_requests(editor);
     let hovers = remacs_documentation::take_requests(editor);
     let definitions = remacs_xref::take_requests(editor);
+    let actions = remacs_actions::take_requests(editor);
     let Some(document) = editor.window_buffer().local::<Document>() else {
         for request in hovers {
             remacs_documentation::deliver(editor, request.id, None);
         }
         for request in definitions {
             remacs_xref::deliver(editor, request.id, Vec::new());
+        }
+        for request in actions {
+            if let ActionRequest::List { id, .. } = request {
+                remacs_actions::deliver(editor, id, Vec::new());
+            }
         }
         return;
     };
@@ -334,6 +429,27 @@ fn send_requests(editor: &mut Editor) {
     }
     for request in definitions {
         document.ask(Question::Definition, request.id, request.offset);
+    }
+    let mut chosen = Vec::new();
+    for request in actions {
+        match request {
+            ActionRequest::List { id, range } => document.ask_actions(id, range),
+            ActionRequest::Apply { id, index } => {
+                chosen.push((id, document.offered(id, index)));
+            }
+        }
+    }
+    let client = Rc::clone(&document.client);
+    for (id, offered) in chosen {
+        let result = match offered {
+            Some((action, encoding)) => {
+                code_action::carry_out(editor, &client, id, action, encoding, true)
+            }
+            None => Err("The server no longer offers it".into()),
+        };
+        if let Err(error) = result {
+            remacs_actions::failed(editor, id, &error.0);
+        }
     }
 }
 

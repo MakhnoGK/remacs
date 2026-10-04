@@ -1,5 +1,8 @@
+use std::path::Path;
+
 use lsp_types::Position;
-use remacs_text::Snapshot;
+use remacs_core::Editor;
+use remacs_text::{Snapshot, Text};
 
 /// What an LSP `character` counts: UTF-16 code units unless the server agreed to bytes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,6 +46,20 @@ pub(crate) fn from_lsp(text: &Snapshot, position: Position, encoding: Encoding) 
         offset
     } else {
         text.previous_char_boundary(offset)
+    }
+}
+
+/// The text a server's positions in `path` refer to: the buffer visiting it, else the
+/// file, since the server sees that.
+pub(crate) fn text_of(editor: &Editor, path: &Path) -> Option<Snapshot> {
+    let visited = editor
+        .buffers()
+        .iter()
+        .find(|buffer| buffer.path() == Some(path))
+        .map(|buffer| buffer.text().snapshot());
+    match visited {
+        Some(text) => Some(text),
+        None => Some(Text::open(path).ok()?.snapshot()),
     }
 }
 
