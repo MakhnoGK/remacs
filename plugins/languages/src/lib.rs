@@ -187,6 +187,8 @@ pub const SERVERS: &[LanguageServer] = &[
             r#"{ "completion": { "callable": { "snippets": "add_parentheses" } } }"#,
         ),
         pull_diagnostics: false,
+        node_modules: false,
+        required_files: &[],
     },
     LanguageServer {
         name: "clangd",
@@ -196,6 +198,8 @@ pub const SERVERS: &[LanguageServer] = &[
         root_markers: &["compile_commands.json", "compile_flags.txt", ".clangd"],
         initialization_options: None,
         pull_diagnostics: false,
+        node_modules: false,
+        required_files: &[],
     },
     // TypeScript 7's own server, native and much leaner than typescript-language-server.
     LanguageServer {
@@ -211,6 +215,9 @@ pub const SERVERS: &[LanguageServer] = &[
         root_markers: &["package.json", "tsconfig.json", "jsconfig.json"],
         initialization_options: None,
         pull_diagnostics: true,
+        // A project's own `tsc` is mostly TypeScript 5, which has no `--lsp`.
+        node_modules: false,
+        required_files: &[],
     },
     LanguageServer {
         name: "vscode-html-language-server",
@@ -220,6 +227,8 @@ pub const SERVERS: &[LanguageServer] = &[
         root_markers: &["package.json"],
         initialization_options: None,
         pull_diagnostics: false,
+        node_modules: false,
+        required_files: &[],
     },
     LanguageServer {
         name: "vscode-css-language-server",
@@ -229,6 +238,29 @@ pub const SERVERS: &[LanguageServer] = &[
         root_markers: &["package.json"],
         initialization_options: None,
         pull_diagnostics: false,
+        node_modules: false,
+        required_files: &[],
+    },
+    // A linter beside tsc, which answers the questions; only for projects that use it.
+    LanguageServer {
+        name: "oxlint",
+        command: "oxlint",
+        args: &["--lsp"],
+        languages: &[
+            (TYPESCRIPT, "typescript"),
+            (TSX, "typescriptreact"),
+            (JAVASCRIPT, "javascript"),
+            (JSX, "javascriptreact"),
+        ],
+        root_markers: &["package.json", ".oxlintrc.json"],
+        initialization_options: None,
+        pull_diagnostics: false,
+        node_modules: true,
+        required_files: &[
+            ".oxlintrc.json",
+            ".oxlintrc.jsonc",
+            "node_modules/.bin/oxlint",
+        ],
     },
 ];
 

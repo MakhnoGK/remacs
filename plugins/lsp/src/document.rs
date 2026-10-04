@@ -338,6 +338,8 @@ pub(crate) struct Clients {
     running: HashMap<(&'static str, PathBuf), Rc<Client>>,
     /// Servers that could not start; they are not tried again.
     failed: HashSet<&'static str>,
+    /// Per server, directories lacking its required files, so they are looked for once.
+    declined: HashMap<&'static str, HashSet<PathBuf>>,
 }
 
 impl Clients {
@@ -348,19 +350,32 @@ impl Clients {
             .map(|((_, root), client)| (root.as_path(), client))
     }
 
-    fn has_failed(&self, server: &LanguageServer) -> bool {
+    /// Whether `server` is known not to serve `path`: it could not start, or the file's
+    /// project lacks what it requires.
+    fn passes_over(&self, server: &LanguageServer, path: &Path) -> bool {
         self.failed.contains(server.name)
+            || path.parent().is_some_and(|directory| {
+                self.declined
+                    .get(server.name)
+                    .is_some_and(|declined| declined.contains(directory))
+            })
     }
 
     /// The server for `path`'s project, started on first use; `Err` the one time it fails
-    /// to start.
+    /// to start. `None` for a server that failed or that the file's project does not use.
     pub(crate) fn client_for(
         &mut self,
         server: &'static LanguageServer,
         path: &Path,
         notifier: Notifier,
     ) -> Result<Option<Rc<Client>>, String> {
-        if self.failed.contains(server.name) {
+        if self.passes_over(server, path) {
+            return Ok(None);
+        }
+        let directory = path.parent().unwrap_or(path);
+        if !server.required_files.is_empty() && !has_any(directory, server.required_files) {
+            let declined = self.declined.entry(server.name).or_default();
+            declined.insert(directory.to_path_buf());
             return Ok(None);
         }
         let root = project_root(path, server.root_markers);
@@ -575,15 +590,17 @@ fn attach(editor: &mut Editor, index: usize, servers: &'static [LanguageServer])
     let path = buffer
         .path()
         .filter(|_| buffer.text().len() <= MAX_SYNCED_BYTES);
-    let failed = |server| {
-        editor
-            .find_plugin_state::<Clients>()
-            .is_some_and(|clients| clients.has_failed(server))
-    };
-    let wanted: Vec<_> = servers
-        .iter()
-        .filter(|server| path.is_some() && !failed(server))
-        .filter_map(|server| Some((server, server.language_id(buffer.mode())?)))
+    let clients = editor.find_plugin_state::<Clients>();
+    let wanted: Vec<_> = path
+        .into_iter()
+        .flat_map(|path| {
+            servers
+                .iter()
+                .filter_map(|server| Some((server, server.language_id(buffer.mode())?)))
+                .filter(move |(server, _)| {
+                    !clients.is_some_and(|clients| clients.passes_over(server, path))
+                })
+        })
         .collect();
     let attached = buffer
         .local::<Documents>()
@@ -673,6 +690,19 @@ fn open(
     );
     diagnostics::publish(buffer, server.name, text, Vec::new());
     Some(document)
+}
+
+/// Whether one of `files` is in `directory` or above, up to the Git work tree.
+fn has_any(directory: &Path, files: &[&str]) -> bool {
+    for ancestor in directory.ancestors() {
+        if files.iter().any(|file| ancestor.join(file).exists()) {
+            return true;
+        }
+        if ancestor.join(".git").exists() {
+            return false;
+        }
+    }
+    false
 }
 
 /// The outermost directory with a root marker inside the Git work tree; else the work

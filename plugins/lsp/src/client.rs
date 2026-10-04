@@ -301,7 +301,7 @@ pub(crate) struct Client {
 
 impl Client {
     pub fn start(server: &LanguageServer, root: &Path, notifier: Notifier) -> io::Result<Self> {
-        let mut child = Command::new(server.command)
+        let mut child = Command::new(program(server, root))
             .args(server.args)
             .current_dir(root)
             .stdin(Stdio::piped())
@@ -396,6 +396,20 @@ impl Client {
         self.pull_generation.fetch_add(1, Ordering::Relaxed);
         (self.notifier)();
     }
+}
+
+/// The project's own copy in `node_modules/.bin` of the root or above, for servers that
+/// prefer it; else the command, found on `PATH`.
+fn program(server: &LanguageServer, root: &Path) -> PathBuf {
+    server
+        .node_modules
+        .then(|| {
+            root.ancestors()
+                .map(|directory| directory.join("node_modules/.bin").join(server.command))
+                .find(|program| program.is_file())
+        })
+        .flatten()
+        .unwrap_or_else(|| server.command.into())
 }
 
 fn initialize_params(server: &LanguageServer, root: &Path) -> Value {

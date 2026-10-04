@@ -1,6 +1,7 @@
 //! Runs the real language servers, so it needs them installed: `cargo test -- --ignored`.
 
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -446,6 +447,55 @@ fn servers_offer_and_apply_code_actions() {
     );
     let text = apply_action(&typescript.join("index.ts"), "helper", "import");
     assert!(text.contains("import { helper } from"), "{text}");
+}
+
+const LINTED: &str = "const count: number = \"a\";\ndebugger;\n";
+
+#[test]
+#[ignore]
+fn oxlint_checks_beside_typescript_with_the_projects_own_copy() {
+    // Runs the installed oxlint, leaving a mark that the project's copy was chosen.
+    let root = project(
+        "oxlint",
+        &[
+            ("package.json", "{}\n"),
+            ("index.ts", LINTED),
+            (
+                "node_modules/.bin/oxlint",
+                "#!/bin/sh\ntouch \"$(dirname \"$0\")/started\"\nexec oxlint \"$@\"\n",
+            ),
+        ],
+    );
+    let program = root.join("node_modules/.bin/oxlint");
+    fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
+    let mut editor = Editor::new(PLUGINS);
+    editor.visit_file(&root.join("index.ts")).unwrap();
+    let problems = wait_until(&mut editor, |problems| {
+        let says = |text: &str| problems.iter().any(|(_, label)| label.contains(text));
+        says("not assignable") && says("debugger")
+    });
+    eprintln!("{problems:?}");
+    assert!(root.join("node_modules/.bin/started").exists());
+    let text = apply_action(&root.join("index.ts"), "debugger", "Remove the debugger");
+    assert_eq!(text, "const count: number = \"a\";\n\n");
+}
+
+#[test]
+#[ignore]
+fn oxlint_leaves_projects_that_do_not_use_it_alone() {
+    let root = project(
+        "no-oxlint",
+        &[("package.json", "{}\n"), ("index.ts", LINTED)],
+    );
+    let mut editor = check(&root.join("index.ts"), Icon::Error);
+    thread::sleep(Duration::from_secs(2));
+    let problems = problems(&mut editor);
+    assert!(
+        problems
+            .iter()
+            .all(|(_, label)| !label.contains("debugger")),
+        "{problems:?}"
+    );
 }
 
 /// Refreshes until `done`, as the listing and the server's answers arrive.

@@ -33,6 +33,12 @@ pub struct LanguageServer {
     /// The server reports diagnostics only when asked (`textDocument/diagnostic`). Servers
     /// that also publish them unasked are not asked, which would only duplicate them.
     pub pull_diagnostics: bool,
+    /// Runs the project's own copy from `node_modules/.bin` when it has one, as npx does,
+    /// so its version matches the project's.
+    pub node_modules: bool,
+    /// The server runs only for files with one of these in their directory or above, up
+    /// to the Git work tree, such as a linter's config; none means for every file.
+    pub required_files: &'static [&'static str],
 }
 
 impl LanguageServer {
