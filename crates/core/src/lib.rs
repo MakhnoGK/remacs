@@ -15,6 +15,7 @@ mod outline;
 mod plugin;
 mod popup;
 mod status;
+mod syntax;
 mod table;
 mod vc;
 mod viewport;
@@ -43,6 +44,7 @@ pub use outline::{
 pub use plugin::{Hook, MinorKeymap, Plugin, Registry};
 pub use popup::{Code, CodeHighlighter, DocBlock, Documentation, Popup, PopupProvider};
 pub use status::{StatusItem, StatusProvider, StatusSegment, Tone};
+pub use syntax::{SyntaxContext, SyntaxProbe};
 pub use table::{
     Action, Button, CellStyle, Changes, Column, DiffLine, Elsewhere, Field, FileDiff, Mark, Notice,
     Preview, PreviewBody, PreviewItem, Row, RowFace, Table, TableProvider,

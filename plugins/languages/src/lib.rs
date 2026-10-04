@@ -17,9 +17,35 @@ const JSX: &str = "JSX";
 const HTML: &str = "HTML";
 const CSS: &str = "CSS";
 
-const BRACKETS: &[(char, char)] = &[('(', ')'), ('[', ']'), ('{', '}')];
+/// `'` starts lifetimes in Rust, so only `"` pairs there.
+const RUST_PAIRS: &[(char, char)] = &[('(', ')'), ('[', ']'), ('{', '}'), ('"', '"')];
+const C_PAIRS: &[(char, char)] = &[('(', ')'), ('[', ']'), ('{', '}'), ('"', '"'), ('\'', '\'')];
+const JS_PAIRS: &[(char, char)] = &[
+    ('(', ')'),
+    ('[', ']'),
+    ('{', '}'),
+    ('"', '"'),
+    ('\'', '\''),
+    ('`', '`'),
+];
 /// `<` pairs only where it opens tags: elsewhere it is also less-than.
-const TAG_BRACKETS: &[(char, char)] = &[('(', ')'), ('[', ']'), ('{', '}'), ('<', '>')];
+const JSX_PAIRS: &[(char, char)] = &[
+    ('(', ')'),
+    ('[', ']'),
+    ('{', '}'),
+    ('<', '>'),
+    ('"', '"'),
+    ('\'', '\''),
+    ('`', '`'),
+];
+const HTML_PAIRS: &[(char, char)] = &[
+    ('(', ')'),
+    ('[', ']'),
+    ('{', '}'),
+    ('<', '>'),
+    ('"', '"'),
+    ('\'', '\''),
+];
 
 const fn mode(
     name: &'static str,
@@ -34,15 +60,15 @@ const fn mode(
 }
 
 const MODES: &[Mode] = &[
-    mode(RUST, &["rs"], BRACKETS),
-    mode(C, &["c", "h"], BRACKETS),
-    mode(CPP, &["cc", "cpp", "cxx", "hh", "hpp", "hxx"], BRACKETS),
-    mode(TYPESCRIPT, &["ts", "mts", "cts"], BRACKETS),
-    mode(TSX, &["tsx"], TAG_BRACKETS),
-    mode(JAVASCRIPT, &["js", "mjs", "cjs"], BRACKETS),
-    mode(JSX, &["jsx"], TAG_BRACKETS),
-    mode(HTML, &["html", "htm"], TAG_BRACKETS),
-    mode(CSS, &["css"], BRACKETS),
+    mode(RUST, &["rs"], RUST_PAIRS),
+    mode(C, &["c", "h"], C_PAIRS),
+    mode(CPP, &["cc", "cpp", "cxx", "hh", "hpp", "hxx"], C_PAIRS),
+    mode(TYPESCRIPT, &["ts", "mts", "cts"], JS_PAIRS),
+    mode(TSX, &["tsx"], JSX_PAIRS),
+    mode(JAVASCRIPT, &["js", "mjs", "cjs"], JS_PAIRS),
+    mode(JSX, &["jsx"], JSX_PAIRS),
+    mode(HTML, &["html", "htm"], HTML_PAIRS),
+    mode(CSS, &["css"], C_PAIRS),
 ];
 
 /// Upstream's all-caps constant pattern never matches (its regex ends in a stray quote).

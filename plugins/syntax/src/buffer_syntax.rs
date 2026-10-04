@@ -2,7 +2,7 @@ use std::ops::Range;
 use std::ptr;
 use std::sync::Arc;
 
-use remacs_core::{Buffer, Editor, Span};
+use remacs_core::{Buffer, Editor, Span, SyntaxContext};
 use remacs_text::{Edit, Snapshot};
 use tree_sitter::{InputEdit, Point, Tree};
 
@@ -106,6 +106,54 @@ pub(crate) fn highlight(buffer: &Buffer, range: Range<usize>) -> Vec<Span> {
         (Some(tree), Some(highlighter)) => highlighter.spans(tree, &syntax.snapshot, range),
         _ => Vec::new(),
     }
+}
+
+/// The string or comment the character before `offset` belongs to, read from the tree;
+/// `None` until the buffer's tree matches its text.
+pub(crate) fn context_at(buffer: &Buffer, offset: usize) -> Option<SyntaxContext> {
+    let syntax = buffer.local::<BufferSyntax>()?;
+    let tree = syntax.tree.as_ref()?;
+    if !syntax.snapshot.is_same(&buffer.text().snapshot()) {
+        return None;
+    }
+    if offset == 0 {
+        return Some(SyntaxContext::Code);
+    }
+    let mut node = tree
+        .root_node()
+        .descendant_for_byte_range(offset - 1, offset);
+    while let Some(current) = node {
+        let kind = current.kind();
+        let (start, end) = (current.start_byte(), current.end_byte());
+        if kind.ends_with("substitution") || kind == "interpolation" {
+            return Some(SyntaxContext::Code);
+        }
+        if kind.contains("comment") && start < offset && (offset < end || !closes(syntax, end)) {
+            return Some(SyntaxContext::Comment);
+        }
+        let quoted = kind.contains("string")
+            || kind.ends_with("char_literal")
+            || kind == "quoted_attribute_value";
+        if quoted && start < offset && offset < end {
+            return Some(SyntaxContext::String);
+        }
+        node = current.parent();
+    }
+    Some(SyntaxContext::Code)
+}
+
+#[cfg(test)]
+pub(crate) fn is_parsed(buffer: &Buffer) -> bool {
+    buffer
+        .local::<BufferSyntax>()
+        .is_some_and(|syntax| syntax.tree.is_some())
+}
+
+/// Whether a comment ending at `end` closes there (`*/`, `-->`), unlike a line comment,
+/// which point at its end is still in.
+fn closes(syntax: &BufferSyntax, end: usize) -> bool {
+    let tail = syntax.snapshot.bytes_in(end.saturating_sub(2)..end);
+    tail == b"*/" || tail == b"->"
 }
 
 fn input_edit(edit: Edit, old: &Snapshot, new: &Snapshot) -> InputEdit {

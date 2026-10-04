@@ -1,4 +1,6 @@
-use remacs_core::{Buffer, Editor, Key, Mode, Plugin, Registry, parse_sequence};
+use std::rc::Rc;
+
+use remacs_core::{Buffer, Editor, Key, Mode, Plugin, Registry, SyntaxContext, parse_sequence};
 use remacs_text::Text;
 
 use crate::EditingPlugin;
@@ -12,9 +14,21 @@ impl Plugin for CodeModePlugin {
         registry.modes.add(Mode {
             name: CODE_MODE,
             extensions: &[],
-            pairs: &[('(', ')'), ('[', ']'), ('{', '}')],
+            pairs: &[('(', ')'), ('[', ']'), ('{', '}'), ('"', '"'), ('\'', '\'')],
         });
+        registry.syntax_probes.push(Rc::new(in_double_quotes));
     }
+}
+
+/// Stands in for a parser: an offset after an odd number of `"` on its line is in a string.
+fn in_double_quotes(buffer: &Buffer, offset: usize) -> Option<SyntaxContext> {
+    let line_start = buffer.text().line_start(buffer.text().line_of(offset))?;
+    let quotes = buffer.contents(line_start..offset).matches('"').count();
+    Some(if quotes % 2 == 1 {
+        SyntaxContext::String
+    } else {
+        SyntaxContext::Code
+    })
 }
 
 fn editor_in_mode(text: &str, mode: &'static str) -> Editor {
@@ -214,6 +228,40 @@ fn newline_inside_a_typed_pair_opens_a_block() {
     press(&mut editor, "RET");
     type_text(&mut editor, "x");
     assert_eq!(contents(&editor), "fn f() {\n    x\n}");
+}
+
+#[test]
+fn quotes_close_themselves_and_are_typed_over() {
+    let mut editor = code_editor_with("");
+    type_text(&mut editor, r#"s = "ab";"#);
+    assert_eq!(contents(&editor), r#"s = "ab";"#);
+    type_text(&mut editor, r#" t = """#);
+    assert_eq!(contents(&editor), r#"s = "ab"; t = """#);
+    assert_eq!(editor.buffer().point(), contents(&editor).len());
+}
+
+#[test]
+fn quotes_stay_single_in_strings_and_after_words() {
+    let mut editor = code_editor_with(r#""it""#);
+    press(&mut editor, "C-f C-f C-f");
+    type_text(&mut editor, "'");
+    assert_eq!(contents(&editor), r#""it'""#);
+    let mut editor = code_editor_with("don");
+    press(&mut editor, "C-e");
+    type_text(&mut editor, "'");
+    assert_eq!(contents(&editor), "don'");
+}
+
+#[test]
+fn quotes_wrap_the_region_and_delete_as_a_pair() {
+    let mut editor = code_editor_with("word");
+    press(&mut editor, "C-SPC C-e");
+    type_text(&mut editor, "'");
+    assert_eq!(contents(&editor), "'word'");
+    let mut editor = code_editor_with("");
+    type_text(&mut editor, "\"");
+    press(&mut editor, "DEL");
+    assert_eq!(contents(&editor), "");
 }
 
 #[test]

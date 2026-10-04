@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use remacs_core::{Buffer, Editor};
+use remacs_core::{Buffer, Editor, SyntaxContext};
 
 /// An opener pairs only before these, the end of a line or a closer, so typing in front
 /// of a word does not leave a stray closer.
@@ -8,23 +8,30 @@ const PAIR_BEFORE: &str = ";:.,=> \t\r\n";
 /// Bounds the balance check on long lines.
 const MAX_SCAN: usize = 64 << 10;
 
-/// The current buffer's bracket pairs; none in Fundamental mode.
+/// The current buffer's bracket and quote pairs; none in Fundamental mode.
 pub fn mode_pairs(editor: &Editor) -> &'static [(char, char)] {
     editor.buffer_mode().map_or(&[], |mode| mode.pairs)
 }
 
 /// Types `character` as part of a pair: an opener wraps the region or inserts its closer
-/// too, a closer steps over the same closer when the line's pairs are balanced. Returns
-/// whether it did; otherwise the character is typed as usual.
-pub fn type_paired(buffer: &mut Buffer, pairs: &[(char, char)], character: char) -> bool {
+/// too, a closer steps over the same closer when the line's pairs are balanced. Quotes
+/// pair only in code and step over only out of a string. Returns whether it did;
+/// otherwise the character is typed as usual.
+pub fn type_paired(
+    buffer: &mut Buffer,
+    pairs: &[(char, char)],
+    context: SyntaxContext,
+    character: char,
+) -> bool {
+    if pairs.contains(&(character, character)) {
+        return type_quote(buffer, pairs, context, character);
+    }
     if let Some(&(opener, closer)) = pairs.iter().find(|(opener, _)| *opener == character) {
         if let Some(region) = buffer.region() {
             wrap(buffer, region, opener, closer);
             return true;
         }
-        let pairs_here = buffer.char_after(buffer.point()).is_none_or(|next| {
-            PAIR_BEFORE.contains(next) || pairs.iter().any(|&(_, closer)| closer == next)
-        });
+        let pairs_here = pairs_before_next(buffer, pairs);
         if pairs_here {
             let point = buffer.point();
             buffer.insert(&format!("{opener}{closer}"));
@@ -42,6 +49,45 @@ pub fn type_paired(buffer: &mut Buffer, pairs: &[(char, char)], character: char)
         buffer.set_point(point + closer.len_utf8());
     }
     steps_over
+}
+
+fn type_quote(
+    buffer: &mut Buffer,
+    pairs: &[(char, char)],
+    context: SyntaxContext,
+    quote: char,
+) -> bool {
+    if let Some(region) = buffer.region() {
+        wrap(buffer, region, quote, quote);
+        return true;
+    }
+    let point = buffer.point();
+    let before = buffer.char_before(point);
+    // An empty pair just typed may not be parsed yet, so it is recognised by its text.
+    let closes_string = context == SyntaxContext::String || before == Some(quote);
+    if buffer.char_after(point) == Some(quote) && closes_string {
+        buffer.set_point(point + quote.len_utf8());
+        return true;
+    }
+    let after_word = before.is_some_and(|before| before.is_alphanumeric() || before == '_');
+    let pairs_here =
+        context == SyntaxContext::Code && !after_word && pairs_before_next(buffer, pairs);
+    if pairs_here {
+        buffer.insert(&format!("{quote}{quote}"));
+        buffer.set_point(point + quote.len_utf8());
+    }
+    pairs_here
+}
+
+/// Whether the character after point lets an opener pair: a blank, the end of the line,
+/// a closing bracket or one of `PAIR_BEFORE`, not a word or a quote.
+fn pairs_before_next(buffer: &Buffer, pairs: &[(char, char)]) -> bool {
+    buffer.char_after(buffer.point()).is_none_or(|next| {
+        PAIR_BEFORE.contains(next)
+            || pairs
+                .iter()
+                .any(|&(opener, closer)| closer == next && opener != closer)
+    })
 }
 
 /// The empty pair point stands in, as in `(|)`, for DEL to delete whole.

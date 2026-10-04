@@ -23,6 +23,7 @@ use crate::outline::Outline;
 use crate::plugin::{Plugin, Registry};
 use crate::popup::Popup;
 use crate::status::StatusSegment;
+use crate::syntax::SyntaxContext;
 use crate::table::{Action, Table};
 use crate::vc::{FileStatus, VersionControl};
 use crate::viewport::Viewport;
@@ -139,6 +140,17 @@ impl Editor {
     /// The current buffer's major mode; none for Fundamental.
     pub fn buffer_mode(&self) -> Option<&Mode> {
         self.registry.modes.get(self.buffer().mode())
+    }
+
+    /// Whether `offset` in the current buffer is in a string, a comment or code; code
+    /// when no plugin can tell.
+    pub fn syntax_at(&self, offset: usize) -> SyntaxContext {
+        let buffer = self.buffer();
+        self.registry
+            .syntax_probes
+            .iter()
+            .find_map(|probe| probe(buffer, offset))
+            .unwrap_or(SyntaxContext::Code)
     }
 
     /// Shows the buffer visiting `path`, opening it first if needed; a missing file

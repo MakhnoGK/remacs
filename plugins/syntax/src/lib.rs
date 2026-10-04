@@ -36,6 +36,9 @@ impl Plugin for SyntaxPlugin {
             .post_command_hooks
             .push(Rc::new(move |editor| buffer_syntax::sync(editor, grammars)));
         registry.decorators.push(Rc::new(buffer_syntax::highlight));
+        registry
+            .syntax_probes
+            .push(Rc::new(buffer_syntax::context_at));
         let snippets = RefCell::new(snippet::SnippetHighlighter::new(grammars));
         registry.code_highlighters.push(Rc::new(move |mode, code| {
             snippets.borrow_mut().highlight(mode, code)

@@ -15,8 +15,9 @@ pub fn self_insert(editor: &mut Editor) -> CommandResult {
         .and_then(|key| key.printable_char())
         .ok_or("Not a printable key")?;
     let pairs = pairs::mode_pairs(editor);
+    let context = editor.syntax_at(editor.buffer().point());
     let buffer = writable_buffer(editor)?;
-    if pairs::type_paired(buffer, pairs, character) {
+    if pairs::type_paired(buffer, pairs, context, character) {
         return Ok(());
     }
     indent::indent_for_closer(buffer, character);

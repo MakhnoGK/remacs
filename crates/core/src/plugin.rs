@@ -8,6 +8,7 @@ use crate::mode::Modes;
 use crate::outline::OutlineProvider;
 use crate::popup::{CodeHighlighter, PopupProvider};
 use crate::status::StatusProvider;
+use crate::syntax::SyntaxProbe;
 use crate::table::TableProvider;
 use crate::vc::VersionControl;
 
@@ -34,6 +35,8 @@ pub struct Registry {
     /// `post-command-hook`.
     pub post_command_hooks: Vec<Hook>,
     pub decorators: Vec<Decorator>,
+    /// Tell strings and comments from code; the first that knows the buffer does.
+    pub syntax_probes: Vec<SyntaxProbe>,
     /// Segments of the status pill, before the position and the mode.
     pub status_providers: Vec<StatusProvider>,
     pub popup_providers: Vec<PopupProvider>,
