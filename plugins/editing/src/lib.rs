@@ -1,6 +1,7 @@
 //! Built-in plugin: Emacs motion, editing, undo, the mark and the kill ring with their
 //! default keys.
 
+mod comment;
 mod editing;
 mod indent;
 mod killing;
@@ -30,6 +31,7 @@ const COMMANDS: &[Command] = &[
     Command::new("newline", "Break the line and indent the new one", indent::newline),
     Command::new("open-line-below", "Start a new line below, leaving this one whole", indent::open_line_below),
     Command::new("open-line-above", "Start a new line above, leaving this one whole", indent::open_line_above),
+    Command::new("comment-line", "Comment out the line or region, or uncomment it", comment::comment_line),
     Command::new("tab-to-tab-stop", "Indent to the next tab stop", indent::tab_to_tab_stop),
     Command::new("delete-char", "Delete the next character or the region", editing::delete_char),
     Command::new("delete-backward-char", "Delete the previous character or the region", editing::delete_backward_char),
@@ -77,6 +79,8 @@ const BINDINGS: &[(&str, &str)] = &[
     ("RET", "newline"),
     ("s-RET", "open-line-below"),
     ("s-S-RET", "open-line-above"),
+    ("M-;", "comment-line"),
+    ("s-/", "comment-line"),
     ("TAB", "tab-to-tab-stop"),
     ("C-d", "delete-char"),
     ("<deletechar>", "delete-char"),

@@ -1,11 +1,14 @@
 use std::rc::Rc;
 
-use remacs_core::{Buffer, Editor, Key, Mode, Plugin, Registry, SyntaxContext, parse_sequence};
+use remacs_core::{
+    Buffer, CommentSyntax, Editor, Key, Mode, Plugin, Registry, SyntaxContext, parse_sequence,
+};
 use remacs_text::Text;
 
 use crate::EditingPlugin;
 
 const CODE_MODE: &str = "Code";
+const STYLE_MODE: &str = "Style";
 
 struct CodeModePlugin;
 
@@ -15,6 +18,19 @@ impl Plugin for CodeModePlugin {
             name: CODE_MODE,
             extensions: &[],
             pairs: &[('(', ')'), ('[', ']'), ('{', '}'), ('"', '"'), ('\'', '\'')],
+            comment: Some(CommentSyntax {
+                start: "// ",
+                end: "",
+            }),
+        });
+        registry.modes.add(Mode {
+            name: STYLE_MODE,
+            extensions: &[],
+            pairs: &[],
+            comment: Some(CommentSyntax {
+                start: "/* ",
+                end: " */",
+            }),
         });
         registry.syntax_probes.push(Rc::new(in_double_quotes));
     }
@@ -262,6 +278,60 @@ fn quotes_wrap_the_region_and_delete_as_a_pair() {
     type_text(&mut editor, "\"");
     press(&mut editor, "DEL");
     assert_eq!(contents(&editor), "");
+}
+
+#[test]
+fn comment_line_toggles_point_line() {
+    let mut editor = code_editor_with("fn f() {\n    g();\n}");
+    press(&mut editor, "C-n C-e M-;");
+    assert_eq!(contents(&editor), "fn f() {\n    // g();\n}");
+    assert_eq!(editor.buffer().point(), "fn f() {\n    // g();".len());
+    press(&mut editor, "s-/");
+    assert_eq!(contents(&editor), "fn f() {\n    g();\n}");
+    press(&mut editor, "M-; C-/");
+    assert_eq!(contents(&editor), "fn f() {\n    g();\n}");
+}
+
+#[test]
+fn comment_line_aligns_the_regions_lines_and_skips_blank_ones() {
+    let text = "if x {\n    a();\n\n        b();\n}\nc();";
+    let mut editor = code_editor_with(text);
+    press(&mut editor, "C-n C-SPC C-n C-n C-n");
+    press(&mut editor, "M-;");
+    assert_eq!(
+        contents(&editor),
+        "if x {\n    // a();\n\n    //     b();\n}\nc();"
+    );
+    assert!(editor.buffer().region().is_some());
+    press(&mut editor, "M-;");
+    assert_eq!(contents(&editor), text);
+}
+
+#[test]
+fn comment_line_comments_all_when_some_are_not() {
+    let mut editor = code_editor_with("// a\nb");
+    press(&mut editor, "C-SPC M-> M-;");
+    assert_eq!(contents(&editor), "// // a\n// b");
+}
+
+#[test]
+fn comment_line_uses_block_comments_where_there_are_no_others() {
+    let mut editor = editor_in_mode("  a { b: c; }  ", STYLE_MODE);
+    press(&mut editor, "M-;");
+    assert_eq!(contents(&editor), "  /* a { b: c; } */  ");
+    press(&mut editor, "M-;");
+    assert_eq!(contents(&editor), "  a { b: c; }  ");
+}
+
+#[test]
+fn comment_line_needs_a_comment_syntax() {
+    let mut editor = editor_with("text");
+    press(&mut editor, "M-;");
+    assert_eq!(contents(&editor), "text");
+    assert_eq!(
+        editor.echo().as_deref(),
+        Some("No comment syntax in this mode")
+    );
 }
 
 #[test]

@@ -1,7 +1,7 @@
 //! Built-in plugin: major modes for the initial languages, chosen by file extension, their
 //! tree-sitter grammars and language servers.
 
-use remacs_core::{Mode, Plugin, Registry};
+use remacs_core::{CommentSyntax, Mode, Plugin, Registry};
 use remacs_lsp::LanguageServer;
 use remacs_syntax::Grammar;
 
@@ -47,28 +47,48 @@ const HTML_PAIRS: &[(char, char)] = &[
     ('\'', '\''),
 ];
 
+const LINE_COMMENT: CommentSyntax = CommentSyntax {
+    start: "// ",
+    end: "",
+};
+const BLOCK_COMMENT: CommentSyntax = CommentSyntax {
+    start: "/* ",
+    end: " */",
+};
+const HTML_COMMENT: CommentSyntax = CommentSyntax {
+    start: "<!-- ",
+    end: " -->",
+};
+
 const fn mode(
     name: &'static str,
     extensions: &'static [&'static str],
     pairs: &'static [(char, char)],
+    comment: CommentSyntax,
 ) -> Mode {
     Mode {
         name,
         extensions,
         pairs,
+        comment: Some(comment),
     }
 }
 
 const MODES: &[Mode] = &[
-    mode(RUST, &["rs"], RUST_PAIRS),
-    mode(C, &["c", "h"], C_PAIRS),
-    mode(CPP, &["cc", "cpp", "cxx", "hh", "hpp", "hxx"], C_PAIRS),
-    mode(TYPESCRIPT, &["ts", "mts", "cts"], JS_PAIRS),
-    mode(TSX, &["tsx"], JSX_PAIRS),
-    mode(JAVASCRIPT, &["js", "mjs", "cjs"], JS_PAIRS),
-    mode(JSX, &["jsx"], JSX_PAIRS),
-    mode(HTML, &["html", "htm"], HTML_PAIRS),
-    mode(CSS, &["css"], C_PAIRS),
+    mode(RUST, &["rs"], RUST_PAIRS, LINE_COMMENT),
+    mode(C, &["c", "h"], C_PAIRS, LINE_COMMENT),
+    mode(
+        CPP,
+        &["cc", "cpp", "cxx", "hh", "hpp", "hxx"],
+        C_PAIRS,
+        LINE_COMMENT,
+    ),
+    mode(TYPESCRIPT, &["ts", "mts", "cts"], JS_PAIRS, LINE_COMMENT),
+    mode(TSX, &["tsx"], JSX_PAIRS, LINE_COMMENT),
+    mode(JAVASCRIPT, &["js", "mjs", "cjs"], JS_PAIRS, LINE_COMMENT),
+    mode(JSX, &["jsx"], JSX_PAIRS, LINE_COMMENT),
+    mode(HTML, &["html", "htm"], HTML_PAIRS, HTML_COMMENT),
+    mode(CSS, &["css"], C_PAIRS, BLOCK_COMMENT),
 ];
 
 /// Upstream's all-caps constant pattern never matches (its regex ends in a stray quote).

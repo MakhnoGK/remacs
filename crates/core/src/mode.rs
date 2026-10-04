@@ -6,8 +6,17 @@ pub const FUNDAMENTAL_MODE: &str = "Fundamental";
 pub struct Mode {
     pub name: &'static str,
     pub extensions: &'static [&'static str],
-    /// Brackets typed in pairs, opener first.
+    /// Brackets and quotes typed in pairs, opener first.
     pub pairs: &'static [(char, char)],
+    pub comment: Option<CommentSyntax>,
+}
+
+/// How a line is commented out: `start` before it, and `end` after it for languages
+/// with block comments only; empty for line comments. Both include their padding space.
+#[derive(Clone, Copy)]
+pub struct CommentSyntax {
+    pub start: &'static str,
+    pub end: &'static str,
 }
 
 #[derive(Default)]

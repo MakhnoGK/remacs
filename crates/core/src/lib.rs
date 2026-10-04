@@ -35,7 +35,7 @@ pub use minibuffer::{
     AnswerCheck, Count, Dialog, DialogOption, ListItem, Message, Minibuffer, Prompt, PromptChoice,
     PromptOption, VISIBLE_CANDIDATES,
 };
-pub use mode::{FUNDAMENTAL_MODE, Mode, Modes};
+pub use mode::{CommentSyntax, FUNDAMENTAL_MODE, Mode, Modes};
 pub use outline::{
     Banner, BannerButton, BannerPart, CommitChain, CommitRow, ConflictBlock, ConflictRegion,
     ConflictSide, ConflictView, DiffRow, Fact, FactValue, GraphEdge, GraphNode, GraphRow, History,
