@@ -4,11 +4,17 @@ use gpui::{AssetSource, Result, SharedString};
 
 pub const FILE_ICON: &str = "icons/file.svg";
 pub const FOLDER_ICON: &str = "icons/folder.svg";
+pub const ERROR_ICON: &str = "icons/error.svg";
+pub const WARNING_ICON: &str = "icons/warning.svg";
+pub const INFO_ICON: &str = "icons/info.svg";
 
 /// Compiled into the binary, so the app needs no resource directory.
 const ASSETS: &[(&str, &[u8])] = &[
     (FILE_ICON, include_bytes!("../assets/icons/file.svg")),
     (FOLDER_ICON, include_bytes!("../assets/icons/folder.svg")),
+    (ERROR_ICON, include_bytes!("../assets/icons/error.svg")),
+    (WARNING_ICON, include_bytes!("../assets/icons/warning.svg")),
+    (INFO_ICON, include_bytes!("../assets/icons/info.svg")),
 ];
 
 pub struct Assets;

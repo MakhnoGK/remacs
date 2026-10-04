@@ -14,9 +14,11 @@ use gpui::{
     size,
 };
 use remacs_core::{Editor, Plugin};
+use remacs_diagnostics::DiagnosticsPlugin;
 use remacs_editing::EditingPlugin;
 use remacs_files::FilesPlugin;
-use remacs_languages::{GRAMMARS, LanguagesPlugin};
+use remacs_languages::{GRAMMARS, LanguagesPlugin, SERVERS};
+use remacs_lsp::LspPlugin;
 use remacs_minibuffer::MinibufferPlugin;
 use remacs_syntax::SyntaxPlugin;
 
@@ -29,6 +31,8 @@ const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
     &FilesPlugin,
     &LanguagesPlugin,
     &SyntaxPlugin::new(GRAMMARS),
+    &DiagnosticsPlugin,
+    &LspPlugin::new(SERVERS),
 ];
 
 fn main() -> ExitCode {

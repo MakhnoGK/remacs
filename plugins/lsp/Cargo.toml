@@ -1,0 +1,17 @@
+[package]
+name = "remacs-lsp"
+description = "Built-in plugin: language server client that keeps servers in sync with buffers"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+lsp-types.workspace = true
+remacs-core.workspace = true
+remacs-diagnostics.workspace = true
+remacs-text.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

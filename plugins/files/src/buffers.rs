@@ -91,8 +91,8 @@ fn buffer_candidates(editor: &Editor, input: &str) -> Completions {
                 .map(|directory| relative_directory(&root, directory))
                 .unwrap_or_default(),
             tag: (buffer.name() == current).then_some("current"),
-            detail: Some(buffer.mode()),
-            group: Some("Open"),
+            detail: Some(buffer.mode().into()),
+            group: Some("Open".into()),
             modified: buffer.path().is_some() && buffer.is_modified(),
             dim: buffer.name().starts_with('*'),
             ..Candidate::new(buffer.name())

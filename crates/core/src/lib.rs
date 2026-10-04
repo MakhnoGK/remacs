@@ -12,6 +12,7 @@ mod kill_ring;
 mod minibuffer;
 mod mode;
 mod plugin;
+mod status;
 mod viewport;
 
 pub use buffer::Buffer;
@@ -25,4 +26,5 @@ pub use kill_ring::KillRing;
 pub use minibuffer::{Count, Minibuffer, Prompt, VISIBLE_CANDIDATES};
 pub use mode::{FUNDAMENTAL_MODE, Mode, Modes};
 pub use plugin::{Hook, Plugin, Registry};
+pub use status::{StatusProvider, StatusSegment};
 pub use viewport::Viewport;

@@ -1,6 +1,6 @@
 [package]
 name = "remacs-languages"
-description = "Built-in plugin: major modes for the initial languages"
+description = "Built-in plugin: major modes for the initial languages, their grammars and language servers"
 version.workspace = true
 edition.workspace = true
 license-file.workspace = true
@@ -8,6 +8,7 @@ publish.workspace = true
 
 [dependencies]
 remacs-core.workspace = true
+remacs-lsp.workspace = true
 remacs-syntax.workspace = true
 tree-sitter-c.workspace = true
 tree-sitter-cpp.workspace = true
@@ -18,6 +19,7 @@ tree-sitter-rust.workspace = true
 tree-sitter-typescript.workspace = true
 
 [dev-dependencies]
+remacs-diagnostics.workspace = true
 tree-sitter.workspace = true
 
 [lints]

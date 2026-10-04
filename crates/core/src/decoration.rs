@@ -14,6 +14,10 @@ pub enum Face {
     String,
     Comment,
     Docstring,
+    /// Underlines marking problems, like Emacs `flymake-error`/`-warning`/`-note`.
+    Error,
+    Warning,
+    Info,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

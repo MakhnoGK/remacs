@@ -1393,6 +1393,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8bf7cc16383c4b8d58b9905a8509f02926ce3058053c056376248d958c9df1e8"
 
 [[package]]
+name = "fluent-uri"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17c704e9dbe1ddd863da1e6ff3567795087b1eb201ce80d8fa81162e1516500d"
+dependencies = [
+ "bitflags 1.3.2",
+]
+
+[[package]]
 name = "flume"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2629,6 +2638,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4050469837a6ff301cd14c1f8f24f88549e6d548f24f64e2148eb0f72cebc51f"
 
 [[package]]
+name = "lsp-types"
+version = "0.97.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "53353550a17c04ac46c585feb189c2db82154fc84b79c7a66c96c2c644f66071"
+dependencies = [
+ "bitflags 1.3.2",
+ "fluent-uri",
+ "serde",
+ "serde_json",
+ "serde_repr",
+]
+
+[[package]]
 name = "lyon"
 version = "1.0.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3814,9 +3836,11 @@ dependencies = [
  "futures",
  "gpui",
  "remacs-core",
+ "remacs-diagnostics",
  "remacs-editing",
  "remacs-files",
  "remacs-languages",
+ "remacs-lsp",
  "remacs-minibuffer",
  "remacs-syntax",
  "remacs-theme",
@@ -3826,6 +3850,15 @@ dependencies = [
 name = "remacs-core"
 version = "0.1.0"
 dependencies = [
+ "remacs-text",
+]
+
+[[package]]
+name = "remacs-diagnostics"
+version = "0.1.0"
+dependencies = [
+ "remacs-core",
+ "remacs-minibuffer",
  "remacs-text",
 ]
 
@@ -3854,6 +3887,8 @@ name = "remacs-languages"
 version = "0.1.0"
 dependencies = [
  "remacs-core",
+ "remacs-diagnostics",
+ "remacs-lsp",
  "remacs-syntax",
  "tree-sitter",
  "tree-sitter-c",
@@ -3863,6 +3898,17 @@ dependencies = [
  "tree-sitter-javascript",
  "tree-sitter-rust",
  "tree-sitter-typescript",
+]
+
+[[package]]
+name = "remacs-lsp"
+version = "0.1.0"
+dependencies = [
+ "lsp-types",
+ "remacs-core",
+ "remacs-diagnostics",
+ "remacs-text",
+ "serde_json",
 ]
 
 [[package]]

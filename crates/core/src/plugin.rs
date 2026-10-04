@@ -5,6 +5,7 @@ use crate::decoration::Decorator;
 use crate::editor::Editor;
 use crate::keymap::Keymap;
 use crate::mode::Modes;
+use crate::status::StatusProvider;
 
 pub type Hook = Rc<dyn Fn(&mut Editor)>;
 
@@ -20,6 +21,8 @@ pub struct Registry {
     /// `post-command-hook`.
     pub post_command_hooks: Vec<Hook>,
     pub decorators: Vec<Decorator>,
+    /// Segments of the status pill, before the position and the mode.
+    pub status_providers: Vec<StatusProvider>,
 }
 
 pub trait Plugin {

@@ -1,28 +1,41 @@
 use std::ops::Range;
 
-use gpui::HighlightStyle;
+use gpui::{HighlightStyle, UnderlineStyle, px};
 use remacs_core::Face;
 use remacs_theme::color;
 
 use crate::widgets::hsla;
 
+const UNDERLINE_THICKNESS: f32 = 1.5;
+
 /// Byte ranges of a line's display text and their styles, sorted and non-overlapping.
 pub type Highlights = Vec<(Range<usize>, HighlightStyle)>;
 
 pub fn face_style(face: Face) -> HighlightStyle {
-    let color = match face {
-        Face::Keyword => color::KEYWORD,
-        Face::Type => color::TYPE,
-        Face::Function => color::FUNCTION,
-        Face::Constant => color::CONSTANT,
-        Face::Builtin => color::BUILTIN,
-        Face::String => color::STRING,
-        Face::Comment => color::COMMENT,
-        Face::Docstring => color::DOCSTRING,
-    };
-    HighlightStyle {
+    let foreground = |color| HighlightStyle {
         color: Some(hsla(color)),
         ..Default::default()
+    };
+    let underline = |color| HighlightStyle {
+        underline: Some(UnderlineStyle {
+            thickness: px(UNDERLINE_THICKNESS),
+            color: Some(hsla(color)),
+            wavy: false,
+        }),
+        ..Default::default()
+    };
+    match face {
+        Face::Keyword => foreground(color::KEYWORD),
+        Face::Type => foreground(color::TYPE),
+        Face::Function => foreground(color::FUNCTION),
+        Face::Constant => foreground(color::CONSTANT),
+        Face::Builtin => foreground(color::BUILTIN),
+        Face::String => foreground(color::STRING),
+        Face::Comment => foreground(color::COMMENT),
+        Face::Docstring => foreground(color::DOCSTRING),
+        Face::Error => underline(color::ERROR),
+        Face::Warning => underline(color::WARNING),
+        Face::Info => underline(color::INFO),
     }
 }
 

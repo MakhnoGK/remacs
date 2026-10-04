@@ -8,14 +8,14 @@ use gpui::{
     MouseDownEvent, ParentElement, Pixels, Render, ScrollWheelEvent, StyledText, Subscription,
     Window, div, font, linear_color_stop, linear_gradient, prelude::*, px, rgb, rgba,
 };
-use remacs_core::Editor;
+use remacs_core::{Editor, StatusSegment};
 use remacs_theme::{color, font};
 
 use crate::display_line::DisplayLine;
 use crate::highlights::{Highlights, combine, face_style, region_style};
 use crate::key_input::to_key;
-use crate::minibuffer_view::{render_minibuffer, render_scrim};
-use crate::widgets::{cursor_style, hsla, modified_dot};
+use crate::minibuffer_view::{is_problem_list, render_minibuffer, render_scrim};
+use crate::widgets::{cursor_style, hsla, icon, modified_dot};
 
 /// Minified files can hold megabytes on one line; lay out only what can be on screen.
 const MAX_RENDERED_LINE_BYTES: usize = 2048;
@@ -305,10 +305,61 @@ impl EditorView {
             )
     }
 
-    fn render_status(&self) -> impl IntoElement {
+    fn run_command(&mut self, name: &str, cx: &mut Context<Self>) {
+        self.editor.run_command(name);
+        self.after_input(cx);
+    }
+
+    /// A plugin's group of the status pill, e.g. problem counts; a click runs its command.
+    fn render_segment(segment: StatusSegment, cx: &mut Context<Self>) -> impl IntoElement {
+        let command = segment.command;
+        let text_color = if segment.active {
+            color::FG_MAIN
+        } else {
+            color::FG_KBD
+        };
+        div()
+            .flex()
+            .items_center()
+            .gap(px(10.0))
+            .h(px(24.0))
+            .px(px(8.0))
+            .rounded(px(6.0))
+            .when(segment.active, |button| button.bg(rgb(color::BG_SELECTION)))
+            .font_family(font::MONO)
+            .text_color(rgb(text_color))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |view, _: &MouseDownEvent, _, cx| {
+                    cx.stop_propagation();
+                    view.run_command(command, cx);
+                }),
+            )
+            .children(segment.items.into_iter().map(|(item_icon, text)| {
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(5.0))
+                    .child(icon(item_icon, text_color))
+                    .child(text)
+            }))
+    }
+
+    fn render_status(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let buffer = self.editor.window_buffer();
         let position = format!("{}:{}", buffer.point_line() + 1, buffer.point_column() + 1);
         let separator = || div().w(px(1.0)).h(px(14.0)).bg(rgba(0xffffff14));
+        let segments = self
+            .editor
+            .status_segments()
+            .into_iter()
+            .flat_map(|segment| {
+                [
+                    Self::render_segment(segment, cx).into_any_element(),
+                    separator().into_any_element(),
+                ]
+            })
+            .collect::<Vec<_>>();
 
         div()
             .absolute()
@@ -329,6 +380,7 @@ impl EditorView {
                     .child(div().px(px(8.0)).text_color(rgb(color::FG_ALT)).child(echo))
                     .child(separator())
             })
+            .children(segments)
             .child(
                 div()
                     .flex()
@@ -374,6 +426,14 @@ impl Render for EditorView {
             .editor
             .minibuffer()
             .map(|minibuffer| render_minibuffer(minibuffer, cx));
+        // The pill stays lit above the scrim while the list it opened is shown.
+        let status = self.render_status(cx).into_any_element();
+        let (status_below_scrim, status_above_scrim) =
+            if self.editor.minibuffer().is_some_and(is_problem_list) {
+                (None, Some(status))
+            } else {
+                (Some(status), None)
+            };
 
         div()
             .track_focus(&self.focus_handle)
@@ -406,9 +466,10 @@ impl Render for EditorView {
                     .h(px(FOOTER_FADE_HEIGHT))
                     .bg(fade(0.0, 0.0)),
             )
-            .child(self.render_status())
+            .children(status_below_scrim)
             .when(minibuffer.is_some(), |root| root.child(render_scrim()))
             .child(self.render_header())
+            .children(status_above_scrim)
             .children(minibuffer)
     }
 }

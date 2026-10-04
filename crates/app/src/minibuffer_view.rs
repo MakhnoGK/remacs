@@ -1,16 +1,23 @@
+use std::ops::Range;
+
 use gpui::{
-    AnyElement, Context, FontWeight, HighlightStyle, IntoElement, MouseButton, MouseDownEvent,
-    ParentElement, StyledText, div, prelude::*, px, rgb, rgba, svg,
+    AnyElement, Context, Div, FontWeight, HighlightStyle, IntoElement, MouseButton, MouseDownEvent,
+    ParentElement, StyledText, div, prelude::*, px, rgb, rgba,
 };
 use remacs_core::{Candidate, Count, Icon, Minibuffer, parse_sequence};
 use remacs_theme::{color, font};
 
-use crate::assets::{FILE_ICON, FOLDER_ICON};
 use crate::display_line::DisplayLine;
 use crate::editor_view::EditorView;
-use crate::widgets::{cursor_style, hsla, kbd, modified_dot, shadow};
+use crate::widgets::{cursor_style, hsla, icon, kbd, modified_dot, shadow};
 
 const POPOVER_TOP: f32 = 60.0;
+/// The problem list opens from the status pill, above it.
+const STATUS_POPOVER_RIGHT: f32 = 16.0;
+const STATUS_POPOVER_BOTTOM: f32 = 56.0;
+const PROBLEM_CATEGORY: &str = "problem";
+const SEVERITY_ICONS: [Icon; 3] = [Icon::Error, Icon::Warning, Icon::Info];
+const POSITION_WIDTH: f32 = 44.0;
 const POPOVER_WIDTH: f32 = 680.0;
 const WIDE_POPOVER_WIDTH: f32 = 760.0;
 const FIELD_HEIGHT: f32 = 44.0;
@@ -23,6 +30,11 @@ const COMMAND_NAME_WIDTH: f32 = 232.0;
 /// Dims the editor behind an open prompt.
 pub fn render_scrim() -> impl IntoElement {
     div().absolute().inset_0().bg(rgba(0x0000006b))
+}
+
+/// The problem list: rows of messages with their positions, anchored to the status pill.
+pub fn is_problem_list(minibuffer: &Minibuffer) -> bool {
+    minibuffer.prompt().category == PROBLEM_CATEGORY
 }
 
 pub fn render_minibuffer(minibuffer: &Minibuffer, cx: &mut Context<EditorView>) -> AnyElement {
@@ -50,6 +62,14 @@ pub fn render_minibuffer(minibuffer: &Minibuffer, cx: &mut Context<EditorView>) 
             popover.child(render_candidates(minibuffer, cx))
         })
         .child(render_hints(prompt.hints));
+    if is_problem_list(minibuffer) {
+        return div()
+            .absolute()
+            .right(px(STATUS_POPOVER_RIGHT))
+            .bottom(px(STATUS_POPOVER_BOTTOM))
+            .child(popover)
+            .into_any_element();
+    }
     div()
         .absolute()
         .top(px(POPOVER_TOP))
@@ -105,14 +125,48 @@ fn render_field(minibuffer: &Minibuffer) -> impl IntoElement {
             )
         })
         .child(render_input(minibuffer))
-        .child(
+        .child(if is_problem_list(minibuffer) {
+            render_severity_counts(minibuffer.candidates()).into_any_element()
+        } else {
             div()
                 .flex_none()
                 .font_family(typed_font(prompt.count == Count::Position))
                 .text_size(px(font::STATUS_SIZE))
                 .text_color(rgb(color::FG_DIM))
-                .child(count_text(minibuffer)),
-        )
+                .child(count_text(minibuffer))
+                .into_any_element()
+        })
+}
+
+/// How many of the listed problems are errors, warnings and notes.
+fn render_severity_counts(candidates: &[Candidate]) -> impl IntoElement {
+    let count = |severity| {
+        candidates
+            .iter()
+            .filter(|candidate| candidate.icon == Some(severity))
+            .count()
+    };
+    div()
+        .flex()
+        .flex_none()
+        .gap(px(4.0))
+        .children(SEVERITY_ICONS.map(|severity| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.0))
+                .h(px(26.0))
+                .px(px(9.0))
+                .rounded(px(6.0))
+                .bg(rgb(color::BG_BUTTON))
+                .border_1()
+                .border_color(rgba(0xffffff12))
+                .font_family(font::MONO)
+                .text_size(px(font::STATUS_SIZE))
+                .text_color(rgb(color::FG_KBD))
+                .child(icon(severity, color::FG_KBD))
+                .child(count(severity).to_string())
+        }))
 }
 
 fn render_input(minibuffer: &Minibuffer) -> impl IntoElement {
@@ -152,29 +206,186 @@ fn count_text(minibuffer: &Minibuffer) -> String {
 
 fn render_candidates(minibuffer: &Minibuffer, cx: &mut Context<EditorView>) -> impl IntoElement {
     let candidates = minibuffer.candidates();
+    let is_problem_list = is_problem_list(minibuffer);
     let mut list = div().flex().flex_col().gap(px(2.0));
     let mut group = None;
     for index in minibuffer.visible() {
         let candidate = &candidates[index];
-        if let Some(title) = candidate.group.filter(|_| candidate.group != group) {
-            list = list.child(render_group_title(title));
+        let candidate_group = candidate.group.as_deref();
+        if let Some(title) = candidate_group.filter(|_| candidate_group != group) {
+            // Problems are grouped by file: names keep their case and show their count.
+            let count = is_problem_list.then(|| {
+                candidates
+                    .iter()
+                    .filter(|other| other.group.as_deref() == Some(title))
+                    .count()
+            });
+            list = list.child(render_group_title(title, count));
         }
-        group = candidate.group;
+        group = candidate_group;
         let selected = minibuffer.selected() == Some(index);
-        list = list.child(render_candidate(minibuffer, candidate, index, selected, cx));
+        let row = if is_problem_list {
+            render_problem(candidate, index, selected, cx)
+        } else {
+            render_candidate(minibuffer, candidate, index, selected, cx)
+        };
+        list = list.child(row);
     }
     list.when(group.is_none(), |list| list.pt(px(6.0)))
 }
 
-fn render_group_title(title: &str) -> impl IntoElement {
+fn render_group_title(title: &str, count: Option<usize>) -> impl IntoElement {
+    let title = match count {
+        Some(_) => title.to_owned(),
+        None => title.to_uppercase(),
+    };
     div()
+        .flex()
+        .justify_between()
         .pt(px(12.0))
         .px(px(10.0))
         .pb(px(4.0))
         .text_size(px(font::SMALL_SIZE))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(rgb(color::FG_FAINT))
-        .child(title.to_uppercase())
+        .child(title)
+        .children(count.map(|count| count.to_string()))
+}
+
+/// A row that answers the prompt with candidate `index` when clicked.
+fn candidate_row(index: usize, selected: bool, cx: &mut Context<EditorView>) -> Div {
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .px(px(10.0))
+        .rounded(px(8.0))
+        .when(selected, |row| {
+            row.bg(rgb(color::BG_SELECTION))
+                .shadow(vec![shadow(0x00000073, 1.0, 3.0, 0.0)])
+        })
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |view, _: &MouseDownEvent, _, cx| {
+                cx.stop_propagation();
+                view.choose_candidate(index, cx);
+            }),
+        )
+}
+
+fn secondary_color(selected: bool) -> u32 {
+    if selected {
+        color::FG_ALT
+    } else {
+        color::FG_DIM
+    }
+}
+
+fn match_style(selected: bool) -> HighlightStyle {
+    HighlightStyle {
+        color: Some(hsla(if selected {
+            color::ACCENT_ON_SELECTION
+        } else {
+            color::ACCENT
+        })),
+        ..Default::default()
+    }
+}
+
+/// `matches` within `range` of a label, relative to the range's start.
+fn matches_in(
+    matches: &[Range<usize>],
+    range: Range<usize>,
+    selected: bool,
+) -> Vec<(Range<usize>, HighlightStyle)> {
+    matches
+        .iter()
+        .map(|matched| matched.start.max(range.start)..matched.end.min(range.end))
+        .filter(|matched| !matched.is_empty())
+        .map(|matched| {
+            (
+                matched.start - range.start..matched.end - range.start,
+                match_style(selected),
+            )
+        })
+        .collect()
+}
+
+/// A problem: severity icon, message, source and `line:column`.
+fn render_problem(
+    candidate: &Candidate,
+    index: usize,
+    selected: bool,
+    cx: &mut Context<EditorView>,
+) -> AnyElement {
+    let secondary = secondary_color(selected);
+    candidate_row(index, selected, cx)
+        .gap(px(12.0))
+        .h(px(WIDE_ROW_HEIGHT))
+        .children(candidate.icon.map(|severity| icon(severity, secondary)))
+        .child(render_message(candidate, selected))
+        .when_some(candidate.detail.clone(), |row, source| {
+            row.child(
+                div()
+                    .flex_none()
+                    .text_size(px(font::STATUS_SIZE))
+                    .text_color(rgb(secondary))
+                    .child(source.into_owned()),
+            )
+        })
+        .child(
+            div()
+                .flex_none()
+                .w(px(POSITION_WIDTH))
+                .text_right()
+                .font_family(font::MONO)
+                .text_size(px(font::STATUS_SIZE))
+                .text_color(rgb(secondary))
+                .child(candidate.annotation.clone()),
+        )
+        .into_any_element()
+}
+
+/// A message whose `quoted` parts, as diagnostics write code, are set in the code font.
+fn render_message(candidate: &Candidate, selected: bool) -> impl IntoElement {
+    let (code_color, code_background) = if selected {
+        (color::FG_MAIN, 0xffffff1f)
+    } else {
+        (color::FG_ALT, 0xffffff12)
+    };
+    let mut message = div()
+        .flex()
+        .flex_1()
+        .min_w_0()
+        .items_center()
+        .overflow_hidden()
+        .whitespace_nowrap()
+        .text_size(px(font::UI_SIZE));
+    let mut start = 0;
+    for (index, part) in candidate.label.split('`').enumerate() {
+        let range = start..start + part.len();
+        start = range.end + 1;
+        if part.is_empty() {
+            continue;
+        }
+        let highlights = matches_in(&candidate.matches, range, selected);
+        let text = StyledText::new(part.to_owned()).with_highlights(highlights);
+        let is_code = index % 2 == 1;
+        message = message.child(
+            div()
+                .flex_none()
+                .when(is_code, |code| {
+                    code.px(px(5.0))
+                        .rounded(px(4.0))
+                        .bg(rgba(code_background))
+                        .font_family(font::MONO)
+                        .text_size(px(font::STATUS_SIZE))
+                        .text_color(rgb(code_color))
+                })
+                .child(text),
+        );
+    }
+    message
 }
 
 fn render_candidate(
@@ -186,25 +397,12 @@ fn render_candidate(
 ) -> AnyElement {
     let prompt = minibuffer.prompt();
     let is_command = prompt.category == COMMAND_CATEGORY;
-    let secondary = if selected {
-        color::FG_ALT
-    } else {
-        color::FG_DIM
-    };
-    let match_style = HighlightStyle {
-        color: Some(hsla(if selected {
-            color::ACCENT_ON_SELECTION
-        } else {
-            color::ACCENT
-        })),
-        ..Default::default()
-    };
-    let label = StyledText::new(candidate.label.clone()).with_highlights(
-        candidate
-            .matches
-            .iter()
-            .map(|range| (range.clone(), match_style)),
-    );
+    let secondary = secondary_color(selected);
+    let label = StyledText::new(candidate.label.clone()).with_highlights(matches_in(
+        &candidate.matches,
+        0..candidate.label.len(),
+        selected,
+    ));
     let name = div()
         .flex_none()
         .overflow_hidden()
@@ -219,42 +417,14 @@ fn render_candidate(
         .when(is_command, |name| name.w(px(COMMAND_NAME_WIDTH)))
         .child(label);
 
-    div()
-        .flex()
-        .flex_none()
-        .items_center()
+    candidate_row(index, selected, cx)
         .gap(px(if is_command { 14.0 } else { 10.0 }))
         .h(px(if prompt.wide {
             WIDE_ROW_HEIGHT
         } else {
             ROW_HEIGHT
         }))
-        .px(px(10.0))
-        .rounded(px(8.0))
-        .when(selected, |row| {
-            row.bg(rgb(color::BG_SELECTION))
-                .shadow(vec![shadow(0x00000073, 1.0, 3.0, 0.0)])
-        })
-        .on_mouse_down(
-            MouseButton::Left,
-            cx.listener(move |view, _: &MouseDownEvent, _, cx| {
-                cx.stop_propagation();
-                view.choose_candidate(index, cx);
-            }),
-        )
-        .when_some(candidate.icon, |row, icon| {
-            let path = match icon {
-                Icon::File => FILE_ICON,
-                Icon::Directory => FOLDER_ICON,
-            };
-            row.child(
-                svg()
-                    .path(path)
-                    .flex_none()
-                    .size(px(16.0))
-                    .text_color(rgb(secondary)),
-            )
-        })
+        .children(candidate.icon.map(|file| icon(file, secondary)))
         .child(name)
         .when(candidate.modified, |row| row.child(modified_dot()))
         .child(
@@ -269,13 +439,13 @@ fn render_candidate(
         .when_some(candidate.tag, |row, tag| {
             row.child(render_tag(tag, selected))
         })
-        .when_some(candidate.detail, |row, detail| {
+        .when_some(candidate.detail.clone(), |row, detail| {
             row.child(
                 div()
                     .flex_none()
                     .text_size(px(font::STATUS_SIZE))
                     .text_color(rgb(secondary))
-                    .child(detail),
+                    .child(detail.into_owned()),
             )
         })
         .when(!candidate.keys.is_empty(), |row| {

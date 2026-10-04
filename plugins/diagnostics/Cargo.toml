@@ -1,0 +1,17 @@
+[package]
+name = "remacs-diagnostics"
+description = "Built-in plugin: problems reported for a buffer, underlined and listed"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+remacs-core.workspace = true
+remacs-text.workspace = true
+
+[dev-dependencies]
+remacs-minibuffer.workspace = true
+
+[lints]
+workspace = true

@@ -1,11 +1,30 @@
 use gpui::{
-    BoxShadow, Div, HighlightStyle, Hsla, IntoElement, ParentElement, Styled, div, point, px, rgb,
-    rgba,
+    BoxShadow, Div, HighlightStyle, Hsla, IntoElement, ParentElement, Styled, Svg, div, point, px,
+    rgb, rgba, svg,
 };
+use remacs_core::Icon;
 use remacs_theme::{color, font};
+
+use crate::assets::{ERROR_ICON, FILE_ICON, FOLDER_ICON, INFO_ICON, WARNING_ICON};
 
 pub fn hsla(hex: u32) -> Hsla {
     rgb(hex).into()
+}
+
+/// File icons take the text color they stand next to; severity icons keep their own.
+pub fn icon(icon: Icon, text_color: u32) -> Svg {
+    let (path, size, color) = match icon {
+        Icon::File => (FILE_ICON, 16.0, text_color),
+        Icon::Directory => (FOLDER_ICON, 16.0, text_color),
+        Icon::Error => (ERROR_ICON, 10.0, color::ERROR),
+        Icon::Warning => (WARNING_ICON, 10.0, color::WARNING),
+        Icon::Info => (INFO_ICON, 10.0, color::INFO),
+    };
+    svg()
+        .path(path)
+        .flex_none()
+        .size(px(size))
+        .text_color(rgb(color))
 }
 
 /// The block cursor: the character under it drawn inverted.

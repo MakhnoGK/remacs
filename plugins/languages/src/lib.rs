@@ -1,7 +1,8 @@
-//! Built-in plugin: major modes for the initial languages, chosen by file extension, and
-//! their tree-sitter grammars.
+//! Built-in plugin: major modes for the initial languages, chosen by file extension, their
+//! tree-sitter grammars and language servers.
 
 use remacs_core::{Mode, Plugin, Registry};
+use remacs_lsp::LanguageServer;
 use remacs_syntax::Grammar;
 
 pub struct LanguagesPlugin;
@@ -93,6 +94,55 @@ pub const GRAMMARS: &[Grammar] = &[
     },
 ];
 
+pub const SERVERS: &[LanguageServer] = &[
+    LanguageServer {
+        name: "rust-analyzer",
+        command: "rust-analyzer",
+        args: &[],
+        languages: &[(RUST, "rust")],
+        root_markers: &["Cargo.toml"],
+        pull_diagnostics: false,
+    },
+    LanguageServer {
+        name: "clangd",
+        command: "clangd",
+        args: &[],
+        languages: &[(C, "c"), (CPP, "cpp")],
+        root_markers: &["compile_commands.json", "compile_flags.txt", ".clangd"],
+        pull_diagnostics: false,
+    },
+    // TypeScript 7's own server, native and much leaner than typescript-language-server.
+    LanguageServer {
+        name: "tsc",
+        command: "tsc",
+        args: &["--lsp", "--stdio"],
+        languages: &[
+            (TYPESCRIPT, "typescript"),
+            (TSX, "typescriptreact"),
+            (JAVASCRIPT, "javascript"),
+            (JSX, "javascriptreact"),
+        ],
+        root_markers: &["package.json", "tsconfig.json", "jsconfig.json"],
+        pull_diagnostics: true,
+    },
+    LanguageServer {
+        name: "vscode-html-language-server",
+        command: "vscode-html-language-server",
+        args: &["--stdio"],
+        languages: &[(HTML, "html")],
+        root_markers: &["package.json"],
+        pull_diagnostics: false,
+    },
+    LanguageServer {
+        name: "vscode-css-language-server",
+        command: "vscode-css-language-server",
+        args: &["--stdio"],
+        languages: &[(CSS, "css")],
+        root_markers: &["package.json"],
+        pull_diagnostics: false,
+    },
+];
+
 impl Plugin for LanguagesPlugin {
     fn register(&self, registry: &mut Registry) {
         for &(name, extensions) in MODES {
@@ -117,6 +167,15 @@ mod tests {
             let language = Language::new(grammar.language);
             Query::new(&language, &grammar.highlights.concat())
                 .unwrap_or_else(|error| panic!("{mode}: {error}"));
+        }
+    }
+
+    #[test]
+    fn servers_serve_known_modes() {
+        for server in SERVERS {
+            for (mode, _) in server.languages {
+                assert!(MODES.iter().any(|(known, _)| known == mode), "{mode}");
+            }
         }
     }
 }

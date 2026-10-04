@@ -12,9 +12,11 @@ publish = false
 remacs-core = { path = "crates/core" }
 remacs-text = { path = "crates/text" }
 remacs-theme = { path = "crates/theme" }
+remacs-diagnostics = { path = "plugins/diagnostics" }
 remacs-editing = { path = "plugins/editing" }
 remacs-files = { path = "plugins/files" }
 remacs-languages = { path = "plugins/languages" }
+remacs-lsp = { path = "plugins/lsp" }
 remacs-minibuffer = { path = "plugins/minibuffer" }
 remacs-syntax = { path = "plugins/syntax" }
 
@@ -23,9 +25,12 @@ futures = "0.3"
 gpui = { version = "0.2.2", default-features = false, features = ["font-kit"] }
 ignore = "0.4"
 libc = "0.2"
+lsp-types = "0.97"
 memchr = "2.7"
 memmap2 = "0.9"
 notify = "8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 streaming-iterator = "0.1"
 tree-sitter = "0.27"
 tree-sitter-c = "0.24"

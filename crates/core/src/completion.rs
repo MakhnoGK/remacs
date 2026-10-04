@@ -1,9 +1,13 @@
+use std::borrow::Cow;
 use std::ops::Range;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Icon {
     File,
     Directory,
+    Error,
+    Warning,
+    Info,
 }
 
 /// One row of a minibuffer completion list.
@@ -18,8 +22,8 @@ pub struct Candidate {
     /// Key sequence bound to the candidate, one entry per key.
     pub keys: Vec<String>,
     pub tag: Option<&'static str>,
-    pub detail: Option<&'static str>,
-    pub group: Option<&'static str>,
+    pub detail: Option<Cow<'static, str>>,
+    pub group: Option<Cow<'static, str>>,
     pub icon: Option<Icon>,
     pub modified: bool,
     pub dim: bool,

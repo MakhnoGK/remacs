@@ -18,6 +18,7 @@ use crate::keymap::{Binding, Keymap};
 use crate::kill_ring::KillRing;
 use crate::minibuffer::{Minibuffer, Prompt};
 use crate::plugin::{Plugin, Registry};
+use crate::status::StatusSegment;
 use crate::viewport::Viewport;
 
 pub const SELF_INSERT_COMMAND: &str = "self-insert-command";
@@ -112,6 +113,10 @@ impl Editor {
     /// All buffers, most recently selected first.
     pub fn buffers(&self) -> &[Buffer] {
         &self.buffers
+    }
+
+    pub fn buffers_mut(&mut self) -> &mut [Buffer] {
+        &mut self.buffers
     }
 
     pub fn buffer_named_mut(&mut self, name: &str) -> Option<&mut Buffer> {
@@ -316,6 +321,11 @@ impl Editor {
         self.finish_minibuffer(answer)
     }
 
+    /// Closes the prompt without answering it.
+    pub fn cancel_minibuffer(&mut self) -> bool {
+        self.minibuffer.take().is_some()
+    }
+
     /// Answers the prompt with the candidate at `index`, as a mouse click does.
     pub fn choose_candidate(&mut self, index: usize) {
         if let Some(minibuffer) = &mut self.minibuffer {
@@ -427,6 +437,14 @@ impl Editor {
             .collect()
     }
 
+    pub fn status_segments(&self) -> Vec<StatusSegment> {
+        self.registry
+            .status_providers
+            .iter()
+            .filter_map(|describe| describe(self))
+            .collect()
+    }
+
     fn run_post_command_hooks(&mut self) {
         for hook in self.registry.post_command_hooks.clone() {
             hook(self);
@@ -448,7 +466,7 @@ impl Editor {
     fn abort(&mut self) -> bool {
         if !self.pending_keys.is_empty() {
             self.pending_keys.clear();
-        } else if self.minibuffer.take().is_none() {
+        } else if !self.cancel_minibuffer() {
             return false;
         }
         self.set_message("Quit");

@@ -5,6 +5,7 @@ pub mod color {
     pub const BG_POPUP: u32 = 0x1e1e1e;
     pub const BG_FIELD: u32 = 0x121212;
     pub const BG_CHIP: u32 = 0x303030;
+    pub const BG_BUTTON: u32 = 0x262626;
     pub const BG_KBD: u32 = 0x2b2b2b;
     pub const BG_KBD_SELECTED: u32 = 0x3a5296;
     pub const BG_HL_LINE: u32 = 0x1d2433;
