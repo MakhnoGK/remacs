@@ -537,6 +537,8 @@ fragment float4 shadow_fragment(ShadowFragmentInput input [[stage_in]],
       y += step;
     }
   }
+  alpha *= saturate(0.5 + quad_sdf(input.position.xy, shadow.element_bounds,
+                                   shadow.corner_radii));
 
   return input.color * float4(1., 1., 1., alpha);
 }

@@ -613,6 +613,9 @@ pub(crate) struct Shadow {
     pub corner_radii: Corners<ScaledPixels>,
     pub content_mask: ContentMask<ScaledPixels>,
     pub color: Hsla,
+    /// The element casting the shadow, under which it is not drawn, as in CSS; a translucent
+    /// element would show it.
+    pub element_bounds: Bounds<ScaledPixels>,
 }
 
 impl From<Shadow> for Primitive {

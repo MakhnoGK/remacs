@@ -3,11 +3,11 @@ use gpui::{
     Stateful, StyledText, div, prelude::*, px, rgb, rgba,
 };
 use remacs_core::{Candidate, Code, DocBlock, Documentation, Popup, SymbolKind};
-use remacs_theme::{color, font};
+use remacs_theme::{color, font, glass};
 
 use crate::highlights::Highlights;
 use crate::minibuffer_view::{matches_in, secondary_color};
-use crate::widgets::{hsla, kbd, shadow};
+use crate::widgets::{glass_surface, hsla, kbd, shadow};
 
 const LIST_WIDTH: f32 = 440.0;
 const DOCUMENTATION_WIDTH: f32 = 360.0;
@@ -186,7 +186,7 @@ fn render_hover(
                     .px(px(12.0))
                     .py(px(8.0))
                     .rounded(px(8.0))
-                    .bg(rgb(color::BG_FIELD))
+                    .bg(rgba(glass::FIELD))
                     .border_1()
                     .border_color(rgba(0xffffff0f))
                     .overflow_hidden()
@@ -259,19 +259,11 @@ fn render_list_popup(popup: &Popup, placement: &Placement, view: &DocumentationV
 
 /// Takes the mouse, so the wheel scrolls the popup and not the buffer behind it.
 fn panel() -> Div {
-    div()
+    glass_surface(glass::HINT_RADIUS)
         .occlude()
         .flex()
         .flex_col()
         .flex_none()
-        .bg(rgb(color::BG_POPUP))
-        .border_1()
-        .border_color(rgba(0xffffff14))
-        .rounded(px(12.0))
-        .shadow(vec![
-            shadow(0x000000b3, 1.0, 2.0, 0.0),
-            shadow(0x00000099, 16.0, 40.0, 0.0),
-        ])
 }
 
 fn render_list(popup: &Popup) -> AnyElement {
@@ -305,7 +297,7 @@ fn render_row(row: &Candidate, selected: bool) -> impl IntoElement {
         .px(px(ROW_PADDING))
         .rounded(px(6.0))
         .when(selected, |row| {
-            row.bg(rgb(color::BG_SELECTION))
+            row.bg(rgba(glass::SELECTION))
                 .shadow(vec![shadow(0x00000073, 1.0, 3.0, 0.0)])
         })
         .font_family(font::MONO)
@@ -480,7 +472,7 @@ fn render_block(block: &DocBlock, view: &DocumentationView) -> AnyElement {
             .px(px(8.0))
             .py(px(6.0))
             .rounded(px(6.0))
-            .bg(rgb(color::BG_FIELD))
+            .bg(rgba(glass::FIELD))
             .overflow_hidden()
             .whitespace_nowrap()
             .font_family(font::MONO)

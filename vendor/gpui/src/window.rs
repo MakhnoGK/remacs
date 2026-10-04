@@ -2824,6 +2824,7 @@ impl Window {
                 content_mask: content_mask.scale(scale_factor),
                 corner_radii: corner_radii.scale(scale_factor),
                 color: shadow.color.opacity(opacity),
+                element_bounds: bounds.scale(scale_factor),
             });
         }
     }

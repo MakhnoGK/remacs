@@ -24,6 +24,16 @@ Status: accepted, 2026-10-05 (issue #3; extended step by step)
   cannot, since "over" always raises alpha.
 - **gpui blends alpha "over"** (`1 − src_alpha`) instead of adding it up, which made any
   translucent element opaque on a translucent window and hid the desktop under it.
+- **Shadows are not drawn under their element**, as in CSS: a translucent surface would
+  show its own shadow. A backdrop filter is painted before the element's shadows, so it does
+  not blur them in either.
+- **Floating surfaces (boards 23, 24)**: prompts, completion and documentation are
+  `widgets::glass_surface`: `glass::SURFACE` over a 30px blur at 150% saturation, a
+  `SURFACE_BORDER`, 14px corners for prompts and 12px for surfaces at point. What sits in
+  them is translucent too: fields `FIELD`, buttons and key caps `CONTROL`, the field's label
+  `CHIP`, the selected row `SELECTION`. The scrim under a prompt is `SCRIM` (25%).
+- **The boards give the look, not the structure**: elements and features are remacs's own;
+  e.g. find file keeps its single column, without the board's preview.
 
 ## Consequences
 
@@ -34,4 +44,5 @@ Status: accepted, 2026-10-05 (issue #3; extended step by step)
 
 ## Open
 
-- Steps 3 and 4: glass for the popups, hint at point, side panel, modal and status pill.
+- Step 4: glass for the side panel, modal and status pill.
+- The boards' inset top highlight on surfaces: gpui has no inset shadows.

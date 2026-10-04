@@ -9,7 +9,7 @@ use remacs_core::{
     BannerPart, Candidate, CommitChain, Count, EntryAction, Expansion, Icon, Minibuffer,
     PromptOption, RefKind, Tone, parse_sequence,
 };
-use remacs_theme::{color, font};
+use remacs_theme::{color, font, glass};
 
 use crate::assets::CHEVRON_DOWN_ICON;
 use crate::dialog_view::render_dialog;
@@ -17,8 +17,8 @@ use crate::display_line::DisplayLine;
 use crate::editor_view::EditorView;
 use crate::outline_view::ref_chip;
 use crate::widgets::{
-    choice_chip, cursor_style, hsla, icon, kbd, list_items, modified_dot, option_chip, segment,
-    segmented, shadow, tone_color,
+    choice_chip, cursor_style, glass_surface, hsla, icon, kbd, list_items, modified_dot,
+    option_chip, segment, segmented, shadow, tone_color,
 };
 
 const POPOVER_TOP: f32 = 60.0;
@@ -50,7 +50,7 @@ const DESCRIPTION_LINE_HEIGHT: f32 = 22.0;
 
 /// Dims the editor behind an open prompt.
 pub fn render_scrim() -> impl IntoElement {
-    div().absolute().inset_0().bg(rgba(0x0000006b))
+    div().absolute().inset_0().bg(rgba(glass::SCRIM))
 }
 
 /// The problem list: rows of messages with their positions, anchored to the status pill.
@@ -60,17 +60,9 @@ pub fn is_problem_list(minibuffer: &Minibuffer) -> bool {
 
 /// A floating panel, like the prompt's.
 pub fn popover(width: f32) -> Div {
-    div()
+    glass_surface(glass::SURFACE_RADIUS)
         .w(px(width))
         .p(px(8.0))
-        .bg(rgb(color::BG_POPUP))
-        .border_1()
-        .border_color(rgba(0xffffff14))
-        .rounded(px(12.0))
-        .shadow(vec![
-            shadow(0x000000b3, 1.0, 2.0, 0.0),
-            shadow(0x00000099, 16.0, 40.0, 0.0),
-        ])
         .font_family(font::UI)
         .text_color(rgb(color::FG_MAIN))
 }
@@ -426,7 +418,7 @@ fn render_field(minibuffer: &Minibuffer, input_scroll: &ScrollHandle) -> impl In
         .gap(px(10.0))
         .h(px(FIELD_HEIGHT))
         .px(px(12.0))
-        .bg(rgb(color::BG_FIELD))
+        .bg(rgba(glass::FIELD))
         .rounded(px(8.0))
         .border_1()
         .border_color(field_border(
@@ -447,7 +439,7 @@ fn render_field(minibuffer: &Minibuffer, input_scroll: &ScrollHandle) -> impl In
                 .h(px(24.0))
                 .px(px(8.0))
                 .rounded(px(6.0))
-                .bg(rgb(color::BG_CHIP))
+                .bg(rgba(glass::CHIP))
                 .font_family(typed_font(parse_sequence(minibuffer.label()).is_some()))
                 .text_size(px(font::STATUS_SIZE))
                 .text_color(rgb(color::FG_ALT))
@@ -513,7 +505,7 @@ fn render_severity_counts(candidates: &[Candidate]) -> impl IntoElement {
                 .h(px(26.0))
                 .px(px(9.0))
                 .rounded(px(6.0))
-                .bg(rgb(color::BG_BUTTON))
+                .bg(rgba(glass::CONTROL))
                 .border_1()
                 .border_color(rgba(0xffffff12))
                 .font_family(font::MONO)
@@ -612,7 +604,7 @@ fn render_description(minibuffer: &Minibuffer) -> Option<impl IntoElement> {
         .h(px(DESCRIPTION_LINE_HEIGHT * DESCRIPTION_LINES as f32 + 16.0))
         .py(px(8.0))
         .px(px(12.0))
-        .bg(rgb(color::BG_FIELD))
+        .bg(rgba(glass::FIELD))
         .rounded(px(8.0))
         .border_1()
         .border_color(field_border(active))
@@ -719,7 +711,7 @@ fn candidate_row(index: usize, selected: bool, cx: &mut Context<EditorView>) -> 
         .px(px(10.0))
         .rounded(px(8.0))
         .when(selected, |row| {
-            row.bg(rgb(color::BG_SELECTION))
+            row.bg(rgba(glass::SELECTION))
                 .shadow(vec![shadow(0x00000073, 1.0, 3.0, 0.0)])
         })
         .on_mouse_down(
@@ -829,7 +821,7 @@ fn render_step(
                 .h(px(24.0))
                 .px(px(8.0))
                 .rounded(px(6.0))
-                .bg(rgb(color::BG_BUTTON))
+                .bg(rgba(glass::CONTROL))
                 .border_1()
                 .border_color(rgba(0xffffff14))
                 .font_family(font::MONO)
@@ -946,7 +938,7 @@ fn render_entry(
             .pl(px(10.0))
             .pr(px(5.0))
             .rounded(px(7.0))
-            .bg(rgb(color::BG_BUTTON))
+            .bg(rgba(glass::CONTROL))
             .border_1()
             .border_color(rgba(if action.destructive {
                 0xff5f594d
@@ -997,7 +989,7 @@ fn render_entry(
                     .flex_col()
                     .py(px(4.0))
                     .rounded(px(8.0))
-                    .bg(rgb(color::BG_FIELD))
+                    .bg(rgba(glass::FIELD))
                     .children(list_items(expansion.items.clone(), MAX_LISTED_ITEMS, 26.0)),
             )
         })

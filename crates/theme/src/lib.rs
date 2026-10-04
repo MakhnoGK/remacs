@@ -87,6 +87,28 @@ pub mod color {
 pub mod glass {
     /// Over the blurred desktop, under everything in the window.
     pub const WINDOW_TINT: u32 = 0x000000cc;
+
+    /// Floating surfaces, e.g. prompts and completion, over the blurred editor.
+    pub const SURFACE: u32 = 0x1c1c1eb8;
+    pub const SURFACE_BORDER: u32 = 0xffffff1f;
+    pub const SURFACE_BLUR: f32 = 30.0;
+    pub const SURFACE_SATURATION: f32 = 1.5;
+    pub const SURFACE_RADIUS: f32 = 14.0;
+    /// Surfaces at point, e.g. completion and documentation.
+    pub const HINT_RADIUS: f32 = 12.0;
+
+    /// Dims the editor under a prompt.
+    pub const SCRIM: u32 = 0x00000040;
+
+    /// Sunk into a surface: fields, code.
+    pub const FIELD: u32 = 0x00000059;
+    /// Raised from a surface: buttons and key caps.
+    pub const CONTROL: u32 = 0xffffff14;
+    pub const CONTROL_BORDER: u32 = 0xffffff1a;
+    /// A label in a field.
+    pub const CHIP: u32 = 0xffffff1a;
+    /// The selected row of a surface.
+    pub const SELECTION: u32 = 0x2f447fe6;
 }
 
 pub mod font {

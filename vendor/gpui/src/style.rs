@@ -636,10 +636,11 @@ impl Style {
             .to_pixels(rem_size)
             .clamp_radii_for_quad_size(bounds.size);
 
-        window.paint_shadows(bounds, corner_radii, &self.box_shadow);
+        // Before the shadows: the backdrop is what is behind the element, not its own shadow.
         if let Some(filter) = self.backdrop_filter {
             window.paint_backdrop_filter(bounds, corner_radii, filter);
         }
+        window.paint_shadows(bounds, corner_radii, &self.box_shadow);
 
         let background_color = self.background.as_ref().and_then(Fill::color);
         if background_color.is_some_and(|color| !color.is_transparent()) {

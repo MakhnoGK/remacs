@@ -3,7 +3,7 @@ use gpui::{
     prelude::FluentBuilder, px, rgb, rgba, svg,
 };
 use remacs_core::{FileState, Icon, LineCounts, ListItem, Mark, Tone};
-use remacs_theme::{color, font};
+use remacs_theme::{color, font, glass};
 
 use crate::assets::{
     BRANCH_ICON, CHECK_ICON, CHEVRON_DOWN_ICON, ERROR_ICON, FILE_ICON, FOLDER_ICON, INFO_ICON,
@@ -195,7 +195,7 @@ pub fn segmented() -> Div {
         .flex_none()
         .p(px(2.0))
         .rounded(px(8.0))
-        .bg(rgb(color::BG_FIELD))
+        .bg(rgba(glass::FIELD))
         .border_1()
         .border_color(rgba(0xffffff0f))
 }
@@ -250,7 +250,11 @@ pub fn toggle_chip(label: &str, on: bool) -> Div {
             color::FG_ALT,
         )
     } else {
-        (rgb(color::BG_BUTTON), rgba(0xffffff14), color::FG_KBD)
+        (
+            rgba(glass::CONTROL),
+            rgba(glass::CONTROL_BORDER),
+            color::FG_KBD,
+        )
     };
     div()
         .flex()
@@ -284,6 +288,20 @@ pub fn cursor_style() -> HighlightStyle {
         background_color: Some(hsla(color::FG_MAIN)),
         ..Default::default()
     }
+}
+
+/// A floating surface of glass, showing the editor under it blurred.
+pub fn glass_surface(radius: f32) -> Div {
+    div()
+        .bg(rgba(glass::SURFACE))
+        .backdrop_filter(px(glass::SURFACE_BLUR), glass::SURFACE_SATURATION)
+        .border_1()
+        .border_color(rgba(glass::SURFACE_BORDER))
+        .rounded(px(radius))
+        .shadow(vec![
+            shadow(0x00000080, 1.0, 2.0, 0.0),
+            shadow(0x00000080, 24.0, 60.0, 0.0),
+        ])
 }
 
 pub fn shadow(color: u32, y: f32, blur: f32, spread: f32) -> BoxShadow {
@@ -328,9 +346,9 @@ pub fn pill_separator() -> Div {
 /// A key cap, e.g. `C-x`.
 pub fn kbd(key: &str, selected: bool) -> Div {
     let (background, foreground) = if selected {
-        (color::BG_KBD_SELECTED, color::FG_MAIN)
+        (rgb(color::BG_KBD_SELECTED), color::FG_MAIN)
     } else {
-        (color::BG_KBD, color::FG_KBD)
+        (rgba(glass::CONTROL), color::FG_KBD)
     };
     div()
         .flex()
@@ -339,9 +357,9 @@ pub fn kbd(key: &str, selected: bool) -> Div {
         .h(px(20.0))
         .px(px(6.0))
         .rounded(px(5.0))
-        .bg(rgb(background))
+        .bg(background)
         .border_1()
-        .border_color(rgba(0xffffff12))
+        .border_color(rgba(glass::CONTROL_BORDER))
         .shadow(vec![shadow(0x00000099, 1.0, 0.0, 0.0)])
         .font_family(font::MONO)
         .text_size(px(font::SMALL_SIZE))
