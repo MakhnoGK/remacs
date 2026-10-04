@@ -33,5 +33,5 @@ Status: accepted, 2026-10-04 (lint and format, step 4)
 
 ## Open
 
-- Formatting on save (step 5).
+- Formatting on save: ADR 0033.
 - Answers reach the buffer only while it is the window buffer's, as other server answers.

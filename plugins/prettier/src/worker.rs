@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 
 use remacs_core::Notifier;
-use remacs_format::{Formatted, Request};
+use remacs_format::{Failure, Formatted, Request};
 use remacs_text::Snapshot;
 use serde_json::{Value, json};
 
@@ -80,7 +80,8 @@ impl Worker {
                 }
                 let mut shared = lock(&reader_shared);
                 for id in mem::take(&mut shared.sent).into_keys() {
-                    shared.formatted.push((id, Err("prettier stopped".into())));
+                    let stopped = Failure::Failed("prettier stopped".into());
+                    shared.formatted.push((id, Err(stopped)));
                 }
                 drop(shared);
                 notifier();
@@ -115,9 +116,8 @@ fn write_all(
 ) {
     for job in queued {
         let Ok(text) = String::from_utf8(job.text.bytes_in(0..job.text.len())) else {
-            lock(shared)
-                .formatted
-                .push((job.id, Err("Not formatted: the text is not UTF-8".into())));
+            let failure = Failure::Unsupported("Not formatted: the text is not UTF-8".into());
+            lock(shared).formatted.push((job.id, Err(failure)));
             notifier();
             continue;
         };
@@ -144,13 +144,14 @@ fn answered(shared: &Mutex<Shared>, answer: Value) {
         return;
     };
     let formatted = if let Some(error) = answer["error"].as_str() {
-        Err(format!("prettier: {error}"))
+        Err(Failure::Failed(format!("prettier: {error}")))
     } else if answer["ignored"] == true {
-        Err("Not formatted: .prettierignore lists the file".into())
+        let ignored = "Not formatted: .prettierignore lists the file";
+        Err(Failure::Unsupported(ignored.into()))
     } else if let Some(text) = answer["text"].as_str() {
         Ok(remacs_format::edits(&sent, text))
     } else {
-        Err("prettier answered nothing".into())
+        Err(Failure::Failed("prettier answered nothing".into()))
     };
     lock(shared).formatted.push((id, formatted));
 }

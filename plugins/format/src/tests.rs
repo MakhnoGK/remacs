@@ -1,10 +1,11 @@
+use std::fs;
 use std::path::PathBuf;
 
 use remacs_core::{Buffer, Editor, parse_sequence};
 use remacs_editing::EditingPlugin;
 use remacs_text::Text;
 
-use crate::{FormatPlugin, deliver, edits, take_requests};
+use crate::{Failure, FormatPlugin, Request, deliver, edits, take_requests};
 
 const UGLY: &str = "fn main(){\n    call(a,b);\n}\n";
 const PRETTY: &str = "fn main() {\n    call(a, b);\n}\n";
@@ -79,10 +80,65 @@ fn edits_for_a_changed_buffer_and_failures_are_not_applied() {
 
     press(&mut editor, "C-c C-f");
     let request = take_requests(&mut editor, |_| true).remove(0);
-    deliver(
-        &mut editor,
-        request.id,
-        Err("prettier: Unexpected token".into()),
-    );
+    let failed = Failure::Failed("prettier: Unexpected token".into());
+    deliver(&mut editor, request.id, Err(failed));
     assert_eq!(editor.echo().as_deref(), Some("prettier: Unexpected token"));
+}
+
+/// An editor visiting a file holding `UGLY`, formatting on save turned on.
+fn formatting_on_save(name: &str) -> (Editor, PathBuf) {
+    let path = std::env::temp_dir().join(format!("remacs-format-{}-{name}.rs", std::process::id()));
+    fs::write(&path, UGLY).unwrap();
+    let mut editor = Editor::new(&[&EditingPlugin, &FormatPlugin]);
+    editor.visit_file(&path).unwrap();
+    editor.window_buffer_mut().save().unwrap();
+    editor.refresh();
+    assert!(
+        take_requests(&mut editor, |_| true).is_empty(),
+        "off by default"
+    );
+    editor.run_command("format-on-save-mode");
+    assert_eq!(editor.echo().as_deref(), Some("Formatting on save enabled"));
+    (editor, path)
+}
+
+fn save(editor: &mut Editor) -> Request {
+    editor.window_buffer_mut().save().unwrap();
+    editor.refresh();
+    let mut requests = take_requests(editor, |_| true);
+    assert_eq!(requests.len(), 1);
+    requests.remove(0)
+}
+
+#[test]
+fn saved_files_are_formatted_and_saved_again() {
+    let (mut editor, path) = formatting_on_save("again");
+    let request = save(&mut editor);
+    deliver(&mut editor, request.id, Ok(edits(UGLY, PRETTY)));
+    assert_eq!(fs::read_to_string(&path).unwrap(), PRETTY);
+    assert!(!editor.window_buffer().is_modified());
+    editor.refresh();
+    assert!(
+        take_requests(&mut editor, |_| true).is_empty(),
+        "its own save is not formatted again"
+    );
+    press(&mut editor, "C-/");
+    editor.refresh();
+    assert!(take_requests(&mut editor, |_| true).is_empty());
+    fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn after_a_save_typing_and_files_nothing_formats_are_left_alone() {
+    let (mut editor, path) = formatting_on_save("alone");
+    let request = save(&mut editor);
+    editor.window_buffer_mut().insert("// ");
+    deliver(&mut editor, request.id, Ok(edits(UGLY, PRETTY)));
+    assert_eq!(contents(&editor), format!("// {UGLY}"));
+    let request = save(&mut editor);
+    let unsupported = Failure::Unsupported("No formatter for this buffer".into());
+    deliver(&mut editor, request.id, Err(unsupported));
+    assert_eq!(editor.echo().as_deref(), Some("Formatting on save enabled"));
+    assert_eq!(fs::read_to_string(&path).unwrap(), format!("// {UGLY}"));
+    fs::remove_file(path).unwrap();
 }

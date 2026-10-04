@@ -8,6 +8,7 @@ mod worker;
 use std::rc::Rc;
 
 use remacs_core::{Editor, Plugin, Registry};
+use remacs_format::Failure;
 
 use crate::project::uses_prettier;
 use crate::worker::Worker;
@@ -55,7 +56,7 @@ fn sync(editor: &mut Editor, modes: &'static [&'static str]) {
     for request in requests {
         let id = request.id;
         if let Err(message) = send(editor, request) {
-            remacs_format::deliver(editor, id, Err(message));
+            remacs_format::deliver(editor, id, Err(Failure::Failed(message)));
         }
     }
 }

@@ -16,6 +16,8 @@ pub struct Text {
     snapshot: Snapshot,
     history: History,
     saved: PieceTree,
+    /// Saves so far, which tell a save from undoing back to the saved text.
+    saves: u64,
     disk_file: Option<DiskFile>,
 }
 
@@ -36,6 +38,7 @@ impl Text {
             saved: pieces.clone(),
             snapshot: Snapshot { sources, pieces },
             history: History::default(),
+            saves: 0,
             disk_file: None,
         }
     }
@@ -112,7 +115,12 @@ impl Text {
         let chunks = self.snapshot.chunks(0..self.snapshot.len());
         self.disk_file = Some(DiskFile::write(path.as_ref(), chunks)?);
         self.saved = self.snapshot.pieces.clone();
+        self.saves += 1;
         Ok(())
+    }
+
+    pub fn saves(&self) -> u64 {
+        self.saves
     }
 
     fn assert_char_boundary(&self, offset: usize) {
@@ -298,6 +306,13 @@ mod tests {
         assert!(!text.is_modified());
         assert!(!text.changed_on_disk().unwrap());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "one\ntwo\n");
+        assert_eq!(text.saves(), 1);
+
+        text.add_undo_boundary();
+        text.insert(0, "zero\n");
+        text.undo();
+        assert!(!text.is_modified());
+        assert_eq!(text.saves(), 1, "undoing back to the saved text is no save");
 
         std::fs::write(&path, "changed elsewhere\n").unwrap();
         assert!(text.changed_on_disk().unwrap());

@@ -30,7 +30,7 @@ use lsp_types::{
 use remacs_actions::Action;
 use remacs_completion::{Item, List, Trigger};
 use remacs_core::Notifier;
-use remacs_format::Formatted;
+use remacs_format::{Failure, Formatted};
 use remacs_text::{Edit, Snapshot};
 use serde_json::{Value, json};
 
@@ -687,7 +687,7 @@ impl Writer {
                     let message = format!("{} does not format {what}", self.server);
                     lock(&self.inbox).answers.push(Answer::Formatted {
                         id: *id,
-                        formatted: Err(message),
+                        formatted: Err(Failure::Unsupported(message)),
                     });
                     (self.notifier)();
                     return Ok(());
@@ -1036,7 +1036,7 @@ impl Reader {
             }
             Pending::Format { id, text } => {
                 let formatted = match error {
-                    Some(message) => Err(format!("{}: {message}", self.server)),
+                    Some(message) => Err(Failure::Failed(format!("{}: {message}", self.server))),
                     None => {
                         let edits: Vec<TextEdit> =
                             serde_json::from_value(result).unwrap_or_default();

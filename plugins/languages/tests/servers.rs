@@ -676,3 +676,39 @@ fn prettier_of_the_project_comes_before_the_global_one() {
     );
     assert_eq!(format(&root.join("index.js")), "// the project's own\n");
 }
+
+/// Saves with formatting on save on and waits for the file to be saved formatted.
+fn save_formatted(file: &Path, formatted: &str) {
+    let mut editor = Editor::new(PLUGINS);
+    editor.run_command("format-on-save-mode");
+    editor.visit_file(file).unwrap();
+    editor.window_buffer_mut().save().unwrap();
+    refresh_until(&mut editor, "saving formatted", |_| {
+        fs::read_to_string(file).unwrap() == formatted
+    });
+    assert!(!editor.window_buffer().is_modified());
+}
+
+#[test]
+#[ignore]
+fn files_are_formatted_after_each_save_when_turned_on() {
+    let web = project(
+        "save-prettier",
+        &[
+            ("package.json", "{ \"prettier\": { \"semi\": false } }\n"),
+            ("index.ts", "const a={b:1};\n"),
+        ],
+    );
+    save_formatted(&web.join("index.ts"), "const a = { b: 1 }\n");
+    let rust = project(
+        "save-rust",
+        &[
+            (
+                "Cargo.toml",
+                "[package]\nname = \"demo\"\nedition = \"2024\"\n",
+            ),
+            ("src/main.rs", "fn main(){}\n"),
+        ],
+    );
+    save_formatted(&rust.join("src/main.rs"), "fn main() {}\n");
+}

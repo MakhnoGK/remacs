@@ -11,6 +11,7 @@ use remacs_actions::{Action, Request as ActionRequest};
 use remacs_completion::Request;
 use remacs_core::{Editor, Notifier};
 use remacs_diagnostics::{self as diagnostics, Diagnostic, Severity};
+use remacs_format::Failure;
 use remacs_text::Snapshot;
 use serde_json::json;
 
@@ -557,7 +558,7 @@ fn send_requests(editor: &mut Editor) {
     let formats = remacs_format::take_requests(editor, |_| true);
     let Some(documents) = editor.window_buffer().local::<Documents>() else {
         for request in formats {
-            let missing = "No formatter for this buffer".to_owned();
+            let missing = Failure::Unsupported("No formatter for this buffer".into());
             remacs_format::deliver(editor, request.id, Err(missing));
         }
         for request in hovers {
