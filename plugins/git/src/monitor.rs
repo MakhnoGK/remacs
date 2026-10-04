@@ -10,6 +10,7 @@ use remacs_core::Notifier;
 use crate::command::{git, output};
 use crate::details;
 use crate::diff::parse_diff;
+use crate::history::{HistoryCache, HistoryWants};
 use crate::ignore_rules::IgnoreRules;
 use crate::moves;
 use crate::status::{Counted, DiffKey, Snapshot, parse_status};
@@ -48,6 +49,7 @@ pub enum Update {
 pub struct Wants {
     pub details: bool,
     pub diffs: Vec<DiffKey>,
+    pub history: Option<HistoryWants>,
 }
 
 /// Changes the repository, run in its root; the error is said to the user.
@@ -134,8 +136,9 @@ impl Worker {
             git_directories: &git_directories,
         };
         let mut reported_failure = false;
+        let mut history = HistoryCache::default();
         loop {
-            match read(&self.root, &wants) {
+            match read(&self.root, &wants, &mut history) {
                 Ok(snapshot) => {
                     reported_failure = false;
                     self.send(Update::Status(Box::new(snapshot)));
@@ -274,7 +277,7 @@ fn git_directories(root: &Path) -> io::Result<Vec<PathBuf>> {
     Ok(directories)
 }
 
-fn read(root: &Path, wants: &Wants) -> io::Result<Snapshot> {
+fn read(root: &Path, wants: &Wants, history: &mut HistoryCache) -> io::Result<Snapshot> {
     let mut snapshot = parse_status(&output(git(root).args([
         "status",
         "--porcelain=v2",
@@ -297,6 +300,9 @@ fn read(root: &Path, wants: &Wants) -> io::Result<Snapshot> {
     }
     if wants.details {
         snapshot.details = Some(details::read(root, &snapshot));
+    }
+    if let Some(history_wants) = wants.history.as_ref().filter(|_| !snapshot.is_unborn()) {
+        snapshot.history = Some(history.read(root, history_wants, &snapshot)?);
     }
     for key in &wants.diffs {
         let Some(entry) = snapshot.files.get(&key.path) else {

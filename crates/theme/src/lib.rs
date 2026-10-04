@@ -60,6 +60,19 @@ pub mod color {
     pub const FG_REF_BRANCH: u32 = 0xb2f2da;
     pub const FG_REF_REMOTE: u32 = 0xa8a8a8;
 
+    /// Lines of the commit graph: the checked out branch's, its base's, then the others'
+    /// in turn.
+    const GRAPH: [u32; 8] = [
+        ACCENT, KEYWORD, TYPE, FUNCTION, WARNING, INFO, BUILTIN, STRING,
+    ];
+
+    pub fn graph(index: usize) -> u32 {
+        match index {
+            0 | 1 => GRAPH[index],
+            _ => GRAPH[2 + (index - 2) % (GRAPH.len() - 2)],
+        }
+    }
+
     pub const KEYWORD: u32 = 0xb6a0ff;
     pub const TYPE: u32 = 0x6ae4b9;
     pub const FUNCTION: u32 = 0xfeacd0;

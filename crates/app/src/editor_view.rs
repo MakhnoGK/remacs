@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::ops::Range;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use futures::StreamExt;
@@ -10,7 +11,7 @@ use gpui::{
     Subscription, Window, div, font, linear_color_stop, linear_gradient, prelude::*, px, rgb, rgba,
 };
 use remacs_core::{
-    Action, Code, DocBlock, Editor, Popup, Preview, PreviewBody, StatusSegment, Tone,
+    Action, Code, DocBlock, Editor, Popup, Preview, PreviewBody, Scroll, StatusSegment, Tone,
 };
 use remacs_theme::{color, font};
 
@@ -19,7 +20,9 @@ use crate::display_line::DisplayLine;
 use crate::highlights::{Highlights, combine, face_style, region_style};
 use crate::key_input::to_key;
 use crate::minibuffer_view::{is_problem_list, render_minibuffer, render_scrim};
-use crate::outline_view::{fitting_rows, max_outline_lines, render_outline};
+use crate::outline_view::{
+    COMMIT_HEIGHT, fits_history, fitting_commits, fitting_rows, max_outline_lines, render_outline,
+};
 use crate::popup_view::{DocumentationScroll, DocumentationView, Placement, render_popup};
 use crate::preview_view::render_preview;
 use crate::table_view::{
@@ -158,18 +161,40 @@ impl EditorView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let line_height = px(if self.showing_rows {
+        let line_height = if self.showing_rows {
             ROW_PITCH
         } else {
             font::CODE_LINE_HEIGHT
-        });
-        self.scroll_remainder += event.delta.pixel_delta(line_height).y;
-        let lines = (self.scroll_remainder / line_height).trunc();
-        if lines != 0.0 {
-            self.scroll_remainder -= line_height * lines;
-            self.editor.scroll(-lines as isize);
+        };
+        let lines = self.wheel_lines(event, line_height);
+        if lines != 0 {
+            self.editor.scroll(lines);
             cx.notify();
         }
+    }
+
+    /// Scrolls an outline's history by the rows the wheel moved.
+    pub fn scroll_history(
+        &mut self,
+        event: &ScrollWheelEvent,
+        scroll: Scroll,
+        cx: &mut Context<Self>,
+    ) {
+        let rows = self.wheel_lines(event, COMMIT_HEIGHT);
+        if rows != 0 {
+            let action: Action = Rc::new(move |editor| scroll(editor, rows));
+            self.run_action(&action, cx);
+        }
+    }
+
+    /// Whole lines of `line_height` the wheel moved, down being positive; the rest is
+    /// kept for the next event.
+    fn wheel_lines(&mut self, event: &ScrollWheelEvent, line_height: f32) -> isize {
+        let line_height = px(line_height);
+        self.scroll_remainder += event.delta.pixel_delta(line_height).y;
+        let lines = (self.scroll_remainder / line_height).trunc();
+        self.scroll_remainder -= line_height * lines;
+        -lines as isize
     }
 
     fn on_mouse_down(
@@ -546,6 +571,12 @@ impl EditorView {
         }
         self.editor.viewport.set_height(fitting);
         outline.rows.truncate(fitting);
+        if !fits_history(window.viewport_size().width) {
+            outline.history = None;
+        }
+        if let Some(history) = &mut outline.history {
+            history.commits.truncate(fitting_commits(height));
+        }
         let hints = render_hints(outline.hints).into_any_element();
         let body = render_outline(outline, self.editor.viewport.first_line, point_line, cx)
             .into_any_element();

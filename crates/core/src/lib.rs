@@ -35,7 +35,8 @@ pub use minibuffer::{
 };
 pub use mode::{FUNDAMENTAL_MODE, Mode, Modes};
 pub use outline::{
-    DiffRow, Fact, FactValue, Outline, OutlineProvider, OutlineRow, RefChip, RefKind,
+    CommitRow, DiffRow, Fact, FactValue, GraphEdge, GraphNode, GraphRow, History, Outline,
+    OutlineProvider, OutlineRow, RefChip, RefKind, Scroll,
 };
 pub use plugin::{Hook, MinorKeymap, Plugin, Registry};
 pub use popup::{Code, CodeHighlighter, DocBlock, Documentation, Popup, PopupProvider};

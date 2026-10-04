@@ -5,6 +5,8 @@ mod command;
 mod commands;
 mod details;
 mod diff;
+mod history;
+mod history_view;
 mod ignore_rules;
 mod monitor;
 mod moves;
@@ -34,6 +36,10 @@ const COMMANDS: &[Command] = &[
     Command::new(VISIT, "Visit the file at point, at the diff line", commands::visit),
     Command::new("git-refresh", "Read the status again", commands::refresh),
     Command::new("git-quit", "Show the buffer shown before the status", commands::quit),
+    Command::new("git-history-scope", "Show the history of all branches, or of the current one", history_view::toggle_scope),
+    Command::new("git-history-search", "Show the commits whose messages hold some words", history_view::search),
+    Command::new("git-history-next-page", "Scroll the history to older commits", history_view::next_page),
+    Command::new("git-history-previous-page", "Scroll the history to newer commits", history_view::previous_page),
 ];
 
 const BINDINGS: &[(&str, &str)] = &[("C-x g", "git-status")];
@@ -46,6 +52,10 @@ const STATUS_BINDINGS: &[(&str, &str)] = &[
     ("RET", VISIT),
     ("g", "git-refresh"),
     ("q", "git-quit"),
+    ("l", "git-history-scope"),
+    ("/", "git-history-search"),
+    ("C-M-v", "git-history-next-page"),
+    ("C-M-V", "git-history-previous-page"),
     ("n", "next-line"),
     ("p", "previous-line"),
 ];

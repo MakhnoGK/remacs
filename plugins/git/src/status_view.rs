@@ -12,6 +12,7 @@ use remacs_core::{
 use remacs_text::Text;
 
 use crate::diff::FileDiff;
+use crate::history_view::{self, HistoryState};
 use crate::monitor::Wants;
 use crate::repositories::Repositories;
 use crate::status::{DiffKey, Head, Snapshot};
@@ -19,6 +20,7 @@ use crate::status::{DiffKey, Head, Snapshot};
 pub const GIT_MODE: &str = "Git";
 pub const TOGGLE: &str = "git-toggle";
 pub const VISIT: &str = "git-visit";
+pub const NOT_A_STATUS_BUFFER: &str = "Not a Git status buffer";
 const HINTS: &[(&str, &str)] = &[
     ("⇥", "Diff"),
     ("s", "Stage"),
@@ -28,7 +30,7 @@ const HINTS: &[(&str, &str)] = &[
 ];
 /// Diff lines shown of one file at most, so a huge change does not swamp the buffer.
 const MAX_DIFF_LINES: usize = 2000;
-const SHORT_ID: usize = 7;
+pub const SHORT_ID: usize = 7;
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum Section {
@@ -100,6 +102,7 @@ pub struct StatusView {
     pub lines: Vec<Line>,
     /// The snapshot generation drawn; `None` to draw again.
     drawn: Option<u64>,
+    pub history: HistoryState,
 }
 
 impl StatusView {
@@ -110,6 +113,7 @@ impl StatusView {
             open: HashSet::new(),
             lines: Vec::new(),
             drawn: None,
+            history: HistoryState::default(),
         }
     }
 
@@ -208,6 +212,7 @@ pub fn wants(editor: &Editor) -> HashMap<PathBuf, Wants> {
     {
         let wanted = wants.entry(view.root.clone()).or_default();
         wanted.details = true;
+        wanted.history = Some(view.history.wants());
         let mut diffs: Vec<DiffKey> = view
             .open
             .iter()
@@ -381,6 +386,7 @@ pub fn outline(editor: &Editor, range: Range<usize>) -> Option<Outline> {
         toggle: TOGGLE,
         activate: VISIT,
         hints: HINTS,
+        history: snapshot.map(|snapshot| history_view::history(view, snapshot)),
     })
 }
 

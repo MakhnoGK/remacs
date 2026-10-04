@@ -1,6 +1,7 @@
 use std::ops::Range;
 use std::rc::Rc;
 
+use crate::command::CommandResult;
 use crate::editor::Editor;
 use crate::status::Tone;
 use crate::table::Button;
@@ -20,6 +21,67 @@ pub struct Outline {
     pub activate: &'static str,
     /// Keys and what they do, under the pane.
     pub hints: &'static [(&'static str, &'static str)],
+    /// Beside the pane when there is room.
+    pub history: Option<History>,
+}
+
+/// Commits, newest first, with the graph of how they descend from each other, like Emacs
+/// `magit-log`.
+pub struct History {
+    /// Which commits are shown, e.g. of all branches or of the current one; a click
+    /// switches.
+    pub scopes: Vec<Button>,
+    /// What the commit messages were searched for, if they were.
+    pub search: Option<String>,
+    /// From the first one scrolled to, more than fit.
+    pub commits: Vec<CommitRow>,
+    /// Said in place of the commits when there are none.
+    pub empty: String,
+    /// Moves the first commit shown by so many rows.
+    pub scroll: Scroll,
+}
+
+pub type Scroll = Rc<dyn Fn(&mut Editor, isize) -> CommandResult>;
+
+pub struct CommitRow {
+    pub graph: GraphRow,
+    pub refs: Vec<RefChip>,
+    pub subject: String,
+    pub author: String,
+    /// E.g. `2 h ago`.
+    pub date: String,
+    /// Abbreviated.
+    pub id: String,
+}
+
+/// A commit's row of the graph. Lanes are columns counted from the left; colors index
+/// the theme's graph palette, the first being the checked out branch's, the second its
+/// base's.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct GraphRow {
+    pub lane: usize,
+    pub color: usize,
+    pub node: GraphNode,
+    /// Lines from the top of the row to its middle.
+    pub upper: Vec<GraphEdge>,
+    /// Lines from the middle of the row to its bottom.
+    pub lower: Vec<GraphEdge>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GraphEdge {
+    pub from: usize,
+    pub to: usize,
+    pub color: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum GraphNode {
+    #[default]
+    Commit,
+    Merge,
+    /// Checked out.
+    Head,
 }
 
 /// A labelled fact, e.g. `Head` and the branch, with what else there is to say of it.

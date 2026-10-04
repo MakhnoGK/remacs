@@ -10,9 +10,8 @@ use crate::command::{git, output, output_with_input};
 use crate::monitor::Job;
 use crate::repositories::{Repositories, working_tree};
 use crate::status::Snapshot;
-use crate::status_view::{GIT_MODE, Line, Section, StatusView, section_files};
+use crate::status_view::{GIT_MODE, Line, NOT_A_STATUS_BUFFER, Section, StatusView, section_files};
 
-const NOT_A_STATUS_BUFFER: &str = "Not a Git status buffer";
 const BUFFER_NAME: &str = "Git";
 
 /// Shows the status of the working tree the window's directory is in, like Emacs

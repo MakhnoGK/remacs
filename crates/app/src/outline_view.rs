@@ -1,16 +1,18 @@
 use gpui::{
-    AnyElement, Context, Div, FontWeight, IntoElement, MouseButton, MouseDownEvent, ParentElement,
-    Pixels, div, prelude::*, px, rgb, rgba, svg,
+    AnyElement, BorderStyle, Bounds, Context, Div, FontWeight, IntoElement, MouseButton,
+    MouseDownEvent, ParentElement, PathBuilder, Pixels, Point, ScrollWheelEvent, Window, canvas,
+    div, point, prelude::*, px, quad, rgb, rgba, size, svg,
 };
 use remacs_core::{
-    DiffRow, Fact, FactValue, LineCounts, Outline, OutlineRow, RefChip, RefKind, Tone,
+    CommitRow, DiffRow, Fact, FactValue, GraphNode, GraphRow, History, LineCounts, Outline,
+    OutlineRow, RefChip, RefKind, Tone,
 };
 use remacs_theme::{color, font};
 
 use crate::assets::{CHEVRON_DOWN_ICON, CHEVRON_ICON};
 use crate::editor_view::EditorView;
 use crate::table_view::{LIST_BOTTOM, clickable};
-use crate::widgets::{shadow, state_letter};
+use crate::widgets::{kbd, segment, segmented, shadow, state_letter};
 
 const PANE_TOP: f32 = 56.0;
 const PANE_SIDE: f32 = 16.0;
@@ -28,6 +30,18 @@ const DIFF_LINE_HEIGHT: f32 = 20.0;
 const DIFF_TOP: f32 = 2.0 + 4.0;
 const DIFF_BOTTOM: f32 = 4.0 + 6.0;
 const DIFF_INDENT: f32 = 30.0;
+const HISTORY_GAP: f32 = 20.0;
+const MIN_HISTORY_WIDTH: f32 = 420.0;
+const HISTORY_HEADER_HEIGHT: f32 = 32.0;
+const HISTORY_HEADER_GAP: f32 = 6.0;
+pub const COMMIT_HEIGHT: f32 = 32.0;
+const FIRST_LANE_X: f32 = 20.0;
+const LANE_WIDTH: f32 = 18.0;
+/// Where commit messages start, however few lanes there are.
+const MIN_COMMIT_INDENT: f32 = 84.0;
+/// Lanes drawn at most; a wider graph is cut off.
+const MAX_LANES: usize = 12;
+const GRAPH_STROKE: f32 = 2.0;
 
 /// The most lines that can fit in a window this tall, before the rows are known.
 pub fn max_outline_lines(window_height: Pixels) -> usize {
@@ -82,6 +96,7 @@ pub fn render_outline(
         rows,
         toggle,
         activate,
+        history,
         ..
     } = outline;
     let mut children: Vec<AnyElement> = Vec::new();
@@ -172,6 +187,7 @@ pub fn render_outline(
         }
         children.extend(element.map(IntoElement::into_any_element));
     }
+    let history = history.map(|history| render_history(history, cx));
     let pane = div()
         .flex()
         .flex_col()
@@ -194,7 +210,249 @@ pub fn render_outline(
         .right(px(PANE_SIDE))
         .bottom(px(LIST_BOTTOM))
         .flex()
+        .gap(px(HISTORY_GAP))
         .child(pane)
+        .children(history)
+}
+
+/// Whether a window this wide has room for the history beside the pane.
+pub fn fits_history(window_width: Pixels) -> bool {
+    window_width >= px(2.0 * PANE_SIDE + PANE_WIDTH + HISTORY_GAP + MIN_HISTORY_WIDTH)
+}
+
+/// How many commits fit under the history's header in a window this tall.
+pub fn fitting_commits(window_height: Pixels) -> usize {
+    let room = (window_height / px(1.0))
+        - PANE_TOP
+        - LIST_BOTTOM
+        - HISTORY_HEADER_HEIGHT
+        - HISTORY_HEADER_GAP;
+    (room / COMMIT_HEIGHT).floor().max(0.0) as usize
+}
+
+fn render_history(history: History, cx: &mut Context<EditorView>) -> Div {
+    let History {
+        scopes,
+        search,
+        commits,
+        empty,
+        scroll,
+    } = history;
+    let lanes = commits
+        .iter()
+        .flat_map(|commit| {
+            let graph = &commit.graph;
+            let edges = graph.upper.iter().chain(&graph.lower);
+            edges
+                .flat_map(|edge| [edge.from, edge.to])
+                .chain([graph.lane])
+        })
+        .max()
+        .map_or(1, |lane| lane + 1)
+        .min(MAX_LANES);
+    let indent = (FIRST_LANE_X + LANE_WIDTH * (lanes - 1) as f32 + 28.0).max(MIN_COMMIT_INDENT);
+    let search_hint = match search {
+        Some(search) => div()
+            .text_color(rgb(color::FG_ALT))
+            .child(format!("“{search}”")),
+        None => div().child("Search history"),
+    };
+    let header =
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(12.0))
+            .h(px(HISTORY_HEADER_HEIGHT))
+            .pl(px(12.0))
+            .pr(px(4.0))
+            .child(
+                div()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(rgb(color::FG_MAIN))
+                    .child("History"),
+            )
+            .child(segmented().children(
+                scopes.into_iter().map(|scope| {
+                    clickable(segment(&scope.label, scope.selected), scope.action, cx)
+                }),
+            ))
+            .child(div().flex_1())
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.0))
+                    .px(px(8.0))
+                    .text_size(px(font::STATUS_SIZE))
+                    .text_color(rgb(color::FG_FAINT))
+                    .child(kbd("/", false))
+                    .child(search_hint),
+            );
+    let list = if commits.is_empty() {
+        div()
+            .pl(px(12.0))
+            .pt(px(8.0))
+            .text_color(rgb(color::FG_FAINT))
+            .child(empty)
+    } else {
+        div().flex().flex_col().children(
+            commits
+                .into_iter()
+                .map(|commit| render_commit(commit, indent)),
+        )
+    };
+    div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_w_0()
+        .gap(px(HISTORY_HEADER_GAP))
+        .overflow_hidden()
+        .font_family(font::UI)
+        .text_size(px(font::UI_SIZE))
+        .on_scroll_wheel(cx.listener(move |view, event: &ScrollWheelEvent, _, cx| {
+            cx.stop_propagation();
+            view.scroll_history(event, scroll.clone(), cx);
+        }))
+        .child(header)
+        .child(list)
+}
+
+fn render_commit(commit: CommitRow, indent: f32) -> Div {
+    let CommitRow {
+        graph,
+        refs,
+        subject,
+        author,
+        date,
+        id,
+    } = commit;
+    div()
+        .relative()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(12.0))
+        .h(px(COMMIT_HEIGHT))
+        .pl(px(indent))
+        .pr(px(12.0))
+        .whitespace_nowrap()
+        .child(
+            canvas(
+                |_, _, _| {},
+                move |bounds, _, window, _| {
+                    paint_graph(&graph, bounds, window);
+                },
+            )
+            .absolute()
+            .left_0()
+            .top_0()
+            .w(px(indent))
+            .h(px(COMMIT_HEIGHT)),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_1()
+                .min_w_0()
+                .items_center()
+                .gap(px(6.0))
+                .overflow_hidden()
+                .text_color(rgb(color::FG_MAIN))
+                .children(refs.into_iter().map(ref_chip))
+                .child(div().min_w_0().truncate().child(subject)),
+        )
+        .child(
+            div()
+                .flex_none()
+                .w(px(112.0))
+                .truncate()
+                .text_size(px(font::STATUS_SIZE))
+                .text_color(rgb(color::FG_DIM))
+                .child(author),
+        )
+        .child(
+            div()
+                .flex_none()
+                .w(px(84.0))
+                .text_right()
+                .text_size(px(font::STATUS_SIZE))
+                .text_color(rgb(color::FG_FAINT))
+                .child(date),
+        )
+        .child(
+            div()
+                .flex_none()
+                .w(px(64.0))
+                .text_right()
+                .font_family(font::MONO)
+                .text_size(px(font::STATUS_SIZE))
+                .text_color(rgb(color::FG_LINE_NUMBER))
+                .child(id),
+        )
+}
+
+/// The lines through a commit's row, curving where they change lanes, and its node.
+fn paint_graph(graph: &GraphRow, bounds: Bounds<Pixels>, window: &mut Window) {
+    let x = |lane: usize| bounds.left() + px(FIRST_LANE_X + LANE_WIDTH * lane as f32);
+    let top = bounds.top();
+    let middle = top + px(COMMIT_HEIGHT / 2.0);
+    let bottom = top + px(COMMIT_HEIGHT);
+    for (edges, from_y, to_y) in [(&graph.upper, top, middle), (&graph.lower, middle, bottom)] {
+        for edge in edges
+            .iter()
+            .filter(|edge| edge.from.max(edge.to) < MAX_LANES)
+        {
+            let start = point(x(edge.from), from_y);
+            let end = point(x(edge.to), to_y);
+            let mut path = PathBuilder::stroke(px(GRAPH_STROKE));
+            path.move_to(start);
+            if edge.from == edge.to {
+                path.line_to(end);
+            } else {
+                let bend = (to_y - from_y) * 0.6;
+                path.cubic_bezier_to(
+                    end,
+                    point(start.x, from_y + bend),
+                    point(end.x, to_y - bend),
+                );
+            }
+            if let Ok(path) = path.build() {
+                window.paint_path(path, rgb(color::graph(edge.color)));
+            }
+        }
+    }
+    if graph.lane >= MAX_LANES {
+        return;
+    }
+    let center = point(x(graph.lane), middle);
+    let lane_color = color::graph(graph.color);
+    match graph.node {
+        GraphNode::Head => {
+            paint_dot(window, center, 6.0, color::BG_MAIN, lane_color);
+            paint_dot(window, center, 1.5, lane_color, lane_color);
+        }
+        GraphNode::Merge => paint_dot(window, center, 5.5, color::BG_MAIN, lane_color),
+        GraphNode::Commit => paint_dot(window, center, 4.5, lane_color, color::BG_MAIN),
+    }
+}
+
+/// A circle of `radius` to the middle of its ring, as SVG strokes it.
+fn paint_dot(window: &mut Window, center: Point<Pixels>, radius: f32, fill: u32, ring: u32) {
+    let outer = px(radius + GRAPH_STROKE / 2.0);
+    let bounds = Bounds::new(
+        point(center.x - outer, center.y - outer),
+        size(outer * 2.0, outer * 2.0),
+    );
+    window.paint_quad(quad(
+        bounds,
+        outer,
+        rgb(fill),
+        px(GRAPH_STROKE),
+        rgb(ring),
+        BorderStyle::Solid,
+    ));
 }
 
 fn render_facts(facts: Vec<Fact>, cx: &mut Context<EditorView>) -> Div {

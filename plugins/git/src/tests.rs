@@ -552,3 +552,68 @@ fn visiting_a_diff_line_opens_the_file_there() {
     assert_eq!(buffer.path(), Some(repository.0.join("long.rs").as_path()));
     assert_eq!(buffer.point_line(), 6);
 }
+
+/// Each commit of the history in short: `[feature] Grow the feature`.
+fn history(editor: &Editor) -> Vec<String> {
+    editor
+        .outline(0..100)
+        .unwrap()
+        .history
+        .unwrap()
+        .commits
+        .into_iter()
+        .map(|commit| {
+            let chips: Vec<String> = commit.refs.into_iter().map(|chip| chip.name).collect();
+            if chips.is_empty() {
+                commit.subject
+            } else {
+                format!("[{}] {}", chips.join(" "), commit.subject)
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn the_history_shows_all_branches_or_the_current_one_and_searches_messages() {
+    let repository = Repository::new("history");
+    let _remote = Remote::for_repository(&repository);
+    repository.git(&["tag", "v1"]);
+    repository.git(&["switch", "-q", "-c", "feature"]);
+    commit(&repository, "feature.rs", "f\n", "Start the feature");
+    commit(&repository, "feature.rs", "f\ng\n", "Grow the feature");
+    repository.git(&["switch", "-q", "main"]);
+    commit(&repository, "main.rs", "m\n", "Move main on");
+    repository.git(&["switch", "-q", "feature"]);
+    let mut editor = status_buffer(&repository);
+
+    wait_until(&mut editor, "the history", |editor| {
+        history(editor).len() == 4
+    });
+    let all = history(&editor);
+    assert!(all.contains(&"[feature] Grow the feature".to_owned()));
+    assert!(all.contains(&"[main] Move main on".to_owned()));
+    assert_eq!(all.last().unwrap(), "[origin/main v1] First");
+    let graph = editor.outline(0..100).unwrap().history.unwrap().commits;
+    assert!(graph.iter().any(|commit| commit.graph.lane == 1));
+
+    press(&mut editor, "l");
+    wait_until(&mut editor, "the current branch's history", |editor| {
+        history(editor).len() == 3
+    });
+    assert_eq!(
+        history(&editor),
+        [
+            "[feature] Grow the feature",
+            "Start the feature",
+            "[origin/main v1] First"
+        ]
+    );
+
+    press(&mut editor, "/");
+    type_text(&mut editor, "grow");
+    press(&mut editor, "RET");
+    wait_until(&mut editor, "the search", |editor| {
+        history(editor).len() == 1
+    });
+    assert_eq!(history(&editor), ["[feature] Grow the feature"]);
+}

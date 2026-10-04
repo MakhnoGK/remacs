@@ -4,11 +4,13 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use remacs_core::{FileState, FileStatus, LineCounts};
 
 use crate::details::Details;
 use crate::diff::FileDiff;
+use crate::history::Log;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Snapshot {
@@ -23,6 +25,8 @@ pub struct Snapshot {
     pub details: Option<Details>,
     /// Of the files a status buffer shows unfolded.
     pub diffs: HashMap<DiffKey, FileDiff>,
+    /// Read while a status buffer shows the tree; shared, as it rarely changes.
+    pub history: Option<Arc<Log>>,
 }
 
 /// One side of a file's changes: staged, or not yet.
