@@ -677,6 +677,31 @@ fn prettier_of_the_project_comes_before_the_global_one() {
     assert_eq!(format(&root.join("index.js")), "// the project's own\n");
 }
 
+#[test]
+#[ignore]
+fn prettier_finds_the_plugins_of_the_projects_config() {
+    let root = project(
+        "prettier-plugin",
+        &[
+            ("package.json", "{}\n"),
+            (
+                ".prettierrc",
+                "{ \"plugins\": [\"prettier-plugin-nothing\"] }\n",
+            ),
+            ("index.ts", "const a={b:1}\n"),
+            (
+                "node_modules/prettier-plugin-nothing/package.json",
+                "{ \"main\": \"index.js\" }\n",
+            ),
+            (
+                "node_modules/prettier-plugin-nothing/index.js",
+                "module.exports = {};\n",
+            ),
+        ],
+    );
+    assert_eq!(format(&root.join("index.ts")), "const a = { b: 1 };\n");
+}
+
 /// Saves with formatting on save on and waits for the file to be saved formatted.
 fn save_formatted(file: &Path, formatted: &str) {
     let mut editor = Editor::new(PLUGINS);

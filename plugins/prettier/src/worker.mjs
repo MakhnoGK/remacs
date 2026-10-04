@@ -39,12 +39,31 @@ function ignoreFile(path) {
   }
 }
 
+// Prettier loads plugins named in a config from the working directory, which is not the
+// project's; resolved from the config file they are found in its node_modules.
+async function resolvePlugins(prettier, path, plugins) {
+  if (!plugins?.some((plugin) => typeof plugin === "string")) return plugins;
+  const config = await prettier.resolveConfigFile(path);
+  if (!config) return plugins;
+  const require = createRequire(config);
+  return plugins.map((plugin) => {
+    if (typeof plugin !== "string") return plugin;
+    try {
+      return require.resolve(plugin);
+    } catch {
+      return plugin;
+    }
+  });
+}
+
 async function format({ path, text, range }) {
   const prettier = await prettierFor(path);
-  const info = await prettier.getFileInfo(path, { ignorePath: ignoreFile(path), resolveConfig: true });
+  const options = { ...(await prettier.resolveConfig(path, { editorconfig: true })), filepath: path };
+  options.plugins = await resolvePlugins(prettier, path, options.plugins);
+  // The plugins may add the parser for the file.
+  const info = await prettier.getFileInfo(path, { ignorePath: ignoreFile(path), plugins: options.plugins });
   if (info.ignored) return { ignored: true };
   if (!info.inferredParser) throw new Error("no parser for this file");
-  const options = { ...(await prettier.resolveConfig(path, { editorconfig: true })), filepath: path };
   if (range) [options.rangeStart, options.rangeEnd] = range;
   return { text: await prettier.format(text, options) };
 }

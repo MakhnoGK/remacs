@@ -21,7 +21,9 @@ Status: accepted, 2026-10-04 (lint and format, step 4)
   TypeScript, JavaScript, TSX, JSX, HTML and CSS modes. One Node process
   (`node --input-type=module -e worker.mjs`), started on the first format, keeps each
   project's prettier loaded: the project's own first, else the global one (`npm root
-  -g`). It honours the nearest `.prettierignore` and `.editorconfig`. A warm format of a
+  -g`). It honours the nearest `.prettierignore` and `.editorconfig`. Plugins named in
+  a config are resolved from the config file: prettier itself looks in the worker's
+  working directory, wherever remacs was started. A warm format of a
   small file takes under a millisecond against about 240 ms for the CLI; a dense
   1000-line file about 160 ms, prettier's own time. Texts are copied and diffed off the
   UI thread.
