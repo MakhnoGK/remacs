@@ -11,6 +11,7 @@ use crate::editor::Editor;
 use crate::key::Key;
 use crate::mode::FUNDAMENTAL_MODE;
 use crate::table::Mark;
+use crate::vc::{FileState, LineCounts};
 
 /// Rows shown at once, like `vertico-count`.
 pub const VISIBLE_CANDIDATES: usize = 10;
@@ -50,8 +51,12 @@ pub struct Prompt {
     /// Settings the answer depends on; a switch goes above the input, a chip under the
     /// lists.
     pub options: Vec<PromptOption>,
-    /// What the prompt acts on, beside the switch, e.g. `2 marked files`.
+    /// What the prompt acts on, beside the switch, or after the chips when there is no
+    /// switch, e.g. `2 marked files`.
     pub subject: String,
+    /// The input is the subject of a message with a description under it, like a commit
+    /// message; the answer is both, a blank line between them.
+    pub message: Option<Message>,
     /// Listed for reference under the candidates, not chosen from, e.g. the files a
     /// command acts on.
     pub items: Vec<ListItem>,
@@ -59,6 +64,21 @@ pub struct Prompt {
     /// Right of the title, e.g. a count and a total size.
     pub items_summary: String,
 }
+
+/// How a prompt's message is written.
+#[derive(Default)]
+pub struct Message {
+    /// Characters the subject should keep within, counted beside it.
+    pub subject_limit: usize,
+    /// In the empty description.
+    pub placeholder: &'static str,
+    /// Earlier messages, newest first, brought back by `M-p` and `M-n`.
+    pub earlier: Vec<String>,
+    /// Says why the message cannot be the answer yet; the prompt then stays open.
+    pub check: Option<MessageCheck>,
+}
+
+pub type MessageCheck = Rc<dyn Fn(&str) -> Result<(), String>>;
 
 /// A setting a prompt's answer depends on, switched by `M-` and `key`, or a click.
 pub struct PromptOption {
@@ -106,8 +126,11 @@ pub struct ListItem {
     pub icon: Option<Icon>,
     pub mark: Option<Mark>,
     pub label: String,
-    /// E.g. a size.
+    /// E.g. a size, or a file's directory when it has a state.
     pub detail: String,
+    /// How a changed file differs, drawn as a letter before it.
+    pub state: Option<FileState>,
+    pub lines: Option<LineCounts>,
 }
 
 /// A setting the answer depends on, switched by `key` or a click before answering.
@@ -127,6 +150,12 @@ pub(crate) type AnswerHandler = Box<dyn FnOnce(&mut Editor, String) -> CommandRe
 pub struct Minibuffer {
     prompt: Prompt,
     pub(crate) input: Buffer,
+    /// A message's lines after its subject, which is the input.
+    description: Option<Buffer>,
+    /// Commands act on the description rather than the input.
+    in_description: bool,
+    /// Of the prompt's earlier messages, the one brought back.
+    earlier_message: Option<usize>,
     /// `None` for a y-or-n question.
     pub(crate) source: Option<CompletionSource>,
     pub(crate) on_answer: AnswerHandler,
@@ -144,15 +173,23 @@ impl Minibuffer {
         source: Option<CompletionSource>,
         on_answer: AnswerHandler,
     ) -> Self {
-        let mut input = Buffer::new(
-            " *Minibuf*",
-            Text::from(prompt.initial_input.as_str()),
-            FUNDAMENTAL_MODE,
-        );
-        input.set_point(prompt.initial_input.len());
+        let (subject, description) = match &prompt.message {
+            Some(_) => {
+                let (subject, description) = split_message(&prompt.initial_input);
+                (
+                    subject,
+                    Some(input_buffer(" *Minibuf-description*", description)),
+                )
+            }
+            None => (prompt.initial_input.as_str(), None),
+        };
+        let input = input_buffer(" *Minibuf*", subject);
         Self {
             prompt,
             input,
+            description,
+            in_description: false,
+            earlier_message: None,
             source,
             on_answer,
             dialog: None,
@@ -211,6 +248,76 @@ impl Minibuffer {
 
     pub fn input_text(&self) -> String {
         self.input.contents(0..self.input.text().len())
+    }
+
+    /// A message's description, under its subject.
+    pub fn description(&self) -> Option<&Buffer> {
+        self.description.as_ref()
+    }
+
+    pub fn in_description(&self) -> bool {
+        self.in_description
+    }
+
+    /// The buffer commands edit: the description or the input.
+    pub(crate) fn editing(&self) -> &Buffer {
+        match &self.description {
+            Some(description) if self.in_description => description,
+            _ => &self.input,
+        }
+    }
+
+    pub(crate) fn editing_mut(&mut self) -> &mut Buffer {
+        match &mut self.description {
+            Some(description) if self.in_description => description,
+            _ => &mut self.input,
+        }
+    }
+
+    /// Moves between a message's subject and its description.
+    pub fn next_field(&mut self) -> CommandResult {
+        if self.description.is_none() {
+            return Err("No other field".into());
+        }
+        self.in_description = !self.in_description;
+        Ok(())
+    }
+
+    /// Replaces the message with an earlier one, or a later one, like Emacs
+    /// `previous-history-element`.
+    pub fn recall_message(&mut self, older: bool) -> CommandResult {
+        let earlier = &self.prompt.message.as_ref().ok_or("Not a message")?.earlier;
+        let index = match (self.earlier_message, older) {
+            (None, true) => 0,
+            (None, false) => return Err("No later message".into()),
+            (Some(index), true) => index + 1,
+            (Some(0), false) => return Err("No later message".into()),
+            (Some(index), false) => index - 1,
+        };
+        let message = earlier.get(index).ok_or("No earlier message")?;
+        let (subject, description) = split_message(message);
+        replace_text(&mut self.input, subject);
+        if let Some(buffer) = &mut self.description {
+            replace_text(buffer, description);
+        }
+        self.earlier_message = Some(index);
+        Ok(())
+    }
+
+    /// The subject, and the description after a blank line if there is one.
+    fn message_text(&self) -> String {
+        let subject = self.input_text();
+        let description = self
+            .description
+            .as_ref()
+            .map(|buffer| buffer.contents(0..buffer.text().len()))
+            .unwrap_or_default();
+        let description = description.trim_end();
+        if description.is_empty() {
+            subject
+        } else {
+            format!("{subject}\n\n{description}")
+        }
     }
 
     pub fn is_question(&self) -> bool {
@@ -317,6 +424,13 @@ impl Minibuffer {
 
     /// The selected candidate, else the input, else the default.
     pub(crate) fn answer(&self, literal_input: bool) -> Result<String, CommandError> {
+        if let Some(message) = &self.prompt.message {
+            let text = self.message_text();
+            if let Some(check) = &message.check {
+                check(&text)?;
+            }
+            return Ok(text);
+        }
         let input = self.input_text();
         if !literal_input && let Some(candidate) = self.selected_candidate() {
             return Ok(candidate.value.clone());
@@ -331,4 +445,21 @@ impl Minibuffer {
         }
         Ok(input)
     }
+}
+
+fn input_buffer(name: &str, text: &str) -> Buffer {
+    let mut buffer = Buffer::new(name, Text::from(text), FUNDAMENTAL_MODE);
+    buffer.set_point(text.len());
+    buffer
+}
+
+fn replace_text(buffer: &mut Buffer, text: &str) {
+    buffer.replace_text(Text::from(text));
+    buffer.set_point(text.len());
+}
+
+/// A message's first line, and the lines after the blank ones under it.
+fn split_message(message: &str) -> (&str, &str) {
+    let (subject, description) = message.split_once('\n').unwrap_or((message, ""));
+    (subject, description.trim_start_matches('\n'))
 }

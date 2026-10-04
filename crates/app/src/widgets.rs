@@ -2,7 +2,7 @@ use gpui::{
     BoxShadow, Div, HighlightStyle, Hsla, IntoElement, ParentElement, Styled, Svg, div, point,
     prelude::FluentBuilder, px, rgb, rgba, svg,
 };
-use remacs_core::{FileState, Icon, ListItem, Mark};
+use remacs_core::{FileState, Icon, LineCounts, ListItem, Mark};
 use remacs_theme::{color, font};
 
 use crate::assets::{
@@ -83,37 +83,81 @@ pub fn state_letter(state: Option<FileState>, selected: bool) -> Div {
         })
 }
 
+/// `+24 −3`, the zero side left out.
+pub fn line_counts(lines: LineCounts, selected: bool) -> Div {
+    let (added, removed) = if selected {
+        (color::VC_ADDED_ON_SELECTION, color::VC_REMOVED_ON_SELECTION)
+    } else {
+        (color::VC_ADDED, color::VC_REMOVED)
+    };
+    let count = |text: String, text_color| div().text_color(rgb(text_color)).child(text);
+    div()
+        .flex()
+        .flex_none()
+        .gap(px(10.0))
+        .font_family(font::MONO)
+        .text_size(px(font::STATUS_SIZE))
+        .when(lines.added > 0, |counts| {
+            counts.child(count(format!("+{}", lines.added), added))
+        })
+        .when(lines.removed > 0, |counts| {
+            counts.child(count(format!("−{}", lines.removed), removed))
+        })
+}
+
 /// Rows of `items` `row_height` tall, at most `max` of them and a line saying how many
 /// more there are.
 pub fn list_items(items: Vec<ListItem>, max: usize, row_height: f32) -> Vec<Div> {
     let hidden = items.len().saturating_sub(max);
     let rows = items.into_iter().take(max).map(|item| {
-        div()
+        let row = div()
             .flex()
             .items_center()
             .gap(px(10.0))
             .h(px(row_height))
             .px(px(10.0))
             .children(item.mark.map(mark_badge))
-            .children(item.icon.map(|item_icon| icon(item_icon, color::FG_DIM)))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .font_family(font::MONO)
-                    .text_size(px(font::CODE_SIZE))
-                    .text_color(rgb(color::FG_KBD))
-                    .child(item.label),
-            )
-            .child(
-                div()
-                    .flex_none()
-                    .font_family(font::MONO)
-                    .text_size(px(font::STATUS_SIZE))
-                    .text_color(rgb(color::FG_DIM))
-                    .child(item.detail),
-            )
+            .children(item.icon.map(|item_icon| icon(item_icon, color::FG_DIM)));
+        if let Some(state) = item.state {
+            // A changed file: its name, then where it is and how many lines changed.
+            return row
+                .child(state_letter(Some(state), false).w(px(12.0)))
+                .child(
+                    div()
+                        .flex_none()
+                        .font_family(font::MONO)
+                        .text_size(px(font::CODE_SIZE))
+                        .child(item.label),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_size(px(font::STATUS_SIZE))
+                        .text_color(rgb(color::FG_DIM))
+                        .child(item.detail),
+                )
+                .children(item.lines.map(|lines| line_counts(lines, false)));
+        }
+        row.child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .font_family(font::MONO)
+                .text_size(px(font::CODE_SIZE))
+                .text_color(rgb(color::FG_KBD))
+                .child(item.label),
+        )
+        .child(
+            div()
+                .flex_none()
+                .font_family(font::MONO)
+                .text_size(px(font::STATUS_SIZE))
+                .text_color(rgb(color::FG_DIM))
+                .child(item.detail),
+        )
     });
     let more = (hidden > 0).then(|| {
         div()

@@ -266,20 +266,27 @@ fn view_root(editor: &Editor) -> Result<(PathBuf, usize), &'static str> {
 
 /// The working tree, its status as shown and what the line at point stands for.
 fn at_point(editor: &Editor) -> Result<(PathBuf, Snapshot, Line), &'static str> {
-    let (root, point_line) = view_root(editor)?;
+    let (root, snapshot) = shown_status(editor)?;
+    let point_line = editor.window_buffer().point_line();
     let view = editor
         .window_buffer()
         .local::<StatusView>()
         .ok_or(NOT_A_STATUS_BUFFER)?;
     let line = view.line(point_line).cloned().ok_or("Nothing here")?;
+    Ok((root, snapshot, line))
+}
+
+/// The working tree of the status buffer and its status as shown.
+pub fn shown_status(editor: &Editor) -> Result<(PathBuf, Snapshot), &'static str> {
+    let (root, _) = view_root(editor)?;
     let snapshot = editor
         .find_plugin_state::<Repositories>()
         .and_then(|repositories| repositories.get(&root)?.snapshot.clone())
         .ok_or("Still reading the status")?;
-    Ok((root, snapshot, line))
+    Ok((root, snapshot))
 }
 
-fn run(editor: &mut Editor, root: &Path, job: Job) -> CommandResult {
+pub fn run(editor: &mut Editor, root: &Path, job: Job) -> CommandResult {
     repository_monitor(editor, root, |monitor| monitor.run(job))
 }
 
@@ -365,6 +372,8 @@ fn paths_dialog_items(snapshot: &Snapshot, section: Section) -> Vec<ListItem> {
             mark: None,
             label: file.path.display().to_string(),
             detail: String::new(),
+            state: None,
+            lines: None,
         })
         .collect()
 }

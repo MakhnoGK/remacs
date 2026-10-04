@@ -77,7 +77,11 @@ fn press(editor: &mut Editor, keys: &str) {
 
 fn type_text(editor: &mut Editor, text: &str) {
     for character in text.chars() {
-        press(editor, &character.to_string());
+        let key = match character {
+            ' ' => "SPC".to_owned(),
+            other => other.to_string(),
+        };
+        press(editor, &key);
     }
 }
 
@@ -616,4 +620,72 @@ fn the_history_shows_all_branches_or_the_current_one_and_searches_messages() {
         history(editor).len() == 1
     });
     assert_eq!(history(&editor), ["[feature] Grow the feature"]);
+}
+
+/// Waits for the last commit's message to be `expected`.
+fn wait_for_message(editor: &mut Editor, repository: &Repository, expected: &str) {
+    let start = Instant::now();
+    loop {
+        let message = repository.git(&["log", "-1", "--format=%B"]);
+        if message.trim_end() == expected {
+            return;
+        }
+        assert!(start.elapsed() < TIMEOUT, "the message stayed {message:?}");
+        thread::sleep(Duration::from_millis(10));
+        editor.refresh();
+    }
+}
+
+#[test]
+fn a_commit_message_has_a_subject_and_a_description() {
+    let repository = Repository::new("commit");
+    repository.write("lib.rs", "two\n");
+    repository.git(&["add", "lib.rs"]);
+    let mut editor = status_buffer(&repository);
+
+    press(&mut editor, "c");
+    let prompt = editor.minibuffer().unwrap().prompt();
+    assert_eq!(prompt.items_summary, "1 file · +1 −1");
+    assert_eq!(prompt.subject, "Test → main");
+    type_text(&mut editor, "Say two");
+    press(&mut editor, "RET");
+    assert!(editor.minibuffer().unwrap().in_description());
+    type_text(&mut editor, "One was");
+    press(&mut editor, "RET");
+    type_text(&mut editor, "not enough.");
+    press(&mut editor, "M-s");
+    press(&mut editor, "C-c C-c");
+    assert!(editor.minibuffer().is_none());
+    wait_for_message(
+        &mut editor,
+        &repository,
+        "Say two\n\nOne was\nnot enough.\n\nSigned-off-by: Test <test@example.com>",
+    );
+
+    repository.write("kept.rs", "changed\n");
+    repository.git(&["add", "kept.rs"]);
+    wait_until(&mut editor, "the staged change", |editor| {
+        rows(editor).contains(&"M ./kept.rs +1 -1".to_owned())
+    });
+    press(&mut editor, "c");
+    press(&mut editor, "M-p");
+    assert_eq!(editor.minibuffer().unwrap().input_text(), "Say two");
+    press(&mut editor, "M-n");
+    assert_eq!(editor.echo().as_deref(), Some("No later message"));
+    let subject_length = "Say two".len();
+    for _ in 0..subject_length {
+        press(&mut editor, "DEL");
+    }
+    press(&mut editor, "TAB M-< C-SPC M-> C-w");
+    press(&mut editor, "C-c C-c");
+    assert_eq!(
+        editor.echo().as_deref(),
+        Some("The commit message is empty")
+    );
+    assert!(editor.minibuffer().is_some());
+
+    press(&mut editor, "M-a");
+    press(&mut editor, "C-c C-c");
+    wait_for_status(&mut editor, &repository, "");
+    assert_eq!(repository.git(&["rev-list", "--count", "HEAD"]).trim(), "2");
 }

@@ -4,15 +4,15 @@ use gpui::{
     div, point, prelude::*, px, quad, rgb, rgba, size, svg,
 };
 use remacs_core::{
-    CommitRow, DiffRow, Fact, FactValue, GraphNode, GraphRow, History, LineCounts, Outline,
-    OutlineRow, RefChip, RefKind, Tone,
+    CommitRow, DiffRow, Fact, FactValue, GraphNode, GraphRow, History, Outline, OutlineRow,
+    RefChip, RefKind, Tone,
 };
 use remacs_theme::{color, font};
 
 use crate::assets::{CHEVRON_DOWN_ICON, CHEVRON_ICON};
 use crate::editor_view::EditorView;
 use crate::table_view::{LIST_BOTTOM, clickable};
-use crate::widgets::{kbd, segment, segmented, shadow, state_letter};
+use crate::widgets::{kbd, line_counts, segment, segmented, shadow, state_letter};
 
 const PANE_TOP: f32 = 56.0;
 const PANE_SIDE: f32 = 16.0;
@@ -607,28 +607,6 @@ fn row_frame(selected: bool) -> Div {
         .when(selected, |row| {
             row.bg(rgb(color::BG_SELECTION))
                 .shadow(vec![shadow(0x00000073, 1.0, 3.0, 0.0)])
-        })
-}
-
-/// `+24 −3`, the zero side left out.
-fn line_counts(lines: LineCounts, selected: bool) -> Div {
-    let (added, removed) = if selected {
-        (color::VC_ADDED_ON_SELECTION, color::VC_REMOVED_ON_SELECTION)
-    } else {
-        (color::VC_ADDED, color::VC_REMOVED)
-    };
-    let count = |text: String, text_color| div().text_color(rgb(text_color)).child(text);
-    div()
-        .flex()
-        .flex_none()
-        .gap(px(10.0))
-        .font_family(font::MONO)
-        .text_size(px(font::STATUS_SIZE))
-        .when(lines.added > 0, |counts| {
-            counts.child(count(format!("+{}", lines.added), added))
-        })
-        .when(lines.removed > 0, |counts| {
-            counts.child(count(format!("−{}", lines.removed), removed))
         })
 }
 

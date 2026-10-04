@@ -94,17 +94,18 @@ impl Editor {
         }
     }
 
-    /// The buffer commands act on: the minibuffer input while a prompt is open.
+    /// The buffer commands act on: the minibuffer input, or a message's description,
+    /// while a prompt is open.
     pub fn buffer(&self) -> &Buffer {
         match &self.minibuffer {
-            Some(minibuffer) => &minibuffer.input,
+            Some(minibuffer) => minibuffer.editing(),
             None => &self.buffers[0],
         }
     }
 
     pub fn buffer_mut(&mut self) -> &mut Buffer {
         match &mut self.minibuffer {
-            Some(minibuffer) => &mut minibuffer.input,
+            Some(minibuffer) => minibuffer.editing_mut(),
             None => &mut self.buffers[0],
         }
     }
@@ -635,6 +636,11 @@ impl Editor {
     }
 
     fn active_keymaps(&self) -> Vec<&Keymap> {
+        let message_keymap = self
+            .minibuffer
+            .as_ref()
+            .filter(|minibuffer| minibuffer.description().is_some())
+            .map(|_| &self.registry.message_keymap);
         let minibuffer_keymap = self
             .minibuffer
             .as_ref()
@@ -645,8 +651,9 @@ impl Editor {
             .iter()
             .filter(|minor| (minor.active)(self))
             .map(|minor| &minor.keymap);
-        minibuffer_keymap
+        message_keymap
             .into_iter()
+            .chain(minibuffer_keymap)
             .chain(minor_keymaps)
             .chain([&self.registry.keymap])
             .collect()

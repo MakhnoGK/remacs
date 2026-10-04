@@ -17,6 +17,10 @@ const COMMANDS: &[Command] = &[
     Command::new("minibuffer-complete", "Replace the input with the selected candidate", minibuffer_complete),
     Command::new("next-candidate", "Select the next candidate", next_candidate),
     Command::new("previous-candidate", "Select the previous candidate", previous_candidate),
+    Command::new("minibuffer-next-field", "Move between a message's subject and description", next_field),
+    Command::new("minibuffer-message-newline", "Break the description's line, or go on to it from the subject", message_newline),
+    Command::new("previous-message", "Bring back the message before this one", previous_message),
+    Command::new("next-message", "Bring back the message after this one", next_message),
 ];
 
 const BINDINGS: &[(&str, &str)] = &[
@@ -34,6 +38,19 @@ const MINIBUFFER_BINDINGS: &[(&str, &str)] = &[
     ("<up>", "previous-candidate"),
 ];
 
+/// Like Emacs `git-commit-mode` and `log-edit-mode`.
+const MESSAGE_BINDINGS: &[(&str, &str)] = &[
+    ("RET", "minibuffer-message-newline"),
+    ("TAB", "minibuffer-next-field"),
+    ("C-c C-c", "exit-minibuffer-with-input"),
+    ("M-p", "previous-message"),
+    ("M-n", "next-message"),
+    ("C-n", "next-line"),
+    ("C-p", "previous-line"),
+    ("<down>", "next-line"),
+    ("<up>", "previous-line"),
+];
+
 impl Plugin for MinibufferPlugin {
     fn register(&self, registry: &mut Registry) {
         for command in COMMANDS {
@@ -44,6 +61,9 @@ impl Plugin for MinibufferPlugin {
         }
         for &(keys, command) in MINIBUFFER_BINDINGS {
             registry.minibuffer_keymap.bind(keys, command);
+        }
+        for &(keys, command) in MESSAGE_BINDINGS {
+            registry.message_keymap.bind(keys, command);
         }
     }
 }
@@ -122,6 +142,28 @@ fn next_candidate(editor: &mut Editor) -> CommandResult {
 fn previous_candidate(editor: &mut Editor) -> CommandResult {
     minibuffer(editor)?.select_previous();
     Ok(())
+}
+
+fn next_field(editor: &mut Editor) -> CommandResult {
+    minibuffer(editor)?.next_field()
+}
+
+/// Breaks the description's line; in the subject, goes on to the description.
+fn message_newline(editor: &mut Editor) -> CommandResult {
+    let minibuffer = minibuffer(editor)?;
+    if !minibuffer.in_description() {
+        return minibuffer.next_field();
+    }
+    editor.buffer_mut().insert("\n");
+    Ok(())
+}
+
+fn previous_message(editor: &mut Editor) -> CommandResult {
+    minibuffer(editor)?.recall_message(true)
+}
+
+fn next_message(editor: &mut Editor) -> CommandResult {
+    minibuffer(editor)?.recall_message(false)
 }
 
 fn minibuffer(editor: &mut Editor) -> Result<&mut Minibuffer, &'static str> {

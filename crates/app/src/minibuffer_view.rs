@@ -34,6 +34,9 @@ const COMMAND_NAME_WIDTH: f32 = 232.0;
 const CURSOR_CHILD: usize = 1;
 /// Items listed for reference give way to the candidates beyond this many.
 const MAX_LISTED_ITEMS: usize = 5;
+/// Of a message's description, shown at once.
+const DESCRIPTION_LINES: usize = 4;
+const DESCRIPTION_LINE_HEIGHT: f32 = 22.0;
 
 /// Dims the editor behind an open prompt.
 pub fn render_scrim() -> impl IntoElement {
@@ -78,11 +81,14 @@ pub fn render_minibuffer(
         POPOVER_WIDTH
     };
     let has_switch = prompt.options.iter().any(PromptOption::is_switch);
+    let has_chip = prompt.options.iter().any(|option| !option.is_switch());
     let popover = popover(width)
-        .when(has_switch || !prompt.subject.is_empty(), |popover| {
-            popover.child(render_switches(prompt, cx))
-        })
+        .when(
+            has_switch || (!has_chip && !prompt.subject.is_empty()),
+            |popover| popover.child(render_switches(prompt, cx)),
+        )
         .child(render_field(minibuffer, input_scroll))
+        .children(render_description(minibuffer))
         .when(!minibuffer.candidates().is_empty(), |popover| {
             popover.child(render_candidates(minibuffer, cx))
         })
@@ -95,7 +101,7 @@ pub fn render_minibuffer(
                 ))
                 .children(list_items(prompt.items.clone(), MAX_LISTED_ITEMS, 30.0))
         })
-        .children(render_chips(prompt, cx))
+        .children(render_chips(prompt, !has_switch, cx))
         .child(render_hints(minibuffer.hints()));
     if is_problem_list(minibuffer) {
         return div()
@@ -146,8 +152,9 @@ fn render_switches(prompt: &Prompt, cx: &mut Context<EditorView>) -> Div {
         )
 }
 
-/// Settings that are on or off, under the lists.
-fn render_chips(prompt: &Prompt, cx: &mut Context<EditorView>) -> Option<Div> {
+/// Settings that are on or off, under the lists; then what the prompt acts on, if
+/// `with_subject`.
+fn render_chips(prompt: &Prompt, with_subject: bool, cx: &mut Context<EditorView>) -> Option<Div> {
     let chips: Vec<Div> = prompt
         .options
         .iter()
@@ -166,11 +173,21 @@ fn render_chips(prompt: &Prompt, cx: &mut Context<EditorView>) -> Option<Div> {
         div()
             .flex()
             .flex_wrap()
+            .items_center()
             .gap(px(6.0))
             .pt(px(12.0))
             .px(px(10.0))
             .pb(px(2.0))
             .children(chips)
+            .when(with_subject && !prompt.subject.is_empty(), |chips| {
+                chips.child(div().flex_1()).child(
+                    div()
+                        .flex_none()
+                        .text_size(px(font::STATUS_SIZE))
+                        .text_color(rgb(color::FG_FAINT))
+                        .child(prompt.subject.clone()),
+                )
+            })
     })
 }
 
@@ -208,7 +225,7 @@ fn render_field(minibuffer: &Minibuffer, input_scroll: &ScrollHandle) -> impl In
         .bg(rgb(color::BG_FIELD))
         .rounded(px(8.0))
         .border_1()
-        .border_color(rgba(0x2fafff59));
+        .border_color(field_border(!minibuffer.in_description()));
     if minibuffer.is_question() {
         return field
             .text_size(px(font::INPUT_SIZE))
@@ -243,6 +260,19 @@ fn render_field(minibuffer: &Minibuffer, input_scroll: &ScrollHandle) -> impl In
         .child(render_input(minibuffer, input_scroll))
         .child(if is_problem_list(minibuffer) {
             render_severity_counts(minibuffer.candidates()).into_any_element()
+        } else if let Some(message) = &prompt.message {
+            let length = minibuffer.input_text().chars().count();
+            div()
+                .flex_none()
+                .font_family(font::MONO)
+                .text_size(px(font::STATUS_SIZE))
+                .text_color(rgb(if length > message.subject_limit {
+                    color::WARNING
+                } else {
+                    color::FG_DIM
+                }))
+                .child(format!("{length}/{}", message.subject_limit))
+                .into_any_element()
         } else {
             div()
                 .flex_none()
@@ -297,6 +327,11 @@ fn render_input(minibuffer: &Minibuffer, scroll: &ScrollHandle) -> impl IntoElem
     let cursor = line.cursor_cell(input.point_column());
     let part = |range: Range<usize>| div().flex_none().child(line.text[range].to_owned());
     let cursor_text = line.text[cursor.clone()].to_owned();
+    let cursor_highlights = if minibuffer.in_description() {
+        Vec::new()
+    } else {
+        vec![(0..cursor_text.len(), cursor_style())]
+    };
     scroll.scroll_to_item(CURSOR_CHILD);
     div()
         .id("minibuffer-input")
@@ -310,10 +345,9 @@ fn render_input(minibuffer: &Minibuffer, scroll: &ScrollHandle) -> impl IntoElem
         .text_size(px(font::INPUT_SIZE))
         .child(part(0..cursor.start))
         .child(
-            div().flex_none().child(
-                StyledText::new(cursor_text.clone())
-                    .with_highlights([(0..cursor_text.len(), cursor_style())]),
-            ),
+            div()
+                .flex_none()
+                .child(StyledText::new(cursor_text).with_highlights(cursor_highlights)),
         )
         .child(part(cursor.end..line.text.len()))
         .when(input.text().is_empty(), |field| {
@@ -323,6 +357,72 @@ fn render_input(minibuffer: &Minibuffer, scroll: &ScrollHandle) -> impl IntoElem
                     .child(minibuffer.prompt().placeholder),
             )
         })
+}
+
+/// Lit while it is the one being typed in.
+fn field_border(active: bool) -> gpui::Rgba {
+    rgba(if active { 0x2fafff59 } else { 0xffffff0f })
+}
+
+/// A message's description under its subject: a few lines, scrolled to the cursor.
+fn render_description(minibuffer: &Minibuffer) -> Option<impl IntoElement> {
+    let description = minibuffer.description()?;
+    let active = minibuffer.in_description();
+    let text = description.contents(0..description.text().len());
+    let point_line = description.point_line();
+    let first = if active {
+        point_line.saturating_sub(DESCRIPTION_LINES - 1)
+    } else {
+        0
+    };
+    let lines = text
+        .split('\n')
+        .enumerate()
+        .skip(first)
+        .take(DESCRIPTION_LINES)
+        .map(|(index, source)| {
+            let mut line = DisplayLine::new(source);
+            let highlights = if active && index == point_line {
+                let cursor = line.cursor_cell(description.point_column());
+                vec![(cursor, cursor_style())]
+            } else {
+                Vec::new()
+            };
+            div()
+                .h(px(DESCRIPTION_LINE_HEIGHT))
+                .whitespace_nowrap()
+                .overflow_hidden()
+                .child(StyledText::new(line.text).with_highlights(highlights))
+        });
+    let placeholder = minibuffer
+        .prompt()
+        .message
+        .as_ref()
+        .map_or("", |message| message.placeholder);
+    let label = render_group_title("Description", None, false);
+    let field = div()
+        .flex()
+        .flex_col()
+        .h(px(DESCRIPTION_LINE_HEIGHT * DESCRIPTION_LINES as f32 + 16.0))
+        .py(px(8.0))
+        .px(px(12.0))
+        .bg(rgb(color::BG_FIELD))
+        .rounded(px(8.0))
+        .border_1()
+        .border_color(field_border(active))
+        .font_family(font::MONO)
+        .text_size(px(font::CODE_SIZE))
+        .line_height(px(DESCRIPTION_LINE_HEIGHT))
+        .text_color(rgb(color::FG_BODY))
+        .children(lines)
+        .when(text.is_empty() && !active, |field| {
+            field.child(
+                div()
+                    .text_color(rgb(color::FG_PLACEHOLDER))
+                    .child(placeholder),
+            )
+        });
+    Some(div().child(label).child(field))
 }
 
 fn count_text(minibuffer: &Minibuffer) -> String {

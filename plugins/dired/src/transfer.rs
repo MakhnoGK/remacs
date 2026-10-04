@@ -106,6 +106,8 @@ fn read_destination(editor: &mut Editor, moving: bool) -> CommandResult {
                 mark: None,
                 label: display_name(entry),
                 detail: entry.size_label.clone(),
+                state: None,
+                lines: None,
             })
             .collect(),
         items_title: "Files",

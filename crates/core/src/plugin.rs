@@ -26,6 +26,8 @@ pub struct Registry {
     pub keymap: Keymap,
     /// Active over `keymap` while a prompt is open, like `minibuffer-local-map`.
     pub minibuffer_keymap: Keymap,
+    /// Active over `minibuffer_keymap` while a prompt edits a message.
+    pub message_keymap: Keymap,
     pub minor_keymaps: Vec<MinorKeymap>,
     pub modes: Modes,
     /// Run after every command and whenever background work has results, like Emacs

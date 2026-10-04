@@ -86,6 +86,8 @@ fn dialog(targets: &[Entry], mark: Option<Mark>, to_trash: bool) -> Dialog {
                 mark,
                 label: display_name(entry),
                 detail: entry.size_label.clone(),
+                state: None,
+                lines: None,
             })
             .collect(),
         option: Some(DialogOption {

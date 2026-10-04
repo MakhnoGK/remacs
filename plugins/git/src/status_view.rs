@@ -22,6 +22,7 @@ pub const TOGGLE: &str = "git-toggle";
 pub const VISIT: &str = "git-visit";
 pub const NOT_A_STATUS_BUFFER: &str = "Not a Git status buffer";
 const HINTS: &[(&str, &str)] = &[
+    ("c", "Commit"),
     ("⇥", "Diff"),
     ("s", "Stage"),
     ("u", "Unstage"),
@@ -472,7 +473,7 @@ fn diff_row(text: &str) -> DiffRow {
 }
 
 /// `src/`, or `./` at the root.
-fn directory_label(path: &Path) -> String {
+pub fn directory_label(path: &Path) -> String {
     match path.parent() {
         Some(parent) if !parent.as_os_str().is_empty() => format!("{}/", parent.display()),
         _ => "./".into(),
