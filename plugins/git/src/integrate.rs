@@ -333,7 +333,9 @@ fn chain(target: &str, head: &str, commits: usize) -> CommitChain {
             name: head.into(),
             kind: RefKind::Head,
         },
+        incoming: 0,
         commits,
+        note: None,
     }
 }
 

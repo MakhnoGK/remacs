@@ -2,6 +2,7 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use crate::command::CommandResult;
+use crate::completion::Icon;
 use crate::editor::Editor;
 use crate::status::Tone;
 use crate::table::{Action, Button};
@@ -27,6 +28,17 @@ pub struct Outline {
     pub conflict: Option<ConflictView>,
     /// Across the top, above the panes, while something is in progress.
     pub banner: Option<Banner>,
+    /// At the right of the title bar, e.g. Pull and Push.
+    pub toolbar: Vec<ToolbarButton>,
+}
+
+pub struct ToolbarButton {
+    pub icon: Icon,
+    pub label: String,
+    /// In a badge after the label, e.g. commits to push.
+    pub count: Option<usize>,
+    pub enabled: bool,
+    pub action: Action,
 }
 
 /// What is in progress and what can be done about it, e.g. a rebase stopped at a
@@ -199,8 +211,12 @@ pub struct RefChip {
 pub struct CommitChain {
     pub base: RefChip,
     pub tip: RefChip,
-    /// Dots after the base's.
+    /// Dots after the base's, in its color: commits that come in under ours.
+    pub incoming: usize,
+    /// Dots after those, in the tip's color.
     pub commits: usize,
+    /// Under the chain, e.g. what it means for the history.
+    pub note: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -863,6 +863,101 @@ fn a_merge_brings_the_base_in() {
     });
 }
 
+fn toolbar_counts(editor: &Editor) -> Vec<(String, Option<usize>)> {
+    editor
+        .outline(0..100)
+        .unwrap()
+        .toolbar
+        .into_iter()
+        .map(|button| (button.label, button.count))
+        .collect()
+}
+
+#[test]
+fn the_branch_is_pushed_to_its_upstream_or_gets_one() {
+    let repository = Repository::new("push");
+    let _remote = Remote::for_repository(&repository);
+    commit(&repository, "work.rs", "w\n", "Local work");
+    let mut editor = status_buffer(&repository);
+    wait_until(&mut editor, "the commit to push", |editor| {
+        toolbar_counts(editor) == [("Pull".to_owned(), None), ("Push".to_owned(), Some(1))]
+    });
+
+    press(&mut editor, "P");
+    let prompt = editor.minibuffer().unwrap().prompt();
+    assert_eq!(
+        prompt.title,
+        Some(("Push main".to_owned(), "1 commit".to_owned()))
+    );
+    assert_eq!(prompt.items.len(), 1);
+    press(&mut editor, "u");
+    assert!(editor.minibuffer().is_none());
+    wait_until(&mut editor, "the push", |_| {
+        repository.git(&["rev-parse", "origin/main"]) == repository.git(&["rev-parse", "main"])
+    });
+
+    repository.git(&["switch", "-q", "-c", "topic"]);
+    commit(&repository, "topic.rs", "t\n", "Topic work");
+    wait_until(&mut editor, "the new branch", |editor| {
+        facts(editor)[0].starts_with("Head: topic")
+    });
+    press(&mut editor, "P");
+    let first = &editor.minibuffer().unwrap().candidates()[0];
+    assert_eq!(
+        (first.label.as_str(), first.annotation.as_str()),
+        ("origin/topic", "new upstream")
+    );
+    press(&mut editor, "RET");
+    wait_until(&mut editor, "the new upstream", |_| {
+        output(git(&repository.0).args(["rev-parse", "--abbrev-ref", "topic@{upstream}"]))
+            .is_ok_and(|printed| printed == b"origin/topic\n")
+    });
+}
+
+#[test]
+fn a_diverged_branch_is_pulled_by_rebase_or_merge() {
+    let repository = Repository::new("pull");
+    let _remote = Remote::for_repository(&repository);
+    commit(&repository, "incoming.rs", "i\n", "Incoming");
+    repository.git(&["push", "-q"]);
+    repository.git(&["reset", "-q", "--hard", "HEAD~1"]);
+    commit(&repository, "mine.rs", "m\n", "Mine");
+    let mut editor = status_buffer(&repository);
+    wait_until(&mut editor, "the divergence", |editor| {
+        toolbar_counts(editor) == [("Pull".to_owned(), Some(1)), ("Push".to_owned(), Some(1))]
+    });
+
+    press(&mut editor, "F");
+    let note = |editor: &Editor| {
+        let (_, chain) = editor
+            .minibuffer()
+            .unwrap()
+            .completions()
+            .outcome
+            .clone()
+            .unwrap();
+        chain.note.unwrap()
+    };
+    assert_eq!(
+        note(&editor),
+        "Your commit is replayed on top of the incoming one. History stays linear."
+    );
+    press(&mut editor, "m");
+    assert_eq!(
+        note(&editor),
+        "A merge commit joins your 1 commit and the incoming one."
+    );
+    press(&mut editor, "TAB RET");
+    assert_eq!(
+        editor.echo().as_deref(),
+        Some("Fast-forward isn't possible: the branches have diverged")
+    );
+    press(&mut editor, "r RET");
+    wait_until(&mut editor, "the pull", |_| {
+        repository.git(&["log", "--format=%s", "-2"]) == "Mine\nIncoming\n"
+    });
+}
+
 /// `lib.rs` changed on `feature` and on `main`, `feature` with one more commit after.
 fn conflicting(name: &str) -> Repository {
     let repository = Repository::new(name);

@@ -15,6 +15,8 @@ pub const BRANCH_ICON: &str = "icons/branch.svg";
 pub const CHEVRON_DOWN_ICON: &str = "icons/chevron-down.svg";
 pub const CHEVRON_UP_ICON: &str = "icons/chevron-up.svg";
 pub const PLUS_ICON: &str = "icons/plus.svg";
+pub const PULL_ICON: &str = "icons/pull.svg";
+pub const PUSH_ICON: &str = "icons/push.svg";
 pub const REMOTE_ICON: &str = "icons/remote.svg";
 
 /// Compiled into the binary, so the app needs no resource directory.
@@ -38,6 +40,8 @@ const ASSETS: &[(&str, &[u8])] = &[
         include_bytes!("../assets/icons/chevron-up.svg"),
     ),
     (PLUS_ICON, include_bytes!("../assets/icons/plus.svg")),
+    (PULL_ICON, include_bytes!("../assets/icons/pull.svg")),
+    (PUSH_ICON, include_bytes!("../assets/icons/push.svg")),
     (REMOTE_ICON, include_bytes!("../assets/icons/remote.svg")),
 ];
 

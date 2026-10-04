@@ -91,6 +91,7 @@ pub fn branch(editor: &mut Editor) -> CommandResult {
             key: "TAB",
             values: bases.clone(),
             selected: base.clone(),
+            segmented: false,
         }],
         options: vec![
             option('s', "Switch to new branch", &switch),

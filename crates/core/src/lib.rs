@@ -38,7 +38,7 @@ pub use mode::{FUNDAMENTAL_MODE, Mode, Modes};
 pub use outline::{
     Banner, BannerButton, BannerPart, CommitChain, CommitRow, ConflictBlock, ConflictRegion,
     ConflictSide, ConflictView, DiffRow, Fact, FactValue, GraphEdge, GraphNode, GraphRow, History,
-    Outline, OutlineProvider, OutlineRow, RefChip, RefKind, Scroll,
+    Outline, OutlineProvider, OutlineRow, RefChip, RefKind, Scroll, ToolbarButton,
 };
 pub use plugin::{Hook, MinorKeymap, Plugin, Registry};
 pub use popup::{Code, CodeHighlighter, DocBlock, Documentation, Popup, PopupProvider};

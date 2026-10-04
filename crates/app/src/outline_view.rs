@@ -5,7 +5,7 @@ use gpui::{
 };
 use remacs_core::{
     Banner, BannerButton, BannerPart, Code, CommitRow, DiffRow, Fact, FactValue, GraphNode,
-    GraphRow, History, Outline, OutlineRow, RefChip, RefKind, Tone,
+    GraphRow, History, Outline, OutlineRow, RefChip, RefKind, Tone, ToolbarButton,
 };
 use remacs_theme::{color, font};
 
@@ -14,7 +14,9 @@ use crate::conflict_view::render_conflict;
 use crate::editor_view::EditorView;
 use crate::highlights::Highlights;
 use crate::table_view::{LIST_BOTTOM, clickable};
-use crate::widgets::{kbd, line_counts, segment, segmented, shadow, state_letter, tone_color};
+use crate::widgets::{
+    icon, kbd, line_counts, segment, segmented, shadow, state_letter, tone_color,
+};
 
 const PANE_TOP: f32 = 56.0;
 const BANNER_TOP: f32 = 52.0;
@@ -387,6 +389,66 @@ fn render_banner_button(button: BannerButton, cx: &mut Context<EditorView>) -> D
     } else {
         element
     }
+}
+
+/// Buttons at the right of the title bar, with a badge for what each would move.
+pub fn render_toolbar(buttons: Vec<ToolbarButton>, cx: &mut Context<EditorView>) -> Div {
+    let buttons: Vec<Div> = buttons
+        .into_iter()
+        .map(|button| {
+            let ToolbarButton {
+                icon: button_icon,
+                label,
+                count,
+                enabled,
+                action,
+            } = button;
+            let text = if enabled {
+                color::FG_BODY
+            } else {
+                color::FG_MUTED
+            };
+            let element = div()
+                .flex()
+                .items_center()
+                .gap(px(6.0))
+                .h(px(26.0))
+                .px(px(10.0))
+                .rounded(px(7.0))
+                .bg(rgb(0x1a1a1a))
+                .border_1()
+                .border_color(rgba(0xffffff14))
+                .shadow(vec![shadow(0x00000099, 1.0, 2.0, 0.0)])
+                .font_family(font::UI)
+                .text_size(px(font::STATUS_SIZE))
+                .text_color(rgb(text))
+                .child(icon(button_icon, text))
+                .child(label)
+                .children(count.filter(|_| enabled).map(|count| {
+                    div()
+                        .px(px(5.0))
+                        .rounded(px(4.0))
+                        .bg(rgb(color::BG_SELECTION))
+                        .font_family(font::MONO)
+                        .text_size(px(font::SMALL_SIZE))
+                        .line_height(px(16.0))
+                        .text_color(rgb(color::FG_MAIN))
+                        .child(count.to_string())
+                }));
+            if enabled {
+                clickable(element, action, cx)
+            } else {
+                element
+            }
+        })
+        .collect();
+    div()
+        .absolute()
+        .top(px(9.0))
+        .right(px(14.0))
+        .flex()
+        .gap(px(8.0))
+        .children(buttons)
 }
 
 /// Whether a window this wide has room for the history beside the pane.

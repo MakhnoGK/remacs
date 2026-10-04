@@ -11,6 +11,7 @@ use crate::editor::Editor;
 use crate::key::Key;
 use crate::keymap::Keymap;
 use crate::mode::FUNDAMENTAL_MODE;
+use crate::outline::BannerPart;
 use crate::table::Mark;
 use crate::vc::{FileState, LineCounts};
 
@@ -76,6 +77,13 @@ pub struct Prompt {
     /// The input is not typed: it shows a value the prompt's keys change, and printable
     /// keys are free for its keymap.
     pub read_only: bool,
+    /// In place of the field, for a read-only prompt: what it does and a note on the
+    /// right, e.g. `Push main` and `2 commits`.
+    pub title: Option<(String, String)>,
+    /// Under the title, e.g. how far two branches are apart.
+    pub summary: Vec<BannerPart>,
+    /// Opened from the toolbar: drawn under its right end rather than centered.
+    pub from_toolbar: bool,
 }
 
 pub type AnswerCheck = Rc<dyn Fn(&str) -> Result<(), String>>;
@@ -100,6 +108,8 @@ pub struct PromptChoice {
     pub values: Vec<String>,
     /// Shared with the code that reads the prompt.
     pub selected: Rc<Cell<usize>>,
+    /// Drawn as segments, all values shown, under the summary; else as a chip.
+    pub segmented: bool,
 }
 
 impl PromptChoice {

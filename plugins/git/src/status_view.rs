@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use remacs_core::{
     Buffer, Button, DiffRow, Editor, Fact, FactValue, FileState, Icon, LineCounts, Outline,
-    OutlineRow, RefChip, RefKind, StatusItem, StatusSegment, Tone,
+    OutlineRow, RefChip, RefKind, StatusItem, StatusSegment, Tone, ToolbarButton,
 };
 use remacs_text::Text;
 
@@ -30,6 +30,8 @@ const HINTS: &[(&str, &str)] = &[
     ("b", "Branch"),
     ("m", "Merge"),
     ("r", "Rebase"),
+    ("F", "Pull"),
+    ("P", "Push"),
     ("s", "Stage"),
     ("u", "Unstage"),
 ];
@@ -429,7 +431,36 @@ pub fn outline(editor: &Editor, range: Range<usize>) -> Option<Outline> {
             .map(|snapshot| history_view::history(view, snapshot)),
         conflict,
         banner: snapshot.and_then(conflict_view::banner),
+        toolbar: snapshot.map(toolbar).unwrap_or_default(),
     })
+}
+
+/// Pull and Push, with the commits each would move; off while something is in progress
+/// or off a branch.
+fn toolbar(snapshot: &Snapshot) -> Vec<ToolbarButton> {
+    let ready = snapshot.operation.is_none() && matches!(snapshot.head, Head::Branch(_));
+    let (ahead, behind) = snapshot
+        .upstream
+        .as_ref()
+        .and_then(|upstream| upstream.ahead_behind)
+        .unwrap_or_default();
+    let count = |count: u64| (count > 0).then_some(count as usize);
+    vec![
+        ToolbarButton {
+            icon: Icon::Pull,
+            label: "Pull".into(),
+            count: count(behind),
+            enabled: ready && snapshot.upstream.is_some(),
+            action: Rc::new(crate::sync::pull),
+        },
+        ToolbarButton {
+            icon: Icon::Push,
+            label: "Push".into(),
+            count: count(ahead),
+            enabled: ready,
+            action: Rc::new(crate::sync::push),
+        },
+    ]
 }
 
 fn row(view: &StatusView, snapshot: &Snapshot, line: &Line) -> Option<OutlineRow> {

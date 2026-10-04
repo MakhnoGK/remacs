@@ -74,7 +74,7 @@ pub fn track(editor: &mut Editor) {
             repositories.open.insert(root.clone(), repository);
         }
     }
-    let mut failure = None;
+    let mut said = None;
     for (root, repository) in &mut repositories.open {
         let wants = wanted.remove(root).unwrap_or_default();
         if wants != repository.wants {
@@ -88,12 +88,12 @@ pub fn track(editor: &mut Editor) {
                     repository.snapshot = Some(*snapshot);
                     repository.generation += 1;
                 }
-                Update::Failed(error) => failure = Some(error),
+                Update::Failed(message) | Update::Done(message) => said = Some(message),
             }
         }
     }
-    if let Some(failure) = failure {
-        editor.set_message(failure);
+    if let Some(message) = said {
+        editor.set_message(message);
     }
 }
 

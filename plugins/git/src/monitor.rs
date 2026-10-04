@@ -37,7 +37,8 @@ enum Message {
     /// Relative to the root, from and to.
     RecordMoves(Vec<(PathBuf, PathBuf)>),
     Want(Wants),
-    Run(Job),
+    /// With what to say once it is done.
+    Run(Job, Option<String>),
     Refresh,
     Stop,
 }
@@ -45,6 +46,8 @@ enum Message {
 pub enum Update {
     Status(Box<Snapshot>),
     Failed(String),
+    /// A job is done, as it says.
+    Done(String),
 }
 
 /// What is read besides the status, for the status buffers showing the tree.
@@ -88,7 +91,12 @@ impl Monitor {
 
     /// Runs `job` after what is already queued, then reads the status again.
     pub fn run(&self, job: Job) {
-        let _ = self.messages.send(Message::Run(job));
+        let _ = self.messages.send(Message::Run(job, None));
+    }
+
+    /// Like [`Self::run`], saying `done` once it succeeded.
+    pub fn run_saying(&self, job: Job, done: String) {
+        let _ = self.messages.send(Message::Run(job, Some(done)));
     }
 
     pub fn refresh(&self) {
@@ -193,9 +201,14 @@ impl Worker {
                     *wants = wanted;
                     return true;
                 }
-                Ok(Message::Run(job)) => {
-                    if let Err(error) = job(&self.root) {
-                        self.send(Update::Failed(error));
+                Ok(Message::Run(job, done)) => {
+                    match job(&self.root) {
+                        Err(error) => self.send(Update::Failed(error)),
+                        Ok(()) => {
+                            if let Some(done) = done {
+                                self.send(Update::Done(done));
+                            }
+                        }
                     }
                     return true;
                 }

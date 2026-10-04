@@ -294,6 +294,20 @@ pub fn shown_status(editor: &Editor) -> Result<(PathBuf, Snapshot), &'static str
     Ok((root, snapshot))
 }
 
+/// Runs `job`, saying `doing` now and `done` once it succeeded, for one that takes long,
+/// like a push.
+pub fn run_saying(
+    editor: &mut Editor,
+    root: &Path,
+    job: Job,
+    doing: String,
+    done: String,
+) -> CommandResult {
+    repository_monitor(editor, root, |monitor| monitor.run_saying(job, done))?;
+    editor.set_message(doing);
+    Ok(())
+}
+
 pub fn run(editor: &mut Editor, root: &Path, job: Job) -> CommandResult {
     repository_monitor(editor, root, |monitor| monitor.run(job))
 }

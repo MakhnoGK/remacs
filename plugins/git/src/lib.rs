@@ -20,6 +20,7 @@ mod repositories;
 mod resolve;
 mod status;
 mod status_view;
+mod sync;
 
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -67,6 +68,12 @@ const COMMANDS: &[Command] = &[
     Command::new("git-continue", "Go on with the rebase or merge once its conflicts are resolved", resolve::continue_operation),
     Command::new(resolve::ABORT_COMMAND, "Give up the rebase or merge, after asking", resolve::abort),
     Command::new(resolve::SKIP_COMMAND, "Leave out the commit the rebase is applying", resolve::skip),
+    Command::new("git-push", "Push the branch to its upstream or elsewhere", sync::push),
+    Command::new("git-pull", "Pull into the branch from its upstream", sync::pull),
+    Command::new(sync::PUSH_UPSTREAM, "Push to the upstream", sync::upstream),
+    Command::new(sync::PUSH_ELSEWHERE, "Push to a remote branch read next", sync::elsewhere),
+    Command::new(sync::PULL_REBASE, "Pull by rebasing onto what comes in", sync::by_rebase),
+    Command::new(sync::PULL_MERGE, "Pull by merging what comes in", sync::by_merge),
 ];
 
 /// Over the status keys while point is on a file with conflicts, like Emacs smerge.
@@ -93,6 +100,8 @@ const STATUS_BINDINGS: &[(&str, &str)] = &[
     ("b", "git-branch"),
     ("m", "git-merge"),
     ("r", "git-rebase"),
+    ("F", "git-pull"),
+    ("P", "git-push"),
     ("l", "git-history-scope"),
     ("/", "git-history-search"),
     ("C-M-v", "git-history-next-page"),

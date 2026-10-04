@@ -23,6 +23,7 @@ use crate::key_input::to_key;
 use crate::minibuffer_view::{is_problem_list, render_minibuffer, render_scrim};
 use crate::outline_view::{
     COMMIT_HEIGHT, fits_history, fitting_commits, fitting_rows, max_outline_lines, render_outline,
+    render_toolbar,
 };
 use crate::popup_view::{DocumentationScroll, DocumentationView, Placement, render_popup};
 use crate::preview_view::render_preview;
@@ -454,7 +455,7 @@ impl EditorView {
         render_preview(preview, &|code| self.faces_of(code))
     }
 
-    fn render_header(&self) -> impl IntoElement {
+    fn render_header(&self) -> Div {
         let buffer = self.editor.window_buffer();
         div()
             .absolute()
@@ -557,7 +558,7 @@ impl EditorView {
         outline_lines: usize,
         window: &Window,
         cx: &mut Context<Self>,
-    ) -> Option<(AnyElement, AnyElement)> {
+    ) -> Option<(AnyElement, AnyElement, Option<AnyElement>)> {
         let height = window.viewport_size().height;
         let mut outline = self.editor.outline(
             self.editor.viewport.first_line..self.editor.viewport.first_line + outline_lines,
@@ -595,6 +596,8 @@ impl EditorView {
             self.highlight_code(&code);
         }
         let hints = render_hints(outline.hints).into_any_element();
+        let toolbar = std::mem::take(&mut outline.toolbar);
+        let toolbar = (!toolbar.is_empty()).then(|| render_toolbar(toolbar, cx).into_any_element());
         let faces = |code: &Code| self.faces_of(code);
         let body = render_outline(
             outline,
@@ -604,7 +607,7 @@ impl EditorView {
             cx,
         )
         .into_any_element();
-        Some((body, hints))
+        Some((body, hints, toolbar))
     }
 
     /// A plugin's group of the status pill, e.g. problem counts; a click runs its command.
@@ -713,8 +716,12 @@ impl Render for EditorView {
             }
         };
         self.showing_rows = table.is_some() || outline.is_some();
+        let mut toolbar = None;
         let (body, hints, popups) = match (table, outline) {
-            (None, Some((body, hints))) => (body, Some(hints), Vec::new()),
+            (None, Some((body, hints, outline_toolbar))) => {
+                toolbar = outline_toolbar;
+                (body, Some(hints), Vec::new())
+            }
             (Some(mut table), _) => {
                 self.editor.viewport.set_height(table_rows);
                 let buffer = self.editor.window_buffer();
@@ -782,7 +789,7 @@ impl Render for EditorView {
             .children(hints)
             .children(status_below_scrim)
             .when(minibuffer.is_some(), |root| root.child(render_scrim()))
-            .child(self.render_header())
+            .child(self.render_header().children(toolbar))
             .children(popups)
             .children(status_above_scrim)
             .children(minibuffer)

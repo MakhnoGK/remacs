@@ -17,6 +17,10 @@ pub enum Icon {
     Remote,
     /// Something made by choosing it.
     Create,
+    /// Bringing commits in, an arrow down.
+    Pull,
+    /// Sending commits out, an arrow up.
+    Push,
 }
 
 /// What a completion candidate or a documented symbol is; the UI gives each its own badge.

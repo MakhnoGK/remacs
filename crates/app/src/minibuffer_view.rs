@@ -6,7 +6,8 @@ use gpui::{
     px, rgb, rgba, svg,
 };
 use remacs_core::{
-    Candidate, CommitChain, Count, Icon, Minibuffer, PromptOption, Tone, parse_sequence,
+    BannerPart, Candidate, CommitChain, Count, Icon, Minibuffer, PromptOption, RefKind, Tone,
+    parse_sequence,
 };
 use remacs_theme::{color, font};
 
@@ -28,6 +29,10 @@ const PROBLEM_CATEGORY: &str = "problem";
 const SEVERITY_ICONS: [Icon; 3] = [Icon::Error, Icon::Warning, Icon::Info];
 const POSITION_WIDTH: f32 = 44.0;
 const POPOVER_WIDTH: f32 = 680.0;
+/// Opened from the toolbar, under its right end.
+const TOOLBAR_POPOVER_WIDTH: f32 = 500.0;
+const TOOLBAR_POPOVER_TOP: f32 = 44.0;
+const TOOLBAR_POPOVER_RIGHT: f32 = 14.0;
 const WIDE_POPOVER_WIDTH: f32 = 760.0;
 const FIELD_HEIGHT: f32 = 44.0;
 const ROW_HEIGHT: f32 = 34.0;
@@ -80,20 +85,28 @@ pub fn render_minibuffer(
         return centered(render_dialog(dialog, cx));
     }
     let prompt = minibuffer.prompt();
-    let width = if prompt.wide {
-        WIDE_POPOVER_WIDTH
-    } else {
-        POPOVER_WIDTH
+    let width = match () {
+        _ if prompt.from_toolbar => TOOLBAR_POPOVER_WIDTH,
+        _ if prompt.wide => WIDE_POPOVER_WIDTH,
+        _ => POPOVER_WIDTH,
     };
     let has_switch = prompt.options.iter().any(PromptOption::is_switch);
-    let has_chip =
-        !prompt.choices.is_empty() || prompt.options.iter().any(|option| !option.is_switch());
+    let has_chip = prompt.choices.iter().any(|choice| !choice.segmented)
+        || prompt.options.iter().any(|option| !option.is_switch());
+    let field = match &prompt.title {
+        Some(title) => render_title(title).into_any_element(),
+        None => render_field(minibuffer, input_scroll).into_any_element(),
+    };
     let popover = popover(width)
         .when(
             has_switch || (!has_chip && !minibuffer.subject().is_empty()),
             |popover| popover.child(render_switches(minibuffer, cx)),
         )
-        .child(render_field(minibuffer, input_scroll))
+        .child(field)
+        .when(!prompt.summary.is_empty(), |popover| {
+            popover.child(render_summary(&prompt.summary))
+        })
+        .children(render_segmented_choices(minibuffer, cx))
         .children(render_description(minibuffer))
         .when(!minibuffer.candidates().is_empty(), |popover| {
             popover.child(render_candidates(minibuffer, cx))
@@ -121,7 +134,87 @@ pub fn render_minibuffer(
             .child(popover)
             .into_any_element();
     }
+    if prompt.from_toolbar {
+        return div()
+            .absolute()
+            .top(px(TOOLBAR_POPOVER_TOP))
+            .right(px(TOOLBAR_POPOVER_RIGHT))
+            .child(popover)
+            .into_any_element();
+    }
     centered(popover)
+}
+
+/// In place of the field: what the prompt does, and a note on the right.
+fn render_title((title, note): &(String, String)) -> Div {
+    div()
+        .flex()
+        .items_baseline()
+        .justify_between()
+        .gap(px(12.0))
+        .pt(px(6.0))
+        .px(px(10.0))
+        .pb(px(8.0))
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .text_size(px(font::UI_SIZE))
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(title.clone()),
+        )
+        .child(
+            div()
+                .flex_none()
+                .text_size(px(font::STATUS_SIZE))
+                .text_color(rgb(color::FG_DIM))
+                .child(note.clone()),
+        )
+}
+
+/// Chips and words under the title, e.g. how far two branches are apart.
+fn render_summary(parts: &[BannerPart]) -> Div {
+    div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap(px(8.0))
+        .px(px(10.0))
+        .pb(px(10.0))
+        .text_size(px(font::STATUS_SIZE))
+        .text_color(rgb(color::FG_DIM))
+        .children(parts.iter().map(|part| match part {
+            BannerPart::Chip(chip) => ref_chip(chip.clone()),
+            BannerPart::Word(word) => div().child(word.clone()),
+        }))
+}
+
+/// Choices drawn as segments, every value shown, the chosen one lit; a click picks the
+/// next.
+fn render_segmented_choices(minibuffer: &Minibuffer, cx: &mut Context<EditorView>) -> Option<Div> {
+    let choices: Vec<Div> = minibuffer
+        .prompt()
+        .choices
+        .iter()
+        .enumerate()
+        .filter(|(_, choice)| choice.segmented)
+        .map(|(index, choice)| {
+            let selected = choice.selected.get();
+            let segments = choice
+                .values
+                .iter()
+                .enumerate()
+                .map(|(position, value)| segment(value, position == selected));
+            segmented().children(segments).on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |view, _: &MouseDownEvent, _, cx| {
+                    cx.stop_propagation();
+                    view.next_prompt_choice(index, cx);
+                }),
+            )
+        })
+        .collect();
+    (!choices.is_empty()).then(|| div().flex().gap(px(8.0)).px(px(10.0)).children(choices))
 }
 
 /// Switches between two settings, then what the prompt acts on, above the input.
@@ -176,6 +269,7 @@ fn render_chips(
         .choices
         .iter()
         .enumerate()
+        .filter(|(_, choice)| !choice.segmented)
         .map(|(index, choice)| {
             choice_chip(choice.label, choice.value().unwrap_or_default()).on_mouse_down(
                 MouseButton::Left,
@@ -259,7 +353,12 @@ fn render_outcome((summary, chain): (String, CommitChain)) -> impl IntoElement {
             linear_color_stop(hsla(to), 1.0),
         ))
     };
-    let (base_color, tip_color) = (color::graph(1), color::graph(0));
+    // A remote's commit, like a merge base, is grey; what comes in is the base's color.
+    let base_color = match chain.base.kind {
+        RefKind::Remote => color::FG_LINE_NUMBER,
+        _ => color::graph(1),
+    };
+    let (incoming_color, tip_color) = (color::graph(1), color::graph(0));
     let mut chain_row = div()
         .flex()
         .items_center()
@@ -267,13 +366,26 @@ fn render_outcome((summary, chain): (String, CommitChain)) -> impl IntoElement {
         .px(px(10.0))
         .child(ref_chip(chain.base).mr(px(12.0)))
         .child(dot(base_color));
-    for index in 0..chain.commits {
-        let from = if index == 0 { base_color } else { tip_color };
-        chain_row = chain_row.child(line(from, tip_color)).child(dot(tip_color));
+    let mut previous = base_color;
+    let colors = std::iter::repeat_n(incoming_color, chain.incoming)
+        .chain(std::iter::repeat_n(tip_color, chain.commits));
+    for dot_color in colors {
+        chain_row = chain_row
+            .child(line(previous, dot_color))
+            .child(dot(dot_color));
+        previous = dot_color;
     }
+    let summary = Some(summary).filter(|summary| !summary.is_empty());
     div()
-        .child(render_group_title("Result", Some(summary), false))
+        .child(render_group_title("Result", summary, false))
         .child(chain_row.child(ref_chip(chain.tip).ml(px(12.0))))
+        .children(chain.note.map(|note| {
+            div()
+                .px(px(10.0))
+                .text_size(px(font::STATUS_SIZE))
+                .text_color(rgb(color::FG_DIM))
+                .child(note)
+        }))
 }
 
 fn option_click(element: Div, index: usize, cx: &mut Context<EditorView>) -> Div {
