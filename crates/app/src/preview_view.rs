@@ -126,7 +126,7 @@ fn numbered_lines<'a>(text: &'a str, faces: &'a Highlights) -> impl Iterator<Ite
 }
 
 /// The faces over `line` of the text, relative to the line.
-fn faces_in(faces: &Highlights, line: Range<usize>) -> Highlights {
+pub fn faces_in(faces: &Highlights, line: Range<usize>) -> Highlights {
     faces
         .iter()
         .filter(|(range, _)| range.start < line.end && range.end > line.start)

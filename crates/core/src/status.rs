@@ -53,6 +53,8 @@ pub enum Tone {
     Faint,
     /// Set apart, like commits folded into others.
     Special,
+    /// Done, like conflicts resolved.
+    Success,
 }
 
 /// Describes the window buffer for the status pill, if the plugin has anything to show.

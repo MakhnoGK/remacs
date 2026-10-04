@@ -5,6 +5,8 @@ mod branch;
 mod command;
 mod commands;
 mod commit;
+mod conflict;
+mod conflict_view;
 mod details;
 mod diff;
 mod history;
@@ -13,7 +15,9 @@ mod ignore_rules;
 mod integrate;
 mod monitor;
 mod moves;
+mod operation;
 mod repositories;
+mod resolve;
 mod status;
 mod status_view;
 
@@ -54,6 +58,25 @@ const COMMANDS: &[Command] = &[
     Command::new("git-history-search", "Show the commits whose messages hold some words", history_view::search),
     Command::new("git-history-next-page", "Scroll the history to older commits", history_view::next_page),
     Command::new("git-history-previous-page", "Scroll the history to newer commits", history_view::previous_page),
+    Command::new("git-keep-ours", "Resolve the conflict to what was there: the upstream when rebasing", resolve::keep_ours),
+    Command::new("git-keep-theirs", "Resolve the conflict to what comes in: your commit when rebasing", resolve::keep_theirs),
+    Command::new("git-keep-both", "Resolve the conflict to both sides, one after the other", resolve::keep_both),
+    Command::new("git-edit-conflict", "Visit the file at the conflict to resolve it by hand", resolve::edit_current),
+    Command::new("git-next-conflict", "Open the next conflict", resolve::next_conflict),
+    Command::new("git-previous-conflict", "Open the previous conflict", resolve::previous_conflict),
+    Command::new("git-continue", "Go on with the rebase or merge once its conflicts are resolved", resolve::continue_operation),
+    Command::new(resolve::ABORT_COMMAND, "Give up the rebase or merge, after asking", resolve::abort),
+    Command::new(resolve::SKIP_COMMAND, "Leave out the commit the rebase is applying", resolve::skip),
+];
+
+/// Over the status keys while point is on a file with conflicts, like Emacs smerge.
+const CONFLICT_BINDINGS: &[(&str, &str)] = &[
+    ("o", "git-keep-ours"),
+    ("t", "git-keep-theirs"),
+    ("b", "git-keep-both"),
+    ("e", "git-edit-conflict"),
+    ("n", "git-next-conflict"),
+    ("p", "git-previous-conflict"),
 ];
 
 const BINDINGS: &[(&str, &str)] = &[("C-x g", "git-status")];
@@ -74,6 +97,8 @@ const STATUS_BINDINGS: &[(&str, &str)] = &[
     ("/", "git-history-search"),
     ("C-M-v", "git-history-next-page"),
     ("C-M-V", "git-history-previous-page"),
+    ("C-c C-c", "git-continue"),
+    ("C-c C-k", resolve::ABORT_COMMAND),
     ("n", "next-line"),
     ("p", "previous-line"),
 ];
@@ -86,6 +111,14 @@ impl Plugin for GitPlugin {
         for &(keys, command) in BINDINGS {
             registry.keymap.bind(keys, command);
         }
+        let mut conflict_keymap = Keymap::default();
+        for &(keys, command) in CONFLICT_BINDINGS {
+            conflict_keymap.bind(keys, command);
+        }
+        registry.minor_keymaps.push(MinorKeymap {
+            active: resolve::in_conflict,
+            keymap: conflict_keymap,
+        });
         let mut status_keymap = Keymap::default();
         for &(keys, command) in STATUS_BINDINGS {
             status_keymap.bind(keys, command);

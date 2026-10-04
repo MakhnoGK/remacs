@@ -862,3 +862,102 @@ fn a_merge_brings_the_base_in() {
         facts(editor).contains(&"Base: main · Up to date".to_owned())
     });
 }
+
+/// `lib.rs` changed on `feature` and on `main`, `feature` with one more commit after.
+fn conflicting(name: &str) -> Repository {
+    let repository = Repository::new(name);
+    repository.git(&["switch", "-q", "-c", "feature"]);
+    commit(&repository, "lib.rs", "feature\n", "Change on feature");
+    commit(&repository, "second.rs", "s\n", "Second");
+    repository.git(&["switch", "-q", "main"]);
+    commit(&repository, "lib.rs", "main\n", "Change on main");
+    repository.git(&["switch", "-q", "feature"]);
+    repository
+}
+
+fn banner_state(editor: &Editor) -> String {
+    editor.outline(0..100).unwrap().banner.unwrap().state.0
+}
+
+#[test]
+fn a_rebase_stopped_at_a_conflict_is_resolved_and_continued() {
+    let repository = conflicting("rebase-conflict");
+    assert!(output(git(&repository.0).args(["rebase", "main"])).is_err());
+    let mut editor = status_buffer(&repository);
+    wait_until(&mut editor, "the conflict", |editor| {
+        rows(editor).contains(&"U ./lib.rs".to_owned())
+    });
+    let facts = facts(&editor);
+    assert_eq!(facts[0], "Head: feature · rebase in progress");
+    assert!(facts[1].starts_with("Onto: main · ") && facts[1].ends_with(" Change on main"));
+    assert!(facts[2].ends_with(" · Change on feature"));
+    assert_eq!(banner_state(&editor), "1 conflict left");
+
+    go_to_row(&mut editor, "U ./lib.rs");
+    let conflict = editor.outline(0..100).unwrap().conflict.unwrap();
+    assert_eq!((conflict.current, conflict.left), (1, 1));
+    let block = conflict
+        .regions
+        .iter()
+        .find_map(|region| match region {
+            remacs_core::ConflictRegion::Conflict(block) => Some(block),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        (block.ours.role.as_str(), &block.ours.lines[..]),
+        ("upstream", &["main".to_owned()][..])
+    );
+    assert_eq!(block.theirs.lines, ["feature"]);
+
+    press(&mut editor, "C-c C-c");
+    assert_eq!(editor.echo().as_deref(), Some("1 conflict left"));
+    press(&mut editor, "t");
+    assert_eq!(
+        fs::read_to_string(repository.0.join("lib.rs")).unwrap(),
+        "feature\n"
+    );
+    wait_until(&mut editor, "the resolution", |editor| {
+        rows(editor).contains(&"✓ ./lib.rs +1 -1".to_owned())
+    });
+    assert_eq!(banner_state(&editor), "All conflicts resolved");
+
+    press(&mut editor, "C-c C-c");
+    let minibuffer = editor.minibuffer().unwrap();
+    assert_eq!(minibuffer.input_text(), "Change on feature");
+    assert_eq!(minibuffer.candidates()[0].annotation, "Second");
+    press(&mut editor, "C-c C-c");
+    wait_until(&mut editor, "the rebase", |_| {
+        repository.git(&["log", "--format=%s", "main..feature"]) == "Second\nChange on feature\n"
+    });
+    wait_until(&mut editor, "the banner gone", |editor| {
+        editor.outline(0..100).unwrap().banner.is_none()
+    });
+}
+
+#[test]
+fn a_merge_conflict_keeps_both_sides_or_is_aborted() {
+    let repository = conflicting("merge-conflict");
+    assert!(output(git(&repository.0).args(["merge", "main"])).is_err());
+    let mut editor = status_buffer(&repository);
+    wait_until(&mut editor, "the conflict", |editor| {
+        rows(editor).contains(&"U ./lib.rs".to_owned())
+    });
+    assert_eq!(facts(&editor)[0], "Head: feature · merge in progress");
+    go_to_row(&mut editor, "U ./lib.rs");
+    press(&mut editor, "b");
+    assert_eq!(
+        fs::read_to_string(repository.0.join("lib.rs")).unwrap(),
+        "feature\nmain\n"
+    );
+
+    press(&mut editor, "C-c C-k");
+    press(&mut editor, "y");
+    wait_until(&mut editor, "the merge aborted", |editor| {
+        editor.outline(0..100).unwrap().banner.is_none()
+    });
+    assert_eq!(
+        fs::read_to_string(repository.0.join("lib.rs")).unwrap(),
+        "feature\n"
+    );
+}

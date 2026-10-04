@@ -11,11 +11,12 @@ use gpui::{
     Subscription, Window, div, font, linear_color_stop, linear_gradient, prelude::*, px, rgb, rgba,
 };
 use remacs_core::{
-    Action, Code, DocBlock, Editor, Popup, Preview, PreviewBody, Scroll, StatusSegment,
+    Action, Code, DocBlock, Editor, Outline, Popup, Preview, PreviewBody, Scroll, StatusSegment,
 };
 use remacs_theme::{color, font};
 
 use crate::changes_view::render_changes;
+use crate::conflict_view::codes as conflict_codes;
 use crate::display_line::DisplayLine;
 use crate::highlights::{Highlights, combine, face_style, region_style};
 use crate::key_input::to_key;
@@ -561,7 +562,11 @@ impl EditorView {
         let mut outline = self.editor.outline(
             self.editor.viewport.first_line..self.editor.viewport.first_line + outline_lines,
         )?;
-        let mut fitting = fitting_rows(&outline.rows, outline.facts.len(), height);
+        let fit = |outline: &Outline| {
+            let has_banner = outline.banner.is_some();
+            fitting_rows(&outline.rows, outline.facts.len(), has_banner, height)
+        };
+        let mut fitting = fit(&outline);
         let point_line = self.editor.window_buffer().point_line();
         if !self.editor.viewport.contains(point_line)
             || point_line >= self.editor.viewport.first_line + fitting
@@ -572,19 +577,33 @@ impl EditorView {
             outline = self
                 .editor
                 .outline(first_line..first_line + outline_lines)?;
-            fitting = fitting_rows(&outline.rows, outline.facts.len(), height);
+            fitting = fit(&outline);
         }
         self.editor.viewport.set_height(fitting);
         outline.rows.truncate(fitting);
         if !fits_history(window.viewport_size().width) {
             outline.history = None;
+            outline.conflict = None;
         }
+        let has_banner = outline.banner.is_some();
         if let Some(history) = &mut outline.history {
-            history.commits.truncate(fitting_commits(height));
+            history
+                .commits
+                .truncate(fitting_commits(height, has_banner));
+        }
+        for code in outline.conflict.iter().flat_map(conflict_codes) {
+            self.highlight_code(&code);
         }
         let hints = render_hints(outline.hints).into_any_element();
-        let body = render_outline(outline, self.editor.viewport.first_line, point_line, cx)
-            .into_any_element();
+        let faces = |code: &Code| self.faces_of(code);
+        let body = render_outline(
+            outline,
+            self.editor.viewport.first_line,
+            point_line,
+            &faces,
+            cx,
+        )
+        .into_any_element();
         Some((body, hints))
     }
 

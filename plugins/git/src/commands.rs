@@ -105,8 +105,14 @@ pub fn unstage(editor: &mut Editor) -> CommandResult {
             git_job(["rm", "-r", "-q", "--cached", "--", "."])
         }
         Line::Heading(Section::Staged) => git_job(["reset", "-q", "--"]),
-        Line::File(Section::Staged, path) => {
-            let original = section_files(&snapshot, Section::Staged)
+        Line::Heading(Section::Resolved) => git_job(args(
+            ["reset", "-q", "--"],
+            section_files(&snapshot, Section::Resolved)
+                .into_iter()
+                .map(|file| file.path),
+        )),
+        Line::File(section @ (Section::Staged | Section::Resolved), path) => {
+            let original = section_files(&snapshot, *section)
                 .into_iter()
                 .find(|file| file.path == *path)
                 .and_then(|file| file.original);
@@ -118,7 +124,7 @@ pub fn unstage(editor: &mut Editor) -> CommandResult {
             }
         }
         Line::Diff {
-            section: Section::Staged,
+            section: Section::Staged | Section::Resolved,
             path,
             hunk,
             ..
@@ -183,7 +189,9 @@ pub fn discard(editor: &mut Editor) -> CommandResult {
                 job,
             )
         }
-        Line::Heading(Section::Staged) | Line::File(Section::Staged, _) | Line::Diff { .. } => {
+        Line::Heading(Section::Staged | Section::Resolved)
+        | Line::File(Section::Staged | Section::Resolved, _)
+        | Line::Diff { .. } => {
             return Err("Unstage it first (u), then discard".into());
         }
         _ => return Err("Nothing to discard".into()),
@@ -221,7 +229,7 @@ pub fn visit(editor: &mut Editor) -> CommandResult {
             line: diff_line,
             ..
         } => {
-            let staged = section == Section::Staged;
+            let staged = section.is_staged();
             let key = crate::status::DiffKey {
                 staged,
                 path: path.to_path_buf(),

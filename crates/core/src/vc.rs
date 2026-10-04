@@ -11,6 +11,8 @@ pub enum FileState {
     Deleted,
     /// Changed on both sides of a merge, not yet resolved.
     Conflicted,
+    /// Was conflicted, and is resolved now.
+    Resolved,
     Untracked,
 }
 
@@ -23,6 +25,7 @@ impl FileState {
             FileState::Renamed => "R",
             FileState::Deleted => "D",
             FileState::Conflicted => "U",
+            FileState::Resolved => "✓",
             FileState::Untracked => "?",
         }
     }
@@ -34,6 +37,7 @@ impl FileState {
             FileState::Renamed => "Renamed",
             FileState::Deleted => "Deleted",
             FileState::Conflicted => "Conflicted",
+            FileState::Resolved => "Resolved",
             FileState::Untracked => "Untracked",
         }
     }

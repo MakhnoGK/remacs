@@ -83,7 +83,8 @@ pub fn track(editor: &mut Editor) {
         }
         for update in repository.monitor.updates() {
             match update {
-                Update::Status(snapshot) => {
+                Update::Status(mut snapshot) => {
+                    carry_resolved(repository.snapshot.as_ref(), &mut snapshot);
                     repository.snapshot = Some(*snapshot);
                     repository.generation += 1;
                 }
@@ -94,6 +95,23 @@ pub fn track(editor: &mut Editor) {
     if let Some(failure) = failure {
         editor.set_message(failure);
     }
+}
+
+/// While a rebase step or a merge goes on, files that had conflicts in it stay known as
+/// such once they are resolved.
+fn carry_resolved(previous: Option<&Snapshot>, snapshot: &mut Snapshot) {
+    if snapshot.operation.is_none() {
+        return;
+    }
+    if let Some(previous) = previous.filter(|previous| previous.operation == snapshot.operation) {
+        snapshot.resolved.extend(previous.resolved.iter().cloned());
+    }
+    let conflicted = snapshot
+        .files
+        .iter()
+        .filter(|(_, entry)| entry.conflicted)
+        .map(|(path, _)| path.clone());
+    snapshot.resolved.extend(conflicted.collect::<Vec<_>>());
 }
 
 /// Tells the monitor of the working tree the moves are in; moves out of it are left out.

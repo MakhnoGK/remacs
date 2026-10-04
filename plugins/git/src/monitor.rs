@@ -1,3 +1,4 @@
+use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -8,17 +9,19 @@ use notify::{Event, EventKind, RecursiveMode, Watcher};
 use remacs_core::Notifier;
 
 use crate::command::{git, output};
-use crate::details;
 use crate::diff::parse_diff;
 use crate::history::{HistoryCache, HistoryWants};
 use crate::ignore_rules::IgnoreRules;
 use crate::moves;
 use crate::status::{Counted, DiffKey, Snapshot, parse_status};
+use crate::{conflict, details, operation};
 
 /// Changes arriving this close together cause one read.
 const SETTLE_TIME: Duration = Duration::from_millis(100);
 /// A tree that never stops changing is still read this often.
 const MAX_DELAY: Duration = Duration::from_secs(1);
+/// Larger files with conflicts are listed, not read for their markers.
+const MAX_CONFLICT_FILE: u64 = 8 * 1024 * 1024;
 /// What Git rewrites under its directory without the status changing.
 const QUIET_GIT_PATHS: &[&str] = &["objects", "logs"];
 
@@ -138,7 +141,7 @@ impl Worker {
         let mut reported_failure = false;
         let mut history = HistoryCache::default();
         loop {
-            match read(&self.root, &wants, &mut history) {
+            match read(&self.root, &git_directories[0], &wants, &mut history) {
                 Ok(snapshot) => {
                     reported_failure = false;
                     self.send(Update::Status(Box::new(snapshot)));
@@ -277,7 +280,12 @@ fn git_directories(root: &Path) -> io::Result<Vec<PathBuf>> {
     Ok(directories)
 }
 
-fn read(root: &Path, wants: &Wants, history: &mut HistoryCache) -> io::Result<Snapshot> {
+fn read(
+    root: &Path,
+    git_directory: &Path,
+    wants: &Wants,
+    history: &mut HistoryCache,
+) -> io::Result<Snapshot> {
     let mut snapshot = parse_status(&output(git(root).args([
         "status",
         "--porcelain=v2",
@@ -300,6 +308,18 @@ fn read(root: &Path, wants: &Wants, history: &mut HistoryCache) -> io::Result<Sn
     }
     if wants.details {
         snapshot.details = Some(details::read(root, &snapshot));
+        snapshot.operation = operation::read(root, git_directory);
+        for (path, _) in snapshot.files.iter().filter(|(_, entry)| entry.conflicted) {
+            let text = fs::metadata(root.join(path))
+                .ok()
+                .filter(|metadata| metadata.len() <= MAX_CONFLICT_FILE)
+                .and_then(|_| fs::read_to_string(root.join(path)).ok());
+            if let Some(text) = text {
+                snapshot
+                    .conflicts
+                    .insert(path.clone(), conflict::parse(&text));
+            }
+        }
     }
     if let Some(history_wants) = wants.history.as_ref().filter(|_| !snapshot.is_unborn()) {
         snapshot.history = Some(history.read(root, history_wants, &snapshot)?);

@@ -42,6 +42,7 @@ pub fn tone_color(tone: Tone, plain: u32) -> u32 {
         Tone::Warning => color::WARNING,
         Tone::Faint => color::FG_FAINT,
         Tone::Special => color::FUNCTION,
+        Tone::Success => color::FG_ADDED,
     }
 }
 
@@ -76,7 +77,7 @@ pub fn mark_badge(mark: Mark) -> Div {
 /// the selection's text color.
 pub fn state_color(state: FileState, selected: bool) -> u32 {
     match state {
-        FileState::Added => color::VC_ADDED,
+        FileState::Added | FileState::Resolved => color::VC_ADDED,
         FileState::Modified | FileState::Renamed if selected => color::FG_ALT,
         FileState::Modified | FileState::Renamed => color::VC_MODIFIED,
         FileState::Deleted => color::VC_REMOVED,

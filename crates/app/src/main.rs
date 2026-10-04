@@ -1,5 +1,6 @@
 mod assets;
 mod changes_view;
+mod conflict_view;
 mod dialog_view;
 mod display_line;
 mod editor_view;

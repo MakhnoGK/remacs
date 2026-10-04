@@ -4,17 +4,22 @@ use gpui::{
     div, point, prelude::*, px, quad, rgb, rgba, size, svg,
 };
 use remacs_core::{
-    CommitRow, DiffRow, Fact, FactValue, GraphNode, GraphRow, History, Outline, OutlineRow,
-    RefChip, RefKind, Tone,
+    Banner, BannerButton, BannerPart, Code, CommitRow, DiffRow, Fact, FactValue, GraphNode,
+    GraphRow, History, Outline, OutlineRow, RefChip, RefKind, Tone,
 };
 use remacs_theme::{color, font};
 
-use crate::assets::{CHEVRON_DOWN_ICON, CHEVRON_ICON};
+use crate::assets::{BRANCH_ICON, CHEVRON_DOWN_ICON, CHEVRON_ICON};
+use crate::conflict_view::render_conflict;
 use crate::editor_view::EditorView;
+use crate::highlights::Highlights;
 use crate::table_view::{LIST_BOTTOM, clickable};
 use crate::widgets::{kbd, line_counts, segment, segmented, shadow, state_letter, tone_color};
 
 const PANE_TOP: f32 = 56.0;
+const BANNER_TOP: f32 = 52.0;
+const BANNER_HEIGHT: f32 = 44.0;
+const BANNER_GAP: f32 = 12.0;
 const PANE_SIDE: f32 = 16.0;
 const PANE_WIDTH: f32 = 480.0;
 const PANE_PADDING: f32 = 8.0;
@@ -45,12 +50,26 @@ const GRAPH_STROKE: f32 = 2.0;
 
 /// The most lines that can fit in a window this tall, before the rows are known.
 pub fn max_outline_lines(window_height: Pixels) -> usize {
-    (rows_height(window_height, 0) / DIFF_LINE_HEIGHT).ceil() as usize + 1
+    (rows_height(window_height, 0, false) / DIFF_LINE_HEIGHT).ceil() as usize + 1
+}
+
+/// Where the panes start: under the banner if there is one.
+fn pane_top(has_banner: bool) -> f32 {
+    if has_banner {
+        BANNER_TOP + BANNER_HEIGHT + BANNER_GAP
+    } else {
+        PANE_TOP
+    }
 }
 
 /// How many of `rows`, from the first, fit under `fact_count` facts in a window this tall.
-pub fn fitting_rows(rows: &[OutlineRow], fact_count: usize, window_height: Pixels) -> usize {
-    let room = rows_height(window_height, fact_count);
+pub fn fitting_rows(
+    rows: &[OutlineRow],
+    fact_count: usize,
+    has_banner: bool,
+    window_height: Pixels,
+) -> usize {
+    let room = rows_height(window_height, fact_count, has_banner);
     let mut used = 0.0;
     for (index, row) in rows.iter().enumerate() {
         let is_diff = |row: Option<&OutlineRow>| matches!(row, Some(OutlineRow::Diff(_)));
@@ -74,21 +93,23 @@ pub fn fitting_rows(rows: &[OutlineRow], fact_count: usize, window_height: Pixel
     rows.len()
 }
 
-fn rows_height(window_height: Pixels, fact_count: usize) -> f32 {
+fn rows_height(window_height: Pixels, fact_count: usize, has_banner: bool) -> f32 {
     let facts = if fact_count == 0 {
         0.0
     } else {
         FACTS_TOP + FACT_HEIGHT * fact_count as f32 + FACTS_BOTTOM
     };
-    (window_height / px(1.0)) - PANE_TOP - LIST_BOTTOM - 2.0 * PANE_PADDING - facts
+    (window_height / px(1.0)) - pane_top(has_banner) - LIST_BOTTOM - 2.0 * PANE_PADDING - facts
 }
 
 /// The outline's facts and its rows from `first_line` on, point's line selected, in a
-/// pane at the left of the window.
+/// pane at the left of the window; beside it the history or a file's conflicts, and the
+/// banner over both.
 pub fn render_outline(
     outline: Outline,
     first_line: usize,
     point_line: usize,
+    code_faces: &dyn Fn(&Code) -> Highlights,
     cx: &mut Context<EditorView>,
 ) -> impl IntoElement {
     let Outline {
@@ -97,8 +118,12 @@ pub fn render_outline(
         toggle,
         activate,
         history,
+        conflict,
+        banner,
         ..
     } = outline;
+    let has_banner = banner.is_some();
+    let banner = banner.map(|banner| render_banner(banner, cx));
     let mut children: Vec<AnyElement> = Vec::new();
     if !facts.is_empty() {
         children.push(render_facts(facts, cx).into_any_element());
@@ -132,6 +157,7 @@ pub fn render_outline(
                 name,
                 directory,
                 lines,
+                note,
                 ..
             } => Some(clicks(
                 row_frame(selected)
@@ -150,7 +176,16 @@ pub fn render_outline(
                             }))
                             .child(directory),
                     )
-                    .children(lines.map(|lines| line_counts(lines, selected))),
+                    .map(|row| match note {
+                        Some((note, tone)) => row.child(
+                            div()
+                                .flex_none()
+                                .text_size(px(font::STATUS_SIZE))
+                                .text_color(rgb(tone_color(tone, color::FG_DIM)))
+                                .child(note),
+                        ),
+                        None => row.children(lines.map(|lines| line_counts(lines, selected))),
+                    }),
                 line,
                 activate,
                 cx,
@@ -187,7 +222,10 @@ pub fn render_outline(
         }
         children.extend(element.map(IntoElement::into_any_element));
     }
-    let history = history.map(|history| render_history(history, cx));
+    let side = match conflict {
+        Some(conflict) => Some(render_conflict(conflict, code_faces, cx)),
+        None => history.map(|history| render_history(history, cx)),
+    };
     let pane = div()
         .flex()
         .flex_col()
@@ -203,16 +241,152 @@ pub fn render_outline(
         .font_family(font::UI)
         .text_size(px(font::UI_SIZE))
         .children(children);
-    div()
+    let panes = div()
         .absolute()
-        .top(px(PANE_TOP))
+        .top(px(pane_top(has_banner)))
         .left(px(PANE_SIDE))
         .right(px(PANE_SIDE))
         .bottom(px(LIST_BOTTOM))
         .flex()
         .gap(px(HISTORY_GAP))
         .child(pane)
-        .children(history)
+        .children(side);
+    div().absolute().inset_0().children(banner).child(panes)
+}
+
+/// What is in progress across the top: its name and refs, the step, the commit applied,
+/// how far the conflicts are, and the buttons to go on.
+fn render_banner(banner: Banner, cx: &mut Context<EditorView>) -> Div {
+    let Banner {
+        title,
+        parts,
+        step,
+        commit,
+        state: (state, state_tone),
+        buttons,
+    } = banner;
+    let parts = parts.into_iter().map(|part| match part {
+        BannerPart::Chip(chip) => ref_chip(chip),
+        BannerPart::Word(word) => div().text_color(rgb(color::FG_DIM)).child(word),
+    });
+    let buttons: Vec<Div> = buttons
+        .into_iter()
+        .map(|button| render_banner_button(button, cx))
+        .collect();
+    div()
+        .absolute()
+        .top(px(BANNER_TOP))
+        .left(px(PANE_SIDE))
+        .right(px(PANE_SIDE))
+        .h(px(BANNER_HEIGHT))
+        .flex()
+        .items_center()
+        .gap(px(10.0))
+        .pl(px(14.0))
+        .pr(px(8.0))
+        .rounded(px(10.0))
+        .bg(rgba(color::WARNING << 8 | 0x12))
+        .border_1()
+        .border_color(rgba(color::WARNING << 8 | 0x47))
+        .font_family(font::UI)
+        .text_size(px(font::UI_SIZE))
+        .text_color(rgb(color::FG_BODY))
+        .whitespace_nowrap()
+        .child(
+            svg()
+                .path(BRANCH_ICON)
+                .flex_none()
+                .size(px(16.0))
+                .text_color(rgb(color::WARNING)),
+        )
+        .child(
+            div()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(rgb(color::FG_MAIN))
+                .child(title),
+        )
+        .children(parts)
+        .children(step.map(|step| {
+            div()
+                .px(px(8.0))
+                .py(px(2.0))
+                .rounded(px(5.0))
+                .bg(rgba(color::WARNING << 8 | 0x24))
+                .text_size(px(font::STATUS_SIZE))
+                .text_color(rgb(color::FG_ON_WARNING))
+                .child(step)
+        }))
+        .children(commit.map(|(id, subject)| {
+            div()
+                .flex()
+                .min_w_0()
+                .items_center()
+                .gap(px(10.0))
+                .child(
+                    div()
+                        .flex_none()
+                        .font_family(font::MONO)
+                        .text_size(px(font::STATUS_SIZE))
+                        .text_color(rgb(color::FG_FAINT))
+                        .child(id),
+                )
+                .child(div().min_w_0().truncate().child(subject))
+        }))
+        .child(div().flex_1())
+        .child(
+            div()
+                .flex_none()
+                .text_size(px(font::STATUS_SIZE))
+                .text_color(rgb(tone_color(state_tone, color::FG_DIM)))
+                .child(state),
+        )
+        .children(buttons)
+}
+
+/// Danger for one that throws work away, Accent for the one to press next; a disabled
+/// one cannot be pressed.
+fn render_banner_button(button: BannerButton, cx: &mut Context<EditorView>) -> Div {
+    let BannerButton {
+        label,
+        tone,
+        enabled,
+        action,
+    } = button;
+    let (background, border, text) = match tone {
+        _ if !enabled => (0x1a1a1aff, 0xffffff14, color::FG_MUTED),
+        Tone::Danger => (
+            color::BG_BUTTON << 8 | 0xff,
+            color::ERROR << 8 | 0x4d,
+            color::FG_FLAGGED,
+        ),
+        Tone::Accent => (
+            color::BG_SELECTION << 8 | 0xff,
+            color::ACCENT << 8 | 0x73,
+            color::FG_MAIN,
+        ),
+        _ => (color::BG_BUTTON << 8 | 0xff, 0xffffff14, color::FG_MAIN),
+    };
+    let element = div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .h(px(28.0))
+        .px(px(12.0))
+        .rounded(px(7.0))
+        .bg(rgba(background))
+        .border_1()
+        .border_color(rgba(border))
+        .text_size(px(font::STATUS_SIZE))
+        .text_color(rgb(text))
+        .when(enabled, |element| {
+            element.shadow(vec![shadow(0x00000080, 1.0, 2.0, 0.0)])
+        })
+        .child(label);
+    if enabled {
+        clickable(element, action, cx)
+    } else {
+        element
+    }
 }
 
 /// Whether a window this wide has room for the history beside the pane.
@@ -221,9 +395,9 @@ pub fn fits_history(window_width: Pixels) -> bool {
 }
 
 /// How many commits fit under the history's header in a window this tall.
-pub fn fitting_commits(window_height: Pixels) -> usize {
+pub fn fitting_commits(window_height: Pixels, has_banner: bool) -> usize {
     let room = (window_height / px(1.0))
-        - PANE_TOP
+        - pane_top(has_banner)
         - LIST_BOTTOM
         - HISTORY_HEADER_HEIGHT
         - HISTORY_HEADER_GAP;

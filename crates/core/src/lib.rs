@@ -36,7 +36,8 @@ pub use minibuffer::{
 };
 pub use mode::{FUNDAMENTAL_MODE, Mode, Modes};
 pub use outline::{
-    CommitChain, CommitRow, DiffRow, Fact, FactValue, GraphEdge, GraphNode, GraphRow, History,
+    Banner, BannerButton, BannerPart, CommitChain, CommitRow, ConflictBlock, ConflictRegion,
+    ConflictSide, ConflictView, DiffRow, Fact, FactValue, GraphEdge, GraphNode, GraphRow, History,
     Outline, OutlineProvider, OutlineRow, RefChip, RefKind, Scroll,
 };
 pub use plugin::{Hook, MinorKeymap, Plugin, Registry};

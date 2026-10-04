@@ -4,7 +4,7 @@ use std::rc::Rc;
 use crate::command::CommandResult;
 use crate::editor::Editor;
 use crate::status::Tone;
-use crate::table::Button;
+use crate::table::{Action, Button};
 use crate::vc::{FileState, LineCounts};
 
 /// A buffer drawn as a pane of sections, one row per line, like Emacs magit-status:
@@ -23,6 +23,91 @@ pub struct Outline {
     pub hints: &'static [(&'static str, &'static str)],
     /// Beside the pane when there is room.
     pub history: Option<History>,
+    /// Beside the pane in place of the history, e.g. for a file with conflicts.
+    pub conflict: Option<ConflictView>,
+    /// Across the top, above the panes, while something is in progress.
+    pub banner: Option<Banner>,
+}
+
+/// What is in progress and what can be done about it, e.g. a rebase stopped at a
+/// conflict.
+pub struct Banner {
+    /// E.g. `Rebasing`.
+    pub title: String,
+    /// After the title, e.g. the branch, `onto` and its base.
+    pub parts: Vec<BannerPart>,
+    /// E.g. `Step 2 of 3`.
+    pub step: Option<String>,
+    /// Being applied: its id and subject.
+    pub commit: Option<(String, String)>,
+    /// E.g. `2 conflicts left`.
+    pub state: (String, Tone),
+    pub buttons: Vec<BannerButton>,
+}
+
+pub enum BannerPart {
+    Chip(RefChip),
+    Word(String),
+}
+
+pub struct BannerButton {
+    pub label: String,
+    /// Danger for one that throws work away, Accent for the one to press next.
+    pub tone: Tone,
+    pub enabled: bool,
+    pub action: Action,
+}
+
+/// A file's conflicts: the lines around them and both sides of each, the current one
+/// with the keys that resolve it.
+pub struct ConflictView {
+    pub name: String,
+    /// Where it is, e.g. `src/`.
+    pub directory: String,
+    /// To highlight the lines in.
+    pub mode: Option<&'static str>,
+    /// Conflicts already resolved here.
+    pub resolved: usize,
+    /// The current conflict, counted from 1, of those left.
+    pub current: usize,
+    pub left: usize,
+    pub regions: Vec<ConflictRegion>,
+    pub previous: Action,
+    pub next: Action,
+}
+
+pub enum ConflictRegion {
+    /// Lines both sides agree on, numbered from `first`; `resolved` says how a conflict
+    /// was resolved into them, if one was.
+    Text {
+        first: usize,
+        lines: Vec<String>,
+        resolved: Option<String>,
+    },
+    Conflict(Box<ConflictBlock>),
+}
+
+pub struct ConflictBlock {
+    /// The one the keys resolve.
+    pub current: bool,
+    pub ours: ConflictSide,
+    pub theirs: ConflictSide,
+    pub keep_ours: Action,
+    pub keep_theirs: Action,
+    pub keep_both: Action,
+    /// Visits the file at the conflict.
+    pub edit: Action,
+}
+
+pub struct ConflictSide {
+    pub chip: RefChip,
+    /// What the side is, e.g. `upstream`.
+    pub role: String,
+    pub id: Option<String>,
+    pub subject: String,
+    /// Numbered from.
+    pub first: usize,
+    pub lines: Vec<String>,
 }
 
 /// Commits, newest first, with the graph of how they descend from each other, like Emacs
@@ -144,6 +229,8 @@ pub enum OutlineRow {
         /// Where it is, e.g. `src/`.
         directory: String,
         lines: Option<LineCounts>,
+        /// In place of the line counts, e.g. `1 conflict`.
+        note: Option<(String, Tone)>,
         open: bool,
     },
     /// A line of an open file's diff.

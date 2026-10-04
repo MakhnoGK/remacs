@@ -1,6 +1,6 @@
 //! What `git status --porcelain=v2` and `git diff --numstat` say of a working tree.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
@@ -8,9 +8,11 @@ use std::sync::Arc;
 
 use remacs_core::{FileState, FileStatus, LineCounts};
 
+use crate::conflict::ConflictFile;
 use crate::details::Details;
 use crate::diff::FileDiff;
 use crate::history::Log;
+use crate::operation::Operation;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Snapshot {
@@ -27,6 +29,12 @@ pub struct Snapshot {
     pub diffs: HashMap<DiffKey, FileDiff>,
     /// Read while a status buffer shows the tree; shared, as it rarely changes.
     pub history: Option<Arc<Log>>,
+    /// A rebase or merge stopped part way.
+    pub operation: Option<Operation>,
+    /// Of the files with conflicts, by path relative to the root.
+    pub conflicts: HashMap<PathBuf, ConflictFile>,
+    /// Had conflicts since the operation began, kept from snapshot to snapshot.
+    pub resolved: HashSet<PathBuf>,
 }
 
 /// One side of a file's changes: staged, or not yet.

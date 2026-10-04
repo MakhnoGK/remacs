@@ -12,6 +12,7 @@ use remacs_core::{
 };
 use remacs_text::Text;
 
+use crate::conflict_view::{self, ConflictState};
 use crate::diff::FileDiff;
 use crate::history_view::{self, HistoryState};
 use crate::integrate;
@@ -39,6 +40,8 @@ pub const SHORT_ID: usize = 7;
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum Section {
     Unmerged,
+    /// Staged files that had conflicts in the rebase or merge in progress.
+    Resolved,
     Staged,
     Unstaged,
     Untracked,
@@ -46,16 +49,20 @@ pub enum Section {
 }
 
 impl Section {
-    const FILES: [Section; 4] = [
+    const FILES: [Section; 5] = [
         Section::Unmerged,
+        Section::Resolved,
         Section::Staged,
         Section::Unstaged,
         Section::Untracked,
     ];
 
-    fn title(self) -> &'static str {
+    /// While a rebase or merge is in progress, what is staged merged cleanly.
+    fn title(self, snapshot: &Snapshot) -> &'static str {
         match self {
             Section::Unmerged => "Unmerged",
+            Section::Resolved => "Resolved",
+            Section::Staged if snapshot.operation.is_some() => "Merged cleanly",
             Section::Staged => "Staged",
             Section::Unstaged => "Unstaged",
             Section::Untracked => "Untracked",
@@ -65,7 +72,15 @@ impl Section {
 
     /// Whether its files have a diff to unfold.
     pub fn has_diffs(self) -> bool {
-        matches!(self, Section::Staged | Section::Unstaged)
+        matches!(
+            self,
+            Section::Resolved | Section::Staged | Section::Unstaged
+        )
+    }
+
+    /// Its files' changes are in the index.
+    pub fn is_staged(self) -> bool {
+        matches!(self, Section::Resolved | Section::Staged)
     }
 }
 
@@ -107,6 +122,7 @@ pub struct StatusView {
     /// The snapshot generation drawn; `None` to draw again.
     drawn: Option<u64>,
     pub history: HistoryState,
+    pub conflicts: ConflictState,
 }
 
 impl StatusView {
@@ -118,6 +134,7 @@ impl StatusView {
             lines: Vec::new(),
             drawn: None,
             history: HistoryState::default(),
+            conflicts: ConflictState::default(),
         }
     }
 
@@ -156,10 +173,15 @@ pub fn section_files(snapshot: &Snapshot, section: Section) -> Vec<SectionFile> 
         .files
         .iter()
         .filter_map(|(path, entry)| {
+            let staged = !matches!(entry.staged, b'.' | b'?');
+            let resolved = snapshot.resolved.contains(path);
             let (state, lines) = match section {
                 Section::Unmerged if entry.conflicted => (FileState::Conflicted, None),
                 _ if entry.conflicted => return None,
-                Section::Staged if !matches!(entry.staged, b'.' | b'?') => {
+                Section::Resolved if staged && resolved => {
+                    (FileState::Resolved, entry.staged_lines)
+                }
+                Section::Staged if staged && !resolved => {
                     (side_state(entry.staged), entry.staged_lines)
                 }
                 Section::Unstaged if entry.staged != b'?' && entry.unstaged != b'.' => {
@@ -172,10 +194,7 @@ pub fn section_files(snapshot: &Snapshot, section: Section) -> Vec<SectionFile> 
                 path: path.clone(),
                 state,
                 lines,
-                original: entry
-                    .original
-                    .clone()
-                    .filter(|_| section == Section::Staged),
+                original: entry.original.clone().filter(|_| section.is_staged()),
             })
         })
         .collect();
@@ -222,7 +241,7 @@ pub fn wants(editor: &Editor) -> HashMap<PathBuf, Wants> {
             .iter()
             .filter(|(section, _)| !view.folded.contains(section))
             .map(|(section, path)| DiffKey {
-                staged: *section == Section::Staged,
+                staged: section.is_staged(),
                 path: path.clone(),
             })
             .collect();
@@ -279,6 +298,9 @@ fn draw(buffer: &mut Buffer, snapshot: &Snapshot, generation: u64) {
     .unwrap_or(current_line.min(lines.len().saturating_sub(1)));
     view.lines = lines;
     view.drawn = Some(generation);
+    if snapshot.operation.is_none() {
+        view.conflicts = ConflictState::default();
+    }
     buffer.replace_text(Text::from(texts.join("\n").as_str()));
     let offset = buffer.text().line_start(target).unwrap_or_default();
     buffer.set_point(offset);
@@ -293,7 +315,7 @@ fn layout(view: &StatusView, snapshot: &Snapshot) -> (Vec<Line>, Vec<String>) {
             continue;
         }
         lines.push(Line::Heading(section));
-        texts.push(format!("{} {}", section.title(), files.len()));
+        texts.push(format!("{} {}", section.title(snapshot), files.len()));
         if view.folded.contains(&section) {
             continue;
         }
@@ -302,7 +324,7 @@ fn layout(view: &StatusView, snapshot: &Snapshot) -> (Vec<Line>, Vec<String>) {
             texts.push(format!("{} {}", file.state.letter(), file.path.display()));
             let open = view.open.contains(&(section, file.path.clone()));
             let key = DiffKey {
-                staged: section == Section::Staged,
+                staged: section.is_staged(),
                 path: file.path.clone(),
             };
             if let Some(diff) = snapshot.diffs.get(&key).filter(|_| open) {
@@ -384,20 +406,36 @@ pub fn outline(editor: &Editor, range: Range<usize>) -> Option<Outline> {
             .collect(),
         None => Vec::new(),
     };
+    let point_line = editor.window_buffer().point_line();
+    let conflict = snapshot.and_then(|snapshot| {
+        let (Section::Unmerged, path) = view.line(point_line)?.file()? else {
+            return None;
+        };
+        conflict_view::view(editor, view, snapshot, path)
+    });
+    let in_conflict = conflict.is_some();
     Some(Outline {
         facts: snapshot.map(facts).unwrap_or_default(),
         rows,
         toggle: TOGGLE,
         activate: VISIT,
-        hints: HINTS,
-        history: snapshot.map(|snapshot| history_view::history(view, snapshot)),
+        hints: match snapshot.and_then(|snapshot| snapshot.operation.as_ref()) {
+            _ if in_conflict => conflict_view::hints(snapshot),
+            Some(_) => conflict_view::OPERATION_HINTS,
+            None => HINTS,
+        },
+        history: snapshot
+            .filter(|_| !in_conflict)
+            .map(|snapshot| history_view::history(view, snapshot)),
+        conflict,
+        banner: snapshot.and_then(conflict_view::banner),
     })
 }
 
 fn row(view: &StatusView, snapshot: &Snapshot, line: &Line) -> Option<OutlineRow> {
     Some(match line {
         Line::Heading(section) => OutlineRow::Heading {
-            title: section.title().into(),
+            title: section.title(snapshot).into(),
             count: match section {
                 Section::Stashes => snapshot.stashes,
                 _ => section_files(snapshot, *section).len(),
@@ -427,6 +465,7 @@ fn row(view: &StatusView, snapshot: &Snapshot, line: &Line) -> Option<OutlineRow
                 },
                 directory: directory_label(path),
                 lines: file.lines,
+                note: conflict_view::file_note(view, snapshot, *section, path),
                 open: view.open.contains(&(*section, path.clone())),
             }
         }
@@ -437,7 +476,7 @@ fn row(view: &StatusView, snapshot: &Snapshot, line: &Line) -> Option<OutlineRow
             line,
         } => {
             let key = DiffKey {
-                staged: *section == Section::Staged,
+                staged: section.is_staged(),
                 path: path.clone(),
             };
             let hunk = snapshot.diffs.get(&key)?.hunks.get(*hunk)?;
@@ -448,7 +487,7 @@ fn row(view: &StatusView, snapshot: &Snapshot, line: &Line) -> Option<OutlineRow
         }
         Line::NoDiff(section, path) => {
             let key = DiffKey {
-                staged: *section == Section::Staged,
+                staged: section.is_staged(),
                 path: path.clone(),
             };
             OutlineRow::Diff(DiffRow::Context(
@@ -484,6 +523,9 @@ pub fn directory_label(path: &Path) -> String {
 }
 
 fn facts(snapshot: &Snapshot) -> Vec<Fact> {
+    if let Some(operation) = &snapshot.operation {
+        return conflict_view::facts(operation);
+    }
     let details = snapshot.details.as_ref();
     let subject = details.and_then(|details| details.subject.clone());
     let head = match &snapshot.head {
@@ -564,6 +606,17 @@ fn plural(count: u64, noun: &str) -> String {
 /// The branch checked out, for the pill of a status buffer.
 pub fn branch_status(editor: &Editor) -> Option<StatusSegment> {
     let snapshot = window_snapshot(editor)?;
+    if let Some(operation) = &snapshot.operation {
+        return Some(StatusSegment {
+            items: vec![StatusItem::toned(
+                conflict_view::progress(operation),
+                Tone::Warning,
+            )],
+            command: None,
+            active: false,
+            code: false,
+        });
+    }
     let name = match &snapshot.head {
         Head::Branch(name) | Head::Unborn(name) => name.clone(),
         Head::Detached(id) => id.chars().take(SHORT_ID).collect(),
@@ -578,7 +631,21 @@ pub fn branch_status(editor: &Editor) -> Option<StatusSegment> {
 
 /// Commits ahead of and behind the upstream, for the pill of a status buffer.
 pub fn sync_status(editor: &Editor) -> Option<StatusSegment> {
-    let (ahead, behind) = window_snapshot(editor)?.upstream.as_ref()?.ahead_behind?;
+    let snapshot = window_snapshot(editor)?;
+    if snapshot.operation.is_some() {
+        let item = match conflict_view::conflicts_left(snapshot) {
+            0 => StatusItem::toned("Resolved".to_owned(), Tone::Success),
+            1 => StatusItem::toned("1 conflict".to_owned(), Tone::Danger),
+            left => StatusItem::toned(format!("{left} conflicts"), Tone::Danger),
+        };
+        return Some(StatusSegment {
+            items: vec![item],
+            command: None,
+            active: false,
+            code: false,
+        });
+    }
+    let (ahead, behind) = snapshot.upstream.as_ref()?.ahead_behind?;
     Some(StatusSegment {
         items: vec![StatusItem::toned(
             format!("↑{ahead} ↓{behind}"),

@@ -13,6 +13,7 @@ pub const TRASH_ICON: &str = "icons/trash.svg";
 pub const ARROW_ICON: &str = "icons/arrow.svg";
 pub const BRANCH_ICON: &str = "icons/branch.svg";
 pub const CHEVRON_DOWN_ICON: &str = "icons/chevron-down.svg";
+pub const CHEVRON_UP_ICON: &str = "icons/chevron-up.svg";
 pub const PLUS_ICON: &str = "icons/plus.svg";
 pub const REMOTE_ICON: &str = "icons/remote.svg";
 
@@ -31,6 +32,10 @@ const ASSETS: &[(&str, &[u8])] = &[
     (
         CHEVRON_DOWN_ICON,
         include_bytes!("../assets/icons/chevron-down.svg"),
+    ),
+    (
+        CHEVRON_UP_ICON,
+        include_bytes!("../assets/icons/chevron-up.svg"),
     ),
     (PLUS_ICON, include_bytes!("../assets/icons/plus.svg")),
     (REMOTE_ICON, include_bytes!("../assets/icons/remote.svg")),
