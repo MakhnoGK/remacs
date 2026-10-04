@@ -1,13 +1,35 @@
-use remacs_core::{Buffer, Editor, Key, parse_sequence};
+use remacs_core::{Buffer, Editor, Key, Mode, Plugin, Registry, parse_sequence};
 use remacs_text::Text;
 
 use crate::EditingPlugin;
 
-fn editor_with(text: &str) -> Editor {
-    let mut editor = Editor::new(&[&EditingPlugin]);
-    editor.add_buffer(Buffer::new("test", Text::from(text), "Fundamental"));
+const CODE_MODE: &str = "Code";
+
+struct CodeModePlugin;
+
+impl Plugin for CodeModePlugin {
+    fn register(&self, registry: &mut Registry) {
+        registry.modes.add(Mode {
+            name: CODE_MODE,
+            extensions: &[],
+            pairs: &[('(', ')'), ('[', ']'), ('{', '}')],
+        });
+    }
+}
+
+fn editor_in_mode(text: &str, mode: &'static str) -> Editor {
+    let mut editor = Editor::new(&[&EditingPlugin, &CodeModePlugin]);
+    editor.add_buffer(Buffer::new("test", Text::from(text), mode));
     editor.viewport.set_height(10);
     editor
+}
+
+fn editor_with(text: &str) -> Editor {
+    editor_in_mode(text, "Fundamental")
+}
+
+fn code_editor_with(text: &str) -> Editor {
+    editor_in_mode(text, CODE_MODE)
 }
 
 fn press(editor: &mut Editor, keys: &str) {
@@ -138,6 +160,67 @@ fn lines_open_below_and_above_without_breaking_this_one() {
         contents(&editor),
         "fn f() {\n    a\n    c\n    g();\n    b\n}"
     );
+}
+
+#[test]
+fn brackets_close_themselves_and_are_typed_over() {
+    let mut editor = code_editor_with("");
+    type_text(&mut editor, "f(a[1");
+    assert_eq!(contents(&editor), "f(a[1])");
+    type_text(&mut editor, "]);");
+    assert_eq!(contents(&editor), "f(a[1]);");
+    assert_eq!(editor.buffer().point(), "f(a[1]);".len());
+}
+
+#[test]
+fn an_opener_before_a_word_stays_single() {
+    let mut editor = code_editor_with("x");
+    type_text(&mut editor, "(");
+    assert_eq!(contents(&editor), "(x");
+}
+
+#[test]
+fn a_closer_is_typed_when_the_line_needs_one() {
+    let mut editor = code_editor_with("f(g(x)");
+    press(&mut editor, "C-e C-b");
+    type_text(&mut editor, ")");
+    assert_eq!(contents(&editor), "f(g(x))");
+}
+
+#[test]
+fn delete_takes_an_empty_pair_whole() {
+    let mut editor = code_editor_with("");
+    type_text(&mut editor, "{");
+    press(&mut editor, "DEL");
+    assert_eq!(contents(&editor), "");
+}
+
+#[test]
+fn an_opener_wraps_the_region_and_keeps_it() {
+    let mut editor = code_editor_with("let x = a + b;");
+    press(&mut editor, "M-f M-f M-f M-b C-SPC C-e C-b");
+    type_text(&mut editor, "(");
+    assert_eq!(contents(&editor), "let x = (a + b);");
+    type_text(&mut editor, "[");
+    assert_eq!(contents(&editor), "let x = ([a + b]);");
+    assert_eq!(editor.buffer().region(), Some(10..15));
+}
+
+#[test]
+fn newline_inside_a_typed_pair_opens_a_block() {
+    let mut editor = code_editor_with("fn f() ");
+    press(&mut editor, "C-e");
+    type_text(&mut editor, "{");
+    press(&mut editor, "RET");
+    type_text(&mut editor, "x");
+    assert_eq!(contents(&editor), "fn f() {\n    x\n}");
+}
+
+#[test]
+fn fundamental_mode_pairs_nothing() {
+    let mut editor = editor_with("");
+    type_text(&mut editor, "(");
+    assert_eq!(contents(&editor), "(");
 }
 
 #[test]

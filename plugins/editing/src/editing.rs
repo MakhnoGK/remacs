@@ -1,6 +1,6 @@
 use remacs_core::{Buffer, CommandError, CommandResult, Editor};
 
-use crate::indent;
+use crate::{indent, pairs};
 
 /// The buffer to edit, unless it is read-only.
 pub fn writable_buffer(editor: &mut Editor) -> Result<&mut Buffer, CommandError> {
@@ -14,7 +14,11 @@ pub fn self_insert(editor: &mut Editor) -> CommandResult {
         .last_key()
         .and_then(|key| key.printable_char())
         .ok_or("Not a printable key")?;
+    let pairs = pairs::mode_pairs(editor);
     let buffer = writable_buffer(editor)?;
+    if pairs::type_paired(buffer, pairs, character) {
+        return Ok(());
+    }
     indent::indent_for_closer(buffer, character);
     buffer.insert(character.encode_utf8(&mut [0; 4]));
     Ok(())
@@ -37,8 +41,12 @@ pub fn delete_char(editor: &mut Editor) -> CommandResult {
 }
 
 pub fn delete_backward_char(editor: &mut Editor) -> CommandResult {
+    let pairs = pairs::mode_pairs(editor);
     let buffer = writable_buffer(editor)?;
-    if let Some(region) = buffer.region() {
+    if let Some(region) = buffer
+        .region()
+        .or_else(|| pairs::empty_pair_around(buffer, pairs))
+    {
         buffer.delete(region);
         return Ok(());
     }

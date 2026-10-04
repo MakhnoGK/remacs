@@ -5,6 +5,7 @@ mod editing;
 mod indent;
 mod killing;
 mod motion;
+mod pairs;
 
 use remacs_core::{Command, Plugin, Registry, SELF_INSERT_COMMAND};
 

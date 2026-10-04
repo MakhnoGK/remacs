@@ -17,16 +17,32 @@ const JSX: &str = "JSX";
 const HTML: &str = "HTML";
 const CSS: &str = "CSS";
 
-const MODES: &[(&str, &[&str])] = &[
-    (RUST, &["rs"]),
-    (C, &["c", "h"]),
-    (CPP, &["cc", "cpp", "cxx", "hh", "hpp", "hxx"]),
-    (TYPESCRIPT, &["ts", "mts", "cts"]),
-    (TSX, &["tsx"]),
-    (JAVASCRIPT, &["js", "mjs", "cjs"]),
-    (JSX, &["jsx"]),
-    (HTML, &["html", "htm"]),
-    (CSS, &["css"]),
+const BRACKETS: &[(char, char)] = &[('(', ')'), ('[', ']'), ('{', '}')];
+/// `<` pairs only where it opens tags: elsewhere it is also less-than.
+const TAG_BRACKETS: &[(char, char)] = &[('(', ')'), ('[', ']'), ('{', '}'), ('<', '>')];
+
+const fn mode(
+    name: &'static str,
+    extensions: &'static [&'static str],
+    pairs: &'static [(char, char)],
+) -> Mode {
+    Mode {
+        name,
+        extensions,
+        pairs,
+    }
+}
+
+const MODES: &[Mode] = &[
+    mode(RUST, &["rs"], BRACKETS),
+    mode(C, &["c", "h"], BRACKETS),
+    mode(CPP, &["cc", "cpp", "cxx", "hh", "hpp", "hxx"], BRACKETS),
+    mode(TYPESCRIPT, &["ts", "mts", "cts"], BRACKETS),
+    mode(TSX, &["tsx"], TAG_BRACKETS),
+    mode(JAVASCRIPT, &["js", "mjs", "cjs"], BRACKETS),
+    mode(JSX, &["jsx"], TAG_BRACKETS),
+    mode(HTML, &["html", "htm"], TAG_BRACKETS),
+    mode(CSS, &["css"], BRACKETS),
 ];
 
 /// Upstream's all-caps constant pattern never matches (its regex ends in a stray quote).
@@ -153,8 +169,8 @@ pub const SERVERS: &[LanguageServer] = &[
 
 impl Plugin for LanguagesPlugin {
     fn register(&self, registry: &mut Registry) {
-        for &(name, extensions) in MODES {
-            registry.modes.add(Mode { name, extensions });
+        for &mode in MODES {
+            registry.modes.add(mode);
         }
     }
 }
@@ -167,7 +183,7 @@ mod tests {
 
     #[test]
     fn every_mode_has_a_grammar_whose_queries_compile() {
-        for &(mode, _) in MODES {
+        for &Mode { name: mode, .. } in MODES {
             let grammar = GRAMMARS
                 .iter()
                 .find(|grammar| grammar.mode == mode)
@@ -182,7 +198,7 @@ mod tests {
     fn servers_serve_known_modes() {
         for server in SERVERS {
             for (mode, _) in server.languages {
-                assert!(MODES.iter().any(|(known, _)| known == mode), "{mode}");
+                assert!(MODES.iter().any(|known| known.name == *mode), "{mode}");
             }
         }
     }

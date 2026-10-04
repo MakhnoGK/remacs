@@ -18,6 +18,7 @@ use crate::key::{Key, describe_sequence};
 use crate::keymap::{Binding, Keymap};
 use crate::kill_ring::KillRing;
 use crate::minibuffer::{Dialog, Minibuffer, Prompt};
+use crate::mode::Mode;
 use crate::outline::Outline;
 use crate::plugin::{Plugin, Registry};
 use crate::popup::Popup;
@@ -133,6 +134,11 @@ impl Editor {
 
     pub fn mode_for(&self, path: Option<&Path>) -> &'static str {
         self.registry.modes.name_for(path)
+    }
+
+    /// The current buffer's major mode; none for Fundamental.
+    pub fn buffer_mode(&self) -> Option<&Mode> {
+        self.registry.modes.get(self.buffer().mode())
     }
 
     /// Shows the buffer visiting `path`, opening it first if needed; a missing file
