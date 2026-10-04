@@ -1,17 +1,67 @@
-use remacs_core::{CommandResult, Editor};
+use std::fs;
+use std::path::Path;
+
+use remacs_core::{CommandResult, Count, Editor, Prompt};
 
 use crate::buffers::has_unsaved_changes;
+use crate::find_file::{FILE_CATEGORY, directory_candidates};
+use crate::project::{abbreviate_home, default_directory, expand_home, with_slash};
 
+/// Saves the buffer in its file, asking for a file name if it has none.
 pub fn save_buffer(editor: &mut Editor) -> CommandResult {
     let buffer = editor.window_buffer();
     if buffer.path().is_none() {
-        return Err(format!("Buffer {} is not visiting a file", buffer.name()).into());
+        return write_file(editor);
     }
     if !buffer.is_modified() {
         editor.set_message("(No changes need to be saved)");
         return Ok(());
     }
     let name = buffer.name().to_owned();
+    save(editor, &name)
+}
+
+/// Saves the buffer under a new file name and visits that file from then on; a directory
+/// gets a file named after the buffer.
+pub fn write_file(editor: &mut Editor) -> CommandResult {
+    let directory = default_directory(editor);
+    let prompt = Prompt {
+        label: "Write file".into(),
+        category: FILE_CATEGORY,
+        initial_input: with_slash(&abbreviate_home(&directory)),
+        count: Count::Matches,
+        wide: true,
+        hints: &[
+            ("↵", "Write"),
+            ("M-↵", "Write as typed"),
+            ("⇥", "Complete path"),
+            ("C-g", "Cancel"),
+        ],
+        ..Prompt::default()
+    };
+    editor.read(
+        prompt,
+        |_, input| directory_candidates(input),
+        move |editor, answer| {
+            let mut path = directory.join(expand_home(&answer));
+            if path.is_dir() {
+                path.push(editor.window_buffer().name());
+            }
+            let current_file = fs::canonicalize(&path).ok();
+            if path.exists() && current_file.as_deref() != editor.window_buffer().path() {
+                let question = format!("File {} exists; overwrite?", abbreviate_home(&path));
+                return editor.ask_y_or_n(question, move |editor, yes| {
+                    if yes { write_to(editor, &path) } else { Ok(()) }
+                });
+            }
+            write_to(editor, &path)
+        },
+    )
+}
+
+fn write_to(editor: &mut Editor, path: &Path) -> CommandResult {
+    editor.set_visited_file(path)?;
+    let name = editor.window_buffer().name().to_owned();
     save(editor, &name)
 }
 

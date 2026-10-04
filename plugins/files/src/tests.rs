@@ -1,11 +1,17 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::mpsc::{self, Receiver};
+use std::time::{Duration, Instant};
 
-use remacs_core::{Editor, Key, parse_sequence};
+use remacs_core::{Editor, Key, SCRATCH_BUFFER, parse_sequence};
 use remacs_editing::EditingPlugin;
 use remacs_minibuffer::MinibufferPlugin;
 
 use crate::FilesPlugin;
+
+const INDEX_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// A throwaway Git work tree with a few files.
 struct Project(PathBuf);
@@ -16,7 +22,7 @@ impl Project {
         let _ = fs::remove_dir_all(&root);
         for (path, contents) in [
             (".git/HEAD", ""),
-            (".gitignore", "target/\n"),
+            (".gitignore", "target/\n*.log\n"),
             ("Cargo.toml", "[package]\n"),
             ("src/marker.rs", ""),
             ("src/mark_ring.rs", ""),
@@ -45,6 +51,30 @@ fn editor_visiting(path: &Path) -> Editor {
     let mut editor = Editor::new(&[&EditingPlugin, &MinibufferPlugin, &FilesPlugin]);
     editor.visit_file(path).unwrap();
     editor
+}
+
+/// Opens find-file for the first time, once the background index has scanned the project;
+/// the receiver reports later index updates.
+fn open_find_file(editor: &mut Editor) -> Receiver<()> {
+    let (sender, notifications) = mpsc::channel();
+    editor.set_notifier(Arc::new(move || {
+        let _ = sender.send(());
+    }));
+    press(editor, "C-x C-f");
+    notifications
+        .recv_timeout(INDEX_TIMEOUT)
+        .expect("the index finishes its first scan");
+    editor.refresh();
+    notifications
+}
+
+fn candidate_values(editor: &Editor) -> BTreeSet<String> {
+    let minibuffer = editor.minibuffer().unwrap();
+    minibuffer
+        .candidates()
+        .iter()
+        .map(|candidate| candidate.value.clone())
+        .collect()
 }
 
 fn press(editor: &mut Editor, keys: &str) {
@@ -80,7 +110,7 @@ fn buffer_names(editor: &Editor) -> Vec<&str> {
 fn find_file_matches_project_files_by_name() {
     let project = Project::new("find-file");
     let mut editor = editor_visiting(&project.path("Cargo.toml"));
-    press(&mut editor, "C-x C-f");
+    open_find_file(&mut editor);
     type_text(&mut editor, "mark");
     assert_eq!(
         labels(&editor),
@@ -115,6 +145,97 @@ fn find_file_browses_absolute_paths_and_creates_new_files() {
     assert_eq!(
         fs::read_to_string(project.path("src/new.rs")).unwrap(),
         "fn main() {}"
+    );
+}
+
+#[test]
+fn file_index_follows_file_system_changes() {
+    let project = Project::new("index");
+    let mut editor = editor_visiting(&project.path("Cargo.toml"));
+    let notifications = open_find_file(&mut editor);
+    fs::create_dir_all(project.path("lib/nested")).unwrap();
+    for created in [
+        "src/added.rs",
+        "src/debug.log",
+        "target/built.rs",
+        "lib/nested/deep.rs",
+    ] {
+        fs::write(project.path(created), "").unwrap();
+    }
+    fs::remove_file(project.path("docs/marks.md")).unwrap();
+
+    let expected: BTreeSet<String> = [
+        "Cargo.toml",
+        "src/marker.rs",
+        "src/mark_ring.rs",
+        "src/added.rs",
+        "lib/nested/deep.rs",
+    ]
+    .map(String::from)
+    .into();
+    let deadline = Instant::now() + INDEX_TIMEOUT;
+    while candidate_values(&editor) != expected && Instant::now() < deadline {
+        let _ = notifications.recv_timeout(deadline - Instant::now());
+        editor.refresh();
+    }
+    assert_eq!(candidate_values(&editor), expected);
+}
+
+#[test]
+fn write_file_visits_the_new_file() {
+    let project = Project::new("write-file");
+    let mut editor = Editor::new(&[&EditingPlugin, &MinibufferPlugin, &FilesPlugin]);
+    type_text(&mut editor, "notes");
+    press(&mut editor, "C-x C-s");
+    assert_eq!(editor.minibuffer().unwrap().prompt().label, "Write file");
+    press(&mut editor, "C-a C-k");
+    type_text(&mut editor, &format!("{}/notes.md", project.0.display()));
+    press(&mut editor, "M-RET");
+    assert_eq!(editor.window_buffer().name(), "notes.md");
+    assert_eq!(
+        editor.window_buffer().path(),
+        Some(project.path("notes.md").as_path())
+    );
+    assert!(!editor.window_buffer().is_modified());
+    assert_eq!(
+        fs::read_to_string(project.path("notes.md")).unwrap(),
+        "notes"
+    );
+    assert!(!buffer_names(&editor).contains(&SCRATCH_BUFFER));
+
+    press(&mut editor, "C-x C-w C-a C-k");
+    type_text(&mut editor, &format!("{}/src/", project.0.display()));
+    press(&mut editor, "M-RET");
+    assert_eq!(
+        fs::read_to_string(project.path("src/notes.md")).unwrap(),
+        "notes"
+    );
+    assert_eq!(buffer_names(&editor), ["notes.md"]);
+
+    press(&mut editor, "C-x C-w C-a C-k");
+    type_text(&mut editor, &format!("{}/Cargo.toml", project.0.display()));
+    press(&mut editor, "M-RET");
+    assert!(
+        editor
+            .minibuffer()
+            .unwrap()
+            .prompt()
+            .label
+            .ends_with("Cargo.toml exists; overwrite? (y or n)")
+    );
+    press(&mut editor, "n");
+    assert_eq!(editor.window_buffer().name(), "notes.md");
+    assert_eq!(
+        fs::read_to_string(project.path("Cargo.toml")).unwrap(),
+        "[package]\n"
+    );
+    press(&mut editor, "C-x C-w C-a C-k");
+    type_text(&mut editor, &format!("{}/Cargo.toml", project.0.display()));
+    press(&mut editor, "M-RET y");
+    assert_eq!(editor.window_buffer().name(), "Cargo.toml");
+    assert_eq!(
+        fs::read_to_string(project.path("Cargo.toml")).unwrap(),
+        "notes"
     );
 }
 

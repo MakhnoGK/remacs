@@ -1,12 +1,7 @@
 use std::env;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
-use ignore::{WalkBuilder, WalkState};
 use remacs_core::Editor;
-
-/// Keeps a prompt opened over a huge tree responsive.
-const MAX_FILES: usize = 100_000;
 
 /// Directory of the window's file, else the working directory.
 pub fn default_directory(editor: &Editor) -> PathBuf {
@@ -29,34 +24,6 @@ pub fn project_root(directory: &Path) -> PathBuf {
         .find(|ancestor| ancestor.join(".git").exists())
         .unwrap_or(&directory)
         .to_path_buf()
-}
-
-/// Files under `root`, relative to it, without hidden and Git-ignored ones;
-/// shallow files first, then by path.
-pub fn list_files(root: &Path) -> Vec<String> {
-    let files = Mutex::new(Vec::new());
-    WalkBuilder::new(root).build_parallel().run(|| {
-        Box::new(|entry| {
-            let Ok(entry) = entry else {
-                return WalkState::Continue;
-            };
-            if !entry.file_type().is_some_and(|kind| kind.is_file()) {
-                return WalkState::Continue;
-            }
-            let mut files = files.lock().expect("walker threads do not panic");
-            if files.len() >= MAX_FILES {
-                return WalkState::Quit;
-            }
-            if let Ok(relative) = entry.path().strip_prefix(root) {
-                files.push(relative.to_string_lossy().into_owned());
-            }
-            WalkState::Continue
-        })
-    });
-    let mut files = files.into_inner().expect("walker threads do not panic");
-    let depth = |path: &String| path.matches('/').count();
-    files.sort_by(|a, b| depth(a).cmp(&depth(b)).then_with(|| a.cmp(b)));
-    files
 }
 
 /// `dir/` relative to `root`, `./` for the root itself, else from `~`.

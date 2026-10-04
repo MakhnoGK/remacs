@@ -53,6 +53,11 @@ impl Buffer {
         self.mode
     }
 
+    pub(crate) fn set_file(&mut self, path: PathBuf, mode: &'static str) {
+        self.file = Some(path);
+        self.mode = mode;
+    }
+
     pub fn text(&self) -> &Text {
         &self.text
     }

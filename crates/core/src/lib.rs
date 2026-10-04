@@ -16,7 +16,7 @@ mod viewport;
 pub use buffer::Buffer;
 pub use command::{Command, CommandError, CommandResult, Commands};
 pub use completion::{Candidate, Completions, Icon, Match, filter, filter_candidates, rank};
-pub use editor::{Editor, SCRATCH_BUFFER, SELF_INSERT_COMMAND};
+pub use editor::{Editor, Notifier, SCRATCH_BUFFER, SELF_INSERT_COMMAND};
 pub use key::{Key, KeyCode, Modifiers, describe_sequence, parse_sequence};
 pub use keymap::{Binding, Keymap};
 pub use kill_ring::KillRing;

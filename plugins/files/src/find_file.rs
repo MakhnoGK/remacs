@@ -2,17 +2,18 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 
 use remacs_core::{
     Buffer, Candidate, CommandResult, Completions, Count, Editor, Icon, Prompt, filter, rank,
 };
 
+use crate::file_index::{FileIndex, FileIndexes};
 use crate::project::{
-    abbreviate_home, default_directory, expand_home, list_files, project_root, relative_directory,
-    with_slash,
+    abbreviate_home, default_directory, expand_home, project_root, relative_directory, with_slash,
 };
 
-const FILE_CATEGORY: &str = "file";
+pub const FILE_CATEGORY: &str = "file";
 /// Matches turned into rows; the counter still reports all of them.
 const MAX_CANDIDATES: usize = 500;
 
@@ -20,14 +21,17 @@ const MAX_CANDIDATES: usize = 500;
 /// a `/`); input starting with `/` or `~` browses the file system instead.
 pub fn find_file(editor: &mut Editor) -> CommandResult {
     let root = project_root(&default_directory(editor));
-    let files = Rc::new(list_files(&root));
-    read_file_name(editor, Rc::new(root), files, String::new())
+    let notifier = editor.notifier();
+    let index = editor
+        .plugin_state::<FileIndexes>()
+        .get_or_start(&root, notifier);
+    read_file_name(editor, Rc::new(root), index, String::new())
 }
 
 fn read_file_name(
     editor: &mut Editor,
     root: Rc<PathBuf>,
-    files: Rc<Vec<String>>,
+    index: Arc<FileIndex>,
     initial_input: String,
 ) -> CommandResult {
     let prompt = Prompt {
@@ -40,14 +44,14 @@ fn read_file_name(
         hints: &[("↵", "Open"), ("⇥", "Complete path"), ("C-g", "Cancel")],
         ..Prompt::default()
     };
-    let (source_root, source_files) = (Rc::clone(&root), Rc::clone(&files));
+    let (source_root, source_index) = (Rc::clone(&root), Arc::clone(&index));
     editor.read(
         prompt,
         move |editor, input| {
             if is_absolute(input) {
                 directory_candidates(input)
             } else {
-                project_candidates(editor, &source_root, &source_files, input)
+                project_candidates(editor, &source_root, &source_index.files(), input)
             }
         },
         move |editor, answer| {
@@ -58,7 +62,7 @@ fn read_file_name(
             };
             if path.is_dir() {
                 let input = with_slash(&abbreviate_home(&path));
-                return read_file_name(editor, root, files, input);
+                return read_file_name(editor, root, index, input);
             }
             Ok(editor.visit_file(&path)?)
         },
@@ -105,7 +109,7 @@ fn project_candidates(editor: &Editor, root: &Path, files: &[String], input: &st
 }
 
 /// Entries of the directory typed so far, matching the name being typed.
-fn directory_candidates(input: &str) -> Completions {
+pub fn directory_candidates(input: &str) -> Completions {
     let split = input.rfind('/').map_or(0, |slash| slash + 1);
     let (typed_directory, partial_name) = input.split_at(split);
     let Ok(entries) = fs::read_dir(expand_home(typed_directory)) else {

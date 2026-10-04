@@ -1,5 +1,8 @@
 use std::ops::Range;
+use std::sync::Arc;
 
+use futures::StreamExt;
+use futures::channel::mpsc;
 use gpui::{
     AnyElement, ClipboardItem, Context, FocusHandle, HighlightStyle, IntoElement, KeyDownEvent,
     MouseButton, MouseDownEvent, ParentElement, Pixels, Render, ScrollWheelEvent, StyledText,
@@ -39,7 +42,24 @@ struct Metrics {
 }
 
 impl EditorView {
-    pub fn new(editor: Editor, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(mut editor: Editor, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let (notify, mut notifications) = mpsc::unbounded();
+        editor.set_notifier(Arc::new(move || {
+            let _ = notify.unbounded_send(());
+        }));
+        cx.spawn(async move |view, cx| {
+            while notifications.next().await.is_some() {
+                while notifications.try_recv().is_ok() {}
+                let refreshed = view.update(cx, |view, cx| {
+                    view.editor.refresh();
+                    cx.notify();
+                });
+                if refreshed.is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
         // Another app may have changed the clipboard while this window was in the background.
         let activation = cx.observe_window_activation(window, |view, window, cx| {
             if window.is_window_active() {

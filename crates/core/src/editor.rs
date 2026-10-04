@@ -1,9 +1,11 @@
+use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::io;
 use std::mem;
 use std::ops::Range;
 use std::path::Path;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use remacs_text::Text;
 
@@ -24,6 +26,10 @@ const ABORT_KEY: &str = "C-g";
 const MAX_AMALGAMATED_INSERTS: usize = 20;
 const MAX_HISTORY: usize = 100;
 
+/// Called from any thread when background work has results; the UI then calls
+/// [`Editor::refresh`] on its own thread.
+pub type Notifier = Arc<dyn Fn() + Send + Sync>;
+
 pub struct Editor {
     /// Most recently selected first; the first one is shown in the window.
     buffers: Vec<Buffer>,
@@ -43,6 +49,8 @@ pub struct Editor {
     history: HashMap<&'static str, Vec<String>>,
     message: Option<String>,
     quit_requested: bool,
+    plugin_states: HashMap<TypeId, Box<dyn Any>>,
+    notifier: Notifier,
 }
 
 impl Editor {
@@ -72,6 +80,8 @@ impl Editor {
             history: HashMap::new(),
             message: None,
             quit_requested: false,
+            plugin_states: HashMap::new(),
+            notifier: Arc::new(|| {}),
         }
     }
 
@@ -131,12 +141,33 @@ impl Editor {
             }
             Err(error) => return Err(error),
         };
-        let name = path.file_name().map_or_else(
-            || path.display().to_string(),
-            |name| name.to_string_lossy().into_owned(),
-        );
         let mode = self.mode_for(Some(&path));
-        self.add_buffer(Buffer::new(name, text, mode).with_file(path));
+        self.add_buffer(Buffer::new(file_buffer_name(&path), text, mode).with_file(path));
+        Ok(())
+    }
+
+    /// Makes the window buffer visit `path` from now on, renamed after it, like Emacs
+    /// `set-visited-file-name`; saving is up to the caller.
+    pub fn set_visited_file(&mut self, path: &Path) -> io::Result<()> {
+        let path = path.canonicalize().or_else(|_| std::path::absolute(path))?;
+        if let Some(other) = self.buffers[1..]
+            .iter()
+            .find(|buffer| buffer.path() == Some(&path))
+        {
+            let message = format!(
+                "Buffer {} is already visiting {}",
+                other.name(),
+                path.display()
+            );
+            return Err(io::Error::new(io::ErrorKind::AlreadyExists, message));
+        }
+        let name = file_buffer_name(&path);
+        if name != self.buffers[0].name() {
+            let name = self.unique_name(&name);
+            self.buffers[0].set_name(name);
+        }
+        let mode = self.mode_for(Some(&path));
+        self.buffers[0].set_file(path, mode);
         Ok(())
     }
 
@@ -363,6 +394,28 @@ impl Editor {
         self.quit_requested
     }
 
+    /// State a plugin keeps between commands, created on first use.
+    pub fn plugin_state<T: Default + 'static>(&mut self) -> &mut T {
+        self.plugin_states
+            .entry(TypeId::of::<T>())
+            .or_insert_with(|| Box::new(T::default()))
+            .downcast_mut()
+            .expect("plugin states are keyed by their type")
+    }
+
+    pub fn set_notifier(&mut self, notifier: Notifier) {
+        self.notifier = notifier;
+    }
+
+    pub fn notifier(&self) -> Notifier {
+        Arc::clone(&self.notifier)
+    }
+
+    /// Picks up what background work has produced since the last call.
+    pub fn refresh(&mut self) {
+        self.refresh_minibuffer();
+    }
+
     fn active_keymaps(&self) -> Vec<&Keymap> {
         let minibuffer_keymap = self
             .minibuffer
@@ -462,6 +515,13 @@ impl Editor {
             self.buffer_mut().add_undo_boundary();
         }
     }
+}
+
+fn file_buffer_name(path: &Path) -> String {
+    path.file_name().map_or_else(
+        || path.display().to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    )
 }
 
 #[cfg(test)]
