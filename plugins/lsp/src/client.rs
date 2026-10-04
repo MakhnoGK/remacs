@@ -199,6 +199,9 @@ pub(crate) enum Answer {
         id: u64,
         action: CodeAction,
         encoding: Encoding,
+        /// Given while the server was still loading the project; rust-analyzer then
+        /// answers with the action as it was sent.
+        settled: bool,
     },
     ActionFailed {
         id: u64,
@@ -327,6 +330,12 @@ impl Client {
             .spawn(move || writer.write_all(initialize, negotiated, queued))?;
         let reader = Reader {
             server: server.name,
+            configuration: server
+                .configuration
+                .map(|configuration| {
+                    serde_json::from_str(configuration).expect("the configuration is JSON")
+                })
+                .unwrap_or_default(),
             replies: outgoing.clone(),
             agreed: Some(agreed),
             encoding: Encoding::Utf16,
@@ -762,6 +771,8 @@ fn contents(text: &Snapshot, range: Range<usize>) -> String {
 
 struct Reader {
     server: &'static str,
+    /// Answered for every `workspace/configuration` item; `null` for the defaults.
+    configuration: Value,
     replies: Sender<Outgoing>,
     /// Taken once `initialize` is answered.
     agreed: Option<Sender<Negotiated>>,
@@ -809,8 +820,8 @@ impl Reader {
     }
 
     /// Edits the server asks for are answered by the editor once it made them.
-    /// Configuration falls back to the server's defaults and everything else gets an empty
-    /// answer.
+    /// Configuration is the server's own, else its defaults; everything else gets an
+    /// empty answer.
     fn answer(&mut self, method: &str, params: &Value, id: Value) {
         let result = match method {
             ApplyWorkspaceEdit::METHOD => {
@@ -828,7 +839,7 @@ impl Reader {
             }
             WorkspaceConfiguration::METHOD => {
                 let items = params["items"].as_array().map_or(0, Vec::len);
-                Value::Array(vec![Value::Null; items])
+                Value::Array(vec![self.configuration.clone(); items])
             }
             WorkspaceDiagnosticRefresh::METHOD => {
                 self.pull_generation.fetch_add(1, Ordering::Relaxed);
@@ -938,6 +949,7 @@ impl Reader {
                         id,
                         action,
                         encoding: self.encoding,
+                        settled: self.settled.load(Ordering::Relaxed),
                     },
                     (error, _) => Answer::ActionFailed {
                         id,

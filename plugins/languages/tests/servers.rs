@@ -482,9 +482,9 @@ fn oxlint_checks_beside_typescript_with_the_projects_own_copy() {
 
 #[test]
 #[ignore]
-fn oxlint_leaves_projects_that_do_not_use_it_alone() {
+fn linters_leave_projects_without_their_config_alone() {
     let root = project(
-        "no-oxlint",
+        "no-linters",
         &[("package.json", "{}\n"), ("index.ts", LINTED)],
     );
     let mut editor = check(&root.join("index.ts"), Icon::Error);
@@ -496,6 +496,32 @@ fn oxlint_leaves_projects_that_do_not_use_it_alone() {
             .all(|(_, label)| !label.contains("debugger")),
         "{problems:?}"
     );
+}
+
+#[test]
+#[ignore]
+fn eslint_checks_and_fixes_with_the_projects_config() {
+    let root = project(
+        "eslint",
+        &[
+            ("package.json", "{ \"type\": \"module\" }\n"),
+            (
+                "eslint.config.js",
+                "export default [{ rules: { \"prefer-const\": \"error\" } }];\n",
+            ),
+            ("index.js", "let answer = 42;\nconsole.log(answer);\n"),
+        ],
+    );
+    let mut editor = Editor::new(PLUGINS);
+    editor.visit_file(&root.join("index.js")).unwrap();
+    let problems = wait_until(&mut editor, |problems| {
+        problems
+            .iter()
+            .any(|(_, label)| label.contains("never reassigned"))
+    });
+    eprintln!("{problems:?}");
+    let text = apply_action(&root.join("index.js"), "answer", "Fix this prefer-const");
+    assert_eq!(text, "const answer = 42;\nconsole.log(answer);\n");
 }
 
 /// Refreshes until `done`, as the listing and the server's answers arrive.

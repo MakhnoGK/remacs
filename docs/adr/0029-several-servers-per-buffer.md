@@ -20,6 +20,5 @@ Status: accepted, 2026-10-04 (lint and format, step 1)
 
 ## Open
 
-- rust-analyzer sometimes answers `codeAction/resolve` with the action unchanged, still
-  without an edit, while other servers keep it busy ("The code action does nothing");
-  seen on main before this change, in about one run of the server tests in five.
+- rust-analyzer sometimes answered `codeAction/resolve` with the action unchanged
+  ("The code action does nothing"); fixed in ADR 0031.

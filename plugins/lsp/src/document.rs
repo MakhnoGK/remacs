@@ -4,7 +4,9 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use lsp_types::{CodeActionOrCommand, CompletionItem, DiagnosticSeverity, NumberOrString, Uri};
+use lsp_types::{
+    CodeAction, CodeActionOrCommand, CompletionItem, DiagnosticSeverity, NumberOrString, Uri,
+};
 use remacs_actions::{Action, Request as ActionRequest};
 use remacs_completion::Request;
 use remacs_core::{Editor, Notifier};
@@ -91,6 +93,9 @@ struct Document {
     reported: Option<(Snapshot, Vec<lsp_types::Diagnostic>)>,
     /// The newest code actions, as the server sent them, for carrying one out.
     offered: Option<Offered>,
+    /// An action of list `id` the server could not resolve while loading the project,
+    /// resolved again once it is done.
+    unresolved: Option<(u64, CodeAction)>,
 }
 
 struct Listed {
@@ -136,6 +141,7 @@ impl Document {
             listed: None,
             reported: None,
             offered: None,
+            unresolved: None,
         }
     }
 
@@ -183,7 +189,20 @@ impl Document {
         }
         self.modified = modified;
         self.pull(edit.is_some());
+        self.resolve_when_settled();
         self.take_diagnostics()
+    }
+
+    fn resolve_when_settled(&mut self) {
+        if !self.client.is_settled() {
+            return;
+        }
+        if let Some((id, action)) = self.unresolved.take() {
+            self.client.send(Outgoing::ResolveAction {
+                id,
+                action: Box::new(action),
+            });
+        }
     }
 
     /// Asks a server that does not publish on its own, after a change or when all files
@@ -461,7 +480,17 @@ fn hand_over(editor: &mut Editor, index: usize, client: &Client, answer: Answer)
             id,
             action,
             encoding,
+            settled,
         } => {
+            if !settled && action.edit.is_none() && action.data.is_some() {
+                let documents = editor.window_buffer_mut().local_mut::<Documents>();
+                if let Some(document) =
+                    documents.and_then(|documents| documents.list.get_mut(index))
+                {
+                    document.unresolved = Some((id, action));
+                }
+                return;
+            }
             let action = CodeActionOrCommand::CodeAction(action);
             let result = code_action::carry_out(editor, client, id, action, encoding, false);
             if let Err(error) = result {

@@ -30,6 +30,9 @@ pub struct LanguageServer {
     pub root_markers: &'static [&'static str],
     /// JSON for `initializationOptions`, like eglot's per-server settings.
     pub initialization_options: Option<&'static str>,
+    /// JSON answered for every item the server asks for with `workspace/configuration`,
+    /// like eglot's `eglot-workspace-configuration`; without it, the server's defaults.
+    pub configuration: Option<&'static str>,
     /// The server reports diagnostics only when asked (`textDocument/diagnostic`). Servers
     /// that also publish them unasked are not asked, which would only duplicate them.
     pub pull_diagnostics: bool,
