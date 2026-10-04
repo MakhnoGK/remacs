@@ -172,6 +172,31 @@ impl Editor {
         Ok(())
     }
 
+    /// Makes buffers visiting `from`, or files under it, visit them at `to`, renamed
+    /// after them, as Emacs does after `dired-rename-file`.
+    pub fn file_moved(&mut self, from: &Path, to: &Path) {
+        for index in 0..self.buffers.len() {
+            let Some(rest) = self.buffers[index]
+                .path()
+                .and_then(|path| path.strip_prefix(from).ok())
+            else {
+                continue;
+            };
+            let path = if rest.as_os_str().is_empty() {
+                to.to_path_buf()
+            } else {
+                to.join(rest)
+            };
+            let mode = self.mode_for(Some(&path));
+            let name = file_buffer_name(&path);
+            if name != self.buffers[index].name() {
+                let name = self.unique_name(&name);
+                self.buffers[index].set_name(name);
+            }
+            self.buffers[index].set_file(path, mode);
+        }
+    }
+
     /// Adds `buffer` under a unique name (`name<2>`) and shows it.
     pub fn add_buffer(&mut self, buffer: Buffer) {
         let index = self.push_buffer(buffer);
@@ -227,6 +252,15 @@ impl Editor {
             .is_some_and(Minibuffer::is_question)
         {
             self.answer_question_key(key);
+            return;
+        }
+        if self.pending_keys.is_empty()
+            && let Some(index) = self
+                .minibuffer
+                .as_ref()
+                .and_then(|minibuffer| minibuffer.option_for_key(key))
+        {
+            self.toggle_prompt_option(index);
             return;
         }
         self.pending_keys.push(key);
@@ -338,6 +372,15 @@ impl Editor {
     pub fn toggle_dialog_option(&mut self) {
         if let Some(minibuffer) = &self.minibuffer {
             minibuffer.toggle_option(None);
+        }
+    }
+
+    /// Switches option `index` of the open prompt, as `M-` and its key or a click does;
+    /// the candidates may depend on it, so they are listed again.
+    pub fn toggle_prompt_option(&mut self, index: usize) {
+        if let Some(minibuffer) = &self.minibuffer {
+            minibuffer.toggle_prompt_option(index);
+            self.refresh_minibuffer();
         }
     }
 
@@ -689,6 +732,8 @@ fn file_buffer_name(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
 
     #[test]
@@ -709,6 +754,32 @@ mod tests {
         assert!(editor.kill_buffer(SCRATCH_BUFFER));
         assert!(editor.kill_buffer("a<2>") && editor.kill_buffer("a"));
         assert_eq!(names(&editor), [SCRATCH_BUFFER]);
+    }
+
+    #[test]
+    fn buffers_follow_their_files_when_moved() {
+        let mut editor = Editor::new(&[]);
+        let file = |path: &str| {
+            Buffer::new("x", Text::default(), "Fundamental").with_file(PathBuf::from(path))
+        };
+        editor.add_buffer(file("/a/one.rs"));
+        editor.add_buffer(file("/a/b/two.rs"));
+        editor.add_buffer(file("/ab/three.rs"));
+        editor.file_moved(Path::new("/a"), Path::new("/c"));
+        editor.file_moved(Path::new("/c/one.rs"), Path::new("/c/renamed.rs"));
+        let visited: Vec<_> = editor
+            .buffers()
+            .iter()
+            .filter_map(|buffer| Some((buffer.name(), buffer.path()?.to_str()?)))
+            .collect();
+        assert_eq!(
+            visited,
+            [
+                ("x<3>", "/ab/three.rs"),
+                ("two.rs", "/c/b/two.rs"),
+                ("renamed.rs", "/c/renamed.rs")
+            ]
+        );
     }
 
     #[test]

@@ -1,32 +1,15 @@
-use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver, TryRecvError};
-use std::thread;
 
-use remacs_core::{CommandResult, Dialog, DialogItem, DialogOption, Editor, Mark};
+use remacs_core::{CommandResult, Dialog, DialogOption, Editor, ListItem, Mark};
 use trash::TrashContext;
 use trash::macos::{DeleteMethod, TrashContextExtMacos};
 
 use crate::commands::NOT_A_LISTING;
-use crate::entry::{Entry, PARENT};
-use crate::listing::{Listing, entry_at_point};
-use crate::marks::plural;
-
-/// Deletions running in the background, reported once done.
-#[derive(Default)]
-pub struct Deletions {
-    reports: Vec<Receiver<Report>>,
-}
-
-struct Report {
-    directory: PathBuf,
-    /// What was deleted, e.g. `2 files`.
-    what: String,
-    to_trash: bool,
-    /// `name: error`
-    failures: Vec<String>,
-}
+use crate::entry::{Entry, describe_entries, display_name};
+use crate::file_ops::remove;
+use crate::jobs::{self, Report, failure_message};
+use crate::listing::Listing;
+use crate::marks::marked_or_at_point;
 
 /// Deletes the flagged entries after asking, like Emacs `dired-do-flagged-delete`.
 pub fn delete_flagged(editor: &mut Editor) -> CommandResult {
@@ -45,29 +28,25 @@ fn confirm(editor: &mut Editor, mark: Mark) -> CommandResult {
         .default_directory()
         .ok_or(NOT_A_LISTING)?
         .to_path_buf();
-    let mut targets: Vec<Entry> = listing
-        .entries
-        .iter()
-        .filter(|entry| listing.marks.get(&entry.name) == Some(&mark))
-        .cloned()
-        .collect();
-    let mut shown_mark = Some(mark);
-    if targets.is_empty() && mark == Mark::Marked {
-        targets.extend(
-            entry_at_point(buffer)
-                .filter(|entry| entry.name != PARENT)
-                .cloned(),
-        );
-        shown_mark = None;
-    }
-    if targets.is_empty() {
-        return Err(match mark {
-            Mark::Flagged => "No files flagged for deletion",
-            Mark::Marked => "No file on this line",
+    let (targets, shown_mark) = match mark {
+        Mark::Flagged => {
+            let flagged: Vec<Entry> = listing
+                .entries
+                .iter()
+                .filter(|entry| listing.marks.get(&entry.name) == Some(&Mark::Flagged))
+                .cloned()
+                .collect();
+            if flagged.is_empty() {
+                return Err("No files flagged for deletion".into());
+            }
+            (flagged, Some(Mark::Flagged))
         }
-        .into());
-    }
-    let what = describe_targets(&targets, "");
+        Mark::Marked => {
+            let (targets, marked) = marked_or_at_point(buffer)?;
+            (targets, marked.then_some(Mark::Marked))
+        }
+    };
+    let what = describe_entries(&targets, "");
     let names: Vec<String> = targets.iter().map(|entry| entry.name.clone()).collect();
     editor.ask_dialog(
         true,
@@ -98,17 +77,14 @@ fn dialog(targets: &[Entry], mark: Option<Mark>, to_trash: bool) -> Dialog {
         (false, false, true) => "They are deleted for good, folders with everything in them.",
     };
     Dialog {
-        title: format!("Delete {}?", describe_targets(targets, adjective)),
+        title: format!("Delete {}?", describe_entries(targets, adjective)),
         explanation: explanation.into(),
         items: targets
             .iter()
-            .map(|entry| DialogItem {
+            .map(|entry| ListItem {
+                icon: None,
                 mark,
-                label: if entry.is_directory {
-                    format!("{}/", entry.name)
-                } else {
-                    entry.name.clone()
-                },
+                label: display_name(entry),
                 detail: entry.size_label.clone(),
             })
             .collect(),
@@ -123,24 +99,6 @@ fn dialog(targets: &[Entry], mark: Option<Mark>, to_trash: bool) -> Dialog {
     }
 }
 
-/// `buffer.rs`, `2 files`, `3 flagged folders` or `4 marked items`.
-fn describe_targets(targets: &[Entry], adjective: &str) -> String {
-    if let [single] = targets {
-        return single.name.clone();
-    }
-    let directories = targets.iter().filter(|entry| entry.is_directory).count();
-    let noun = match directories {
-        0 => "file",
-        count if count == targets.len() => "folder",
-        _ => "item",
-    };
-    format!(
-        "{} {adjective}{}",
-        targets.len(),
-        plural(targets.len(), noun)
-    )
-}
-
 fn start(
     editor: &mut Editor,
     directory: PathBuf,
@@ -148,26 +106,25 @@ fn start(
     what: String,
     to_trash: bool,
 ) {
-    let (send, receive) = mpsc::channel();
-    let notifier = editor.notifier();
-    thread::Builder::new()
-        .name("dired-delete".into())
-        .spawn(move || {
-            let failures = delete(&directory, &names, to_trash);
-            let _ = send.send(Report {
-                directory,
-                what,
-                to_trash,
-                failures,
-            });
-            notifier();
-        })
-        .expect("spawning the dired delete thread");
-    editor.plugin_state::<Deletions>().reports.push(receive);
-    editor.set_message(if to_trash {
+    let busy = if to_trash {
         "Moving to the Trash…"
     } else {
         "Deleting…"
+    };
+    jobs::run(editor, busy, move || {
+        let failures = delete(&directory, &names, to_trash);
+        let message = failure_message("delete", &failures).unwrap_or_else(|| {
+            if to_trash {
+                format!("Moved {what} to the Trash")
+            } else {
+                format!("Deleted {what}")
+            }
+        });
+        Report {
+            directories: vec![directory],
+            moved: Vec::new(),
+            message,
+        }
     });
 }
 
@@ -187,46 +144,4 @@ fn delete(directory: &Path, names: &[String], to_trash: bool) -> Vec<String> {
             deleted.err().map(|error| format!("{name}: {error}"))
         })
         .collect()
-}
-
-/// A directory with everything in it; a link, not what it points to.
-fn remove(path: &Path) -> io::Result<()> {
-    if fs::symlink_metadata(path)?.is_dir() {
-        fs::remove_dir_all(path)
-    } else {
-        fs::remove_file(path)
-    }
-}
-
-/// Says how finished deletions went, and reads their directories again.
-pub fn pick_up_deletions(editor: &mut Editor) {
-    let mut reports = Vec::new();
-    editor
-        .plugin_state::<Deletions>()
-        .reports
-        .retain(|receiver| match receiver.try_recv() {
-            Ok(report) => {
-                reports.push(report);
-                false
-            }
-            Err(TryRecvError::Empty) => true,
-            Err(TryRecvError::Disconnected) => false,
-        });
-    for report in reports {
-        for buffer in editor.buffers() {
-            if buffer.default_directory() == Some(report.directory.as_path())
-                && let Some(listing) = buffer.local::<Listing>()
-            {
-                listing.reader.reread();
-            }
-        }
-        editor.set_message(match report.failures.as_slice() {
-            [] if report.to_trash => format!("Moved {} to the Trash", report.what),
-            [] => format!("Deleted {}", report.what),
-            [failure] => format!("Could not delete {failure}"),
-            [failure, rest @ ..] => {
-                format!("Could not delete {failure} (and {} more)", rest.len())
-            }
-        });
-    }
 }

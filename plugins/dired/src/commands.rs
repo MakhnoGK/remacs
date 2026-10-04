@@ -212,11 +212,12 @@ fn directory_name(directory: &Path) -> Option<String> {
         .map(|name| name.to_string_lossy().into_owned())
 }
 
-/// Subdirectories of the directory typed so far, led by that directory itself.
-fn directory_completions(input: &str) -> Completions {
+/// Subdirectories of the directory typed so far, led by that directory itself if it
+/// exists.
+pub fn directory_completions(input: &str) -> Completions {
     let mut candidates = directory_candidates(input).candidates;
     candidates.retain(|candidate| candidate.icon == Some(Icon::Directory));
-    if input.ends_with('/') {
+    if input.ends_with('/') && expand_home(input).is_dir() {
         let itself = Candidate {
             label: "./".into(),
             icon: Some(Icon::Directory),

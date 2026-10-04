@@ -4,11 +4,14 @@
 mod commands;
 mod delete;
 mod entry;
+mod file_ops;
+mod jobs;
 mod listing;
 mod marks;
 mod preview;
 mod preview_reader;
 mod reader;
+mod transfer;
 
 use std::path::Path;
 use std::rc::Rc;
@@ -46,6 +49,8 @@ const COMMANDS: &[Command] = &[
     Command::new("dired-do-flagged-delete", "Delete the flagged files, after asking", delete::delete_flagged),
     Command::new("dired-do-delete", "Delete the marked files, or the one at point, after asking", delete::delete_marked),
     Command::new("dired-create-directory", "Create a folder in the listed directory", commands::create_directory),
+    Command::new("dired-do-copy", "Copy the marked files, or the one at point, elsewhere", transfer::copy),
+    Command::new("dired-do-rename", "Move or rename the marked files, or the one at point", transfer::rename),
 ];
 
 const BINDINGS: &[(&str, &str)] = &[("C-x d", "dired"), ("C-x C-j", "dired-jump")];
@@ -71,6 +76,8 @@ const DIRED_BINDINGS: &[(&str, &str)] = &[
     ("x", "dired-do-flagged-delete"),
     ("D", "dired-do-delete"),
     ("+", "dired-create-directory"),
+    ("C", "dired-do-copy"),
+    ("R", "dired-do-rename"),
 ];
 
 impl Plugin for DiredPlugin {
@@ -98,9 +105,7 @@ impl Plugin for DiredPlugin {
             .post_command_hooks
             .push(Rc::new(listing::pick_up_listings));
         registry.post_command_hooks.push(Rc::new(preview::sync));
-        registry
-            .post_command_hooks
-            .push(Rc::new(delete::pick_up_deletions));
+        registry.post_command_hooks.push(Rc::new(jobs::pick_up));
     }
 }
 

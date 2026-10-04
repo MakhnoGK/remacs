@@ -105,7 +105,11 @@ fn project_candidates(editor: &Editor, root: &Path, files: &[String], input: &st
             }
         })
         .collect();
-    Completions { candidates, total }
+    Completions {
+        candidates,
+        total,
+        ..Completions::default()
+    }
 }
 
 /// Entries of the directory typed so far, matching the name being typed.

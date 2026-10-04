@@ -162,6 +162,41 @@ pub fn size_label(bytes: u64) -> String {
     }
 }
 
+pub fn plural(count: usize, noun: &str) -> String {
+    if count == 1 {
+        noun.to_owned()
+    } else {
+        format!("{noun}s")
+    }
+}
+
+/// `buffer.rs`, `2 files`, `3 flagged folders` or `4 marked items`.
+pub fn describe_entries(entries: &[Entry], adjective: &str) -> String {
+    if let [single] = entries {
+        return single.name.clone();
+    }
+    let directories = entries.iter().filter(|entry| entry.is_directory).count();
+    let noun = match directories {
+        0 => "file",
+        count if count == entries.len() => "folder",
+        _ => "item",
+    };
+    format!(
+        "{} {adjective}{}",
+        entries.len(),
+        plural(entries.len(), noun)
+    )
+}
+
+/// `name/` for a directory, as listings show it.
+pub fn display_name(entry: &Entry) -> String {
+    if entry.is_directory && entry.name != PARENT {
+        format!("{}/", entry.name)
+    } else {
+        entry.name.clone()
+    }
+}
+
 pub fn items_label(count: u64) -> String {
     if count == 1 {
         "1 item".into()

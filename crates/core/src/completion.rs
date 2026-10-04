@@ -51,6 +51,8 @@ impl SymbolKind {
 pub struct Candidate {
     /// What the minibuffer returns when the candidate is chosen.
     pub value: String,
+    /// What choosing it does, before the label, e.g. `Create`.
+    pub verb: Option<&'static str>,
     pub label: String,
     /// Byte ranges of `label` that matched the input.
     pub matches: Vec<Range<usize>>,
@@ -82,6 +84,10 @@ pub struct Completions {
     /// The best matches; `total` may count more than were materialised.
     pub candidates: Vec<Candidate>,
     pub total: usize,
+    /// Said in place of the count, e.g. that the input names a folder to be created.
+    pub note: Option<String>,
+    /// Keys and what they do for this input, in place of the prompt's.
+    pub hints: Option<&'static [(&'static str, &'static str)]>,
 }
 
 impl From<Vec<Candidate>> for Completions {
@@ -89,6 +95,7 @@ impl From<Vec<Candidate>> for Completions {
         Self {
             total: candidates.len(),
             candidates,
+            ..Self::default()
         }
     }
 }

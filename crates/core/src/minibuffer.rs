@@ -6,8 +6,9 @@ use remacs_text::Text;
 
 use crate::buffer::Buffer;
 use crate::command::{CommandError, CommandResult};
-use crate::completion::{Candidate, Completions, Selection};
+use crate::completion::{Candidate, Completions, Icon, Selection};
 use crate::editor::Editor;
+use crate::key::Key;
 use crate::mode::FUNDAMENTAL_MODE;
 use crate::table::Mark;
 
@@ -46,6 +47,36 @@ pub struct Prompt {
     pub wide: bool,
     /// Keys and what they do, shown under the candidates.
     pub hints: &'static [(&'static str, &'static str)],
+    /// Settings the answer depends on; a switch goes above the input, a chip under the
+    /// lists.
+    pub options: Vec<PromptOption>,
+    /// What the prompt acts on, beside the switch, e.g. `2 marked files`.
+    pub subject: String,
+    /// Listed for reference under the candidates, not chosen from, e.g. the files a
+    /// command acts on.
+    pub items: Vec<ListItem>,
+    pub items_title: &'static str,
+    /// Right of the title, e.g. a count and a total size.
+    pub items_summary: String,
+}
+
+/// A setting a prompt's answer depends on, switched by `M-` and `key`, or a click.
+pub struct PromptOption {
+    pub key: char,
+    /// Off, then on: two labels make a switch between them, one a chip lit while on.
+    pub labels: &'static [&'static str],
+    /// Shared with the code that reads the prompt, which sees it as it is.
+    pub state: Rc<Cell<bool>>,
+}
+
+impl PromptOption {
+    pub fn is_switch(&self) -> bool {
+        self.labels.len() == 2
+    }
+
+    pub fn is_on(&self) -> bool {
+        self.state.get()
+    }
 }
 
 /// A y-or-n question drawn as a dialog that lists what it is about, like the window Emacs
@@ -54,7 +85,7 @@ pub struct Dialog {
     pub title: String,
     /// What answering yes does.
     pub explanation: String,
-    pub items: Vec<DialogItem>,
+    pub items: Vec<ListItem>,
     pub option: Option<DialogOption>,
     pub yes_label: String,
     pub no_label: &'static str,
@@ -62,7 +93,10 @@ pub struct Dialog {
     pub destructive: bool,
 }
 
-pub struct DialogItem {
+/// A row of a list shown for reference, e.g. a file to be deleted.
+#[derive(Clone)]
+pub struct ListItem {
+    pub icon: Option<Icon>,
     pub mark: Option<Mark>,
     pub label: String,
     /// E.g. a size.
@@ -183,6 +217,30 @@ impl Minibuffer {
     /// Matches in total, including any beyond `candidates`.
     pub fn total(&self) -> usize {
         self.completions.total
+    }
+
+    /// Said in place of the count, e.g. `New folder`.
+    pub fn note(&self) -> Option<&str> {
+        self.completions.note.as_deref()
+    }
+
+    /// Keys and what they do now: the completions' if they say, else the prompt's.
+    pub fn hints(&self) -> &'static [(&'static str, &'static str)] {
+        self.completions.hints.unwrap_or(self.prompt.hints)
+    }
+
+    /// The prompt option `M-key` switches.
+    pub(crate) fn option_for_key(&self, key: Key) -> Option<usize> {
+        self.prompt
+            .options
+            .iter()
+            .position(|option| Key::parse(&format!("M-{}", option.key)) == Some(key))
+    }
+
+    pub(crate) fn toggle_prompt_option(&self, index: usize) {
+        if let Some(option) = self.prompt.options.get(index) {
+            option.state.set(!option.state.get());
+        }
     }
 
     pub fn selected(&self) -> Option<usize> {

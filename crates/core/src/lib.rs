@@ -29,7 +29,7 @@ pub use key::{Key, KeyCode, Modifiers, describe_sequence, parse_sequence};
 pub use keymap::{Binding, Keymap};
 pub use kill_ring::KillRing;
 pub use minibuffer::{
-    Count, Dialog, DialogItem, DialogOption, Minibuffer, Prompt, VISIBLE_CANDIDATES,
+    Count, Dialog, DialogOption, ListItem, Minibuffer, Prompt, PromptOption, VISIBLE_CANDIDATES,
 };
 pub use mode::{FUNDAMENTAL_MODE, Mode, Modes};
 pub use plugin::{Hook, MinorKeymap, Plugin, Registry};

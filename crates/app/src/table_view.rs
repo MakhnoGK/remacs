@@ -8,7 +8,7 @@ use remacs_theme::{color, font};
 use crate::assets::CHEVRON_ICON;
 use crate::editor_view::EditorView;
 use crate::preview_view::PREVIEW_WIDTH;
-use crate::widgets::{icon, kbd, mark_badge, pill, shadow};
+use crate::widgets::{icon, kbd, mark_badge, pill, segment, segmented, shadow};
 
 const LIST_TOP: f32 = 52.0;
 const LIST_SIDE: f32 = 16.0;
@@ -147,16 +147,7 @@ fn render_bar(crumbs: Vec<Button>, sort: Vec<Button>, cx: &mut Context<EditorVie
                     .text_color(rgb(color::FG_FAINT))
                     .child("Sort"),
             )
-            .child(
-                div()
-                    .flex()
-                    .p(px(2.0))
-                    .rounded(px(8.0))
-                    .bg(rgb(color::BG_FIELD))
-                    .border_1()
-                    .border_color(rgba(0xffffff0f))
-                    .children(options),
-            )
+            .child(segmented().children(options))
         })
 }
 
@@ -191,23 +182,7 @@ fn render_crumb(crumb: Button, cx: &mut Context<EditorView>) -> AnyElement {
 }
 
 fn render_sort_option(option: Button, cx: &mut Context<EditorView>) -> AnyElement {
-    clickable(div(), option.action, cx)
-        .flex()
-        .items_center()
-        .h(px(24.0))
-        .px(px(10.0))
-        .rounded(px(6.0))
-        .font_family(font::UI)
-        .text_size(px(font::STATUS_SIZE))
-        .text_color(rgb(color::FG_DIM))
-        .when(option.selected, |option| {
-            option
-                .bg(rgb(color::BG_KBD))
-                .text_color(rgb(color::FG_MAIN))
-                .shadow(vec![shadow(0x00000080, 1.0, 2.0, 0.0)])
-        })
-        .child(option.label)
-        .into_any_element()
+    clickable(segment(&option.label, option.selected), option.action, cx).into_any_element()
 }
 
 fn clickable(element: Div, action: Action, cx: &mut Context<EditorView>) -> Div {

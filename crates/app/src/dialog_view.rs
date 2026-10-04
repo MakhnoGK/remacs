@@ -2,13 +2,13 @@ use gpui::{
     Context, Div, FontWeight, MouseButton, MouseDownEvent, ParentElement, div, prelude::*, px, rgb,
     rgba, svg,
 };
-use remacs_core::{Dialog, DialogItem, DialogOption};
+use remacs_core::{Dialog, DialogOption};
 use remacs_theme::{color, font};
 
-use crate::assets::{CHECK_ICON, TRASH_ICON};
+use crate::assets::TRASH_ICON;
 use crate::editor_view::EditorView;
 use crate::minibuffer_view::popover;
-use crate::widgets::{kbd, mark_badge, shadow};
+use crate::widgets::{kbd, list_items, option_chip, shadow};
 
 const DIALOG_WIDTH: f32 = 520.0;
 /// From the panel's edge to the items, which line up with the title.
@@ -28,7 +28,6 @@ pub fn render_dialog(dialog: Dialog, cx: &mut Context<EditorView>) -> Div {
         no_label,
         destructive,
     } = dialog;
-    let hidden = items.len().saturating_sub(MAX_SHOWN_ITEMS);
     let header = div()
         .flex()
         .gap(px(14.0))
@@ -61,17 +60,7 @@ pub fn render_dialog(dialog: Dialog, cx: &mut Context<EditorView>) -> Div {
         .gap(px(2.0))
         .pt(px(4.0))
         .pl(px(ITEMS_INSET))
-        .children(items.into_iter().take(MAX_SHOWN_ITEMS).map(render_item))
-        .when(hidden > 0, |items| {
-            items.child(
-                div()
-                    .px(px(10.0))
-                    .py(px(4.0))
-                    .text_size(px(font::STATUS_SIZE))
-                    .text_color(rgb(color::FG_DIM))
-                    .child(format!("and {hidden} more")),
-            )
-        });
+        .children(list_items(items, MAX_SHOWN_ITEMS, 32.0));
     let buttons = div()
         .flex()
         .justify_end()
@@ -108,69 +97,14 @@ fn warning_icon() -> Div {
         )
 }
 
-fn render_item(item: DialogItem) -> Div {
-    div()
-        .flex()
-        .items_center()
-        .gap(px(10.0))
-        .h(px(32.0))
-        .px(px(10.0))
-        .children(item.mark.map(mark_badge))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .font_family(font::MONO)
-                .text_size(px(font::CODE_SIZE))
-                .text_color(rgb(color::FG_KBD))
-                .child(item.label),
-        )
-        .child(
-            div()
-                .flex_none()
-                .font_family(font::MONO)
-                .text_size(px(font::STATUS_SIZE))
-                .text_color(rgb(color::FG_DIM))
-                .child(item.detail),
-        )
-}
-
-/// A chip that is lit while the option is on.
 fn render_option(option: DialogOption, cx: &mut Context<EditorView>) -> Div {
-    let (background, border, text) = if option.on {
-        (
-            rgba(color::ACCENT << 8 | 0x29),
-            rgba(color::ACCENT << 8 | 0x66),
-            color::FG_ALT,
-        )
-    } else {
-        (rgb(color::BG_BUTTON), rgba(0xffffff14), color::FG_KBD)
-    };
-    let chip = div()
-        .flex()
-        .items_center()
-        .gap(px(6.0))
-        .h(px(26.0))
-        .px(px(10.0))
-        .rounded(px(6.0))
-        .bg(background)
-        .border_1()
-        .border_color(border)
-        .text_size(px(font::STATUS_SIZE))
-        .text_color(rgb(text))
-        .on_mouse_down(
-            MouseButton::Left,
-            cx.listener(|view, _: &MouseDownEvent, _, cx| {
-                cx.stop_propagation();
-                view.toggle_dialog_option(cx);
-            }),
-        )
-        .when(option.on, |chip| {
-            chip.child(svg().path(CHECK_ICON).size(px(10.0)).text_color(rgb(text)))
-        })
-        .child(option.label)
-        .child(kbd(&option.key.to_string(), false));
+    let chip = option_chip(option.label, &option.key.to_string(), option.on).on_mouse_down(
+        MouseButton::Left,
+        cx.listener(|view, _: &MouseDownEvent, _, cx| {
+            cx.stop_propagation();
+            view.toggle_dialog_option(cx);
+        }),
+    );
     div()
         .flex()
         .pt(px(12.0))

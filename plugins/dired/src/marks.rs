@@ -1,8 +1,8 @@
 use remacs_core::{Buffer, CommandResult, Editor, Mark};
 
 use crate::commands::NOT_A_LISTING;
-use crate::entry::{PARENT, is_auto_save_name, is_backup_name};
-use crate::listing::Listing;
+use crate::entry::{Entry, PARENT, is_auto_save_name, is_backup_name, plural};
+use crate::listing::{Listing, entry_at_point};
 
 /// Marks the entry at point and moves to the next, like Emacs `dired-mark`.
 pub fn mark(editor: &mut Editor) -> CommandResult {
@@ -110,10 +110,20 @@ fn listing_mut(buffer: &mut Buffer) -> Result<&mut Listing, &'static str> {
     buffer.local_mut::<Listing>().ok_or(NOT_A_LISTING)
 }
 
-pub fn plural(count: usize, noun: &str) -> String {
-    if count == 1 {
-        noun.to_owned()
-    } else {
-        format!("{noun}s")
+/// The marked entries, or the one at point when none are, and whether they are marked.
+pub fn marked_or_at_point(buffer: &Buffer) -> Result<(Vec<Entry>, bool), &'static str> {
+    let listing = buffer.local::<Listing>().ok_or(NOT_A_LISTING)?;
+    let marked: Vec<Entry> = listing
+        .entries
+        .iter()
+        .filter(|entry| listing.marks.get(&entry.name) == Some(&Mark::Marked))
+        .cloned()
+        .collect();
+    if !marked.is_empty() {
+        return Ok((marked, true));
     }
+    let at_point = entry_at_point(buffer)
+        .filter(|entry| entry.name != PARENT)
+        .ok_or("No file on this line")?;
+    Ok((vec![at_point.clone()], false))
 }

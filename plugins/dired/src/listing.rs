@@ -11,7 +11,7 @@ use remacs_files::abbreviate_home;
 use remacs_text::Text;
 
 use crate::commands::{FIND_FILE, open_directory, sort_by};
-use crate::entry::{Entry, PARENT, SortKey, is_dim_name, items_label, sort};
+use crate::entry::{Entry, PARENT, SortKey, display_name, is_dim_name, items_label, sort};
 use crate::preview::{self, PreviewState};
 use crate::reader::DirectoryReader;
 
@@ -45,6 +45,8 @@ const HINTS: &[(&str, &str)] = &[
     ("m", "Mark"),
     ("d", "Flag"),
     ("x", "Delete flagged"),
+    ("C", "Copy"),
+    ("R", "Move"),
     ("+", "Folder"),
 ];
 
@@ -244,11 +246,7 @@ pub fn marks_status(editor: &Editor) -> Option<StatusSegment> {
 }
 
 fn row(entry: &Entry, mark: Option<Mark>) -> Row {
-    let name = if entry.is_directory && entry.name != PARENT {
-        format!("{}/", entry.name)
-    } else {
-        entry.name.clone()
-    };
+    let name = display_name(entry);
     Row {
         mark,
         icon: Some(file_icon(entry.is_directory)),

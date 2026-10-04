@@ -4,13 +4,16 @@ use gpui::{
     AnyElement, Context, Div, FontWeight, HighlightStyle, IntoElement, MouseButton, MouseDownEvent,
     ParentElement, StyledText, div, prelude::*, px, rgb, rgba,
 };
-use remacs_core::{Candidate, Count, Icon, Minibuffer, parse_sequence};
+use remacs_core::{Candidate, Count, Icon, Minibuffer, Prompt, PromptOption, parse_sequence};
 use remacs_theme::{color, font};
 
 use crate::dialog_view::render_dialog;
 use crate::display_line::DisplayLine;
 use crate::editor_view::EditorView;
-use crate::widgets::{cursor_style, hsla, icon, kbd, modified_dot, shadow};
+use crate::widgets::{
+    cursor_style, hsla, icon, kbd, list_items, modified_dot, option_chip, segment, segmented,
+    shadow,
+};
 
 const POPOVER_TOP: f32 = 60.0;
 /// The problem list opens from the status pill, above it.
@@ -27,6 +30,8 @@ const WIDE_ROW_HEIGHT: f32 = 36.0;
 /// M-x lines command names up in a column, with their documentation beside them.
 const COMMAND_CATEGORY: &str = "command";
 const COMMAND_NAME_WIDTH: f32 = 232.0;
+/// Items listed for reference give way to the candidates beyond this many.
+const MAX_LISTED_ITEMS: usize = 5;
 
 /// Dims the editor behind an open prompt.
 pub fn render_scrim() -> impl IntoElement {
@@ -65,12 +70,26 @@ pub fn render_minibuffer(minibuffer: &Minibuffer, cx: &mut Context<EditorView>) 
     } else {
         POPOVER_WIDTH
     };
+    let has_switch = prompt.options.iter().any(PromptOption::is_switch);
     let popover = popover(width)
+        .when(has_switch || !prompt.subject.is_empty(), |popover| {
+            popover.child(render_switches(prompt, cx))
+        })
         .child(render_field(minibuffer))
         .when(!minibuffer.candidates().is_empty(), |popover| {
             popover.child(render_candidates(minibuffer, cx))
         })
-        .child(render_hints(prompt.hints));
+        .when(!prompt.items.is_empty(), |popover| {
+            popover
+                .child(render_group_title(
+                    prompt.items_title,
+                    Some(prompt.items_summary.clone()),
+                    false,
+                ))
+                .children(list_items(prompt.items.clone(), MAX_LISTED_ITEMS, 30.0))
+        })
+        .children(render_chips(prompt, cx))
+        .child(render_hints(minibuffer.hints()));
     if is_problem_list(minibuffer) {
         return div()
             .absolute()
@@ -80,6 +99,82 @@ pub fn render_minibuffer(minibuffer: &Minibuffer, cx: &mut Context<EditorView>) 
             .into_any_element();
     }
     centered(popover)
+}
+
+/// Switches between two settings, then what the prompt acts on, above the input.
+fn render_switches(prompt: &Prompt, cx: &mut Context<EditorView>) -> Div {
+    let switches = prompt
+        .options
+        .iter()
+        .enumerate()
+        .filter(|(_, option)| option.is_switch())
+        .map(|(index, option)| {
+            let segments = option.labels.iter().enumerate().map(|(position, label)| {
+                let selected = (position == 1) == option.is_on();
+                option_click(segment(label, selected), index, cx)
+            });
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(6.0))
+                .child(segmented().children(segments))
+                .child(kbd(&format!("M-{}", option.key), false))
+        });
+    div()
+        .flex()
+        .items_center()
+        .gap(px(12.0))
+        .pt(px(2.0))
+        .px(px(2.0))
+        .pb(px(10.0))
+        .children(switches)
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .text_size(px(font::UI_SIZE))
+                .text_color(rgb(color::FG_BODY))
+                .child(prompt.subject.clone()),
+        )
+}
+
+/// Settings that are on or off, under the lists.
+fn render_chips(prompt: &Prompt, cx: &mut Context<EditorView>) -> Option<Div> {
+    let chips: Vec<Div> = prompt
+        .options
+        .iter()
+        .enumerate()
+        .filter(|(_, option)| !option.is_switch())
+        .map(|(index, option)| {
+            let chip = option_chip(
+                option.labels[0],
+                &format!("M-{}", option.key),
+                option.is_on(),
+            );
+            option_click(chip, index, cx)
+        })
+        .collect();
+    (!chips.is_empty()).then(|| {
+        div()
+            .flex()
+            .flex_wrap()
+            .gap(px(6.0))
+            .pt(px(12.0))
+            .px(px(10.0))
+            .pb(px(2.0))
+            .children(chips)
+    })
+}
+
+fn option_click(element: Div, index: usize, cx: &mut Context<EditorView>) -> Div {
+    element.on_mouse_down(
+        MouseButton::Left,
+        cx.listener(move |view, _: &MouseDownEvent, _, cx| {
+            cx.stop_propagation();
+            view.toggle_prompt_option(index, cx);
+        }),
+    )
 }
 
 /// Near the top of the window, centered across it.
@@ -147,7 +242,10 @@ fn render_field(minibuffer: &Minibuffer) -> impl IntoElement {
                 .font_family(typed_font(prompt.count == Count::Position))
                 .text_size(px(font::STATUS_SIZE))
                 .text_color(rgb(color::FG_DIM))
-                .child(count_text(minibuffer))
+                .child(match minibuffer.note() {
+                    Some(note) => note.to_owned(),
+                    None => count_text(minibuffer),
+                })
                 .into_any_element()
         })
 }
@@ -234,7 +332,11 @@ fn render_candidates(minibuffer: &Minibuffer, cx: &mut Context<EditorView>) -> i
                     .filter(|other| other.group.as_deref() == Some(title))
                     .count()
             });
-            list = list.child(render_group_title(title, count));
+            list = list.child(render_group_title(
+                title,
+                count.map(|count| count.to_string()),
+                is_problem_list,
+            ));
         }
         group = candidate_group;
         let selected = minibuffer.selected() == Some(index);
@@ -248,10 +350,12 @@ fn render_candidates(minibuffer: &Minibuffer, cx: &mut Context<EditorView>) -> i
     list.when(group.is_none(), |list| list.pt(px(6.0)))
 }
 
-fn render_group_title(title: &str, count: Option<usize>) -> impl IntoElement {
-    let title = match count {
-        Some(_) => title.to_owned(),
-        None => title.to_uppercase(),
+/// Upper case, unless it is a name; `summary` goes on the right.
+fn render_group_title(title: &str, summary: Option<String>, is_name: bool) -> impl IntoElement {
+    let title = if is_name {
+        title.to_owned()
+    } else {
+        title.to_uppercase()
     };
     div()
         .flex()
@@ -263,7 +367,7 @@ fn render_group_title(title: &str, count: Option<usize>) -> impl IntoElement {
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(rgb(color::FG_FAINT))
         .child(title)
-        .children(count.map(|count| count.to_string()))
+        .children(summary)
 }
 
 /// A row that answers the prompt with candidate `index` when clicked.
@@ -417,10 +521,11 @@ fn render_candidate(
         0..candidate.label.len(),
         selected,
     ));
+    // Gives way to nothing but its own length: a long path is cut short.
     let name = div()
-        .flex_none()
-        .overflow_hidden()
-        .whitespace_nowrap()
+        .flex_initial()
+        .min_w_0()
+        .truncate()
         .font_family(font::MONO)
         .text_size(px(font::CODE_SIZE))
         .text_color(rgb(if candidate.dim {
@@ -439,6 +544,9 @@ fn render_candidate(
             ROW_HEIGHT
         }))
         .children(candidate.icon.map(|file| icon(file, secondary)))
+        .when_some(candidate.verb, |row, verb| {
+            row.child(div().flex_none().text_size(px(font::UI_SIZE)).child(verb))
+        })
         .child(name)
         .when(candidate.modified, |row| row.child(modified_dot()))
         .child(

@@ -399,3 +399,112 @@ fn a_new_folder_is_listed_with_point_on_it() {
     press(&mut editor, "+ n e w RET");
     assert!(editor.echo().unwrap().ends_with("new already exists"));
 }
+
+/// Types `text` into the prompt, a key per character.
+fn type_text(editor: &mut Editor, text: &str) {
+    for character in text.chars() {
+        press(editor, &character.to_string());
+    }
+}
+
+fn wait_for_message(editor: &mut Editor, start: &str) -> String {
+    wait_until(editor, |editor| {
+        editor.echo().is_some_and(|echo| echo.starts_with(start))
+    });
+    editor.echo().unwrap()
+}
+
+#[test]
+fn copying_a_file_to_a_new_name_keeps_its_modified_time() {
+    let tree = Tree::new("copy");
+    let mut editor = editor();
+    open_directory(&mut editor, &tree.0, None, false).unwrap();
+    wait_for_listing(&mut editor);
+
+    press(&mut editor, "n n C");
+    let minibuffer = editor.minibuffer().unwrap();
+    assert_eq!(minibuffer.prompt().subject, "lib.rs");
+    assert_eq!(minibuffer.prompt().items_summary, "1 · 13 B");
+    type_text(&mut editor, "copy.rs");
+    let minibuffer = editor.minibuffer().unwrap();
+    assert_eq!(minibuffer.note(), Some("New name"));
+    assert_eq!(minibuffer.candidates()[0].verb, Some("Copy as"));
+    assert_eq!(minibuffer.hints()[0], ("↵", "Copy"));
+
+    press(&mut editor, "RET");
+    wait_for_message(&mut editor, "Copied lib.rs to");
+    let copy = tree.0.join("copy.rs");
+    assert_eq!(fs::read_to_string(&copy).unwrap(), "fn main() {}\n");
+    let modified = |path: PathBuf| fs::metadata(path).unwrap().modified().unwrap();
+    assert_eq!(modified(copy), modified(tree.0.join("lib.rs")));
+    wait_until(&mut editor, |editor| {
+        lines(editor).contains(&"copy.rs".to_owned())
+    });
+}
+
+#[test]
+fn moving_marked_files_into_a_new_folder_takes_their_buffers_along() {
+    let tree = Tree::new("move");
+    let mut editor = editor();
+    editor.find_file_noselect(&tree.0.join("lib.rs")).unwrap();
+    open_directory(&mut editor, &tree.0, None, false).unwrap();
+    wait_for_listing(&mut editor);
+
+    press(&mut editor, "n n m m R");
+    let minibuffer = editor.minibuffer().unwrap();
+    assert_eq!(minibuffer.prompt().subject, "2 marked files");
+    type_text(&mut editor, "dest/");
+    let minibuffer = editor.minibuffer().unwrap();
+    assert_eq!(minibuffer.note(), Some("New folder"));
+    assert_eq!(minibuffer.candidates()[0].verb, Some("Create"));
+    assert_eq!(minibuffer.hints()[0], ("↵", "Move"));
+    press(&mut editor, "M-m");
+    assert_eq!(editor.minibuffer().unwrap().hints()[0], ("↵", "Copy"));
+    press(&mut editor, "M-m RET");
+
+    wait_for_message(&mut editor, "Moved 2 files to");
+    let destination = tree.0.join("dest");
+    assert!(destination.join("lib.rs").exists() && destination.join("lib.rs~").exists());
+    assert!(!tree.0.join("lib.rs").exists());
+    assert!(
+        editor
+            .buffers()
+            .iter()
+            .any(|buffer| buffer.path() == Some(destination.join("lib.rs").as_path()))
+    );
+    wait_until(&mut editor, |editor| {
+        !lines(editor).contains(&"lib.rs".to_owned())
+    });
+}
+
+#[test]
+fn files_already_there_are_kept_unless_overwriting() {
+    let tree = Tree::new("overwrite");
+    fs::write(tree.0.join("sub/lib.rs"), "old").unwrap();
+    let mut editor = editor();
+    open_directory(&mut editor, &tree.0, None, false).unwrap();
+    wait_for_listing(&mut editor);
+
+    press(&mut editor, "n n C");
+    type_text(&mut editor, "sub/");
+    press(&mut editor, "RET");
+    wait_for_message(&mut editor, "Nothing to copy");
+    assert_eq!(
+        fs::read_to_string(tree.0.join("sub/lib.rs")).unwrap(),
+        "old"
+    );
+
+    press(&mut editor, "C");
+    type_text(&mut editor, "sub/");
+    press(&mut editor, "M-o RET");
+    wait_for_message(&mut editor, "Copied lib.rs to");
+    assert_eq!(
+        fs::read_to_string(tree.0.join("sub/lib.rs")).unwrap(),
+        "fn main() {}\n"
+    );
+
+    press(&mut editor, "M-< n R");
+    type_text(&mut editor, "sub/inside/");
+    press(&mut editor, "RET");
+    assert!(editor.echo().unwrap().contains("onto or into itself"));
+}

@@ -1,8 +1,8 @@
 use gpui::{
-    BoxShadow, Div, HighlightStyle, Hsla, IntoElement, ParentElement, Styled, Svg, div, point, px,
-    rgb, rgba, svg,
+    BoxShadow, Div, HighlightStyle, Hsla, IntoElement, ParentElement, Styled, Svg, div, point,
+    prelude::FluentBuilder, px, rgb, rgba, svg,
 };
-use remacs_core::{Icon, Mark};
+use remacs_core::{Icon, ListItem, Mark};
 use remacs_theme::{color, font};
 
 use crate::assets::{CHECK_ICON, ERROR_ICON, FILE_ICON, FOLDER_ICON, INFO_ICON, WARNING_ICON};
@@ -52,6 +52,112 @@ pub fn mark_badge(mark: Mark) -> Div {
             .text_color(rgb(color::FG_ON_DANGER))
             .child("D"),
     }
+}
+
+/// Rows of `items` `row_height` tall, at most `max` of them and a line saying how many
+/// more there are.
+pub fn list_items(items: Vec<ListItem>, max: usize, row_height: f32) -> Vec<Div> {
+    let hidden = items.len().saturating_sub(max);
+    let rows = items.into_iter().take(max).map(|item| {
+        div()
+            .flex()
+            .items_center()
+            .gap(px(10.0))
+            .h(px(row_height))
+            .px(px(10.0))
+            .children(item.mark.map(mark_badge))
+            .children(item.icon.map(|item_icon| icon(item_icon, color::FG_DIM)))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .font_family(font::MONO)
+                    .text_size(px(font::CODE_SIZE))
+                    .text_color(rgb(color::FG_KBD))
+                    .child(item.label),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .font_family(font::MONO)
+                    .text_size(px(font::STATUS_SIZE))
+                    .text_color(rgb(color::FG_DIM))
+                    .child(item.detail),
+            )
+    });
+    let more = (hidden > 0).then(|| {
+        div()
+            .px(px(10.0))
+            .py(px(4.0))
+            .text_size(px(font::STATUS_SIZE))
+            .text_color(rgb(color::FG_DIM))
+            .child(format!("and {hidden} more"))
+    });
+    rows.chain(more).collect()
+}
+
+/// A sunken strip of `segment`s, one of them selected.
+pub fn segmented() -> Div {
+    div()
+        .flex()
+        .flex_none()
+        .p(px(2.0))
+        .rounded(px(8.0))
+        .bg(rgb(color::BG_FIELD))
+        .border_1()
+        .border_color(rgba(0xffffff0f))
+}
+
+pub fn segment(label: &str, selected: bool) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .h(px(24.0))
+        .px(px(10.0))
+        .rounded(px(6.0))
+        .font_family(font::UI)
+        .text_size(px(font::STATUS_SIZE))
+        .text_color(rgb(color::FG_DIM))
+        .when(selected, |segment| {
+            segment
+                .bg(rgb(color::BG_KBD))
+                .text_color(rgb(color::FG_MAIN))
+                .shadow(vec![shadow(0x00000080, 1.0, 2.0, 0.0)])
+        })
+        .child(label.to_owned())
+}
+
+/// A setting's chip, lit while it is on, with the key that switches it.
+pub fn option_chip(label: &str, key: &str, on: bool) -> Div {
+    let (background, border, text) = if on {
+        (
+            rgba(color::ACCENT << 8 | 0x29),
+            rgba(color::ACCENT << 8 | 0x66),
+            color::FG_ALT,
+        )
+    } else {
+        (rgb(color::BG_BUTTON), rgba(0xffffff14), color::FG_KBD)
+    };
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(6.0))
+        .h(px(26.0))
+        .px(px(10.0))
+        .rounded(px(6.0))
+        .bg(background)
+        .border_1()
+        .border_color(border)
+        .font_family(font::UI)
+        .text_size(px(font::STATUS_SIZE))
+        .text_color(rgb(text))
+        .when(on, |chip| {
+            chip.child(svg().path(CHECK_ICON).size(px(10.0)).text_color(rgb(text)))
+        })
+        .child(label.to_owned())
+        .child(kbd(key, false))
 }
 
 /// The block cursor: the character under it drawn inverted.
