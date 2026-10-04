@@ -1,6 +1,6 @@
 use remacs_core::{Buffer, CommandError, CommandResult, Editor};
 
-const TAB_WIDTH: usize = 4;
+use crate::indent;
 
 /// The buffer to edit, unless it is read-only.
 pub fn writable_buffer(editor: &mut Editor) -> Result<&mut Buffer, CommandError> {
@@ -14,28 +14,9 @@ pub fn self_insert(editor: &mut Editor) -> CommandResult {
         .last_key()
         .and_then(|key| key.printable_char())
         .ok_or("Not a printable key")?;
-    writable_buffer(editor)?.insert(character.encode_utf8(&mut [0; 4]));
-    Ok(())
-}
-
-/// Breaks the line and repeats the current line's indentation.
-pub fn newline(editor: &mut Editor) -> CommandResult {
     let buffer = writable_buffer(editor)?;
-    let line_start = buffer.text().line_start(buffer.point_line()).unwrap_or(0);
-    let before_point = buffer.text().bytes_in(line_start..buffer.point());
-    let indentation_len = before_point
-        .iter()
-        .take_while(|&&byte| byte == b' ' || byte == b'\t')
-        .count();
-    let indentation = String::from_utf8_lossy(&before_point[..indentation_len]).into_owned();
-    buffer.insert(&format!("\n{indentation}"));
-    Ok(())
-}
-
-pub fn tab_to_tab_stop(editor: &mut Editor) -> CommandResult {
-    let buffer = writable_buffer(editor)?;
-    let spaces = TAB_WIDTH - buffer.point_column() % TAB_WIDTH;
-    buffer.insert(&" ".repeat(spaces));
+    indent::indent_for_closer(buffer, character);
+    buffer.insert(character.encode_utf8(&mut [0; 4]));
     Ok(())
 }
 

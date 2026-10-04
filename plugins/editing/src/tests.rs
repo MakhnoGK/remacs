@@ -76,6 +76,63 @@ fn newline_keeps_indentation() {
 }
 
 #[test]
+fn newline_after_an_open_bracket_goes_a_level_deeper() {
+    let mut editor = editor_with("  if x {\n    y();\n  }");
+    press(&mut editor, "C-n C-e RET");
+    type_text(&mut editor, "z(1,");
+    press(&mut editor, "RET");
+    type_text(&mut editor, "2");
+    assert_eq!(
+        contents(&editor),
+        "  if x {\n    y();\n    z(1,\n      2\n  }"
+    );
+}
+
+#[test]
+fn newline_between_an_empty_pair_gives_the_closer_its_own_line() {
+    let mut editor = editor_with("\tfn f() {}");
+    press(&mut editor, "C-e C-b RET");
+    type_text(&mut editor, "x");
+    assert_eq!(contents(&editor), "\tfn f() {\n\t\tx\n\t}");
+}
+
+#[test]
+fn newline_before_a_closer_indents_to_its_opener() {
+    let mut editor = editor_with("fn f() {\n    g()}");
+    press(&mut editor, "M-> C-b RET");
+    assert_eq!(contents(&editor), "fn f() {\n    g()\n}");
+    assert_eq!(editor.buffer().point(), "fn f() {\n    g()\n".len());
+}
+
+#[test]
+fn newline_leaves_no_trailing_blanks() {
+    let mut editor = editor_with("    a   b");
+    press(&mut editor, "C-e M-b RET");
+    assert_eq!(contents(&editor), "    a\n    b");
+    press(&mut editor, "C-e RET RET");
+    assert_eq!(contents(&editor), "    a\n    b\n\n    ");
+}
+
+#[test]
+fn closer_typed_on_a_blank_line_dedents_to_its_opener() {
+    let mut editor = editor_with("fn f() {\n    g(\n        1,\n        ");
+    press(&mut editor, "M->");
+    type_text(&mut editor, ")");
+    press(&mut editor, "RET");
+    type_text(&mut editor, "}");
+    assert_eq!(contents(&editor), "fn f() {\n    g(\n        1,\n    )\n}");
+}
+
+#[test]
+fn tab_follows_the_buffers_indentation() {
+    let mut editor = editor_with("a {\n  b\n}\n");
+    press(&mut editor, "M-> TAB");
+    type_text(&mut editor, "c");
+    press(&mut editor, "TAB");
+    assert_eq!(contents(&editor), "a {\n  b\n}\n  c ");
+}
+
+#[test]
 fn consecutive_typing_undoes_as_one_step() {
     let mut editor = editor_with("");
     type_text(&mut editor, "abc");

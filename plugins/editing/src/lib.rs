@@ -2,6 +2,7 @@
 //! default keys.
 
 mod editing;
+mod indent;
 mod killing;
 mod motion;
 
@@ -25,8 +26,8 @@ const COMMANDS: &[Command] = &[
     Command::new("scroll-down-command", "Scroll backward by a screen", motion::scroll_down_command),
     Command::new("recenter", "Center the line with point in the window", motion::recenter),
     Command::new(SELF_INSERT_COMMAND, "Insert the character typed", editing::self_insert),
-    Command::new("newline", "Break the line, keeping its indentation", editing::newline),
-    Command::new("tab-to-tab-stop", "Insert spaces up to the next tab stop", editing::tab_to_tab_stop),
+    Command::new("newline", "Break the line and indent the new one", indent::newline),
+    Command::new("tab-to-tab-stop", "Indent to the next tab stop", indent::tab_to_tab_stop),
     Command::new("delete-char", "Delete the next character or the region", editing::delete_char),
     Command::new("delete-backward-char", "Delete the previous character or the region", editing::delete_backward_char),
     Command::new("undo", "Undo the last change", editing::undo),
