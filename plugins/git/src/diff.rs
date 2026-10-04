@@ -1,5 +1,7 @@
 //! One file's `git diff`, and patches of single hunks for `git apply`.
 
+use std::path::PathBuf;
+
 /// A file's diff: the header Git needs to apply any of it, then the hunks.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FileDiff {
@@ -70,6 +72,40 @@ pub fn parse_diff(output: &str) -> Option<FileDiff> {
     Some(diff)
 }
 
+/// Reads a diff of several files, Git's paths unquoted, into each file's path and diff.
+pub fn split_patch(output: &str) -> Vec<(PathBuf, FileDiff)> {
+    let mut starts: Vec<usize> = output
+        .match_indices("diff --git ")
+        .map(|(start, _)| start)
+        .filter(|&start| start == 0 || output.as_bytes()[start - 1] == b'\n')
+        .collect();
+    starts.push(output.len());
+    starts
+        .windows(2)
+        .filter_map(|bounds| {
+            let file = &output[bounds[0]..bounds[1]];
+            Some((patched_path(file)?, parse_diff(file)?))
+        })
+        .collect()
+}
+
+/// The path after `+++ b/`, or `--- a/` for a deleted file; else, for a binary file, the
+/// second half of `diff --git a/<path> b/<path>`.
+fn patched_path(file: &str) -> Option<PathBuf> {
+    let header = file.split("\n@@").next().unwrap_or(file);
+    let named = |prefix: &str| {
+        header
+            .lines()
+            .find_map(|line| line.strip_prefix(prefix))
+            .map(PathBuf::from)
+    };
+    named("+++ b/").or_else(|| named("--- a/")).or_else(|| {
+        let paths = header.lines().next()?.strip_prefix("diff --git a/")?;
+        let path_length = paths.len().checked_sub(" b/".len())? / 2;
+        paths.get(path_length + " b/".len()..).map(PathBuf::from)
+    })
+}
+
 /// The `39` of `@@ -39,3 +39,6 @@`.
 fn new_start(header: &str) -> Option<usize> {
     let added = header.split(' ').find(|part| part.starts_with('+'))?;
@@ -129,6 +165,30 @@ index 1111111..2222222 100644
         assert_eq!(hunk.new_line(1), 4);
         assert_eq!(hunk.new_line(2), 4);
         assert_eq!(hunk.new_line(4), 6);
+    }
+
+    #[test]
+    fn a_patch_splits_into_its_files() {
+        let patch = format!(
+            "{DIFF}diff --git a/gone.rs b/gone.rs\n\
+deleted file mode 100644\n\
+--- a/gone.rs\n\
++++ /dev/null\n\
+@@ -1 +0,0 @@\n\
+-x\n\
+diff --git a/i m.png b/i m.png\n\
+Binary files a/i m.png and b/i m.png differ\n"
+        );
+        let files = split_patch(&patch);
+        let paths: Vec<_> = files
+            .iter()
+            .map(|(path, _)| path.to_str().unwrap())
+            .collect();
+        assert_eq!(paths, ["src/buffer.rs", "gone.rs", "i m.png"]);
+        assert_eq!(files[0].1.hunks.len(), 2);
+        assert_eq!(files[1].1.hunks[0].lines, ["-x"]);
+        assert!(files[2].1.binary);
+        assert!(split_patch("").is_empty());
     }
 
     #[test]

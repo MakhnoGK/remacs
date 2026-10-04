@@ -18,6 +18,7 @@ use crate::history_view::{self, HistoryState};
 use crate::integrate;
 use crate::monitor::Wants;
 use crate::repositories::Repositories;
+use crate::stash::StashContents;
 use crate::status::{DiffKey, Head, Snapshot};
 
 pub const GIT_MODE: &str = "Git";
@@ -32,6 +33,7 @@ const HINTS: &[(&str, &str)] = &[
     ("r", "Rebase"),
     ("F", "Pull"),
     ("P", "Push"),
+    ("z", "Stash"),
     ("s", "Stage"),
     ("u", "Unstage"),
 ];
@@ -100,7 +102,21 @@ pub enum Line {
     },
     /// In place of a diff that has no lines, e.g. a binary file's.
     NoDiff(Section, PathBuf),
+    /// By its place in the list.
     Stash(usize),
+    /// A file of an unfolded stash, by the stash's id.
+    StashFile {
+        stash: String,
+        path: PathBuf,
+    },
+    /// A line of a stashed file's diff, as in `Diff`; for one without lines, hunk 0 and no
+    /// line.
+    StashDiff {
+        stash: String,
+        path: PathBuf,
+        hunk: usize,
+        line: Option<usize>,
+    },
 }
 
 impl Line {
@@ -110,7 +126,15 @@ impl Line {
             Line::File(section, path)
             | Line::Diff { section, path, .. }
             | Line::NoDiff(section, path) => Some((*section, path)),
-            Line::Heading(_) | Line::Stash(_) => None,
+            _ => None,
+        }
+    }
+
+    /// The stash the line is, by its place in the list.
+    pub fn stash(&self) -> Option<usize> {
+        match self {
+            Line::Stash(index) => Some(*index),
+            _ => None,
         }
     }
 }
@@ -125,6 +149,8 @@ pub struct StatusView {
     drawn: Option<u64>,
     pub history: HistoryState,
     pub conflicts: ConflictState,
+    /// Stashes unfolded, by id.
+    open_stashes: HashMap<String, StashContents>,
 }
 
 impl StatusView {
@@ -137,7 +163,21 @@ impl StatusView {
             drawn: None,
             history: HistoryState::default(),
             conflicts: ConflictState::default(),
+            open_stashes: HashMap::new(),
         }
+    }
+
+    /// Unfolds the stashes and the stash `id`, which holds `contents`.
+    pub fn show_stash(&mut self, id: String, contents: StashContents) {
+        self.folded.remove(&Section::Stashes);
+        self.open_stashes.insert(id, contents);
+        self.drawn = None;
+    }
+
+    /// Folds the stash `id`; false when it was not unfolded.
+    pub fn fold_stash(&mut self, id: &str) -> bool {
+        self.drawn = None;
+        self.open_stashes.remove(id).is_some()
     }
 
     pub fn toggle_section(&mut self, section: Section) {
@@ -300,6 +340,10 @@ fn draw(buffer: &mut Buffer, snapshot: &Snapshot, generation: u64) {
     .unwrap_or(current_line.min(lines.len().saturating_sub(1)));
     view.lines = lines;
     view.drawn = Some(generation);
+    if let Some(details) = &snapshot.details {
+        view.open_stashes
+            .retain(|id, _| details.stashes.iter().any(|stash| stash.id == *id));
+    }
     if snapshot.operation.is_none() {
         view.conflicts = ConflictState::default();
     }
@@ -330,7 +374,19 @@ fn layout(view: &StatusView, snapshot: &Snapshot) -> (Vec<Line>, Vec<String>) {
                 path: file.path.clone(),
             };
             if let Some(diff) = snapshot.diffs.get(&key).filter(|_| open) {
-                push_diff(&mut lines, &mut texts, section, &file.path, diff);
+                let path = &file.path;
+                push_diff(
+                    &mut lines,
+                    &mut texts,
+                    Some(diff),
+                    Line::NoDiff(section, path.clone()),
+                    |hunk, line| Line::Diff {
+                        section,
+                        path: path.clone(),
+                        hunk,
+                        line,
+                    },
+                );
             }
         }
     }
@@ -345,47 +401,76 @@ fn layout(view: &StatusView, snapshot: &Snapshot) -> (Vec<Line>, Vec<String>) {
             for (index, stash) in stashes.iter().enumerate() {
                 lines.push(Line::Stash(index));
                 texts.push(format!("{} {}", stash.name, stash.message));
+                if let Some(contents) = view.open_stashes.get(&stash.id) {
+                    push_stash(&mut lines, &mut texts, &stash.id, contents);
+                }
             }
         }
     }
     (lines, texts)
 }
 
+/// An unfolded stash's files, each with its diff.
+fn push_stash(
+    lines: &mut Vec<Line>,
+    texts: &mut Vec<String>,
+    stash: &str,
+    contents: &StashContents,
+) {
+    for file in &contents.files {
+        let path = &file.path;
+        lines.push(Line::StashFile {
+            stash: stash.to_owned(),
+            path: path.clone(),
+        });
+        texts.push(format!("{} {}", file.state.letter(), path.display()));
+        let diff_line = |hunk, line| Line::StashDiff {
+            stash: stash.to_owned(),
+            path: path.clone(),
+            hunk,
+            line,
+        };
+        push_diff(
+            lines,
+            texts,
+            contents.diffs.get(path),
+            diff_line(0, None),
+            diff_line,
+        );
+    }
+}
+
+/// A diff's hunks, `diff_line` making the line of a hunk's header or of one of its lines;
+/// `empty` in place of a diff without lines.
 fn push_diff(
     lines: &mut Vec<Line>,
     texts: &mut Vec<String>,
-    section: Section,
-    path: &Path,
-    diff: &FileDiff,
+    diff: Option<&FileDiff>,
+    empty: Line,
+    diff_line: impl Fn(usize, Option<usize>) -> Line,
 ) {
-    if diff.hunks.is_empty() {
-        lines.push(Line::NoDiff(section, path.to_path_buf()));
+    let Some(diff) = diff.filter(|diff| !diff.hunks.is_empty()) else {
+        lines.push(empty);
         texts.push(no_diff_text(diff).into());
         return;
-    }
+    };
     let mut shown = 0;
     for (hunk_index, hunk) in diff.hunks.iter().enumerate() {
-        let diff_line = |line| Line::Diff {
-            section,
-            path: path.to_path_buf(),
-            hunk: hunk_index,
-            line,
-        };
-        lines.push(diff_line(None));
+        lines.push(diff_line(hunk_index, None));
         texts.push(hunk.header.clone());
         for (index, text) in hunk.lines.iter().enumerate() {
             if shown == MAX_DIFF_LINES {
                 return;
             }
             shown += 1;
-            lines.push(diff_line(Some(index)));
+            lines.push(diff_line(hunk_index, Some(index)));
             texts.push(text.clone());
         }
     }
 }
 
-fn no_diff_text(diff: &FileDiff) -> &'static str {
-    if diff.binary {
+fn no_diff_text(diff: Option<&FileDiff>) -> &'static str {
+    if diff.is_some_and(|diff| diff.binary) {
         "Binary file"
     } else {
         "No changes to show"
@@ -510,11 +595,7 @@ fn row(view: &StatusView, snapshot: &Snapshot, line: &Line) -> Option<OutlineRow
                 staged: section.is_staged(),
                 path: path.clone(),
             };
-            let hunk = snapshot.diffs.get(&key)?.hunks.get(*hunk)?;
-            OutlineRow::Diff(match line {
-                None => DiffRow::Hunk(hunk.header.clone()),
-                Some(index) => diff_row(hunk.lines.get(*index)?),
-            })
+            hunk_row(snapshot.diffs.get(&key)?, *hunk, *line)?
         }
         Line::NoDiff(section, path) => {
             let key = DiffKey {
@@ -522,7 +603,7 @@ fn row(view: &StatusView, snapshot: &Snapshot, line: &Line) -> Option<OutlineRow
                 path: path.clone(),
             };
             OutlineRow::Diff(DiffRow::Context(
-                no_diff_text(snapshot.diffs.get(&key)?).into(),
+                no_diff_text(Some(snapshot.diffs.get(&key)?)).into(),
             ))
         }
         Line::Stash(index) => {
@@ -532,7 +613,47 @@ fn row(view: &StatusView, snapshot: &Snapshot, line: &Line) -> Option<OutlineRow
                 description: stash.message.clone(),
             }
         }
+        Line::StashFile { stash, path } => {
+            let file = view
+                .open_stashes
+                .get(stash)?
+                .files
+                .iter()
+                .find(|file| file.path == *path)?;
+            OutlineRow::File {
+                state: file.state,
+                name: path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                directory: directory_label(path),
+                lines: file.lines,
+                note: None,
+                open: true,
+            }
+        }
+        Line::StashDiff {
+            stash,
+            path,
+            hunk,
+            line,
+        } => {
+            let diff = view.open_stashes.get(stash)?.diffs.get(path);
+            match diff.filter(|diff| !diff.hunks.is_empty()) {
+                Some(diff) => hunk_row(diff, *hunk, *line)?,
+                None => OutlineRow::Diff(DiffRow::Context(no_diff_text(diff).into())),
+            }
+        }
     })
+}
+
+/// A hunk's header, or one of its lines.
+fn hunk_row(diff: &FileDiff, hunk: usize, line: Option<usize>) -> Option<OutlineRow> {
+    let hunk = diff.hunks.get(hunk)?;
+    Some(OutlineRow::Diff(match line {
+        None => DiffRow::Hunk(hunk.header.clone()),
+        Some(index) => diff_row(hunk.lines.get(index)?),
+    }))
 }
 
 fn diff_row(text: &str) -> DiffRow {

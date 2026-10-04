@@ -36,12 +36,6 @@ pub fn commit(editor: &mut Editor) -> CommandResult {
         return Err("Nothing staged to commit".into());
     }
     let [sign_off, amend, skip_hooks] = [(); 3].map(|_| Rc::new(Cell::new(false)));
-    let option = |key, label: &str, state: &Rc<Cell<bool>>| PromptOption {
-        key,
-        labels: vec![label.into()],
-        state: state.clone(),
-        shown_while: None,
-    };
     let earlier = if snapshot.is_unborn() {
         Vec::new()
     } else {
@@ -61,9 +55,9 @@ pub fn commit(editor: &mut Editor) -> CommandResult {
         wide: true,
         hints: HINTS,
         options: vec![
-            option('s', "Sign-off", &sign_off),
-            option('a', "Amend last commit", &amend),
-            option('h', "Skip hooks", &skip_hooks),
+            PromptOption::chip('s', "Sign-off", &sign_off),
+            PromptOption::chip('a', "Amend last commit", &amend),
+            PromptOption::chip('h', "Skip hooks", &skip_hooks),
         ],
         subject: format!("{} → {}", author(&root), branch(&snapshot.head)),
         message: Some(Message {

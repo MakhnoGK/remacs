@@ -74,12 +74,6 @@ pub fn push(editor: &mut Editor) -> CommandResult {
     };
     let outgoing = log(&root, &range);
     let [force, tags, dry_run] = [(); 3].map(|_| Rc::new(Cell::new(false)));
-    let option = |key, label: &str, state: &Rc<Cell<bool>>| PromptOption {
-        key,
-        labels: vec![label.into()],
-        state: state.clone(),
-        shown_while: None,
-    };
     let mut keymap = Keymap::default();
     keymap.bind("u", PUSH_UPSTREAM);
     keymap.bind("e", PUSH_ELSEWHERE);
@@ -90,9 +84,9 @@ pub fn push(editor: &mut Editor) -> CommandResult {
         keymap: Some(keymap),
         hints: PUSH_HINTS,
         options: vec![
-            option('f', "Force with lease", &force),
-            option('t', "Push tags", &tags),
-            option('n', "Dry run", &dry_run),
+            PromptOption::chip('f', "Force with lease", &force),
+            PromptOption::chip('t', "Push tags", &tags),
+            PromptOption::chip('n', "Dry run", &dry_run),
         ],
         items_title: "Outgoing",
         items_summary: outgoing.len().to_string(),
@@ -225,12 +219,6 @@ pub fn pull(editor: &mut Editor) -> CommandResult {
         .collect();
     let mode = Rc::new(Cell::new(configured_mode(&root, &branch)));
     let [autostash, remember] = [true, false].map(|on| Rc::new(Cell::new(on)));
-    let option = |key, label: &str, state: &Rc<Cell<bool>>| PromptOption {
-        key,
-        labels: vec![label.into()],
-        state: state.clone(),
-        shown_while: None,
-    };
     let mut summary = Vec::new();
     if ahead > 0 {
         summary.push(BannerPart::Chip(chip(
@@ -272,8 +260,8 @@ pub fn pull(editor: &mut Editor) -> CommandResult {
             segmented: true,
         }],
         options: vec![
-            option('a', "Autostash", &autostash),
-            option('b', "Remember for this branch", &remember),
+            PromptOption::chip('a', "Autostash", &autostash),
+            PromptOption::chip('b', "Remember for this branch", &remember),
         ],
         items_title: "Incoming",
         items_summary: incoming.len().to_string(),

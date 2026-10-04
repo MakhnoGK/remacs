@@ -294,10 +294,7 @@ impl Editor {
             Binding::Prefix => {}
             Binding::Unbound => {
                 let keys = mem::take(&mut self.pending_keys);
-                let typed = !self
-                    .minibuffer
-                    .as_ref()
-                    .is_some_and(|minibuffer| minibuffer.prompt().read_only);
+                let typed = self.minibuffer.as_ref().is_none_or(Minibuffer::is_typed);
                 if typed && keys.len() == 1 && key.printable_char().is_some() {
                     self.run_command(SELF_INSERT_COMMAND);
                 } else {
@@ -447,6 +444,14 @@ impl Editor {
             self.set_message(error.0);
         }
         self.after_command();
+    }
+
+    /// Selects the candidate at `index` and moves the keys to the list, as a click on an
+    /// entry does.
+    pub fn focus_candidate(&mut self, index: usize) {
+        if let Some(minibuffer) = &mut self.minibuffer {
+            minibuffer.focus_candidate(index);
+        }
     }
 
     /// Lists candidates again, e.g. after a command changed what they describe.
@@ -673,12 +678,14 @@ impl Editor {
             .iter()
             .filter(|minor| (minor.active)(self))
             .map(|minor| &minor.keymap);
+        let list_keymap = self.minibuffer.as_ref().and_then(Minibuffer::keymap);
         let prompt_keymap = self
             .minibuffer
             .as_ref()
             .and_then(|minibuffer| minibuffer.prompt().keymap.as_ref());
-        prompt_keymap
+        list_keymap
             .into_iter()
+            .chain(prompt_keymap)
             .chain(message_keymap)
             .chain(minibuffer_keymap)
             .chain(minor_keymaps)

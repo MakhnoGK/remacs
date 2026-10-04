@@ -17,7 +17,7 @@ const COMMANDS: &[Command] = &[
     Command::new("minibuffer-complete", "Replace the input with the selected candidate", minibuffer_complete),
     Command::new("next-candidate", "Select the next candidate", next_candidate),
     Command::new("previous-candidate", "Select the previous candidate", previous_candidate),
-    Command::new("minibuffer-next-field", "Move between a message's subject and description", next_field),
+    Command::new("minibuffer-next-field", "Move between a message's subject and description, or the input and the list", next_field),
     Command::new("minibuffer-message-newline", "Break the description's line, or go on to it from the subject", message_newline),
     Command::new("previous-message", "Bring back the message before this one", previous_message),
     Command::new("next-message", "Bring back the message after this one", next_message),

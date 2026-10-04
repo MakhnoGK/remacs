@@ -1,6 +1,8 @@
 use std::borrow::Cow;
 use std::ops::Range;
+use std::rc::Rc;
 
+use crate::minibuffer::ListItem;
 use crate::outline::CommitChain;
 use crate::status::Tone;
 
@@ -83,6 +85,29 @@ pub struct Candidate {
     /// taken on it, drawn as a button before it, then the label as an id and the
     /// annotation as what it is.
     pub action: Option<(&'static str, Tone)>,
+    /// Makes the candidate an entry, its label drawn as an id, that opens up while
+    /// selected to show this.
+    pub expansion: Option<Rc<Expansion>>,
+}
+
+/// What an entry shows while selected, e.g. a stash's files and what can be done with it.
+#[derive(Debug, Default)]
+pub struct Expansion {
+    pub items: Vec<ListItem>,
+    pub actions: Vec<EntryAction>,
+    /// In place of the candidate's detail, e.g. without the count of the items shown.
+    pub detail: String,
+}
+
+/// A button under an open entry: what it does, the key that does it too and the command
+/// both run.
+#[derive(Clone, Copy, Debug)]
+pub struct EntryAction {
+    pub label: &'static str,
+    pub key: &'static str,
+    pub command: &'static str,
+    /// It throws something away; drawn apart, as a warning.
+    pub destructive: bool,
 }
 
 impl Candidate {

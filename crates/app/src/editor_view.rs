@@ -118,6 +118,11 @@ impl EditorView {
         self.after_input(cx);
     }
 
+    pub fn focus_candidate(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.editor.focus_candidate(index);
+        cx.notify();
+    }
+
     pub fn answer_question(&mut self, yes: bool, cx: &mut Context<Self>) {
         self.editor.answer_question(yes);
         self.after_input(cx);
@@ -512,7 +517,7 @@ impl EditorView {
         (body, popups)
     }
 
-    fn run_command(&mut self, name: &str, cx: &mut Context<Self>) {
+    pub fn run_command(&mut self, name: &str, cx: &mut Context<Self>) {
         self.editor.run_command(name);
         self.after_input(cx);
     }

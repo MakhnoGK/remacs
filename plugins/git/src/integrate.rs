@@ -187,6 +187,7 @@ fn open(editor: &mut Editor, rebasing: bool) -> CommandResult {
         labels: labels.iter().map(|label| (*label).to_owned()).collect(),
         state: state.clone(),
         shown_while,
+        hidden_while: None,
     };
     let mut keymap = Keymap::default();
     for &(keys, command) in KEYS {

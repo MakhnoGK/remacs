@@ -9,6 +9,7 @@ use trash::macos::{DeleteMethod, TrashContextExtMacos};
 use crate::command::{git, output, output_with_input};
 use crate::monitor::Job;
 use crate::repositories::{Repositories, working_tree};
+use crate::stash;
 use crate::status::Snapshot;
 use crate::status_view::{GIT_MODE, Line, NOT_A_STATUS_BUFFER, Section, StatusView, section_files};
 
@@ -65,7 +66,35 @@ pub fn toggle(editor: &mut Editor) -> CommandResult {
                 editor.set_point_at(file_line, 0);
             }
         }
-        Line::Stash(_) => return Err("Stashes have nothing to unfold yet".into()),
+        Line::Stash(index) => return toggle_stash(editor, *index),
+        Line::StashFile { stash, .. } | Line::StashDiff { stash, .. } => {
+            view.fold_stash(stash);
+            let stash_line = view.lines[..point_line]
+                .iter()
+                .rposition(|each| matches!(each, Line::Stash(_)));
+            if let Some(stash_line) = stash_line {
+                editor.set_point_at(stash_line, 0);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Unfolds the stash to show its files and their diffs, or folds it.
+fn toggle_stash(editor: &mut Editor, index: usize) -> CommandResult {
+    let (root, snapshot) = shown_status(editor)?;
+    let id = snapshot
+        .details
+        .as_ref()
+        .and_then(|details| details.stashes.get(index))
+        .map(|stash| stash.id.clone())
+        .ok_or("The stash is gone")?;
+    let view = editor
+        .window_buffer_mut()
+        .local_mut::<StatusView>()
+        .ok_or(NOT_A_STATUS_BUFFER)?;
+    if !view.fold_stash(&id) {
+        view.show_stash(id.clone(), stash::contents(&root, &id)?);
     }
     Ok(())
 }
@@ -194,6 +223,7 @@ pub fn discard(editor: &mut Editor) -> CommandResult {
         | Line::Diff { .. } => {
             return Err("Unstage it first (u), then discard".into());
         }
+        Line::Stash(_) => return stash::drop_stash(editor),
         _ => return Err("Nothing to discard".into()),
     };
     editor.ask_dialog(
@@ -220,7 +250,7 @@ pub fn discard(editor: &mut Editor) -> CommandResult {
 pub fn visit(editor: &mut Editor) -> CommandResult {
     let (root, snapshot, line) = at_point(editor)?;
     let (section, path) = match &line {
-        Line::Heading(_) => return toggle(editor),
+        Line::Heading(_) | Line::Stash(_) => return toggle(editor),
         _ => line.file().ok_or("No file here")?,
     };
     let target = match &line {

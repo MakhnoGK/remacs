@@ -1056,3 +1056,142 @@ fn a_merge_conflict_keeps_both_sides_or_is_aborted() {
         "feature\n"
     );
 }
+
+/// The stash prompt's file count and what the changes are.
+fn stash_note(editor: &Editor) -> (String, String) {
+    let minibuffer = editor.minibuffer().unwrap();
+    (
+        minibuffer.note().unwrap_or_default().to_owned(),
+        minibuffer.subject().to_owned(),
+    )
+}
+
+/// The selected stash's files, as `M lib.rs`.
+fn stash_files(editor: &Editor) -> Vec<String> {
+    let candidate = editor.minibuffer().unwrap().selected_candidate().unwrap();
+    candidate
+        .expansion
+        .as_ref()
+        .unwrap()
+        .items
+        .iter()
+        .map(|item| format!("{} {}", item.state.unwrap().letter(), item.label))
+        .collect()
+}
+
+fn stash_list(repository: &Repository) -> String {
+    repository.git(&["stash", "list", "--format=%gs"])
+}
+
+/// Waits for a job to say it is done.
+fn wait_for_echo(editor: &mut Editor, expected: &str) {
+    wait_until(editor, expected, |editor| {
+        editor.echo().as_deref() == Some(expected)
+    });
+}
+
+#[test]
+fn changes_are_stashed_with_a_message_and_applied_or_popped() {
+    let repository = Repository::new("stash");
+    repository.write("lib.rs", "two\n");
+    repository.write("new.md", "idea\n");
+    let mut editor = status_buffer(&repository);
+    wait_until(&mut editor, "the changes", |editor| rows(editor).len() == 4);
+
+    press(&mut editor, "z");
+    assert_eq!(stash_note(&editor), ("1 file".into(), "1 unstaged".into()));
+    assert!(editor.minibuffer().unwrap().candidates().is_empty());
+    press(&mut editor, "M-u");
+    assert_eq!(
+        stash_note(&editor),
+        ("2 files".into(), "1 unstaged · 1 untracked".into())
+    );
+    type_text(&mut editor, "parked work");
+    press(&mut editor, "RET");
+    wait_for_echo(&mut editor, "Stashed the changes");
+    assert_eq!(repository.short_status(), "");
+    assert_eq!(stash_list(&repository), "On main: parked work\n");
+
+    wait_until(&mut editor, "the stash", |editor| {
+        rows(editor) == ["> Stashes 1"]
+    });
+    press(&mut editor, "z");
+    assert_eq!(candidates(&editor), ["stash@{0} · On main: parked work"]);
+    assert_eq!(stash_files(&editor), ["M lib.rs", "? new.md"]);
+    press(&mut editor, "RET");
+    assert_eq!(editor.echo().as_deref(), Some("No changes to stash"));
+    press(&mut editor, "TAB");
+    assert!(editor.minibuffer().unwrap().in_list());
+    press(&mut editor, "RET");
+    assert!(editor.minibuffer().is_none());
+    assert_eq!(
+        rows(&editor),
+        [
+            "v Stashes 1",
+            "stash@{0} On main: parked work",
+            "M ./lib.rs +1 -1",
+            "@@ -1 +1 @@",
+            "-one",
+            "+two",
+            "? ./new.md +1 -0",
+            "@@ -0,0 +1 @@",
+            "+idea",
+        ]
+    );
+    press(&mut editor, "TAB");
+    assert_eq!(
+        rows(&editor),
+        ["v Stashes 1", "stash@{0} On main: parked work"]
+    );
+
+    press(&mut editor, "z");
+    press(&mut editor, "TAB");
+    press(&mut editor, "a");
+    wait_for_echo(&mut editor, "Applied stash@{0}");
+    assert_eq!(repository.short_status(), " M lib.rs\n?? new.md\n");
+    assert_eq!(stash_list(&repository), "On main: parked work\n");
+
+    repository.git(&["checkout", "-q", "--", "."]);
+    repository.git(&["clean", "-q", "-f"]);
+    wait_for_status(&mut editor, &repository, "");
+    press(&mut editor, "z");
+    press(&mut editor, "TAB");
+    press(&mut editor, "p");
+    wait_for_echo(&mut editor, "Popped stash@{0}");
+    assert_eq!(repository.short_status(), " M lib.rs\n?? new.md\n");
+    assert_eq!(stash_list(&repository), "");
+}
+
+#[test]
+fn a_stash_is_dropped_after_asking_or_becomes_a_branch() {
+    let repository = Repository::new("stash-drop");
+    repository.write("lib.rs", "two\n");
+    repository.git(&["stash", "push", "-q", "-m", "first"]);
+    repository.write("kept.rs", "changed\n");
+    repository.git(&["stash", "push", "-q", "-m", "second"]);
+    let mut editor = status_buffer(&repository);
+    wait_until(&mut editor, "the stashes", |editor| {
+        rows(editor) == ["> Stashes 2"]
+    });
+    press(&mut editor, "TAB");
+    go_to_row(&mut editor, "stash@{0} On main: second");
+    press(&mut editor, "k");
+    assert_eq!(
+        editor.minibuffer().unwrap().dialog().unwrap().title,
+        "Drop stash@{0}?"
+    );
+    press(&mut editor, "y");
+    wait_for_echo(&mut editor, "Dropped stash@{0}");
+    assert_eq!(stash_list(&repository), "On main: first\n");
+
+    press(&mut editor, "z");
+    assert_eq!(stash_files(&editor), ["M lib.rs"]);
+    press(&mut editor, "TAB");
+    press(&mut editor, "b");
+    type_text(&mut editor, "rescued");
+    press(&mut editor, "RET");
+    wait_for_echo(&mut editor, "Switched to rescued, with stash@{0} applied");
+    assert_eq!(repository.short_status(), " M lib.rs\n");
+    assert_eq!(repository.git(&["branch", "--show-current"]), "rescued\n");
+    assert_eq!(stash_list(&repository), "");
+}

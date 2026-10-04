@@ -6,8 +6,8 @@ use gpui::{
     px, rgb, rgba, svg,
 };
 use remacs_core::{
-    BannerPart, Candidate, CommitChain, Count, Icon, Minibuffer, PromptOption, RefKind, Tone,
-    parse_sequence,
+    BannerPart, Candidate, CommitChain, Count, EntryAction, Expansion, Icon, Minibuffer,
+    PromptOption, RefKind, Tone, parse_sequence,
 };
 use remacs_theme::{color, font};
 
@@ -97,6 +97,12 @@ pub fn render_minibuffer(
         Some(title) => render_title(title).into_any_element(),
         None => render_field(minibuffer, input_scroll).into_any_element(),
     };
+    let chips = render_chips(minibuffer, !has_switch, cx);
+    let (chips_first, chips_last) = if prompt.chips_first {
+        (chips, None)
+    } else {
+        (None, chips)
+    };
     let popover = popover(width)
         .when(
             has_switch || (!has_chip && !minibuffer.subject().is_empty()),
@@ -106,6 +112,7 @@ pub fn render_minibuffer(
         .when(!prompt.summary.is_empty(), |popover| {
             popover.child(render_summary(&prompt.summary))
         })
+        .children(chips_first)
         .children(render_segmented_choices(minibuffer, cx))
         .children(render_description(minibuffer))
         .when(!minibuffer.candidates().is_empty(), |popover| {
@@ -124,7 +131,7 @@ pub fn render_minibuffer(
                 ))
                 .children(list_items(prompt.items.clone(), MAX_LISTED_ITEMS, 30.0))
         })
-        .children(render_chips(minibuffer, !has_switch, cx))
+        .children(chips_last)
         .child(render_hints(minibuffer.hints()));
     if is_problem_list(minibuffer) {
         return div()
@@ -422,7 +429,9 @@ fn render_field(minibuffer: &Minibuffer, input_scroll: &ScrollHandle) -> impl In
         .bg(rgb(color::BG_FIELD))
         .rounded(px(8.0))
         .border_1()
-        .border_color(field_border(!minibuffer.in_description()));
+        .border_color(field_border(
+            !minibuffer.in_description() && !minibuffer.in_list(),
+        ));
     if minibuffer.is_question() {
         return field
             .text_size(px(font::INPUT_SIZE))
@@ -524,7 +533,7 @@ fn render_input(minibuffer: &Minibuffer, scroll: &ScrollHandle) -> impl IntoElem
     let cursor = line.cursor_cell(input.point_column());
     let part = |range: Range<usize>| div().flex_none().child(line.text[range].to_owned());
     let cursor_text = line.text[cursor.clone()].to_owned();
-    let cursor_highlights = if minibuffer.in_description() || minibuffer.prompt().read_only {
+    let cursor_highlights = if minibuffer.in_description() || !minibuffer.is_typed() {
         Vec::new()
     } else {
         vec![(0..cursor_text.len(), cursor_style())]
@@ -662,6 +671,15 @@ fn render_candidates(minibuffer: &Minibuffer, cx: &mut Context<EditorView>) -> i
         let selected = minibuffer.selected() == Some(index);
         let row = if is_problem_list {
             render_problem(candidate, index, selected, cx)
+        } else if let Some(expansion) = &candidate.expansion {
+            render_entry(
+                candidate,
+                expansion,
+                index,
+                selected,
+                minibuffer.in_list(),
+                cx,
+            )
         } else if let Some(action) = candidate.action {
             render_step(candidate, action, index, selected, cx)
         } else {
@@ -846,6 +864,144 @@ fn render_step(
                 .text_size(px(font::UI_SIZE))
                 .child(candidate.annotation.clone()),
         )
+        .into_any_element()
+}
+
+/// An entry: its id, what it is and when; selected, it opens up to show its items and
+/// the buttons that act on it, lit while keys go to the list. A click selects it.
+fn render_entry(
+    candidate: &Candidate,
+    expansion: &Expansion,
+    index: usize,
+    selected: bool,
+    in_list: bool,
+    cx: &mut Context<EditorView>,
+) -> AnyElement {
+    let header = |detail: String| {
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(10.0))
+            .child(
+                div()
+                    .flex_none()
+                    .px(px(6.0))
+                    .py(px(2.0))
+                    .rounded(px(5.0))
+                    .bg(rgba(0xffffff0f))
+                    .font_family(font::MONO)
+                    .text_size(px(font::STATUS_SIZE))
+                    .text_color(rgb(color::FG_ALT))
+                    .child(candidate.label.clone()),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(px(font::UI_SIZE))
+                    .child(candidate.annotation.clone()),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .text_size(px(font::STATUS_SIZE))
+                    .text_color(rgb(color::FG_FAINT))
+                    .child(detail),
+            )
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |view, _: &MouseDownEvent, _, cx| {
+                    cx.stop_propagation();
+                    view.focus_candidate(index, cx);
+                }),
+            )
+    };
+    if !selected {
+        let detail = candidate.detail.clone().unwrap_or_default().into_owned();
+        return header(detail)
+            .h(px(WIDE_ROW_HEIGHT))
+            .px(px(10.0))
+            .rounded(px(8.0))
+            .into_any_element();
+    }
+    let (border, background) = if in_list {
+        (0x2fafff61, 0x2fafff14)
+    } else {
+        (0xffffff14, 0xffffff08)
+    };
+    let (destructive, actions): (Vec<EntryAction>, Vec<EntryAction>) = expansion
+        .actions
+        .iter()
+        .partition(|action| action.destructive);
+    let button = |action: EntryAction| {
+        let command = action.command;
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(8.0))
+            .h(px(28.0))
+            .pl(px(10.0))
+            .pr(px(5.0))
+            .rounded(px(7.0))
+            .bg(rgb(color::BG_BUTTON))
+            .border_1()
+            .border_color(rgba(if action.destructive {
+                0xff5f594d
+            } else {
+                0xffffff14
+            }))
+            .shadow(vec![shadow(0x00000080, 1.0, 2.0, 0.0)])
+            .text_size(px(font::STATUS_SIZE))
+            .text_color(rgb(if action.destructive {
+                color::FG_FLAGGED
+            } else {
+                color::FG_MAIN
+            }))
+            .child(action.label)
+            .child(kbd(action.key, false).h(px(18.0)))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |view, _: &MouseDownEvent, _, cx| {
+                    cx.stop_propagation();
+                    view.run_command(command, cx);
+                }),
+            )
+    };
+    let buttons = div()
+        .flex()
+        .items_center()
+        .gap(px(6.0))
+        .children(actions.into_iter().map(button))
+        .child(div().flex_1())
+        .children(destructive.into_iter().map(button));
+    div()
+        .flex()
+        .flex_col()
+        .flex_none()
+        .gap(px(8.0))
+        .pt(px(8.0))
+        .px(px(10.0))
+        .pb(px(10.0))
+        .rounded(px(10.0))
+        .bg(rgba(background))
+        .border_1()
+        .border_color(rgba(border))
+        .child(header(expansion.detail.clone()).h(px(28.0)))
+        .when(!expansion.items.is_empty(), |entry| {
+            entry.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .py(px(4.0))
+                    .rounded(px(8.0))
+                    .bg(rgb(color::BG_FIELD))
+                    .children(list_items(expansion.items.clone(), MAX_LISTED_ITEMS, 26.0)),
+            )
+        })
+        .child(buttons)
         .into_any_element()
 }
 

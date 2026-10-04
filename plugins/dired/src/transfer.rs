@@ -72,20 +72,17 @@ fn read_destination(editor: &mut Editor, moving: bool) -> CommandResult {
             labels: vec![format!("Move with {}", control.move_command())],
             state: Rc::clone(&record_moves),
             shown_while: Some(Rc::clone(&moving)),
+            hidden_while: None,
         });
     let mut options = vec![PromptOption {
         key: 'm',
         labels: vec!["Copy".into(), "Move".into()],
         state: Rc::clone(&moving),
         shown_while: None,
+        hidden_while: None,
     }];
     options.extend(record_option);
-    options.push(PromptOption {
-        key: 'o',
-        labels: vec!["Overwrite existing".into()],
-        state: Rc::clone(&overwrite),
-        shown_while: None,
-    });
+    options.push(PromptOption::chip('o', "Overwrite existing", &overwrite));
     let bytes: u64 = sources
         .iter()
         .filter(|entry| !entry.is_directory)

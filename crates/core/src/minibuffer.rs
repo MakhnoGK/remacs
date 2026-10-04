@@ -84,6 +84,15 @@ pub struct Prompt {
     pub summary: Vec<BannerPart>,
     /// Opened from the toolbar: drawn under its right end rather than centered.
     pub from_toolbar: bool,
+    /// The chips go under the field, above the candidates, e.g. settings of what the
+    /// input makes.
+    pub chips_first: bool,
+    /// Makes the candidates a list of their own that `minibuffer-next-field` moves to:
+    /// there, printable keys and RET look in this keymap, and the input is not typed. The
+    /// answer is always the input.
+    pub list_keymap: Option<Keymap>,
+    /// In place of `hints` while keys go to the list.
+    pub list_hints: &'static [(&'static str, &'static str)],
 }
 
 pub type AnswerCheck = Rc<dyn Fn(&str) -> Result<(), String>>;
@@ -135,9 +144,22 @@ pub struct PromptOption {
     /// Shown, and switched, only while this other state is on, e.g. a setting of moving
     /// while the prompt moves rather than copies.
     pub shown_while: Option<Rc<Cell<bool>>>,
+    /// Hidden, and not switched, while this other state is on.
+    pub hidden_while: Option<Rc<Cell<bool>>>,
 }
 
 impl PromptOption {
+    /// A chip lit while `state` is on, always shown.
+    pub fn chip(key: char, label: &str, state: &Rc<Cell<bool>>) -> Self {
+        Self {
+            key,
+            labels: vec![label.into()],
+            state: Rc::clone(state),
+            shown_while: None,
+            hidden_while: None,
+        }
+    }
+
     pub fn is_switch(&self) -> bool {
         self.labels.len() == 2
     }
@@ -148,6 +170,7 @@ impl PromptOption {
 
     pub fn is_shown(&self) -> bool {
         self.shown_while.as_ref().is_none_or(|state| state.get())
+            && !self.hidden_while.as_ref().is_some_and(|state| state.get())
     }
 }
 
@@ -166,7 +189,7 @@ pub struct Dialog {
 }
 
 /// A row of a list shown for reference, e.g. a file to be deleted.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ListItem {
     pub icon: Option<Icon>,
     pub mark: Option<Mark>,
@@ -199,6 +222,8 @@ pub struct Minibuffer {
     description: Option<Buffer>,
     /// Commands act on the description rather than the input.
     in_description: bool,
+    /// Keys go to the candidates, for a prompt with a list keymap.
+    in_list: bool,
     /// Of the prompt's earlier messages, the one brought back.
     earlier_message: Option<usize>,
     /// `None` for a y-or-n question.
@@ -234,6 +259,7 @@ impl Minibuffer {
             input,
             description,
             in_description: false,
+            in_list: false,
             earlier_message: None,
             source,
             on_answer,
@@ -324,13 +350,46 @@ impl Minibuffer {
         }
     }
 
-    /// Moves between a message's subject and its description.
+    /// Whether keys go to the candidates rather than the input.
+    pub fn in_list(&self) -> bool {
+        self.in_list
+    }
+
+    /// Moves between a message's subject and its description, or between the input and
+    /// a list of candidates.
     pub fn next_field(&mut self) -> CommandResult {
-        if self.description.is_none() {
+        if self.description.is_some() {
+            self.in_description = !self.in_description;
+            return Ok(());
+        }
+        if self.prompt.list_keymap.is_none() {
             return Err("No other field".into());
         }
-        self.in_description = !self.in_description;
+        if !self.in_list && self.candidates().is_empty() {
+            return Err("Nothing listed".into());
+        }
+        self.in_list = !self.in_list;
         Ok(())
+    }
+
+    /// Selects candidate `index` and moves the keys to the list, as a click on it does.
+    pub fn focus_candidate(&mut self, index: usize) {
+        self.select(index);
+        self.in_list = self.prompt.list_keymap.is_some();
+    }
+
+    /// The keymap active over the others now: the list's while keys go to it.
+    pub fn keymap(&self) -> Option<&Keymap> {
+        if self.in_list {
+            self.prompt.list_keymap.as_ref()
+        } else {
+            None
+        }
+    }
+
+    /// Printable keys type into the input.
+    pub fn is_typed(&self) -> bool {
+        !self.prompt.read_only && !self.in_list
     }
 
     /// Replaces the message with an earlier one, or a later one, like Emacs
@@ -408,8 +467,12 @@ impl Minibuffer {
         &self.completions
     }
 
-    /// Keys and what they do now: the completions' if they say, else the prompt's.
+    /// Keys and what they do now: the list's while keys go to it, else the completions'
+    /// if they say, else the prompt's.
     pub fn hints(&self) -> &'static [(&'static str, &'static str)] {
+        if self.in_list {
+            return self.prompt.list_hints;
+        }
         self.completions.hints.unwrap_or(self.prompt.hints)
     }
 
@@ -503,6 +566,7 @@ impl Minibuffer {
             self.selection.selected()
         };
         self.completed_input = Some(input);
+        self.in_list &= !self.candidates().is_empty();
         self.select(index);
     }
 
@@ -520,6 +584,7 @@ impl Minibuffer {
             return Ok(self.message_text());
         }
         let input = self.input_text();
+        let literal_input = literal_input || self.prompt.list_keymap.is_some();
         if !literal_input && let Some(candidate) = self.selected_candidate() {
             return Ok(candidate.value.clone());
         }

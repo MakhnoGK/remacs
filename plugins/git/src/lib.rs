@@ -18,6 +18,7 @@ mod moves;
 mod operation;
 mod repositories;
 mod resolve;
+mod stash;
 mod status;
 mod status_view;
 mod sync;
@@ -74,6 +75,12 @@ const COMMANDS: &[Command] = &[
     Command::new(sync::PUSH_ELSEWHERE, "Push to a remote branch read next", sync::elsewhere),
     Command::new(sync::PULL_REBASE, "Pull by rebasing onto what comes in", sync::by_rebase),
     Command::new(sync::PULL_MERGE, "Pull by merging what comes in", sync::by_merge),
+    Command::new("git-stash", "Set the changes aside with a message, or act on a stash", stash::stash),
+    Command::new(stash::APPLY, "Apply the stash, keeping it", stash::apply),
+    Command::new(stash::POP, "Apply the stash and drop it", stash::pop),
+    Command::new(stash::BRANCH, "Make a branch where the stash was made and apply it there", stash::branch),
+    Command::new(stash::SHOW, "Show the stash's files and diffs in the status", stash::show),
+    Command::new(stash::DROP, "Throw the stash away, after asking", stash::drop_stash),
 ];
 
 /// Over the status keys while point is on a file with conflicts, like Emacs smerge.
@@ -102,6 +109,9 @@ const STATUS_BINDINGS: &[(&str, &str)] = &[
     ("r", "git-rebase"),
     ("F", "git-pull"),
     ("P", "git-push"),
+    ("z", "git-stash"),
+    ("a", stash::APPLY),
+    ("A", stash::POP),
     ("l", "git-history-scope"),
     ("/", "git-history-search"),
     ("C-M-v", "git-history-next-page"),

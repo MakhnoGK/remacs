@@ -35,6 +35,8 @@ pub struct Base {
 pub struct Stash {
     /// `stash@{0}`
     pub name: String,
+    /// Of its commit, which stays the same as stashes come and go.
+    pub id: String,
     pub message: String,
 }
 
@@ -118,14 +120,15 @@ fn configured_base(root: &Path, branch: &str) -> Option<String> {
 }
 
 fn stashes(root: &Path) -> Vec<Stash> {
-    text(root, &["stash", "list", "--format=%gd%x00%s"])
+    text(root, &["stash", "list", "--format=%gd%x00%H%x00%s"])
         .unwrap_or_default()
         .lines()
         .filter_map(|line| {
-            let (name, message) = line.split_once('\0')?;
+            let mut fields = line.splitn(3, '\0');
             Some(Stash {
-                name: name.to_owned(),
-                message: message.to_owned(),
+                name: fields.next()?.to_owned(),
+                id: fields.next()?.to_owned(),
+                message: fields.next()?.to_owned(),
             })
         })
         .collect()

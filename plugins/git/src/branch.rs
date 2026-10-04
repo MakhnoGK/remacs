@@ -73,12 +73,6 @@ pub fn branch(editor: &mut Editor) -> CommandResult {
     };
     let base = Rc::new(Cell::new(0));
     let [switch, track] = [true, false].map(|on| Rc::new(Cell::new(on)));
-    let option = |key, label: &str, state: &Rc<Cell<bool>>| PromptOption {
-        key,
-        labels: vec![label.into()],
-        state: state.clone(),
-        shown_while: None,
-    };
     let prompt = Prompt {
         label: "Branch".into(),
         category: CATEGORY,
@@ -94,8 +88,8 @@ pub fn branch(editor: &mut Editor) -> CommandResult {
             segmented: false,
         }],
         options: vec![
-            option('s', "Switch to new branch", &switch),
-            option('t', "Track upstream", &track),
+            PromptOption::chip('s', "Switch to new branch", &switch),
+            PromptOption::chip('t', "Track upstream", &track),
         ],
         ..Prompt::default()
     };

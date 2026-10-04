@@ -22,8 +22,8 @@ mod viewport;
 pub use buffer::{Buffer, FileEdits};
 pub use command::{Command, CommandError, CommandResult, Commands};
 pub use completion::{
-    Candidate, Completions, Icon, Match, Selection, SymbolKind, filter, filter_candidates,
-    flex_match, rank,
+    Candidate, Completions, EntryAction, Expansion, Icon, Match, Selection, SymbolKind, filter,
+    filter_candidates, flex_match, rank,
 };
 pub use decoration::{Decorator, Face, Span};
 pub use editor::{Editor, Notifier, SCRATCH_BUFFER, SELF_INSERT_COMMAND};
