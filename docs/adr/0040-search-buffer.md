@@ -18,14 +18,21 @@ Status: accepted, 2026-10-05
   keeping enough of the previous chunk for a match that crosses the boundary. At most
   10,000 lines are listed; past that the counter says so, so that a common string still
   answers each key at once.
-
 - **Preview while the prompt is open**, like isearch: the matches on screen are lit
   (`Face::SearchMatch`, the selected one `Face::SearchCurrent`) and point follows the
   selection, centered when it leaves the screen. Quitting puts point and the view back;
-  for that, quitting with `C-g` now runs the post-command hooks too. The state lives on
-  the searched buffer (`Searching`), since decorators see only the buffer; the decorator
-  searches just the lines drawn.
+  for that, quitting with `C-g` now runs the post-command hooks too. What is lit lives on
+  the buffer (`Lit`), since decorators see only the buffer; the decorator searches just
+  the lines drawn.
+- **Replacing, like Emacs `query-replace`** (`M-%`): a prompt for the text, its matches
+  lit and counted as it is typed, then one for what replaces it, then a read-only prompt
+  at each match from point to the end: `y`/`SPC` replace, `n`/`DEL` skip, `!` replace the
+  rest as one edit, `q`/`RET`/`C-g` stop, keeping what was replaced. Every replacement
+  undoes at once: the editor puts undo boundaries in the current buffer, which is the
+  prompt's input while it is open, so only the boundaries at the start and the end fall
+  in the replaced buffer.
 
-## Next
+## Not covered
 
-- Replacing (`M-%`).
+- Case is not carried over: with lowercase text to replace, `Total` becomes the
+  replacement as typed, not capitalized like Emacs `case-replace` does.

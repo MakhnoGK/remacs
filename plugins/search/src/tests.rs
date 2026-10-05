@@ -95,6 +95,69 @@ fn case_is_ignored_unless_the_input_has_an_uppercase_letter() {
     assert_eq!(editor.window_buffer().point(), 0);
 }
 
+fn contents(editor: &Editor) -> String {
+    let buffer = editor.window_buffer();
+    buffer.contents(0..buffer.text().len())
+}
+
+/// Opens `M-%` from point with `from` replaced by `to`, at the first match.
+fn replacing(offset: usize, from: &str, to: &str) -> Editor {
+    let mut editor = editor_at(offset);
+    press(&mut editor, "M-%");
+    type_text(&mut editor, from);
+    press(&mut editor, "RET");
+    type_text(&mut editor, to);
+    press(&mut editor, "RET");
+    editor
+}
+
+#[test]
+fn replacing_asks_at_each_match_and_undoes_at_once() {
+    let mut editor = editor_at(0);
+    press(&mut editor, "M-%");
+    type_text(&mut editor, "total");
+    assert_eq!(editor.minibuffer().unwrap().note(), Some("3 matches"));
+    assert_eq!(lit(&editor).len(), 3);
+    press(&mut editor, "C-g");
+
+    let mut editor = replacing(0, "total", "count");
+    assert_eq!(editor.window_buffer().point(), TEXT.find("total").unwrap());
+    assert_eq!(lit(&editor)[0], (TEXT.find("total").unwrap(), true));
+
+    press(&mut editor, "y");
+    let after = contents(&editor);
+    assert!(after.contains("let count = sum();"));
+    assert_eq!(editor.window_buffer().point(), after.find("Total").unwrap());
+
+    press(&mut editor, "n y");
+    assert!(editor.minibuffer().is_none());
+    assert!(lit(&editor).is_empty());
+    assert_eq!(editor.echo().as_deref(), Some("Replaced 2 occurrences"));
+    assert!(contents(&editor).contains("Total + count"));
+
+    press(&mut editor, "C-/");
+    assert_eq!(contents(&editor), TEXT);
+}
+
+#[test]
+fn replacing_all_quitting_and_nothing_to_replace() {
+    let start = TEXT.find("fn sum").unwrap();
+    let mut editor = replacing(start, "total", "x");
+    press(&mut editor, "!");
+    assert_eq!(editor.echo().as_deref(), Some("Replaced 2 occurrences"));
+    assert!(contents(&editor).contains("x + x") && contents(&editor).contains("let total"));
+
+    let mut editor = replacing(0, "sum", "add");
+    press(&mut editor, "y C-g");
+    assert!(editor.minibuffer().is_none());
+    assert_eq!(editor.echo().as_deref(), Some("Replaced 1 occurrence"));
+    assert!(contents(&editor).contains("fn sum()"));
+
+    let editor = replacing(start, "main", "start");
+    assert_eq!(editor.echo().as_deref(), Some("No “main” after point"));
+    assert!(editor.minibuffer().is_none());
+}
+
 /// Spans lit by the search, with the chosen one's face told apart.
 fn lit(editor: &Editor) -> Vec<(usize, bool)> {
     editor

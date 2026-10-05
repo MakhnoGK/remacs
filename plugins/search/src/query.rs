@@ -5,6 +5,7 @@ use remacs_text::Snapshot;
 
 /// A literal string to find, with smart case like the prompts' filters: ASCII case is
 /// ignored unless it has an uppercase letter.
+#[derive(Clone)]
 pub struct Query {
     finder: Finder<'static>,
     ignore_case: bool,
