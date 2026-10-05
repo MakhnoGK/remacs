@@ -561,6 +561,7 @@ impl Minibuffer {
                         .iter()
                         .position(|candidate| &candidate.value == default)
                 })
+                .or(self.completions.selected)
                 .unwrap_or(0)
         } else {
             self.selection.selected()

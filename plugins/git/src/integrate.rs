@@ -306,6 +306,7 @@ fn completions(plan: &Plan, rebasing: bool, autostash: bool, changed: usize) -> 
     Completions {
         total: candidates.len(),
         candidates,
+        selected: None,
         note: Some(match incoming {
             0 => format!("Up to date with {target}"),
             1 => format!("1 new commit on {target}"),

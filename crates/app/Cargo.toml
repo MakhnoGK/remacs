@@ -32,6 +32,7 @@ remacs-languages.workspace = true
 remacs-lsp.workspace = true
 remacs-minibuffer.workspace = true
 remacs-prettier.workspace = true
+remacs-search.workspace = true
 remacs-syntax.workspace = true
 remacs-theme.workspace = true
 remacs-xref.workspace = true

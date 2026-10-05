@@ -26,6 +26,7 @@ remacs-languages = { path = "plugins/languages" }
 remacs-lsp = { path = "plugins/lsp" }
 remacs-minibuffer = { path = "plugins/minibuffer" }
 remacs-prettier = { path = "plugins/prettier" }
+remacs-search = { path = "plugins/search" }
 remacs-syntax = { path = "plugins/syntax" }
 remacs-xref = { path = "plugins/xref" }
 

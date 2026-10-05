@@ -3891,6 +3891,7 @@ dependencies = [
  "remacs-lsp",
  "remacs-minibuffer",
  "remacs-prettier",
+ "remacs-search",
  "remacs-syntax",
  "remacs-theme",
  "remacs-xref",
@@ -4051,6 +4052,17 @@ dependencies = [
  "remacs-format",
  "remacs-text",
  "serde_json",
+]
+
+[[package]]
+name = "remacs-search"
+version = "0.1.0"
+dependencies = [
+ "memchr",
+ "remacs-core",
+ "remacs-editing",
+ "remacs-minibuffer",
+ "remacs-text",
 ]
 
 [[package]]

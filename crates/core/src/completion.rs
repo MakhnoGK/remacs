@@ -126,6 +126,8 @@ pub struct Completions {
     /// The best matches; `total` may count more than were materialised.
     pub candidates: Vec<Candidate>,
     pub total: usize,
+    /// Selected first for this input, e.g. the match nearest point; else the first.
+    pub selected: Option<usize>,
     /// Said in place of the count, e.g. that the input names a folder to be created.
     pub note: Option<String>,
     /// Keys and what they do for this input, in place of the prompt's.

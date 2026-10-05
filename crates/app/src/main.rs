@@ -34,6 +34,7 @@ use remacs_languages::{GRAMMARS, LanguagesPlugin, PRETTIER_MODES, SERVERS};
 use remacs_lsp::LspPlugin;
 use remacs_minibuffer::MinibufferPlugin;
 use remacs_prettier::PrettierPlugin;
+use remacs_search::SearchPlugin;
 use remacs_syntax::SyntaxPlugin;
 use remacs_xref::XrefPlugin;
 
@@ -44,6 +45,7 @@ const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
     &EditingPlugin,
     &MinibufferPlugin,
     &FilesPlugin,
+    &SearchPlugin,
     &DiredPlugin,
     &GitPlugin,
     &LanguagesPlugin,
