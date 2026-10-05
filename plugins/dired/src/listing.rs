@@ -12,6 +12,7 @@ use remacs_text::Text;
 
 use crate::commands::{FIND_FILE, open_directory, sort_by};
 use crate::entry::{Entry, PARENT, SortKey, display_name, is_dim_name, items_label, sort};
+use crate::new_file;
 use crate::preview::{self, PreviewState};
 use crate::reader::DirectoryReader;
 use crate::wdired::{self, Editing};
@@ -53,6 +54,7 @@ const HINTS: &[(&str, &str)] = &[
     ("x", "Delete flagged"),
     ("C", "Copy"),
     ("R", "Move"),
+    ("c", "File"),
     ("+", "Folder"),
 ];
 
@@ -70,11 +72,19 @@ pub struct Listing {
     /// While the names are edited, the lines stand for the entries as they are, so the
     /// listing is neither read again nor sorted.
     pub editing: Option<Editing>,
+    /// The line of the row naming a file to create, an empty entry until it is created;
+    /// meanwhile, too, the listing is neither read again nor sorted.
+    pub new_file: Option<usize>,
 }
 
 impl Listing {
     pub fn is_loaded(&self) -> bool {
         self.loaded
+    }
+
+    /// Whether the lines are being edited, so they must stay as they are.
+    fn is_frozen(&self) -> bool {
+        self.editing.is_some() || self.new_file.is_some()
     }
 }
 
@@ -98,12 +108,19 @@ pub fn new_listing(directory: PathBuf, select: Option<String>, notifier: Notifie
         preview,
         marks: HashMap::new(),
         editing: None,
+        new_file: None,
     });
     buffer
 }
 
+/// The entry on point's line, unless that is the row of a file yet to be created.
 pub fn entry_at_point(buffer: &Buffer) -> Option<&Entry> {
-    buffer.local::<Listing>()?.entries.get(buffer.point_line())
+    let listing = buffer.local::<Listing>()?;
+    let line = buffer.point_line();
+    if listing.new_file == Some(line) {
+        return None;
+    }
+    listing.entries.get(line)
 }
 
 /// Takes in what the background readers have read since the last call.
@@ -131,7 +148,7 @@ pub fn set_entries(buffer: &mut Buffer, mut entries: Vec<Entry>) {
     let current = entry_at_point(buffer).map(|entry| entry.name.clone());
     let Some(listing) = buffer
         .local_mut::<Listing>()
-        .filter(|listing| listing.editing.is_none())
+        .filter(|listing| !listing.is_frozen())
     else {
         return;
     };
@@ -151,7 +168,7 @@ pub fn set_sort(buffer: &mut Buffer, key: SortKey) {
     let current = entry_at_point(buffer).map(|entry| entry.name.clone());
     let Some(listing) = buffer
         .local_mut::<Listing>()
-        .filter(|listing| listing.editing.is_none())
+        .filter(|listing| !listing.is_frozen())
     else {
         return;
     };
@@ -177,12 +194,12 @@ pub fn redraw(buffer: &mut Buffer) {
     redisplay(buffer, None, false);
 }
 
-/// Rewrites the buffer from the entries, unless their names are being edited; point goes
+/// Rewrites the buffer from the entries, unless their lines are being edited; point goes
 /// to `target`, else stays on its line, or on the first real entry the first time.
 fn redisplay(buffer: &mut Buffer, target: Option<String>, first_load: bool) {
     let Some(listing) = buffer
         .local::<Listing>()
-        .filter(|listing| listing.editing.is_none())
+        .filter(|listing| !listing.is_frozen())
     else {
         return;
     };
@@ -221,6 +238,9 @@ pub fn table(editor: &Editor, lines: Range<usize>) -> Option<Table> {
         .iter()
         .zip(shown)
         .map(|(entry, line)| {
+            if listing.new_file == Some(line) {
+                return new_file_row(line_text(buffer, line));
+            }
             let edited = editing
                 .filter(|_| entry.name != PARENT)
                 .map(|_| line_text(buffer, line));
@@ -236,35 +256,37 @@ pub fn table(editor: &Editor, lines: Range<usize>) -> Option<Table> {
             )
         })
         .collect();
-    let sort = match editing {
-        Some(_) => Vec::new(),
-        None => SortKey::ALL
+    let frozen = listing.is_frozen();
+    let sort = if frozen {
+        Vec::new()
+    } else {
+        SortKey::ALL
             .into_iter()
             .map(|key| Button {
                 label: key.label().into(),
                 selected: key == listing.sort,
                 action: Rc::new(move |editor| sort_by(editor, key)),
             })
-            .collect(),
+            .collect()
     };
-    let preview = editing
-        .is_none()
+    let preview = (!frozen)
         .then(|| {
             entry_at_point(buffer)
                 .and_then(|entry| preview::describe(editor, listing, directory, entry))
         })
         .flatten();
+    let hints = match (editing, listing.new_file) {
+        (Some(_), _) => wdired::HINTS,
+        (None, Some(_)) => new_file::HINTS,
+        (None, None) => HINTS,
+    };
     Some(Table {
         crumbs: crumbs(directory),
         sort,
         columns: COLUMNS,
         rows,
         activate: FIND_FILE,
-        hints: if editing.is_some() {
-            wdired::HINTS
-        } else {
-            HINTS
-        },
+        hints,
         preview,
         notice: editing.map(|_| Notice {
             label: "Editing names",
@@ -274,7 +296,7 @@ pub fn table(editor: &Editor, lines: Range<usize>) -> Option<Table> {
     })
 }
 
-fn line_text(buffer: &Buffer, line: usize) -> String {
+pub fn line_text(buffer: &Buffer, line: usize) -> String {
     let range = buffer.text().line_range(line).unwrap_or_default();
     buffer.contents(range)
 }
@@ -286,7 +308,8 @@ pub fn status(editor: &Editor) -> Option<StatusSegment> {
             .entries
             .first()
             .is_some_and(|entry| entry.name == PARENT);
-        items_label((listing.entries.len() - usize::from(has_parent)) as u64)
+        let listed = listing.entries.len() - usize::from(has_parent);
+        items_label((listed - usize::from(listing.new_file.is_some())) as u64)
     } else {
         "Reading…".into()
     };
@@ -337,6 +360,20 @@ fn row(entry: &Entry, mark: Option<Mark>, edited: Option<String>, state: Option<
         face: file_face(&entry.name, entry.is_directory),
         field,
         state,
+    }
+}
+
+/// The row of a file yet to be created, its name in a field.
+fn new_file_row(name: String) -> Row {
+    let mut cells = vec![String::new(); COLUMNS.len()];
+    cells[0] = name;
+    Row {
+        mark: None,
+        icon: Some(file_icon(false)),
+        cells,
+        face: RowFace::Normal,
+        field: Some(Field { original: None }),
+        state: None,
     }
 }
 

@@ -8,6 +8,7 @@ use remacs_files::{
 
 use crate::entry::{PARENT, SortKey};
 use crate::listing::{DIRED_MODE, Listing, entry_at_point, new_listing, select_entry, set_sort};
+use crate::new_file::is_creating;
 use crate::wdired::is_editing;
 
 pub const FIND_FILE: &str = "dired-find-file";
@@ -53,6 +54,9 @@ pub fn dired_jump(editor: &mut Editor) -> CommandResult {
 
 /// Visits the file at point, or lists the directory at point in place of this listing.
 pub fn find_file(editor: &mut Editor) -> CommandResult {
+    if is_creating(editor) {
+        return Err("Create or cancel the new file first".into());
+    }
     let buffer = editor.window_buffer();
     let entry = entry_at_point(buffer).ok_or("No file on this line")?;
     let directory = buffer.default_directory().ok_or(NOT_A_LISTING)?;

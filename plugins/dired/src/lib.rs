@@ -8,6 +8,7 @@ mod file_ops;
 mod jobs;
 mod listing;
 mod marks;
+mod new_file;
 mod preview;
 mod preview_reader;
 mod reader;
@@ -53,6 +54,9 @@ const COMMANDS: &[Command] = &[
     Command::new("dired-do-flagged-delete", "Delete the flagged files, after asking", delete::delete_flagged),
     Command::new("dired-do-delete", "Delete the marked files, or the one at point, after asking", delete::delete_marked),
     Command::new("dired-create-directory", "Create a folder in the listed directory", commands::create_directory),
+    Command::new("dired-create-empty-file", "Name an empty file to create in a row under point", new_file::start),
+    Command::new("dired-create-empty-file-finish", "Create the file named in the new row", new_file::finish),
+    Command::new("dired-create-empty-file-cancel", "Remove the new row, creating nothing", new_file::cancel),
     Command::new("dired-do-copy", "Copy the marked files, or the one at point, elsewhere", transfer::copy),
     Command::new("dired-do-rename", "Move or rename the marked files, or the one at point", transfer::rename),
     Command::new("wdired-change-to-wdired-mode", "Edit the names in the listing to rename files", wdired::edit_names),
@@ -88,6 +92,7 @@ const DIRED_BINDINGS: &[(&str, &str)] = &[
     ("x", "dired-do-flagged-delete"),
     ("D", "dired-do-delete"),
     ("+", "dired-create-directory"),
+    ("c", "dired-create-empty-file"),
     ("C", "dired-do-copy"),
     ("R", "dired-do-rename"),
     ("w", "wdired-change-to-wdired-mode"),
@@ -106,6 +111,15 @@ const WDIRED_BINDINGS: &[(&str, &str)] = &[
     ("M-%", "wdired-replace-in-names"),
 ];
 
+/// Over the editing keys; letters type into the name.
+const NEW_FILE_BINDINGS: &[(&str, &str)] = &[
+    ("RET", "dired-create-empty-file-finish"),
+    ("C-c C-c", "dired-create-empty-file-finish"),
+    ("C-g", "dired-create-empty-file-cancel"),
+    ("ESC", "dired-create-empty-file-cancel"),
+    ("C-c C-k", "dired-create-empty-file-cancel"),
+];
+
 impl Plugin for DiredPlugin {
     fn register(&self, registry: &mut Registry) {
         for command in COMMANDS {
@@ -115,12 +129,20 @@ impl Plugin for DiredPlugin {
             registry.keymap.bind(keys, command);
         }
         registry.minor_keymaps.push(MinorKeymap {
-            active: |editor| editor.buffer().mode() == DIRED_MODE && !wdired::is_editing(editor),
+            active: |editor| {
+                editor.buffer().mode() == DIRED_MODE
+                    && !wdired::is_editing(editor)
+                    && !new_file::is_creating(editor)
+            },
             keymap: keymap(DIRED_BINDINGS),
         });
         registry.minor_keymaps.push(MinorKeymap {
             active: wdired::is_editing,
             keymap: keymap(WDIRED_BINDINGS),
+        });
+        registry.minor_keymaps.push(MinorKeymap {
+            active: new_file::is_creating,
+            keymap: keymap(NEW_FILE_BINDINGS),
         });
         registry.tables.push(Rc::new(listing::table));
         registry.status_providers.push(Rc::new(wdired::status));
@@ -136,6 +158,9 @@ impl Plugin for DiredPlugin {
         registry
             .post_command_hooks
             .push(Rc::new(wdired::after_command));
+        registry
+            .post_command_hooks
+            .push(Rc::new(new_file::after_command));
     }
 }
 

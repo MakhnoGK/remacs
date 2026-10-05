@@ -342,7 +342,7 @@ fn stop_editing(buffer: &mut Buffer) -> Result<Editing, &'static str> {
 
 /// Why `name` cannot be a name in the listed directory, if it cannot; moving elsewhere
 /// is `R`'s job.
-fn invalid_name(name: &str) -> Option<&'static str> {
+pub fn invalid_name(name: &str) -> Option<&'static str> {
     if name.is_empty() {
         Some("is empty")
     } else if name.contains('/') {

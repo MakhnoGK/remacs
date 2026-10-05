@@ -13,7 +13,7 @@ const MONTHS: [&str; 12] = [
 ];
 
 /// One file of a listing, with its columns formatted when it is read.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Entry {
     pub name: String,
     pub is_directory: bool,
