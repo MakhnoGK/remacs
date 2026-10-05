@@ -48,6 +48,10 @@ pub mod color {
     pub const VC_REMOVED: u32 = 0xff7f86;
     pub const VC_ADDED_ON_SELECTION: u32 = 0x9cf09c;
     pub const VC_REMOVED_ON_SELECTION: u32 = 0xffb8bc;
+    /// Gutter marks of lines changed since the last commit, translucent as `rgba`.
+    pub const VC_ADDED_MARK: u32 = 0x44bc44b3;
+    pub const VC_MODIFIED_MARK: u32 = 0x79a8ffb3;
+    pub const VC_REMOVED_MARK: u32 = 0xff5f59bf;
 
     /// Branch and tag chips: the one checked out, the main one, others, remote ones.
     pub const FG_REF_HEAD: u32 = 0xbfe6ff;

@@ -1,10 +1,12 @@
 use std::fs;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use remacs_core::{
-    DiffRow, Editor, FactValue, FileState, FileStatus, LineCounts, OutlineRow, parse_sequence,
+    DiffRow, Editor, FactValue, FileState, FileStatus, LineChange, LineCounts, OutlineRow,
+    parse_sequence,
 };
 use remacs_dired::{DiredPlugin, list_directory};
 use remacs_editing::EditingPlugin;
@@ -309,6 +311,38 @@ fn commit(repository: &Repository, name: &str, contents: &str, message: &str) {
     repository.write(name, contents);
     repository.git(&["add", name]);
     repository.git(&["commit", "-q", "-m", message]);
+}
+
+fn line_changes(editor: &Editor) -> Vec<(Range<usize>, LineChange)> {
+    editor
+        .line_changes(0..100)
+        .into_iter()
+        .map(|changed| (changed.lines, changed.change))
+        .collect()
+}
+
+#[test]
+fn buffers_mark_the_lines_changed_since_the_last_commit_saved_or_not() {
+    let repository = Repository::new("line-changes");
+    commit(&repository, "lib.rs", "one\ntwo\nthree\n", "Three lines");
+    let mut editor = editor();
+    editor.visit_file(&repository.0.join("lib.rs")).unwrap();
+    editor.window_buffer_mut().insert("zero\n");
+    wait_until(&mut editor, "the added line", |editor| {
+        line_changes(editor) == [(0..1, LineChange::Added)]
+    });
+
+    editor.window_buffer_mut().save().unwrap();
+    repository.git(&["commit", "-q", "-am", "Four lines"]);
+    wait_until(&mut editor, "the new commit", |editor| {
+        line_changes(editor).is_empty()
+    });
+
+    repository.write("new.rs", "a\nb\n");
+    editor.visit_file(&repository.0.join("new.rs")).unwrap();
+    wait_until(&mut editor, "the untracked file", |editor| {
+        line_changes(editor) == [(0..2, LineChange::Added)]
+    });
 }
 
 /// The status buffer of `repository`, once its status is shown.

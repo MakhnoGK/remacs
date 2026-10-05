@@ -26,7 +26,7 @@ use crate::popup::Popup;
 use crate::status::StatusSegment;
 use crate::syntax::SyntaxContext;
 use crate::table::{Action, Table};
-use crate::vc::{FileStatus, VersionControl};
+use crate::vc::{ChangedLines, FileStatus, VersionControl};
 use crate::viewport::Viewport;
 
 pub const SELF_INSERT_COMMAND: &str = "self-insert-command";
@@ -635,6 +635,17 @@ impl Editor {
     /// How `path` differs from the last commit, if version control knows.
     pub fn file_status(&self, path: &Path) -> Option<FileStatus> {
         self.version_control(path)?.status(self, path)
+    }
+
+    /// How the window buffer's `lines` differ from the last commit, if version control
+    /// knows.
+    pub fn line_changes(&self, lines: Range<usize>) -> Vec<ChangedLines> {
+        let buffer = self.window_buffer();
+        buffer
+            .path()
+            .and_then(|path| self.version_control(path))
+            .map(|control| control.line_changes(buffer, lines))
+            .unwrap_or_default()
     }
 
     /// Tells version control of files moved, from and to, as its move command would.

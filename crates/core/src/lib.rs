@@ -49,5 +49,5 @@ pub use table::{
     Action, Button, CellStyle, Changes, Column, DiffLine, Elsewhere, Field, FileDiff, Mark, Notice,
     Preview, PreviewBody, PreviewItem, Row, RowFace, Table, TableProvider,
 };
-pub use vc::{FileState, FileStatus, LineCounts, VersionControl};
+pub use vc::{ChangedLines, FileState, FileStatus, LineChange, LineCounts, VersionControl};
 pub use viewport::Viewport;

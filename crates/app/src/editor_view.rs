@@ -13,7 +13,8 @@ use gpui::{
     px, rgb, rgba,
 };
 use remacs_core::{
-    Action, Code, DocBlock, Editor, Outline, Popup, Preview, PreviewBody, Scroll, StatusSegment,
+    Action, ChangedLines, Code, DocBlock, Editor, LineChange, Outline, Popup, Preview, PreviewBody,
+    Scroll, StatusSegment,
 };
 use remacs_theme::{color, font, glass};
 
@@ -43,6 +44,13 @@ const TEXT_TOP: f32 = 64.0;
 const ROW_MARGIN: f32 = 8.0;
 const GUTTER_PADDING: f32 = 20.0;
 const MIN_GUTTER_DIGITS: usize = 3;
+/// Marks of changed lines are centered this far left of the text.
+const CHANGE_MARK_CENTER: f32 = 8.5;
+const CHANGE_BAR_WIDTH: f32 = 3.0;
+/// Between a bar and the rows above and below it.
+const CHANGE_BAR_GAP: f32 = 2.0;
+const CHANGE_TICK_WIDTH: f32 = 9.0;
+const CHANGE_TICK_HEIGHT: f32 = 3.0;
 /// Per mode; one popup shows a handful.
 const MAX_HIGHLIGHTED_SNIPPETS: usize = 64;
 
@@ -538,6 +546,12 @@ impl EditorView {
         let last_line = (first_line + drawn_rows).min(line_count);
         let popups = self.render_popups(metrics, gutter_width, window);
         let lines = (first_line..last_line).map(|line| self.render_line(line, gutter_width));
+        let text_left = px(ROW_MARGIN) + gutter_width;
+        let changes = self
+            .editor
+            .line_changes(first_line..last_line)
+            .into_iter()
+            .filter_map(|changed| render_line_change(changed, first_line..last_line, text_left));
         let body = div()
             .absolute()
             .top(px(TEXT_TOP))
@@ -546,6 +560,7 @@ impl EditorView {
             .flex()
             .flex_col()
             .children(lines)
+            .children(changes)
             .into_any_element();
         (body, popups)
     }
@@ -836,6 +851,45 @@ impl Render for EditorView {
             .children(status_above_scrim)
             .children(minibuffer)
     }
+}
+
+/// A bar in the gutter beside added or modified lines, or a tick between the lines where
+/// some were removed; `shown` are the drawn lines, `text_left` where their text starts.
+fn render_line_change(
+    changed: ChangedLines,
+    shown: Range<usize>,
+    text_left: Pixels,
+) -> Option<AnyElement> {
+    let line_height = px(font::CODE_LINE_HEIGHT);
+    let top = |line: usize| line_height * (line - shown.start) as f32;
+    let mark = if changed.lines.is_empty() {
+        div()
+            .top(top(changed.lines.start) - px(CHANGE_TICK_HEIGHT / 2.0))
+            .left(text_left - px(CHANGE_MARK_CENTER + CHANGE_TICK_WIDTH / 2.0))
+            .w(px(CHANGE_TICK_WIDTH))
+            .h(px(CHANGE_TICK_HEIGHT))
+    } else {
+        let lines = changed.lines.start.max(shown.start)..changed.lines.end.min(shown.end);
+        if lines.is_empty() {
+            return None;
+        }
+        div()
+            .top(top(lines.start) + px(CHANGE_BAR_GAP))
+            .left(text_left - px(CHANGE_MARK_CENTER + CHANGE_BAR_WIDTH / 2.0))
+            .w(px(CHANGE_BAR_WIDTH))
+            .h(line_height * lines.len() as f32 - px(2.0 * CHANGE_BAR_GAP))
+    };
+    let color = match changed.change {
+        LineChange::Added => color::VC_ADDED_MARK,
+        LineChange::Modified => color::VC_MODIFIED_MARK,
+        LineChange::Removed => color::VC_REMOVED_MARK,
+    };
+    Some(
+        mark.absolute()
+            .rounded(px(2.0))
+            .bg(rgba(color))
+            .into_any_element(),
+    )
 }
 
 /// Dissolves what is under it into the window's glass along `angle`, entirely until

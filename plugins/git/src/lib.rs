@@ -2,6 +2,7 @@
 //! and kept current from file system events, like Emacs magit.
 
 mod branch;
+mod buffer_changes;
 mod command;
 mod commands;
 mod commit;
@@ -23,11 +24,13 @@ mod status;
 mod status_view;
 mod sync;
 
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use remacs_core::{
-    Command, Editor, FileStatus, Keymap, MinorKeymap, Plugin, Registry, VersionControl,
+    Buffer, ChangedLines, Command, Editor, FileStatus, Keymap, MinorKeymap, Plugin, Registry,
+    VersionControl,
 };
 
 use crate::repositories::Repositories;
@@ -151,6 +154,9 @@ impl Plugin for GitPlugin {
             .post_command_hooks
             .push(Rc::new(repositories::track));
         registry.post_command_hooks.push(Rc::new(status_view::sync));
+        registry
+            .post_command_hooks
+            .push(Rc::new(buffer_changes::sync));
         registry.outlines.push(Rc::new(status_view::outline));
         registry
             .status_providers
@@ -182,6 +188,10 @@ impl VersionControl for Git {
         let repositories = editor.find_plugin_state::<Repositories>()?;
         let (_, repository, relative) = repositories.find(path)?;
         repository.snapshot.as_ref()?.status(relative)
+    }
+
+    fn line_changes(&self, buffer: &Buffer, lines: Range<usize>) -> Vec<ChangedLines> {
+        buffer_changes::line_changes(buffer, lines)
     }
 
     fn record_moves(&self, editor: &mut Editor, moves: &[(PathBuf, PathBuf)]) {

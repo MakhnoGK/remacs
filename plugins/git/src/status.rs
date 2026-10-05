@@ -17,6 +17,8 @@ use crate::operation::Operation;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Snapshot {
     pub head: Head,
+    /// The commit `HEAD` is at; `None` before the first.
+    pub commit: Option<String>,
     pub upstream: Option<Upstream>,
     pub stashes: usize,
     /// By path relative to the root.
@@ -191,6 +193,7 @@ pub fn parse_status(output: &[u8]) -> Snapshot {
             _ => {}
         }
     }
+    snapshot.commit = (!oid.is_empty() && oid != "(initial)").then(|| oid.clone());
     snapshot.head = match branch.as_deref() {
         Some("(detached)") | None => Head::Detached(oid),
         Some(name) if oid == "(initial)" => Head::Unborn(name.to_owned()),
