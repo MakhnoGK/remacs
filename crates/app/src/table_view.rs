@@ -13,8 +13,8 @@ use crate::editor_view::EditorView;
 use crate::highlights::{combine, region_style};
 use crate::preview_view::PREVIEW_WIDTH;
 use crate::widgets::{
-    cursor_style, icon, kbd, key_caps, mark_badge, modified_dot, pill, segment, segmented, shadow,
-    state_letter,
+    Scrolled, cursor_style, fade_scrolled, icon, kbd, key_caps, mark_badge, modified_dot, pill,
+    segment, segmented, shadow, state_letter,
 };
 
 const LIST_TOP: f32 = 52.0;
@@ -47,6 +47,7 @@ pub struct TableCursor {
 pub fn render_table(
     table: Table,
     first_line: usize,
+    scrolled: Scrolled,
     cursor: TableCursor,
     side: Option<Div>,
     cx: &mut Context<EditorView>,
@@ -79,7 +80,7 @@ pub fn render_table(
             };
             render_row(row, columns, at_point, line, activate, cx)
         });
-    let rows: Vec<_> = rows.collect();
+    let rows = div().flex().flex_col().gap(px(ROW_GAP)).children(rows);
     let list = div()
         .flex_1()
         .min_w_0()
@@ -89,7 +90,11 @@ pub fn render_table(
         .gap(px(SECTION_GAP))
         .child(render_bar(crumbs, sort, notice, cx))
         .child(render_header(columns))
-        .child(div().flex().flex_col().gap(px(ROW_GAP)).children(rows));
+        .child(fade_scrolled(
+            rows,
+            scrolled,
+            rgba(glass::WINDOW_TINT).into(),
+        ));
     div()
         .absolute()
         .top(px(LIST_TOP))

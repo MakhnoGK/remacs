@@ -132,6 +132,8 @@ pub struct History {
     pub search: Option<String>,
     /// From the first one scrolled to, more than fit.
     pub commits: Vec<CommitRow>,
+    /// Whether newer commits were scrolled past.
+    pub scrolled: bool,
     /// Said in place of the commits when there are none.
     pub empty: String,
     /// Moves the first commit shown by so many rows.

@@ -15,7 +15,8 @@ use crate::editor_view::EditorView;
 use crate::highlights::Highlights;
 use crate::table_view::{LIST_BOTTOM, clickable};
 use crate::widgets::{
-    icon, kbd, line_counts, segment, segmented, shadow, state_letter, tone_color,
+    Scrolled, fade_scrolled, icon, kbd, line_counts, over, segment, segmented, shadow,
+    state_letter, tone_color,
 };
 
 const PANE_TOP: f32 = 56.0;
@@ -104,6 +105,12 @@ fn rows_height(window_height: Pixels, fact_count: usize, has_banner: bool) -> f3
     (window_height / px(1.0)) - pane_top(has_banner) - LIST_BOTTOM - 2.0 * PANE_PADDING - facts
 }
 
+/// Whether the outline's rows and its history go on beyond what is shown.
+pub struct OutlineScrolled {
+    pub rows: Scrolled,
+    pub history: Scrolled,
+}
+
 /// The outline's facts and its rows from `first_line` on, point's line selected, in a
 /// pane at the left of the window; beside it the history or a file's conflicts, and the
 /// banner over both.
@@ -111,6 +118,7 @@ pub fn render_outline(
     outline: Outline,
     first_line: usize,
     point_line: usize,
+    scrolled: OutlineScrolled,
     code_faces: &dyn Fn(&Code) -> Highlights,
     cx: &mut Context<EditorView>,
 ) -> impl IntoElement {
@@ -126,10 +134,8 @@ pub fn render_outline(
     } = outline;
     let has_banner = banner.is_some();
     let banner = banner.map(|banner| render_banner(banner, cx));
+    let facts = (!facts.is_empty()).then(|| render_facts(facts, cx));
     let mut children: Vec<AnyElement> = Vec::new();
-    if !facts.is_empty() {
-        children.push(render_facts(facts, cx).into_any_element());
-    }
     let mut diff_block: Vec<AnyElement> = Vec::new();
     let row_count = rows.len();
     for (index, row) in rows.into_iter().enumerate() {
@@ -226,8 +232,9 @@ pub fn render_outline(
     }
     let side = match conflict {
         Some(conflict) => Some(render_conflict(conflict, code_faces, cx)),
-        None => history.map(|history| render_history(history, cx)),
+        None => history.map(|history| render_history(history, scrolled.history, cx)),
     };
+    let rows = div().flex().flex_col().gap(px(ROW_GAP)).children(children);
     let pane = div()
         .flex()
         .flex_col()
@@ -242,7 +249,12 @@ pub fn render_outline(
         .rounded(px(12.0))
         .font_family(font::UI)
         .text_size(px(font::UI_SIZE))
-        .children(children);
+        .children(facts)
+        .child(fade_scrolled(
+            rows,
+            scrolled.rows,
+            over(glass::PANE, glass::WINDOW_TINT),
+        ));
     let panes = div()
         .absolute()
         .top(px(pane_top(has_banner)))
@@ -458,13 +470,14 @@ pub fn fitting_commits(window_height: Pixels, has_banner: bool) -> usize {
     (room / COMMIT_HEIGHT).floor().max(0.0) as usize
 }
 
-fn render_history(history: History, cx: &mut Context<EditorView>) -> Div {
+fn render_history(history: History, scrolled: Scrolled, cx: &mut Context<EditorView>) -> Div {
     let History {
         scopes,
         search,
         commits,
         empty,
         scroll,
+        ..
     } = history;
     let lanes = commits
         .iter()
@@ -524,11 +537,12 @@ fn render_history(history: History, cx: &mut Context<EditorView>) -> Div {
             .text_color(rgb(color::FG_FAINT))
             .child(empty)
     } else {
-        div().flex().flex_col().children(
+        let commits = div().flex().flex_col().children(
             commits
                 .into_iter()
                 .map(|commit| render_commit(commit, indent)),
-        )
+        );
+        fade_scrolled(commits, scrolled, rgba(glass::WINDOW_TINT).into())
     };
     div()
         .flex()

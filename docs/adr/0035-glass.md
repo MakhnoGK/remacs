@@ -18,8 +18,9 @@ Status: accepted, 2026-10-05 (issue #3)
   (edges clamped) and draws it back saturated and clipped to the rounded bounds. It takes its
   draw order from its bounds grown by 3σ, so it comes after everything it samples.
 - **Fades into the glass** (`Window::paint_fade(bounds, amount, color)`): mixes what is
-  drawn toward a color by a gradient's alpha. The header and footer dissolve the text into
-  `WINDOW_TINT`, as the board's mask does, instead of covering it with black.
+  drawn toward a color by a gradient's alpha. Scrolled lists dissolve into the glass at
+  their edges instead of being covered with black (ADR 0038 replaced the header and
+  footer fades).
 - **Both mix with dual-source blending**: `dst = color · m + dst · (1 − m)`; a plain quad
   cannot, since "over" always raises alpha.
 - **gpui blends alpha "over"** (`1 − src_alpha`) instead of adding it up, which made any

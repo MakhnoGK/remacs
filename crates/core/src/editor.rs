@@ -500,7 +500,7 @@ impl Editor {
         let line_count = self.window_buffer().text().line_count();
         if self.viewport.scroll_by(lines, line_count) {
             let point_line = self.window_buffer().point_line();
-            let visible_line = self.viewport.clamp(point_line);
+            let visible_line = self.viewport.clamp(point_line, line_count);
             if visible_line != point_line {
                 self.window_buffer_mut().move_to_line(visible_line);
             }
@@ -594,8 +594,7 @@ impl Editor {
         self.refresh_minibuffer();
         self.run_post_command_hooks();
         // A regenerated buffer, like a directory listing, may have moved point.
-        let point_line = self.window_buffer().point_line();
-        self.viewport.ensure_visible(point_line);
+        self.show_point();
     }
 
     /// Runs a table control's action as if it were a command.
@@ -789,9 +788,15 @@ impl Editor {
         {
             self.refresh_minibuffer();
         }
-        let point_line = self.window_buffer().point_line();
-        self.viewport.ensure_visible(point_line);
+        self.show_point();
         self.run_post_command_hooks();
+    }
+
+    /// Scrolls the window buffer's point into view, out of the margins.
+    pub fn show_point(&mut self) {
+        let buffer = self.window_buffer();
+        let (point_line, line_count) = (buffer.point_line(), buffer.text().line_count());
+        self.viewport.ensure_visible(point_line, line_count);
     }
 
     /// Index of the buffer visiting `path`, opened as the least recent one if needed.

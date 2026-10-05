@@ -110,6 +110,7 @@ pub fn history(view: &StatusView, snapshot: &Snapshot) -> History {
         ],
         search: state.search.clone(),
         commits,
+        scrolled: state.first > 0,
         empty: empty.into(),
         scroll: Rc::new(scroll),
     }

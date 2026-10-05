@@ -9,8 +9,7 @@ use futures::channel::mpsc;
 use gpui::{
     AnyElement, ClipboardItem, Context, Div, FocusHandle, IntoElement, KeyDownEvent, MouseButton,
     MouseDownEvent, ParentElement, Pixels, Render, ScrollHandle, ScrollWheelEvent, StyledText,
-    Subscription, Task, Window, canvas, div, font, linear_color_stop, linear_gradient, prelude::*,
-    px, rgb, rgba,
+    Subscription, Task, Window, div, font, prelude::*, px, rgb, rgba,
 };
 use remacs_core::{
     Action, ChangedLines, Code, DocBlock, Editor, LineChange, Outline, Popup, Preview, PreviewBody,
@@ -25,20 +24,24 @@ use crate::highlights::{Highlights, combine, face_style, region_style};
 use crate::key_input::to_key;
 use crate::minibuffer_view::{is_problem_list, render_minibuffer, render_scrim};
 use crate::outline_view::{
-    COMMIT_HEIGHT, fits_history, fitting_commits, fitting_rows, max_outline_lines, render_outline,
-    render_toolbar,
+    COMMIT_HEIGHT, OutlineScrolled, fits_history, fitting_commits, fitting_rows, max_outline_lines,
+    render_outline, render_toolbar,
 };
 use crate::popup_view::{DocumentationScroll, DocumentationView, Placement, render_popup};
 use crate::preview_view::render_preview;
 use crate::table_view::{
     LIST_BOTTOM, ROW_PITCH, ROWS_TOP, TableCursor, fits_preview, render_hints, render_table,
 };
-use crate::widgets::{cursor_style, hsla, icon, modified_dot, pill, pill_separator, tone_color};
+use crate::widgets::{
+    Edge, Scrolled, cursor_style, edge_fade, icon, modified_dot, pill, pill_separator, tone_color,
+};
 
 /// Minified files can hold megabytes on one line; lay out only what can be on screen.
 const MAX_RENDERED_LINE_BYTES: usize = 2048;
 const TITLE_BAR_HEIGHT: f32 = 44.0;
-const HEADER_FADE_HEIGHT: f32 = 80.0;
+/// The top margin's line.
+const TEXT_FADE_HEIGHT: f32 = font::CODE_LINE_HEIGHT;
+/// Over the status pill; point stays above it.
 const FOOTER_FADE_HEIGHT: f32 = 56.0;
 const TEXT_TOP: f32 = 64.0;
 const ROW_MARGIN: f32 = 8.0;
@@ -508,24 +511,19 @@ impl EditorView {
             .top_0()
             .left_0()
             .right_0()
-            .h(px(HEADER_FADE_HEIGHT))
-            .child(fade_to_glass(180.0, 0.55))
+            .h(px(TITLE_BAR_HEIGHT))
+            .flex()
+            .items_center()
+            .justify_center()
+            .gap(px(6.0))
+            .font_family(font::UI)
+            .text_size(px(font::UI_SIZE))
             .child(
                 div()
-                    .h(px(TITLE_BAR_HEIGHT))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .gap(px(6.0))
-                    .font_family(font::UI)
-                    .text_size(px(font::UI_SIZE))
-                    .child(
-                        div()
-                            .font_weight(gpui::FontWeight::MEDIUM)
-                            .child(buffer.name().to_owned()),
-                    )
-                    .child(div().text_color(rgb(color::FG_DIM)).child("— remacs")),
+                    .font_weight(gpui::FontWeight::MEDIUM)
+                    .child(buffer.name().to_owned()),
             )
+            .child(div().text_color(rgb(color::FG_DIM)).child("— remacs"))
     }
 
     /// The window buffer's lines from the viewport on, with the popups placed over them.
@@ -534,11 +532,13 @@ impl EditorView {
         // Point stays above the footer fade; lines under it are drawn but not counted.
         let line_height = px(font::CODE_LINE_HEIGHT);
         let text_height = window.viewport_size().height - px(TEXT_TOP);
-        let clear_rows = ((text_height - px(FOOTER_FADE_HEIGHT)) / line_height).floor();
+        let clear_rows = ((text_height - px(FOOTER_FADE_HEIGHT)) / line_height)
+            .floor()
+            .max(1.0) as usize;
         let drawn_rows = (text_height / line_height).ceil() as usize;
-        self.editor
-            .viewport
-            .set_height(clear_rows.max(1.0) as usize);
+        self.editor.viewport.set_height(clear_rows);
+        // Only the top fade is over lines point can be on.
+        self.editor.viewport.margins = (1, 0);
 
         let gutter_width = self.gutter_width(metrics);
         let first_line = self.editor.viewport.first_line;
@@ -552,15 +552,23 @@ impl EditorView {
             .line_changes(first_line..last_line)
             .into_iter()
             .filter_map(|changed| render_line_change(changed, first_line..last_line, text_left));
+        let glass = rgba(glass::WINDOW_TINT).into();
         let body = div()
             .absolute()
             .top(px(TEXT_TOP))
             .left_0()
             .right_0()
+            .bottom_0()
             .flex()
             .flex_col()
             .children(lines)
             .children(changes)
+            .when(first_line > 0, |body| {
+                body.child(edge_fade(Edge::Top, TEXT_FADE_HEIGHT, glass))
+            })
+            .when(first_line + clear_rows < line_count, |body| {
+                body.child(edge_fade(Edge::Bottom, FOOTER_FADE_HEIGHT, glass))
+            })
             .into_any_element();
         (body, popups)
     }
@@ -622,11 +630,11 @@ impl EditorView {
         };
         let mut fitting = fit(&outline);
         let point_line = self.editor.window_buffer().point_line();
-        if !self.editor.viewport.contains(point_line)
-            || point_line >= self.editor.viewport.first_line + fitting
-        {
-            self.editor.viewport.set_height(fitting);
-            self.editor.viewport.ensure_visible(point_line);
+        let shown_from = self.editor.viewport.first_line;
+        self.editor.viewport.set_height(fitting);
+        self.editor.viewport.margins = (1, 1);
+        self.editor.show_point();
+        if self.editor.viewport.first_line != shown_from {
             let first_line = self.editor.viewport.first_line;
             outline = self
                 .editor
@@ -634,6 +642,14 @@ impl EditorView {
             fitting = fit(&outline);
         }
         self.editor.viewport.set_height(fitting);
+        let first_line = self.editor.viewport.first_line;
+        let mut scrolled = OutlineScrolled {
+            rows: Scrolled {
+                above: first_line > 0,
+                below: outline.rows.len() > fitting,
+            },
+            history: Scrolled::default(),
+        };
         outline.rows.truncate(fitting);
         if !fits_history(window.viewport_size().width) {
             outline.history = None;
@@ -641,9 +657,12 @@ impl EditorView {
         }
         let has_banner = outline.banner.is_some();
         if let Some(history) = &mut outline.history {
-            history
-                .commits
-                .truncate(fitting_commits(height, has_banner));
+            let fitting = fitting_commits(height, has_banner);
+            scrolled.history = Scrolled {
+                above: history.scrolled,
+                below: history.commits.len() > fitting,
+            };
+            history.commits.truncate(fitting);
         }
         for code in outline.conflict.iter().flat_map(conflict_codes) {
             self.highlight_code(&code);
@@ -652,14 +671,8 @@ impl EditorView {
         let toolbar = std::mem::take(&mut outline.toolbar);
         let toolbar = (!toolbar.is_empty()).then(|| render_toolbar(toolbar, cx).into_any_element());
         let faces = |code: &Code| self.faces_of(code);
-        let body = render_outline(
-            outline,
-            self.editor.viewport.first_line,
-            point_line,
-            &faces,
-            cx,
-        )
-        .into_any_element();
+        let body = render_outline(outline, first_line, point_line, scrolled, &faces, cx)
+            .into_any_element();
         Some((body, hints, toolbar))
     }
 
@@ -760,7 +773,8 @@ impl Render for EditorView {
             / px(ROW_PITCH))
         .floor()
         .max(1.0) as usize;
-        let table = self.editor.table(first_line..first_line + table_rows);
+        // One row more than fits tells whether there are rows below.
+        let table = self.editor.table(first_line..first_line + table_rows + 1);
         let outline = match table {
             Some(_) => None,
             None => {
@@ -777,6 +791,12 @@ impl Render for EditorView {
             }
             (Some(mut table), _) => {
                 self.editor.viewport.set_height(table_rows);
+                self.editor.viewport.margins = (1, 1);
+                let scrolled = Scrolled {
+                    above: first_line > 0,
+                    below: table.rows.len() > table_rows,
+                };
+                table.rows.truncate(table_rows);
                 let buffer = self.editor.window_buffer();
                 let cursor = TableCursor {
                     line: buffer.point_line(),
@@ -792,7 +812,8 @@ impl Render for EditorView {
                     (Some(changes), _) => Some(render_changes(changes, cx)),
                     (None, preview) => preview.map(|preview| self.render_preview(preview)),
                 };
-                let body = render_table(table, first_line, cursor, side, cx).into_any_element();
+                let body =
+                    render_table(table, first_line, scrolled, cursor, side, cx).into_any_element();
                 (body, Some(hints), Vec::new())
             }
             (None, None) => {
@@ -834,15 +855,6 @@ impl Render for EditorView {
             .text_color(rgb(color::FG_MAIN))
             .line_height(px(font::CODE_LINE_HEIGHT))
             .child(body)
-            .child(
-                div()
-                    .absolute()
-                    .bottom_0()
-                    .left_0()
-                    .right_0()
-                    .h(px(FOOTER_FADE_HEIGHT))
-                    .child(fade_to_glass(0.0, 0.0)),
-            )
             .children(hints)
             .children(status_below_scrim)
             .when(minibuffer.is_some(), |root| root.child(render_scrim(modal)))
@@ -890,22 +902,4 @@ fn render_line_change(
             .bg(rgba(color))
             .into_any_element(),
     )
-}
-
-/// Dissolves what is under it into the window's glass along `angle`, entirely until
-/// `solid_until` (0..1), then less and less.
-fn fade_to_glass(angle: f32, solid_until: f32) -> impl IntoElement {
-    let amount = linear_gradient(
-        angle,
-        linear_color_stop(hsla(0x000000), solid_until),
-        linear_color_stop(rgba(0x00000000), 1.0),
-    );
-    canvas(
-        |_, _, _| {},
-        move |bounds, _, window, _| {
-            window.paint_fade(bounds, amount, rgba(glass::WINDOW_TINT).into())
-        },
-    )
-    .absolute()
-    .size_full()
 }

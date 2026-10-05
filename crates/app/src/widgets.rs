@@ -1,6 +1,6 @@
 use gpui::{
-    BoxShadow, Div, HighlightStyle, Hsla, IntoElement, ParentElement, Styled, Svg, div, point,
-    prelude::FluentBuilder, px, rgb, rgba, svg,
+    BoxShadow, Div, HighlightStyle, Hsla, IntoElement, ParentElement, Rgba, Styled, Svg, canvas,
+    div, linear_color_stop, linear_gradient, point, prelude::FluentBuilder, px, rgb, rgba, svg,
 };
 use remacs_core::{FileState, Icon, LineCounts, ListItem, Mark, Tone};
 use remacs_theme::{color, font, glass};
@@ -12,6 +12,78 @@ use crate::assets::{
 
 pub fn hsla(hex: u32) -> Hsla {
     rgb(hex).into()
+}
+
+const SCROLL_FADE_HEIGHT: f32 = 32.0;
+
+/// Whether there is more of a list than is shown, before and after it.
+#[derive(Clone, Copy, Default)]
+pub struct Scrolled {
+    pub above: bool,
+    pub below: bool,
+}
+
+#[derive(Clone, Copy)]
+pub enum Edge {
+    Top,
+    Bottom,
+}
+
+/// `list`, its content dissolving into `under`, what it is drawn on, at the edges with more
+/// beyond them.
+pub fn fade_scrolled(list: Div, scrolled: Scrolled, under: Hsla) -> Div {
+    list.relative()
+        .when(scrolled.above, |list| {
+            list.child(edge_fade(Edge::Top, SCROLL_FADE_HEIGHT, under))
+        })
+        .when(scrolled.below, |list| {
+            list.child(edge_fade(Edge::Bottom, SCROLL_FADE_HEIGHT, under))
+        })
+}
+
+/// Mixes what its parent drew within `height` of `edge` toward `under`: wholly at the edge,
+/// less and less away from it. Unlike a gradient over the content, it lets the glass show.
+pub fn edge_fade(edge: Edge, height: f32, under: Hsla) -> impl IntoElement {
+    let angle = match edge {
+        Edge::Top => 180.0,
+        Edge::Bottom => 0.0,
+    };
+    let amount = linear_gradient(
+        angle,
+        linear_color_stop(hsla(0x000000), 0.0),
+        linear_color_stop(rgba(0x00000000), 1.0),
+    );
+    let fade = canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| window.paint_fade(bounds, amount, under),
+    )
+    .absolute()
+    .left_0()
+    .right_0()
+    .h(px(height));
+    match edge {
+        Edge::Top => fade.top_0(),
+        Edge::Bottom => fade.bottom_0(),
+    }
+}
+
+/// `top` drawn over `bottom`, as one color.
+pub fn over(top: u32, bottom: u32) -> Hsla {
+    let (top, bottom) = (rgba(top), rgba(bottom));
+    let alpha = top.a + bottom.a * (1.0 - top.a);
+    if alpha == 0.0 {
+        return top.into();
+    }
+    let mix = |top_channel: f32, bottom_channel: f32| {
+        (top_channel * top.a + bottom_channel * bottom.a * (1.0 - top.a)) / alpha
+    };
+    Rgba {
+        r: mix(top.r, bottom.r),
+        g: mix(top.g, bottom.g),
+        b: mix(top.b, bottom.b),
+        a: alpha,
+    }
+    .into()
 }
 
 /// File icons take the text color they stand next to; severity icons keep their own.
