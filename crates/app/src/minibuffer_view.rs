@@ -17,8 +17,8 @@ use crate::display_line::DisplayLine;
 use crate::editor_view::EditorView;
 use crate::outline_view::ref_chip;
 use crate::widgets::{
-    choice_chip, cursor_style, glass_surface, hsla, icon, kbd, list_items, modified_dot,
-    option_chip, segment, segmented, shadow, tone_color,
+    choice_chip, cursor_style, glass_surface, hsla, icon, kbd, list_items, modal_surface,
+    modified_dot, option_chip, segment, segmented, shadow, tone_color,
 };
 
 const POPOVER_TOP: f32 = 60.0;
@@ -48,9 +48,16 @@ const MAX_LISTED_ITEMS: usize = 5;
 const DESCRIPTION_LINES: usize = 4;
 const DESCRIPTION_LINE_HEIGHT: f32 = 22.0;
 
-/// Dims the editor behind an open prompt.
-pub fn render_scrim() -> impl IntoElement {
-    div().absolute().inset_0().bg(rgba(glass::SCRIM))
+/// Dims the editor behind an open prompt; a modal one also blurs it a little.
+pub fn render_scrim(modal: bool) -> impl IntoElement {
+    let scrim = div().absolute().inset_0();
+    if modal {
+        scrim
+            .bg(rgba(glass::MODAL_SCRIM))
+            .backdrop_filter(px(glass::MODAL_SCRIM_BLUR), 1.0)
+    } else {
+        scrim.bg(rgba(glass::SCRIM))
+    }
 }
 
 /// The problem list: rows of messages with their positions, anchored to the status pill.
@@ -60,7 +67,16 @@ pub fn is_problem_list(minibuffer: &Minibuffer) -> bool {
 
 /// A floating panel, like the prompt's.
 pub fn popover(width: f32) -> Div {
-    glass_surface(glass::SURFACE_RADIUS)
+    panel_on(glass_surface(glass::SURFACE_RADIUS), width)
+}
+
+/// A panel for a question that must be answered.
+pub fn modal(width: f32) -> Div {
+    panel_on(modal_surface(), width)
+}
+
+fn panel_on(surface: Div, width: f32) -> Div {
+    surface
         .w(px(width))
         .p(px(8.0))
         .font_family(font::UI)

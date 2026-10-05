@@ -631,7 +631,7 @@ impl EditorView {
             .h(px(24.0))
             .px(px(8.0))
             .rounded(px(6.0))
-            .when(segment.active, |button| button.bg(rgb(color::BG_SELECTION)))
+            .when(segment.active, |button| button.bg(rgba(glass::SELECTION)))
             .font_family(if segment.code { font::MONO } else { font::UI })
             .text_color(rgb(text_color))
             .when_some(segment.command, |button, command| {
@@ -769,6 +769,10 @@ impl Render for EditorView {
             } else {
                 (Some(status), None)
             };
+        let modal = self
+            .editor
+            .minibuffer()
+            .is_some_and(|minibuffer| minibuffer.dialog().is_some());
 
         div()
             .track_focus(&self.focus_handle)
@@ -794,7 +798,7 @@ impl Render for EditorView {
             )
             .children(hints)
             .children(status_below_scrim)
-            .when(minibuffer.is_some(), |root| root.child(render_scrim()))
+            .when(minibuffer.is_some(), |root| root.child(render_scrim(modal)))
             .child(self.render_header().children(toolbar))
             .children(popups)
             .children(status_above_scrim)

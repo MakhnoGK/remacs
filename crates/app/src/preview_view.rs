@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use gpui::{Div, HighlightStyle, ParentElement, StyledText, div, prelude::*, px, rgb, rgba};
 use remacs_core::{Code, FileStatus, Preview, PreviewBody, PreviewItem, RowFace};
-use remacs_theme::{color, font};
+use remacs_theme::{color, font, glass};
 
 use crate::highlights::Highlights;
 use crate::widgets::{hsla, icon, state_color, state_letter};
@@ -65,9 +65,9 @@ pub fn pane() -> Div {
         .w(px(PREVIEW_WIDTH))
         .p(px(PADDING))
         .gap(px(PADDING))
-        .bg(rgb(color::BG_PANE))
+        .bg(rgba(glass::PANE))
         .border_1()
-        .border_color(rgba(0xffffff12))
+        .border_color(rgba(glass::PANE_BORDER))
         .rounded(px(12.0))
         .overflow_hidden()
 }
@@ -82,7 +82,7 @@ fn render_body(body: PreviewBody, code_faces: &dyn Fn(&Code) -> Highlights) -> D
         .overflow_hidden()
         .py(px(PADDING))
         .rounded(px(8.0))
-        .bg(rgb(color::BG_MAIN))
+        .bg(rgba(glass::WELL))
         .border_1()
         .border_color(rgba(0xffffff0f))
         .whitespace_nowrap()

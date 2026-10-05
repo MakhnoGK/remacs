@@ -7,7 +7,7 @@ use remacs_core::{
     Banner, BannerButton, BannerPart, Code, CommitRow, DiffRow, Fact, FactValue, GraphNode,
     GraphRow, History, Outline, OutlineRow, RefChip, RefKind, Tone, ToolbarButton,
 };
-use remacs_theme::{color, font};
+use remacs_theme::{color, font, glass};
 
 use crate::assets::{BRANCH_ICON, CHEVRON_DOWN_ICON, CHEVRON_ICON};
 use crate::conflict_view::render_conflict;
@@ -236,9 +236,9 @@ pub fn render_outline(
         .p(px(PANE_PADDING))
         .gap(px(ROW_GAP))
         .overflow_hidden()
-        .bg(rgb(color::BG_PANE))
+        .bg(rgba(glass::PANE))
         .border_1()
-        .border_color(rgba(0xffffff12))
+        .border_color(rgba(glass::PANE_BORDER))
         .rounded(px(12.0))
         .font_family(font::UI)
         .text_size(px(font::UI_SIZE))
@@ -355,18 +355,10 @@ fn render_banner_button(button: BannerButton, cx: &mut Context<EditorView>) -> D
         action,
     } = button;
     let (background, border, text) = match tone {
-        _ if !enabled => (0x1a1a1aff, 0xffffff14, color::FG_MUTED),
-        Tone::Danger => (
-            color::BG_BUTTON << 8 | 0xff,
-            color::ERROR << 8 | 0x4d,
-            color::FG_FLAGGED,
-        ),
-        Tone::Accent => (
-            color::BG_SELECTION << 8 | 0xff,
-            color::ACCENT << 8 | 0x73,
-            color::FG_MAIN,
-        ),
-        _ => (color::BG_BUTTON << 8 | 0xff, 0xffffff14, color::FG_MAIN),
+        _ if !enabled => (glass::DISABLED, 0xffffff14, color::FG_MUTED),
+        Tone::Danger => (glass::CONTROL, color::ERROR << 8 | 0x4d, color::FG_FLAGGED),
+        Tone::Accent => (glass::SELECTION, color::ACCENT << 8 | 0x73, color::FG_MAIN),
+        _ => (glass::CONTROL, glass::CONTROL_BORDER, color::FG_MAIN),
     };
     let element = div()
         .flex()
@@ -415,9 +407,9 @@ pub fn render_toolbar(buttons: Vec<ToolbarButton>, cx: &mut Context<EditorView>)
                 .h(px(26.0))
                 .px(px(10.0))
                 .rounded(px(7.0))
-                .bg(rgb(0x1a1a1a))
+                .bg(rgba(glass::CONTROL))
                 .border_1()
-                .border_color(rgba(0xffffff14))
+                .border_color(rgba(glass::CONTROL_BORDER))
                 .shadow(vec![shadow(0x00000099, 1.0, 2.0, 0.0)])
                 .font_family(font::UI)
                 .text_size(px(font::STATUS_SIZE))
@@ -428,7 +420,7 @@ pub fn render_toolbar(buttons: Vec<ToolbarButton>, cx: &mut Context<EditorView>)
                     div()
                         .px(px(5.0))
                         .rounded(px(4.0))
-                        .bg(rgb(color::BG_SELECTION))
+                        .bg(rgba(glass::SELECTION))
                         .font_family(font::MONO)
                         .text_size(px(font::SMALL_SIZE))
                         .line_height(px(16.0))
@@ -752,8 +744,8 @@ fn render_facts(facts: Vec<Fact>, cx: &mut Context<EditorView>) -> Div {
                             .px(px(10.0))
                             .rounded(px(6.0))
                             .border_1()
-                            .border_color(rgba(0xffffff14))
-                            .bg(rgb(color::BG_BUTTON))
+                            .border_color(rgba(glass::CONTROL_BORDER))
+                            .bg(rgba(glass::CONTROL))
                             .text_size(px(font::STATUS_SIZE))
                             .shadow(vec![shadow(0x00000080, 1.0, 2.0, 0.0)])
                             .child(button.label),
@@ -771,7 +763,7 @@ pub fn ref_chip(chip: RefChip) -> Div {
         RefKind::Main => (rgba(0xb6a0ff29), color::FG_REF_MAIN, rgba(0x00000000)),
         RefKind::Branch => (rgba(0x6ae4b924), color::FG_REF_BRANCH, rgba(0x00000000)),
         RefKind::Remote => (rgba(0x00000000), color::FG_REF_REMOTE, rgba(0xffffff29)),
-        RefKind::Tag => (rgb(color::BG_CHIP), color::FG_BODY, rgba(0x00000000)),
+        RefKind::Tag => (rgba(glass::CHIP), color::FG_BODY, rgba(0x00000000)),
     };
     div()
         .flex()
@@ -802,7 +794,7 @@ fn render_heading(title: &str, count: usize, open: bool, tone: Tone, selected: b
         .h(px(HEADING_HEIGHT))
         .px(px(10.0))
         .rounded(px(8.0))
-        .when(selected, |heading| heading.bg(rgb(color::BG_SELECTION)))
+        .when(selected, |heading| heading.bg(rgba(glass::SELECTION)))
         .text_size(px(font::SMALL_SIZE))
         .text_color(rgb(if selected {
             color::FG_ALT
@@ -839,7 +831,7 @@ fn row_frame(selected: bool) -> Div {
         .rounded(px(8.0))
         .whitespace_nowrap()
         .when(selected, |row| {
-            row.bg(rgb(color::BG_SELECTION))
+            row.bg(rgba(glass::SELECTION))
                 .shadow(vec![shadow(0x00000073, 1.0, 3.0, 0.0)])
         })
 }
@@ -866,7 +858,7 @@ fn diff_frame(lines: Vec<AnyElement>) -> Div {
         .py(px(4.0))
         .rounded(px(8.0))
         .overflow_hidden()
-        .bg(rgb(color::BG_MAIN))
+        .bg(rgba(glass::WELL))
         .border_1()
         .border_color(rgba(0xffffff0f))
         .font_family(font::MONO)
@@ -885,8 +877,8 @@ fn render_diff_line(
     let (prefix, text, foreground, background) = match diff {
         DiffRow::Hunk(text) => ("", text, color::DOCSTRING, Some(rgba(0xffffff0a))),
         DiffRow::Context(text) => ("", text, color::FG_KBD, None),
-        DiffRow::Added(text) => ("+", text, color::FG_ADDED, Some(rgb(color::BG_ADDED))),
-        DiffRow::Removed(text) => ("-", text, color::FG_REMOVED, Some(rgb(color::BG_REMOVED))),
+        DiffRow::Added(text) => ("+", text, color::FG_ADDED, Some(rgba(glass::ADDED))),
+        DiffRow::Removed(text) => ("-", text, color::FG_REMOVED, Some(rgba(glass::REMOVED))),
     };
     let row = div()
         .flex()
@@ -896,7 +888,7 @@ fn render_diff_line(
         .overflow_hidden()
         .text_color(rgb(foreground))
         .when_some(background, |row, background| row.bg(background))
-        .when(selected, |row| row.bg(rgb(color::BG_SELECTION)))
+        .when(selected, |row| row.bg(rgba(glass::SELECTION)))
         .child(div().flex_none().w(px(16.0)).text_center().child(prefix))
         .child(text);
     clicks(row, line, activate, cx).into_any_element()

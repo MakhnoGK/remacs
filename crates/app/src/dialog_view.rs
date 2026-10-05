@@ -3,11 +3,11 @@ use gpui::{
     rgba, svg,
 };
 use remacs_core::{Dialog, DialogOption};
-use remacs_theme::{color, font};
+use remacs_theme::{color, font, glass};
 
 use crate::assets::TRASH_ICON;
 use crate::editor_view::EditorView;
-use crate::minibuffer_view::popover;
+use crate::minibuffer_view::modal;
 use crate::widgets::{kbd, list_items, option_chip, shadow};
 
 const DIALOG_WIDTH: f32 = 520.0;
@@ -73,7 +73,7 @@ pub fn render_dialog(dialog: Dialog, cx: &mut Context<EditorView>) -> Div {
         .border_color(rgba(0xffffff0f))
         .child(render_button(no_label.into(), "n", false, cx))
         .child(render_button(yes_label, "y", destructive, cx));
-    popover(DIALOG_WIDTH)
+    modal(DIALOG_WIDTH)
         .child(header)
         .child(items)
         .children(option.map(|option| render_option(option, cx)))
@@ -135,7 +135,7 @@ fn render_button(
         .rounded(px(8.0))
         .border_1()
         .border_color(rgba(0xffffff14))
-        .bg(rgb(color::BG_KBD))
+        .bg(rgba(glass::CONTROL))
         .shadow(vec![shadow(0x00000080, 1.0, 2.0, 0.0)])
         .text_size(px(font::UI_SIZE))
         .when(destructive, |button| {

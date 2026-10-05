@@ -5,7 +5,7 @@ use gpui::{
     Pixels, StyledText, div, prelude::*, px, rgb, rgba, svg,
 };
 use remacs_core::{Action, Button, CellStyle, Column, Field, Mark, Notice, Row, RowFace, Table};
-use remacs_theme::{color, font};
+use remacs_theme::{color, font, glass};
 
 use crate::assets::CHEVRON_ICON;
 use crate::display_line::DisplayLine;
@@ -236,8 +236,8 @@ fn render_crumb(crumb: Button, cx: &mut Context<EditorView>) -> AnyElement {
         .text_color(rgb(color::FG_DIM))
         .when(crumb.selected, |crumb| {
             crumb
-                .bg(rgb(color::BG_POPUP))
-                .border_color(rgba(0xffffff14))
+                .bg(rgba(glass::CONTROL))
+                .border_color(rgba(glass::CONTROL_BORDER))
                 .text_color(rgb(color::FG_MAIN))
                 .shadow(vec![shadow(0x00000099, 1.0, 2.0, 0.0)])
         })
@@ -367,7 +367,7 @@ fn render_row(
             row.bg(rgba(tint << 8 | 0x14))
         })
         .when(highlighted, |row| {
-            row.bg(rgb(color::BG_SELECTION))
+            row.bg(rgba(glass::SELECTION))
                 .shadow(vec![shadow(0x00000073, 1.0, 3.0, 0.0)])
         })
         .on_mouse_down(
@@ -427,7 +427,7 @@ fn render_field(
         .rounded(px(6.0))
         .border_1()
         .border_color(rgba(0xffffff14))
-        .bg(rgb(color::BG_PANE))
+        .bg(rgba(glass::FIELD))
         .font_family(font::MONO)
         .text_size(px(font::CODE_SIZE))
         .text_color(rgb(text_color))

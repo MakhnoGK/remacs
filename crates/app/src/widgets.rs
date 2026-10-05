@@ -212,7 +212,7 @@ pub fn segment(label: &str, selected: bool) -> Div {
         .text_color(rgb(color::FG_DIM))
         .when(selected, |segment| {
             segment
-                .bg(rgb(color::BG_KBD))
+                .bg(rgba(glass::SEGMENT))
                 .text_color(rgb(color::FG_MAIN))
                 .shadow(vec![shadow(0x00000080, 1.0, 2.0, 0.0)])
         })
@@ -304,6 +304,20 @@ pub fn glass_surface(radius: f32) -> Div {
         ])
 }
 
+/// A modal surface: thicker glass than a floating one, lifted further.
+pub fn modal_surface() -> Div {
+    div()
+        .bg(rgba(glass::MODAL))
+        .backdrop_filter(px(glass::MODAL_BLUR), glass::SURFACE_SATURATION)
+        .border_1()
+        .border_color(rgba(glass::MODAL_BORDER))
+        .rounded(px(glass::SURFACE_RADIUS))
+        .shadow(vec![
+            shadow(0x00000080, 1.0, 2.0, 0.0),
+            shadow(0x00000099, 30.0, 80.0, 0.0),
+        ])
+}
+
 pub fn shadow(color: u32, y: f32, blur: f32, spread: f32) -> BoxShadow {
     BoxShadow {
         color: rgba(color).into(),
@@ -332,9 +346,11 @@ pub fn pill() -> Div {
         .gap(px(2.0))
         .p(px(3.0))
         .rounded(px(9.0))
-        .bg(rgba(0x1e1e1eb8))
+        .bg(rgba(glass::PILL))
+        .backdrop_filter(px(glass::PILL_BLUR), 1.0)
         .border_1()
-        .border_color(rgba(0xffffff12))
+        .border_color(rgba(glass::PILL_BORDER))
+        .shadow(vec![shadow(0x00000059, 4.0, 14.0, 0.0)])
         .text_size(px(font::STATUS_SIZE))
         .text_color(rgb(color::FG_FAINT))
 }

@@ -1,6 +1,6 @@
 # 0035 — Glass: translucent window and surfaces
 
-Status: accepted, 2026-10-05 (issue #3; extended step by step)
+Status: accepted, 2026-10-05 (issue #3)
 
 ## Decision
 
@@ -32,6 +32,12 @@ Status: accepted, 2026-10-05 (issue #3; extended step by step)
   `SURFACE_BORDER`, 14px corners for prompts and 12px for surfaces at point. What sits in
   them is translucent too: fields `FIELD`, buttons and key caps `CONTROL`, the field's label
   `CHIP`, the selected row `SELECTION`. The scrim under a prompt is `SCRIM` (25%).
+- **Panes, modal and pill (boards 25–27)**: panes in a buffer (git status, dired preview)
+  are not blurred but washed white on the window's glass (`PANE`), with code in `WELL`s and
+  diff lines in translucent `ADDED`/`REMOVED`. A question that must be answered is a
+  `widgets::modal_surface`, thicker (`MODAL`, 40px blur) over a `MODAL_SCRIM` that blurs
+  the editor by 3px. The status pill is `PILL` over a 20px blur. The opaque greys these
+  replace are gone from the theme.
 - **The boards give the look, not the structure**: elements and features are remacs's own;
   e.g. find file keeps its single column, without the board's preview.
 
@@ -44,5 +50,5 @@ Status: accepted, 2026-10-05 (issue #3; extended step by step)
 
 ## Open
 
-- Step 4: glass for the side panel, modal and status pill.
+- The conflict view, on no glass board, keeps its opaque near-black panes.
 - The boards' inset top highlight on surfaces: gpui has no inset shadows.

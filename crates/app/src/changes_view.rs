@@ -1,6 +1,6 @@
 use gpui::{Context, Div, FontWeight, ParentElement, div, prelude::*, px, rgb, rgba, svg};
 use remacs_core::{Changes, DiffLine, Elsewhere, FileDiff};
-use remacs_theme::{color, font};
+use remacs_theme::{color, font, glass};
 
 use crate::assets::ARROW_ICON;
 use crate::editor_view::EditorView;
@@ -89,7 +89,7 @@ fn render_edit(before: String, after: String) -> Div {
         .h(px(EDIT_HEIGHT))
         .px(px(10.0))
         .rounded(px(8.0))
-        .bg(rgb(color::BG_CARD))
+        .bg(rgba(glass::PANE))
         .font_family(font::MONO)
         .text_size(px(font::STATUS_SIZE))
         .text_color(rgb(color::FG_MAIN))
@@ -138,7 +138,7 @@ fn render_elsewhere(elsewhere: Elsewhere) -> Vec<Div> {
         .flex_col()
         .py(px(6.0))
         .rounded(px(8.0))
-        .bg(rgb(color::BG_MAIN))
+        .bg(rgba(glass::WELL))
         .border_1()
         .border_color(rgba(0xffffff0f))
         .overflow_hidden()
@@ -157,10 +157,10 @@ fn render_file_diff(file: FileDiff) -> Vec<Div> {
         .bg(rgba(0xffffff0a));
     let lines = file.lines.into_iter().map(|line| match line {
         DiffLine::Removed(text) => diff_line("-", text)
-            .bg(rgb(color::BG_REMOVED))
+            .bg(rgba(glass::REMOVED))
             .text_color(rgb(color::FG_REMOVED)),
         DiffLine::Added(text) => diff_line("+", text)
-            .bg(rgb(color::BG_ADDED))
+            .bg(rgba(glass::ADDED))
             .text_color(rgb(color::FG_ADDED)),
     });
     std::iter::once(header).chain(lines).collect()

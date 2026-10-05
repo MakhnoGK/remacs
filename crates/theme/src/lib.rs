@@ -3,11 +3,7 @@
 pub mod color {
     pub const BG_MAIN: u32 = 0x000000;
     pub const BG_POPUP: u32 = 0x1e1e1e;
-    pub const BG_FIELD: u32 = 0x121212;
-    pub const BG_PANE: u32 = 0x0e0e0e;
-    pub const BG_CHIP: u32 = 0x303030;
     pub const BG_BUTTON: u32 = 0x262626;
-    pub const BG_KBD: u32 = 0x2b2b2b;
     pub const BG_KBD_SELECTED: u32 = 0x3a5296;
     pub const BG_HL_LINE: u32 = 0x1d2433;
     pub const BG_SELECTION: u32 = 0x2f447f;
@@ -39,11 +35,7 @@ pub mod color {
     pub const FG_ON_WARNING: u32 = 0xffe08a;
     pub const INFO: u32 = 0x00d3d0;
 
-    /// A row in a pane, e.g. a pending rename.
-    pub const BG_CARD: u32 = 0x161616;
-    pub const BG_ADDED: u32 = 0x00381f;
     pub const FG_ADDED: u32 = 0xa0e0a0;
-    pub const BG_REMOVED: u32 = 0x4f1119;
     pub const FG_REMOVED: u32 = 0xffbfbf;
 
     /// Version control: new files and added lines.
@@ -100,6 +92,27 @@ pub mod glass {
     /// Dims the editor under a prompt.
     pub const SCRIM: u32 = 0x00000040;
 
+    /// Questions that must be answered, e.g. confirming a deletion: thicker glass, over a
+    /// darker scrim that also blurs the editor a little.
+    pub const MODAL: u32 = 0x1e1e20cc;
+    pub const MODAL_BORDER: u32 = 0xffffff24;
+    pub const MODAL_BLUR: f32 = 40.0;
+    pub const MODAL_SCRIM: u32 = 0x00000059;
+    pub const MODAL_SCRIM_BLUR: f32 = 3.0;
+
+    /// The status pill, floating over the bottom of the window.
+    pub const PILL: u32 = 0x1e1e1e8c;
+    pub const PILL_BORDER: u32 = 0xffffff1a;
+    pub const PILL_BLUR: f32 = 20.0;
+
+    /// Panes in a buffer, e.g. the git status sections; not blurred, on the window's glass.
+    pub const PANE: u32 = 0xffffff0a;
+    pub const PANE_BORDER: u32 = 0xffffff17;
+    /// Code shown in a pane or surface.
+    pub const WELL: u32 = 0x00000066;
+    pub const ADDED: u32 = 0x00381fd9;
+    pub const REMOVED: u32 = 0x4f1119d9;
+
     /// Sunk into a surface: fields, code.
     pub const FIELD: u32 = 0x00000059;
     /// Raised from a surface: buttons and key caps.
@@ -109,6 +122,10 @@ pub mod glass {
     pub const CHIP: u32 = 0xffffff1a;
     /// The selected row of a surface.
     pub const SELECTION: u32 = 0x2f447fe6;
+    /// The selected segment of a segmented control.
+    pub const SEGMENT: u32 = 0xffffff1f;
+    /// A control that cannot be used now.
+    pub const DISABLED: u32 = 0xffffff0a;
 }
 
 pub mod font {
