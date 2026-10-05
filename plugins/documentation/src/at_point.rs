@@ -198,11 +198,10 @@ pub(crate) fn popup(editor: &Editor) -> Option<Popup> {
     }
     Some(Popup {
         anchor: shown.anchor(),
-        rows: Vec::new(),
-        selected: None,
         documentation: Some(documentation),
         documentation_pages: shown.pages,
         hints: if full { FULL_HINTS } else { HINTS },
+        ..Popup::default()
     })
 }
 

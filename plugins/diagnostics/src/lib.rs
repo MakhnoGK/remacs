@@ -1,6 +1,7 @@
 //! Built-in plugin: problems that checkers such as language servers report for a buffer,
-//! underlined, counted in the status pill and listed, like Emacs flymake.
+//! underlined, counted in the status pill, listed and shown at point, like Emacs flymake.
 
+mod bubble;
 mod buffer_diagnostics;
 mod problems;
 
@@ -40,6 +41,8 @@ impl Plugin for DiagnosticsPlugin {
         registry
             .post_command_hooks
             .push(Rc::new(buffer_diagnostics::rebase));
+        registry.post_command_hooks.push(Rc::new(bubble::update));
+        registry.popup_providers.push(Rc::new(bubble::popup));
         registry
             .decorators
             .push(Rc::new(buffer_diagnostics::underline));

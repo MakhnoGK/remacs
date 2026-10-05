@@ -5,7 +5,7 @@ Status: accepted, 2026-10-04 (M4, step 5)
 ## Decision
 
 - **Error navigation while editing**: `M-g n`/`M-g p` (`next-error`/`previous-error`) move
-  point to the next or previous error or warning, wrapping around, and echo its message;
+  point to the next or previous error or warning, wrapping around, and show it at point (ADR 0036);
   infos are skipped. `M-n`/`M-p` (all problems) and the Problems list stay as they are.
 - **A plugin like the others, fed by `lsp`.** `actions` owns `C-c C-a` (region, else
   point) and its popup, and applies the edits; it knows nothing of LSP. Registered before

@@ -1,11 +1,12 @@
 use std::rc::Rc;
 
-use crate::completion::Candidate;
+use crate::completion::{Candidate, Icon};
 use crate::decoration::Span;
 use crate::editor::Editor;
 
 /// A list shown at a place in the window buffer, like Emacs corfu's popup; without rows,
-/// the documentation alone, like an LSP hover.
+/// the documentation alone, like an LSP hover, or notes about the text, like problems.
+#[derive(Default)]
 pub struct Popup {
     /// Buffer offset the rows' labels or the documentation line up with, e.g. where the
     /// completed word starts.
@@ -20,6 +21,18 @@ pub struct Popup {
     pub documentation_pages: i32,
     /// Keys and what they do, under the documentation.
     pub hints: &'static [(&'static str, &'static str)],
+    /// About the text at the anchor, shown without rows or documentation.
+    pub notes: Vec<Note>,
+}
+
+/// A remark about text in the buffer, like a problem a checker reported there.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Note {
+    pub icon: Icon,
+    /// `quoted` parts are code.
+    pub message: String,
+    /// Who made it, e.g. `rustc · E0599`.
+    pub source: String,
 }
 
 /// Documentation of a symbol, e.g. a completion candidate's.

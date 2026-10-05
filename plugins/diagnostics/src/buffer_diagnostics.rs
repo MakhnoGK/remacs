@@ -89,6 +89,22 @@ impl BufferDiagnostics {
         (self.list, self.reporters) = merged.into_iter().unzip();
     }
 
+    /// Those whose marked text holds `offset`, as they are underlined.
+    pub fn at<'a>(
+        &'a self,
+        text: &'a Snapshot,
+        offset: usize,
+    ) -> impl Iterator<Item = (Range<usize>, &'a Diagnostic)> {
+        // An empty range at a line's end marks the character before it.
+        let candidates = self
+            .list
+            .partition_point(|diagnostic| diagnostic.range.start <= offset + 1);
+        self.list[..candidates]
+            .iter()
+            .map(|diagnostic| (marked_range(text, &diagnostic.range), diagnostic))
+            .filter(move |(range, _)| range.contains(&offset))
+    }
+
     pub fn count(&self, severity: Severity) -> usize {
         self.list
             .iter()

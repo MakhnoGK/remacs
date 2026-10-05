@@ -353,6 +353,7 @@ pub(crate) fn popup(editor: &Editor) -> Option<Popup> {
         documentation,
         documentation_pages: session.documentation_pages,
         hints: HINTS,
+        notes: Vec::new(),
     })
 }
 

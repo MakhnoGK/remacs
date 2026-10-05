@@ -1,4 +1,8 @@
+use std::thread;
+use std::time::Duration;
+
 use remacs_core::{Buffer, Editor, Face, Icon, StatusItem, parse_sequence};
+use remacs_editing::EditingPlugin;
 use remacs_minibuffer::MinibufferPlugin;
 use remacs_text::Text;
 
@@ -18,7 +22,7 @@ fn diagnostic(source: &str, text: &str, severity: Severity) -> Diagnostic {
 }
 
 fn checked_editor() -> Editor {
-    let mut editor = Editor::new(&[&MinibufferPlugin, &DiagnosticsPlugin]);
+    let mut editor = Editor::new(&[&EditingPlugin, &MinibufferPlugin, &DiagnosticsPlugin]);
     editor.add_buffer(Buffer::new("main.rs", Text::from(SOURCE), "Rust"));
     let buffer = editor.window_buffer_mut();
     let text = buffer.text().snapshot();
@@ -55,6 +59,62 @@ fn point_text(editor: &Editor, len: usize) -> String {
     editor.window_buffer().contents(point..point + len)
 }
 
+/// The messages in the bubble at point.
+fn shown(editor: &Editor) -> Vec<String> {
+    editor
+        .popups()
+        .into_iter()
+        .flat_map(|popup| popup.notes)
+        .map(|note| note.message)
+        .collect()
+}
+
+fn rest(editor: &mut Editor) {
+    thread::sleep(Duration::from_millis(600));
+    editor.refresh();
+}
+
+#[test]
+fn problems_show_once_point_rests_on_them_but_not_after_typing() {
+    let mut editor = checked_editor();
+    let advance = SOURCE.find("advance").unwrap();
+    editor.window_buffer_mut().set_point(advance - 1);
+    press(&mut editor, "C-f");
+    assert!(shown(&editor).is_empty());
+    assert!(editor.take_refresh_at().is_some());
+    rest(&mut editor);
+    assert_eq!(shown(&editor), ["problem with `advance`\nmore detail"]);
+    assert_eq!(editor.popups()[0].anchor, advance);
+
+    press(&mut editor, "C-f");
+    assert_eq!(shown(&editor), [] as [String; 0]);
+    press(&mut editor, "x");
+    rest(&mut editor);
+    assert!(shown(&editor).is_empty());
+
+    press(&mut editor, "C-e");
+    rest(&mut editor);
+    assert!(shown(&editor).is_empty());
+}
+
+#[test]
+fn problems_at_point_show_most_severe_first() {
+    let mut editor = checked_editor();
+    let buffer = editor.window_buffer_mut();
+    let text = buffer.text().snapshot();
+    let mut hint = diagnostic(SOURCE, "advance", Severity::Info);
+    hint.message = "did you mean `forward`".into();
+    publish(buffer, "oxlint", text, vec![hint]);
+    press(&mut editor, "M-g n");
+    assert_eq!(
+        shown(&editor),
+        [
+            "problem with `advance`\nmore detail",
+            "did you mean `forward`"
+        ]
+    );
+}
+
 #[test]
 fn underlines_follow_edits_until_the_next_report() {
     let mut editor = checked_editor();
@@ -77,7 +137,8 @@ fn next_and_previous_problem_wrap_around() {
     let mut editor = checked_editor();
     press(&mut editor, "M-n");
     assert_eq!(point_text(&editor, 7), "advance");
-    assert_eq!(editor.echo().as_deref(), Some("problem with `advance`"));
+    assert_eq!(shown(&editor), ["problem with `advance`\nmore detail"]);
+    assert_eq!(editor.echo(), None);
     press(&mut editor, "M-n M-n");
     assert_eq!(point_text(&editor, 7), "advance");
     press(&mut editor, "M-p");
@@ -108,7 +169,7 @@ fn next_and_previous_error_skip_infos() {
     assert_eq!(point_text(&editor, 7), "advance");
     press(&mut editor, "M-g p");
     assert_eq!(point_text(&editor, 6), "unused");
-    assert_eq!(editor.echo().as_deref(), Some("problem with `unused`"));
+    assert_eq!(shown(&editor), ["problem with `unused`\nmore detail"]);
     press(&mut editor, "M-p");
     assert_eq!(point_text(&editor, 3), "let");
 
@@ -146,6 +207,7 @@ fn the_list_starts_at_the_next_problem_and_goes_to_the_chosen_one() {
     press(&mut editor, "M-p RET");
     assert!(editor.minibuffer().is_none());
     assert_eq!(point_text(&editor, 7), "advance");
+    assert_eq!(shown(&editor).len(), 1);
 
     press(&mut editor, "C-c ! l");
     assert!(editor.status_segments()[0].active);

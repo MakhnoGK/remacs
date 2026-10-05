@@ -42,7 +42,7 @@ pub use outline::{
     Outline, OutlineProvider, OutlineRow, RefChip, RefKind, Scroll, ToolbarButton,
 };
 pub use plugin::{Hook, MinorKeymap, Plugin, Registry};
-pub use popup::{Code, CodeHighlighter, DocBlock, Documentation, Popup, PopupProvider};
+pub use popup::{Code, CodeHighlighter, DocBlock, Documentation, Note, Popup, PopupProvider};
 pub use status::{StatusItem, StatusProvider, StatusSegment, Tone};
 pub use syntax::{SyntaxContext, SyntaxProbe};
 pub use table::{

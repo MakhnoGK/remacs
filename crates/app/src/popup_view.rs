@@ -2,12 +2,12 @@ use gpui::{
     AnyElement, Div, HighlightStyle, IntoElement, ParentElement, Pixels, Point, ScrollHandle,
     Stateful, StyledText, div, prelude::*, px, rgb, rgba,
 };
-use remacs_core::{Candidate, Code, DocBlock, Documentation, Popup, SymbolKind};
+use remacs_core::{Candidate, Code, DocBlock, Documentation, Note, Popup, SymbolKind};
 use remacs_theme::{color, font, glass};
 
 use crate::highlights::Highlights;
 use crate::minibuffer_view::{matches_in, secondary_color};
-use crate::widgets::{glass_surface, hsla, kbd, shadow};
+use crate::widgets::{glass_surface, hsla, icon, kbd, shadow};
 
 const LIST_WIDTH: f32 = 440.0;
 const DOCUMENTATION_WIDTH: f32 = 360.0;
@@ -34,13 +34,23 @@ const HOVER_INSET: f32 = 1.0 + HOVER_PADDING;
 /// Room below the line that is enough for documentation, which is otherwise put where
 /// there is more room.
 const HOVER_ENOUGH_ROOM: f32 = 320.0;
+const NOTES_WIDTH: f32 = 520.0;
+const NOTES_PADDING: f32 = 4.0;
+const NOTE_PADDING_X: f32 = 10.0;
+const NOTE_ICON_SIZE: f32 = 10.0;
+const NOTE_ICON_GAP: f32 = 10.0;
+/// From the notes' edge to their messages, which line up with the anchor.
+const NOTES_INSET: f32 = 1.0 + NOTES_PADDING + NOTE_PADDING_X + NOTE_ICON_SIZE + NOTE_ICON_GAP;
+const NOTES_ENOUGH_ROOM: f32 = 160.0;
+const NOTE_LINE_HEIGHT: f32 = 20.0;
 
 /// Where a popup goes: `anchor_left` is where the anchor is drawn, `top`/`bottom` the
-/// line's.
+/// line's; nothing goes above `area_top`, e.g. the title bar.
 pub struct Placement {
     pub anchor_left: Pixels,
     pub line_top: Pixels,
     pub line_bottom: Pixels,
+    pub area_top: Pixels,
     pub window_width: Pixels,
     pub window_height: Pixels,
 }
@@ -58,7 +68,7 @@ impl Placement {
     }
 
     fn room_above(&self) -> Pixels {
-        self.line_top - px(POPUP_GAP + WINDOW_MARGIN)
+        self.line_top - self.area_top - px(POPUP_GAP + WINDOW_MARGIN)
     }
 
     /// Positioned below the line, or above it.
@@ -132,14 +142,119 @@ impl DocumentationScroll {
     }
 }
 
-/// A list with the selected row's documentation beside it, or documentation alone.
+/// A list with the selected row's documentation beside it, documentation alone, or notes.
 pub fn render_popup(popup: &Popup, placement: Placement, view: &DocumentationView) -> AnyElement {
     match &popup.documentation {
         Some(documentation) if popup.rows.is_empty() => {
             render_hover(documentation, popup.hints, &placement, view)
         }
+        None if popup.rows.is_empty() => render_notes(&popup.notes, &placement),
         _ => render_list_popup(popup, &placement, view),
     }
+}
+
+/// Above the line, their messages in line with the anchor, or below when there is more
+/// room; leaves the text after the anchor in view.
+fn render_notes(notes: &[Note], placement: &Placement) -> AnyElement {
+    let (below, above) = (placement.room_below(), placement.room_above());
+    let fits_above = above >= px(NOTES_ENOUGH_ROOM) || above >= below;
+    let panel = panel()
+        .bg(rgba(glass::NOTE))
+        .border_color(rgba(glass::NOTE_BORDER))
+        .max_w(px(NOTES_WIDTH))
+        .max_h(if fits_above { above } else { below })
+        .overflow_hidden()
+        .p(px(NOTES_PADDING))
+        .children(notes.iter().enumerate().map(|(index, note)| {
+            div()
+                .flex()
+                .flex_none()
+                .gap(px(NOTE_ICON_GAP))
+                .px(px(NOTE_PADDING_X))
+                .py(px(8.0))
+                .when(index > 0, |note| {
+                    note.border_t_1().border_color(rgba(glass::NOTE_SEPARATOR))
+                })
+                .child(
+                    div()
+                        .flex()
+                        .flex_none()
+                        .pt(px(4.0))
+                        .child(icon(note.icon, color::FG_MAIN)),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .min_w_0()
+                        .gap(px(2.0))
+                        .children(note.message.lines().map(render_note_line))
+                        .when(!note.source.is_empty(), |text| {
+                            text.child(
+                                div()
+                                    .text_size(px(font::SMALL_SIZE))
+                                    .text_color(rgb(color::FG_NOTE_SOURCE))
+                                    .child(note.source.clone()),
+                            )
+                        }),
+                )
+        }));
+    let container = div()
+        .absolute()
+        .left(placement.left(NOTES_INSET, NOTES_WIDTH))
+        .flex()
+        .flex_col()
+        .font_family(font::UI)
+        .text_color(rgb(color::FG_MAIN))
+        .child(panel);
+    placement.place(container, !fits_above).into_any_element()
+}
+
+/// Wraps between words, and inside a word or code wider than the line; quoted code is a
+/// chip in the code font, which text highlights cannot give.
+fn render_note_line(line: &str) -> Div {
+    div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .text_size(px(font::UI_SIZE))
+        .line_height(px(NOTE_LINE_HEIGHT))
+        .children(line_pieces(line).into_iter().map(|piece| {
+            match piece {
+                Piece::Word(word) => div().max_w_full().child(word.to_owned()),
+                Piece::Code(code) => div()
+                    .max_w_full()
+                    .px(px(5.0))
+                    .rounded(px(4.0))
+                    .bg(rgba(glass::NOTE_CODE))
+                    .font_family(font::MONO)
+                    .text_size(px(font::STATUS_SIZE))
+                    .text_color(rgb(color::FG_NOTE_CODE))
+                    .child(code.to_owned()),
+            }
+        }))
+}
+
+#[derive(Debug, PartialEq)]
+enum Piece<'a> {
+    /// With the spaces after it, or a run of spaces alone.
+    Word(&'a str),
+    Code(&'a str),
+}
+
+/// The line's words and the code its backticks quote.
+fn line_pieces(line: &str) -> Vec<Piece<'_>> {
+    line.split('`')
+        .enumerate()
+        .filter(|(_, part)| !part.is_empty())
+        .flat_map(|(index, part)| -> Vec<Piece> {
+            if index % 2 == 1 {
+                vec![Piece::Code(part)]
+            } else {
+                part.split_inclusive(' ').map(Piece::Word).collect()
+            }
+        })
+        .collect()
 }
 
 /// Below the symbol, its text in line with the symbol's, or above when there is more room.
@@ -533,5 +648,19 @@ mod tests {
         assert_eq!(text, "see Range and a.");
         let ranges: Vec<_> = code.into_iter().map(|(range, _)| range).collect();
         assert_eq!(ranges, [4..9, 14..15]);
+    }
+
+    #[test]
+    fn note_lines_break_into_words_and_code() {
+        assert_eq!(
+            line_pieces("find `SOme` in it"),
+            [
+                Piece::Word("find "),
+                Piece::Code("SOme"),
+                Piece::Word(" "),
+                Piece::Word("in "),
+                Piece::Word("it"),
+            ]
+        );
     }
 }

@@ -151,9 +151,8 @@ pub(crate) fn popup(editor: &Editor) -> Option<Popup> {
         anchor: menu.point,
         rows,
         selected: Some(menu.selection.selected() - visible.start),
-        documentation: None,
-        documentation_pages: 0,
         hints: HINTS,
+        ..Popup::default()
     })
 }
 

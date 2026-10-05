@@ -2,14 +2,15 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::time::Instant;
 
 use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
     AnyElement, ClipboardItem, Context, Div, FocusHandle, IntoElement, KeyDownEvent, MouseButton,
     MouseDownEvent, ParentElement, Pixels, Render, ScrollHandle, ScrollWheelEvent, StyledText,
-    Subscription, Window, canvas, div, font, linear_color_stop, linear_gradient, prelude::*, px,
-    rgb, rgba,
+    Subscription, Task, Window, canvas, div, font, linear_color_stop, linear_gradient, prelude::*,
+    px, rgb, rgba,
 };
 use remacs_core::{
     Action, Code, DocBlock, Editor, Outline, Popup, Preview, PreviewBody, Scroll, StatusSegment,
@@ -58,6 +59,8 @@ pub struct EditorView {
     /// The window buffer was last drawn as rows, a table's or an outline's, so input maps
     /// to rows, not text.
     showing_rows: bool,
+    /// The refresh plugins asked for after a delay, and when it is due.
+    refresh_timer: Option<(Instant, Task<()>)>,
     _activation: Subscription,
 }
 
@@ -77,10 +80,7 @@ impl EditorView {
         cx.spawn(async move |view, cx| {
             while notifications.next().await.is_some() {
                 while notifications.try_recv().is_ok() {}
-                let refreshed = view.update(cx, |view, cx| {
-                    view.editor.refresh();
-                    cx.notify();
-                });
+                let refreshed = view.update(cx, |view, cx| view.refresh(cx));
                 if refreshed.is_err() {
                     break;
                 }
@@ -102,6 +102,7 @@ impl EditorView {
             input_scroll: ScrollHandle::new(),
             code_faces: HashMap::new(),
             showing_rows: false,
+            refresh_timer: None,
             _activation: activation,
         };
         view.receive_clipboard(cx);
@@ -159,7 +160,37 @@ impl EditorView {
         if self.editor.quit_requested() {
             cx.quit();
         }
+        self.schedule_refresh(cx);
         cx.notify();
+    }
+
+    fn refresh(&mut self, cx: &mut Context<Self>) {
+        self.editor.refresh();
+        self.schedule_refresh(cx);
+        cx.notify();
+    }
+
+    /// Refreshes when a plugin asked to, unless an earlier refresh is already due.
+    fn schedule_refresh(&mut self, cx: &mut Context<Self>) {
+        let Some(at) = self.editor.take_refresh_at() else {
+            return;
+        };
+        if self
+            .refresh_timer
+            .as_ref()
+            .is_some_and(|&(pending, _)| pending <= at)
+        {
+            return;
+        }
+        let timer = cx.spawn(async move |view, cx| {
+            let delay = at.saturating_duration_since(Instant::now());
+            cx.background_executor().timer(delay).await;
+            let _ = view.update(cx, |view, cx| {
+                view.refresh_timer = None;
+                view.refresh(cx);
+            });
+        });
+        self.refresh_timer = Some((at, timer));
     }
 
     fn receive_clipboard(&mut self, cx: &mut Context<Self>) {
@@ -401,6 +432,7 @@ impl EditorView {
                     anchor_left,
                     line_top,
                     line_bottom: line_top + line_height,
+                    area_top: px(TITLE_BAR_HEIGHT),
                     window_width: window_size.width,
                     window_height: window_size.height,
                 };

@@ -6,6 +6,7 @@ use remacs_core::{
     filter_candidates,
 };
 
+use crate::bubble;
 use crate::buffer_diagnostics::{BufferDiagnostics, Severity};
 
 pub(crate) const LIST_PROBLEMS: &str = "list-problems";
@@ -126,21 +127,12 @@ fn go_to_next(editor: &mut Editor, forward: bool, least: Severity) -> CommandRes
     Ok(())
 }
 
-/// Puts point on the problem at `offset` and shows its message.
+/// Puts point on the problem at `offset` and shows it there.
 fn go_to(editor: &mut Editor, offset: usize) {
     let buffer = editor.window_buffer_mut();
     buffer.set_point(offset);
     buffer.deactivate_mark();
-    let message = buffer.local::<BufferDiagnostics>().and_then(|state| {
-        state
-            .list
-            .iter()
-            .find(|diagnostic| diagnostic.range.start == offset)
-            .map(|diagnostic| diagnostic.summary().to_owned())
-    });
-    if let Some(message) = message {
-        editor.set_message(message);
-    }
+    bubble::show_now(editor);
 }
 
 fn is_listing(editor: &Editor) -> bool {

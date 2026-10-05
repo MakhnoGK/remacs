@@ -7,6 +7,7 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, PoisonError, RwLock};
+use std::time::{Duration, Instant};
 
 use remacs_text::Text;
 
@@ -61,6 +62,7 @@ pub struct Editor {
     quit_requested: bool,
     plugin_states: HashMap<TypeId, Box<dyn Any>>,
     notifier: Arc<RwLock<Notifier>>,
+    refresh_at: Option<Instant>,
 }
 
 impl Editor {
@@ -93,6 +95,7 @@ impl Editor {
             quit_requested: false,
             plugin_states: HashMap::new(),
             notifier: Arc::new(RwLock::new(Arc::new(|| {}))),
+            refresh_at: None,
         }
     }
 
@@ -572,6 +575,18 @@ impl Editor {
     pub fn notifier(&self) -> Notifier {
         let notifier = Arc::clone(&self.notifier);
         Arc::new(move || (notifier.read().unwrap_or_else(PoisonError::into_inner))())
+    }
+
+    /// Asks the UI to call [`Editor::refresh`] once `delay` has passed, like an Emacs idle
+    /// timer; hooks then tell a quiet moment by what changed meanwhile.
+    pub fn refresh_after(&mut self, delay: Duration) {
+        let at = Instant::now() + delay;
+        self.refresh_at = Some(self.refresh_at.map_or(at, |earlier| earlier.min(at)));
+    }
+
+    /// The earliest refresh asked for since the last call.
+    pub fn take_refresh_at(&mut self) -> Option<Instant> {
+        self.refresh_at.take()
     }
 
     /// Picks up what background work has produced since the last call.

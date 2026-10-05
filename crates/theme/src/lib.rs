@@ -34,6 +34,9 @@ pub mod color {
     /// Text on a warning tint, e.g. the editing notice.
     pub const FG_ON_WARNING: u32 = 0xffe08a;
     pub const INFO: u32 = 0x00d3d0;
+    /// Notes about the text at point, e.g. who reported a problem, on the note tint.
+    pub const FG_NOTE_SOURCE: u32 = 0x7fd8d6;
+    pub const FG_NOTE_CODE: u32 = 0xc8f5f4;
 
     pub const FG_ADDED: u32 = 0xa0e0a0;
     pub const FG_REMOVED: u32 = 0xffbfbf;
@@ -88,6 +91,12 @@ pub mod glass {
     pub const SURFACE_RADIUS: f32 = 14.0;
     /// Surfaces at point, e.g. completion and documentation.
     pub const HINT_RADIUS: f32 = 12.0;
+
+    /// Notes at point, e.g. problems: a surface tinted like info.
+    pub const NOTE: u32 = 0x0b2324c7;
+    pub const NOTE_BORDER: u32 = 0x00d3d073;
+    pub const NOTE_SEPARATOR: u32 = 0x00d3d02e;
+    pub const NOTE_CODE: u32 = 0x00d3d024;
 
     /// Dims the editor under a prompt.
     pub const SCRIM: u32 = 0x00000040;
