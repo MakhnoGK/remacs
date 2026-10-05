@@ -80,6 +80,8 @@ pub struct EditorView {
 struct Metrics {
     char_width: Pixels,
     digit_width: Pixels,
+    /// Of code quoted in notes.
+    note_code_width: Pixels,
 }
 
 impl EditorView {
@@ -293,6 +295,7 @@ impl EditorView {
             Metrics {
                 char_width: advance(font::CODE_SIZE, 'm'),
                 digit_width: advance(font::LINE_NUMBER_SIZE, '0'),
+                note_code_width: advance(font::STATUS_SIZE, 'm'),
             }
         })
     }
@@ -422,6 +425,7 @@ impl EditorView {
         let view = DocumentationView {
             code_faces: &code_faces,
             scroll: &self.documentation_scroll.handle,
+            note_code_width: metrics.note_code_width,
         };
         popups
             .iter()

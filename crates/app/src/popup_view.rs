@@ -43,6 +43,9 @@ const NOTE_ICON_GAP: f32 = 10.0;
 const NOTES_INSET: f32 = 1.0 + NOTES_PADDING + NOTE_PADDING_X + NOTE_ICON_SIZE + NOTE_ICON_GAP;
 const NOTES_ENOUGH_ROOM: f32 = 160.0;
 const NOTE_LINE_HEIGHT: f32 = 20.0;
+/// Of code quoted in a note.
+const CHIP_PADDING: f32 = 5.0;
+const CHIP_RADIUS: f32 = 4.0;
 
 /// Where a popup goes: `anchor_left` is where the anchor is drawn, `top`/`bottom` the
 /// line's; nothing goes above `area_top`, e.g. the title bar.
@@ -83,11 +86,13 @@ impl Placement {
     }
 }
 
-/// What documentation takes from the view: faces for its code, and the scroll position of
-/// its body, which the mouse wheel and the plugin's page keys move.
+/// What popups take from the view: faces for documentation's code, the scroll position of
+/// its body, which the mouse wheel and the plugin's page keys move, and how wide a
+/// character of code quoted in notes is.
 pub struct DocumentationView<'a> {
     pub code_faces: &'a dyn Fn(&Code) -> Highlights,
     pub scroll: &'a ScrollHandle,
+    pub note_code_width: Pixels,
 }
 
 /// Keeps the shown documentation's scroll position between frames: new documentation
@@ -148,14 +153,19 @@ pub fn render_popup(popup: &Popup, placement: Placement, view: &DocumentationVie
         Some(documentation) if popup.rows.is_empty() => {
             render_hover(documentation, popup.hints, &placement, view)
         }
-        None if popup.rows.is_empty() => render_notes(&popup.notes, &placement),
+        None if popup.rows.is_empty() => {
+            render_notes(&popup.notes, &placement, view.note_code_width)
+        }
         _ => render_list_popup(popup, &placement, view),
     }
 }
 
 /// Above the line, their messages in line with the anchor, or below when there is more
 /// room; leaves the text after the anchor in view.
-fn render_notes(notes: &[Note], placement: &Placement) -> AnyElement {
+fn render_notes(notes: &[Note], placement: &Placement, code_width: Pixels) -> AnyElement {
+    let text_width =
+        NOTES_WIDTH - 2.0 * (1.0 + NOTES_PADDING + NOTE_PADDING_X) - NOTE_ICON_SIZE - NOTE_ICON_GAP;
+    let code_chars = ((px(text_width - 2.0 * CHIP_PADDING) / code_width).floor() as usize).max(1);
     let (below, above) = (placement.room_below(), placement.room_above());
     let fits_above = above >= px(NOTES_ENOUGH_ROOM) || above >= below;
     let panel = panel()
@@ -188,7 +198,11 @@ fn render_notes(notes: &[Note], placement: &Placement) -> AnyElement {
                         .flex_col()
                         .min_w_0()
                         .gap(px(2.0))
-                        .children(note.message.lines().map(render_note_line))
+                        .children(
+                            note.message
+                                .lines()
+                                .map(|line| render_note_line(line, code_chars)),
+                        )
                         .when(!note.source.is_empty(), |text| {
                             text.child(
                                 div()
@@ -210,27 +224,34 @@ fn render_notes(notes: &[Note], placement: &Placement) -> AnyElement {
     placement.place(container, !fits_above).into_any_element()
 }
 
-/// Wraps between words, and inside a word or code wider than the line; quoted code is a
-/// chip in the code font, which text highlights cannot give.
-fn render_note_line(line: &str) -> Div {
+/// Wraps between words, and inside a word wider than the line; quoted code is a chip in
+/// the code font, which text highlights cannot give, that wraps between its words like
+/// the text, each line of it a strip. A code word longer than `code_chars`, what fits on a
+/// line, is broken into pieces that fit.
+fn render_note_line(line: &str, code_chars: usize) -> Div {
     div()
         .flex()
         .flex_wrap()
         .items_center()
         .text_size(px(font::UI_SIZE))
         .line_height(px(NOTE_LINE_HEIGHT))
-        .children(line_pieces(line).into_iter().map(|piece| {
+        .children(line_pieces(line, code_chars).into_iter().map(|piece| {
             match piece {
                 Piece::Word(word) => div().max_w_full().child(word.to_owned()),
-                Piece::Code(code) => div()
-                    .max_w_full()
-                    .px(px(5.0))
-                    .rounded(px(4.0))
+                Piece::Code { text, first, last } => div()
+                    .flex_none()
+                    .whitespace_nowrap()
+                    .when(first, |chip| {
+                        chip.pl(px(CHIP_PADDING)).rounded_l(px(CHIP_RADIUS))
+                    })
+                    .when(last, |chip| {
+                        chip.pr(px(CHIP_PADDING)).rounded_r(px(CHIP_RADIUS))
+                    })
                     .bg(rgba(glass::NOTE_CODE))
                     .font_family(font::MONO)
                     .text_size(px(font::STATUS_SIZE))
                     .text_color(rgb(color::FG_NOTE_CODE))
-                    .child(code.to_owned()),
+                    .child(text.to_owned()),
             }
         }))
 }
@@ -239,21 +260,54 @@ fn render_note_line(line: &str) -> Div {
 enum Piece<'a> {
     /// With the spaces after it, or a run of spaces alone.
     Word(&'a str),
-    Code(&'a str),
+    /// A word of quoted code with the spaces after it, or `code_chars` of a longer one;
+    /// `first` and `last` of the quote.
+    Code {
+        text: &'a str,
+        first: bool,
+        last: bool,
+    },
 }
 
-/// The line's words and the code its backticks quote.
-fn line_pieces(line: &str) -> Vec<Piece<'_>> {
+/// The line's words and those of the code its backticks quote, none of the code's longer
+/// than `code_chars`.
+fn line_pieces(line: &str, code_chars: usize) -> Vec<Piece<'_>> {
     line.split('`')
         .enumerate()
         .filter(|(_, part)| !part.is_empty())
         .flat_map(|(index, part)| -> Vec<Piece> {
-            if index % 2 == 1 {
-                vec![Piece::Code(part)]
-            } else {
-                part.split_inclusive(' ').map(Piece::Word).collect()
+            if index % 2 == 0 {
+                return part.split_inclusive(' ').map(Piece::Word).collect();
             }
+            let texts: Vec<&str> = part
+                .split_inclusive(' ')
+                .flat_map(|word| chunks(word, code_chars))
+                .collect();
+            let count = texts.len();
+            texts
+                .into_iter()
+                .enumerate()
+                .map(|(piece, text)| Piece::Code {
+                    text,
+                    first: piece == 0,
+                    last: piece + 1 == count,
+                })
+                .collect()
         })
+        .collect()
+}
+
+/// `text` in pieces of `chars` characters, the last one shorter.
+fn chunks(text: &str, chars: usize) -> Vec<&str> {
+    let mut starts: Vec<usize> = text
+        .char_indices()
+        .step_by(chars.max(1))
+        .map(|(start, _)| start)
+        .collect();
+    starts.push(text.len());
+    starts
+        .windows(2)
+        .map(|pair| &text[pair[0]..pair[1]])
         .collect()
 }
 
@@ -653,14 +707,39 @@ mod tests {
     #[test]
     fn note_lines_break_into_words_and_code() {
         assert_eq!(
-            line_pieces("find `SOme` in it"),
+            line_pieces("find `SOme` in `a b`", 8),
             [
                 Piece::Word("find "),
-                Piece::Code("SOme"),
+                Piece::Code {
+                    text: "SOme",
+                    first: true,
+                    last: true,
+                },
                 Piece::Word(" "),
                 Piece::Word("in "),
-                Piece::Word("it"),
+                Piece::Code {
+                    text: "a ",
+                    first: true,
+                    last: false,
+                },
+                Piece::Code {
+                    text: "b",
+                    first: false,
+                    last: true,
+                },
             ]
         );
+    }
+
+    #[test]
+    fn code_longer_than_a_line_breaks_into_pieces_that_fit() {
+        let texts: Vec<_> = line_pieces("`ab abcdefg`", 3)
+            .into_iter()
+            .map(|piece| match piece {
+                Piece::Code { text, .. } => text,
+                Piece::Word(word) => word,
+            })
+            .collect();
+        assert_eq!(texts, ["ab ", "abc", "def", "g"]);
     }
 }
