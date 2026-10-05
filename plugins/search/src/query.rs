@@ -29,15 +29,22 @@ impl Query {
         })
     }
 
-    /// Calls `each` with the start of every match in `text`, in order, until it returns
-    /// false. Reads a chunk at a time, so a file of gigabytes is never copied whole.
-    pub fn find(&self, text: &Snapshot, mut each: impl FnMut(usize) -> bool) {
+    /// Bytes of each match.
+    pub fn match_len(&self) -> usize {
+        self.len
+    }
+
+    /// Calls `each` with the start of every match within `range` of `text`, in order,
+    /// until it returns false. Reads a chunk at a time, so a file of gigabytes is never
+    /// copied whole.
+    pub fn find(&self, text: &Snapshot, range: Range<usize>, mut each: impl FnMut(usize) -> bool) {
         // Enough of the previous chunk for a match that crosses into the next.
         let overlap = self.len - 1;
         let mut window = Vec::new();
-        let mut window_start = 0;
-        let mut next_allowed = 0;
-        for chunk in text.chunks(0..text.len()) {
+        let mut window_start = range.start;
+        // Matches do not overlap: the next may start only after the last one reported.
+        let mut next_allowed = range.start;
+        for chunk in text.chunks(range) {
             let kept = window.len().min(overlap);
             window_start += window.len() - kept;
             window.drain(..window.len() - kept);
@@ -45,13 +52,11 @@ impl Query {
             if self.ignore_case {
                 window[kept..].make_ascii_lowercase();
             }
-            for found in self.finder.find_iter(&window) {
-                let start = window_start + found;
-                // A match in the kept bytes may overlap one already reported.
-                if start < next_allowed {
-                    continue;
-                }
+            let mut from = next_allowed.saturating_sub(window_start);
+            while let Some(found) = window.get(from..).and_then(|rest| self.finder.find(rest)) {
+                let start = window_start + from + found;
                 next_allowed = start + self.len;
+                from = next_allowed - window_start;
                 if !each(start) {
                     return;
                 }

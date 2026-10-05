@@ -2,7 +2,10 @@
 //! other searches, like Emacs `consult-line`.
 
 mod lines;
+mod preview;
 mod query;
+
+use std::rc::Rc;
 
 use remacs_core::{Command, Plugin, Registry};
 
@@ -23,6 +26,8 @@ impl Plugin for SearchPlugin {
         for &(keys, command) in BINDINGS {
             registry.keymap.bind(keys, command);
         }
+        registry.decorators.push(Rc::new(preview::decorate));
+        registry.post_command_hooks.push(Rc::new(preview::sync));
     }
 }
 

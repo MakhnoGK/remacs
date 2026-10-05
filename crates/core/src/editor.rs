@@ -277,6 +277,8 @@ impl Editor {
     pub fn handle_key(&mut self, key: Key) {
         self.message = None;
         if Key::parse(ABORT_KEY) == Some(key) && self.abort() {
+            // Hooks see a prompt closed by quitting, e.g. to undo what it previewed.
+            self.after_command();
             return;
         }
         if self

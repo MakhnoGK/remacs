@@ -1,6 +1,7 @@
 use remacs_core::{Buffer, Candidate, CommandResult, Completions, Count, Editor, Keymap, Prompt};
 use remacs_text::Snapshot;
 
+use crate::preview;
 use crate::query::Query;
 
 pub const SEARCH: &str = "search-buffer";
@@ -38,10 +39,13 @@ pub fn search(editor: &mut Editor) -> CommandResult {
         move |editor, input| line_candidates(editor.window_buffer(), input, start),
         move |editor, answer| {
             let offset = answer.parse().map_err(|_| "No match")?;
+            preview::end(editor);
             go_to(editor, offset, start);
             Ok(())
         },
-    )
+    )?;
+    preview::begin(editor, SEARCH_CATEGORY);
+    Ok(())
 }
 
 /// The lines containing `input`, each valued at its first match.
@@ -54,7 +58,7 @@ fn line_candidates(buffer: &Buffer, input: &str, point: usize) -> Completions {
     let mut starts = Vec::new();
     let mut last_line = None;
     let mut more = false;
-    query.find(text, |start| {
+    query.find(text, 0..text.len(), |start| {
         let line = text.line_of(start);
         if last_line == Some(line) {
             return true;

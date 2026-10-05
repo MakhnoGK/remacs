@@ -40,6 +40,15 @@ pub fn face_style(face: Face) -> HighlightStyle {
             background_color: Some(rgba(color::ACCENT << 8 | 0x2e).into()),
             ..Default::default()
         },
+        Face::SearchMatch => HighlightStyle {
+            background_color: Some(rgba(color::WARNING << 8 | 0x38).into()),
+            ..Default::default()
+        },
+        Face::SearchCurrent => HighlightStyle {
+            background_color: Some(rgba(color::WARNING << 8 | 0xb3).into()),
+            color: Some(hsla(color::BG_MAIN)),
+            ..Default::default()
+        },
     }
 }
 

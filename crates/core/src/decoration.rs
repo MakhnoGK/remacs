@@ -20,6 +20,9 @@ pub enum Face {
     Info,
     /// The symbol a popup is about, like Emacs `highlight`.
     Highlight,
+    /// Matches of a search, like Emacs `lazy-highlight`; the one chosen, like `isearch`.
+    SearchMatch,
+    SearchCurrent,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

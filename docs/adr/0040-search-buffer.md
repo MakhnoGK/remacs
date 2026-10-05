@@ -19,8 +19,13 @@ Status: accepted, 2026-10-05
   10,000 lines are listed; past that the counter says so, so that a common string still
   answers each key at once.
 
+- **Preview while the prompt is open**, like isearch: the matches on screen are lit
+  (`Face::SearchMatch`, the selected one `Face::SearchCurrent`) and point follows the
+  selection, centered when it leaves the screen. Quitting puts point and the view back;
+  for that, quitting with `C-g` now runs the post-command hooks too. The state lives on
+  the searched buffer (`Searching`), since decorators see only the buffer; the decorator
+  searches just the lines drawn.
+
 ## Next
 
-- Highlighting the matches in the buffer while the prompt is open, and point following
-  the selection.
 - Replacing (`M-%`).

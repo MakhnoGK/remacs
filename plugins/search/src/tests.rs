@@ -1,4 +1,6 @@
-use remacs_core::{Buffer, Editor, FUNDAMENTAL_MODE, parse_sequence};
+use std::ops::Range;
+
+use remacs_core::{Buffer, Editor, FUNDAMENTAL_MODE, Face, parse_sequence};
 use remacs_editing::EditingPlugin;
 use remacs_minibuffer::MinibufferPlugin;
 use remacs_text::Text;
@@ -93,24 +95,71 @@ fn case_is_ignored_unless_the_input_has_an_uppercase_letter() {
     assert_eq!(editor.window_buffer().point(), 0);
 }
 
+/// Spans lit by the search, with the chosen one's face told apart.
+fn lit(editor: &Editor) -> Vec<(usize, bool)> {
+    editor
+        .decorations(0..TEXT.len())
+        .into_iter()
+        .flatten()
+        .filter_map(|span| match span.face {
+            Face::SearchMatch => Some((span.range.start, false)),
+            Face::SearchCurrent => Some((span.range.start, true)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn matches_are_lit_and_point_follows_the_selection_until_quitting() {
+    let mut editor = editor_at(0);
+    press(&mut editor, "C-s");
+    type_text(&mut editor, "total");
+    let [first, second, third] = [
+        TEXT.find("total").unwrap(),
+        TEXT.find("Total").unwrap(),
+        TEXT.rfind("total").unwrap(),
+    ];
+    assert_eq!(editor.window_buffer().point(), first);
+    assert_eq!(
+        lit(&editor),
+        [(first, true), (second, false), (third, false)]
+    );
+
+    press(&mut editor, "C-s");
+    assert_eq!(editor.window_buffer().point(), second);
+    assert_eq!(
+        lit(&editor),
+        [(first, false), (second, true), (third, false)]
+    );
+
+    press(&mut editor, "C-g");
+    assert!(editor.minibuffer().is_none());
+    assert_eq!(editor.window_buffer().point(), 0);
+    assert!(lit(&editor).is_empty());
+
+    press(&mut editor, "C-s");
+    type_text(&mut editor, "total");
+    press(&mut editor, "RET");
+    assert_eq!(editor.window_buffer().point(), first);
+    assert!(lit(&editor).is_empty());
+}
+
+fn found(query: &str, text: &Text, range: Range<usize>) -> Vec<usize> {
+    let mut starts = Vec::new();
+    Query::new(query).unwrap().find(text, range, |start| {
+        starts.push(start);
+        true
+    });
+    starts
+}
+
 #[test]
 fn matches_across_chunks_are_found_once_each() {
     let mut text = Text::from("world aaa");
     text.insert(0, "hello ");
     text.insert(text.len(), "aa");
-    let query = Query::new("o w").unwrap();
-    let mut starts = Vec::new();
-    query.find(&text, |start| {
-        starts.push(start);
-        true
-    });
-    assert_eq!(starts, [4]);
-
-    let query = Query::new("aa").unwrap();
-    let mut starts = Vec::new();
-    query.find(&text, |start| {
-        starts.push(start);
-        true
-    });
-    assert_eq!(starts, [12, 14]);
+    assert_eq!(found("o w", &text, 0..text.len()), [4]);
+    assert_eq!(found("aa", &text, 0..text.len()), [12, 14]);
+    assert_eq!(found("aa", &text, 13..text.len()), [13, 15]);
+    assert_eq!(found("aa", &text, 13..14), [] as [usize; 0]);
 }
