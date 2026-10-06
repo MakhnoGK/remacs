@@ -34,6 +34,9 @@ pub struct Registry {
     /// Run after every command and whenever background work has results, like Emacs
     /// `post-command-hook`.
     pub post_command_hooks: Vec<Hook>,
+    /// Run when the settings are read: at startup and whenever their files change. Each
+    /// reads its plugin's section with `Editor::settings_section`.
+    pub settings_hooks: Vec<Hook>,
     pub decorators: Vec<Decorator>,
     /// Tell strings and comments from code; the first that knows the buffer does.
     pub syntax_probes: Vec<SyntaxProbe>,

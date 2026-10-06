@@ -4,8 +4,8 @@ Status: accepted, 2026-10-04 (lint and format, step 5)
 
 ## Decision
 
-- **Off by default**; `format-on-save-mode` turns it on or off for all buffers, for
-  the session.
+- **Off by default**, on from the start with `on-save = true` in `format.toml`
+  (ADR 0042); `format-on-save-mode` turns it on or off for all buffers, for the session.
 - **After the save, like apheleia**: saving never waits for a formatter. Each save of a
   file-visiting buffer, by any command, asks to format the whole buffer; the edits are
   made and the file saved again, unless the text changed meanwhile, which the next save
@@ -20,7 +20,3 @@ Status: accepted, 2026-10-04 (lint and format, step 5)
 ## Consequences
 
 - A formatted save writes the file twice; watchers, such as dev servers, may see both.
-
-## Open
-
-- The mode is not remembered across sessions: remacs has no settings yet.

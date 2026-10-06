@@ -43,6 +43,7 @@ pub use outline::{
 };
 pub use plugin::{Hook, MinorKeymap, Plugin, Registry};
 pub use popup::{Code, CodeHighlighter, DocBlock, Documentation, Note, Popup, PopupProvider};
+pub use remacs_config::{Section, Settings};
 pub use status::{StatusItem, StatusProvider, StatusSegment, Tone};
 pub use syntax::{SyntaxContext, SyntaxProbe};
 pub use table::{

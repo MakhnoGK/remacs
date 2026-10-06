@@ -11,7 +11,6 @@ use gpui::{
     MouseDownEvent, ParentElement, Pixels, Render, ScrollHandle, ScrollWheelEvent, StyledText,
     Subscription, Task, Window, div, font, prelude::*, px, rgb, rgba,
 };
-use remacs_config::SettingsError;
 use remacs_core::{
     Action, ChangedLines, Code, DocBlock, Editor, LineChange, Outline, Popup, Preview, PreviewBody,
     Scroll, StatusSegment,
@@ -31,7 +30,7 @@ use crate::outline_view::{
 };
 use crate::popup_view::{DocumentationScroll, DocumentationView, Placement, render_popup};
 use crate::preview_view::render_preview;
-use crate::settings::{CursorHeight, UiSettings, report};
+use crate::settings::{CursorHeight, ReadSettings, report};
 use crate::table_view::{
     LIST_BOTTOM, ROW_PITCH, ROWS_TOP, TableCursor, fits_preview, render_hints, render_table,
 };
@@ -140,15 +139,11 @@ impl EditorView {
         &self.focus_handle
     }
 
-    /// Takes the view's part of settings read again; the process-wide part is applied.
-    pub fn apply_settings(
-        &mut self,
-        ui: &UiSettings,
-        errors: &[SettingsError],
-        cx: &mut Context<Self>,
-    ) {
-        self.cursor_height = ui.cursor.height;
-        report(errors, &mut self.editor);
+    /// Takes settings read again: the view's part, and the plugins' sections.
+    pub fn apply_settings(&mut self, read: ReadSettings, cx: &mut Context<Self>) {
+        self.cursor_height = read.ui.cursor.height;
+        self.editor.set_settings(read.settings);
+        report(&read.errors, &mut self.editor);
         cx.notify();
     }
 

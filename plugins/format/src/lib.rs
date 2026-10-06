@@ -10,8 +10,9 @@ use std::ops::Range;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use remacs_core::{Command, CommandResult, Editor, Plugin, Registry};
+use remacs_core::{Command, CommandResult, Editor, Plugin, Registry, Section};
 use remacs_text::Snapshot;
+use serde::Deserialize;
 
 pub use diff::edits;
 
@@ -39,7 +40,20 @@ impl Plugin for FormatPlugin {
             registry.keymap.bind(keys, command);
         }
         registry.post_command_hooks.push(Rc::new(format_saved));
+        registry.settings_hooks.push(Rc::new(read_settings));
     }
+}
+
+/// `format.toml`.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+struct FormatSettings {
+    /// Whether `format-on-save-mode` starts on.
+    on_save: bool,
+}
+
+impl Section for FormatSettings {
+    const NAME: &str = "format";
 }
 
 /// What a backend is asked to format.
@@ -72,6 +86,8 @@ struct State {
     /// Asked and not yet answered, by id.
     pending: HashMap<u64, Asked>,
     on_save: bool,
+    /// As last read; the session's toggle holds until they change.
+    settings: Option<FormatSettings>,
 }
 
 struct Asked {
@@ -98,6 +114,16 @@ fn in_buffer(editor: &Editor) -> CommandResult {
     match editor.minibuffer() {
         Some(_) => Err("Formatting works in buffers only".into()),
         None => Ok(()),
+    }
+}
+
+/// Settings read again because another file changed keep the mode as toggled.
+fn read_settings(editor: &mut Editor) {
+    let settings = editor.settings_section::<FormatSettings>();
+    let state = editor.plugin_state::<State>();
+    if state.settings.as_ref() != Some(&settings) {
+        state.on_save = settings.on_save;
+        state.settings = Some(settings);
     }
 }
 

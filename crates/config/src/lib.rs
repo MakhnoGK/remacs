@@ -99,22 +99,17 @@ pub struct Settings {
 impl Settings {
     /// A missing directory means all defaults; unreadable files are left out and reported.
     pub fn load(dir: &Path) -> (Self, Vec<SettingsError>) {
-        let mut settings = Self::default();
+        let mut files = Vec::new();
         let mut errors = Vec::new();
         let Ok(entries) = fs::read_dir(dir) else {
-            return (settings, errors);
+            return (Self::default(), errors);
         };
         for path in entries.flatten().map(|entry| entry.path()) {
             if path.extension() != Some(OsStr::new("toml")) {
                 continue;
             }
-            let Some(name) = path.file_stem().and_then(OsStr::to_str).map(str::to_owned) else {
-                continue;
-            };
             match fs::read_to_string(&path) {
-                Ok(text) => {
-                    settings.files.insert(name, SectionFile { path, text });
-                }
+                Ok(text) => files.push((path, text)),
                 Err(error) => errors.push(SettingsError {
                     file: path,
                     line: None,
@@ -122,7 +117,19 @@ impl Settings {
                 }),
             }
         }
-        (settings, errors)
+        (Self::from_files(files), errors)
+    }
+
+    /// Settings from files' paths and texts, each file a section named after it.
+    pub fn from_files(files: impl IntoIterator<Item = (PathBuf, String)>) -> Self {
+        let files = files
+            .into_iter()
+            .filter_map(|(path, text)| {
+                let name = path.file_stem()?.to_str()?.to_owned();
+                Some((name, SectionFile { path, text }))
+            })
+            .collect();
+        Self { files }
     }
 
     /// The section's settings; when its file does not parse or check, the error and the

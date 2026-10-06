@@ -9,6 +9,7 @@ use std::rc::Rc;
 use std::sync::{Arc, PoisonError, RwLock};
 use std::time::{Duration, Instant};
 
+use remacs_config::{Section, Settings};
 use remacs_text::Text;
 
 use crate::buffer::{Buffer, FileEdits};
@@ -61,6 +62,7 @@ pub struct Editor {
     message: Option<String>,
     quit_requested: bool,
     plugin_states: HashMap<TypeId, Box<dyn Any>>,
+    settings: Settings,
     notifier: Arc<RwLock<Notifier>>,
     refresh_at: Option<Instant>,
 }
@@ -94,6 +96,7 @@ impl Editor {
             message: None,
             quit_requested: false,
             plugin_states: HashMap::new(),
+            settings: Settings::default(),
             notifier: Arc::new(RwLock::new(Arc::new(|| {}))),
             refresh_at: None,
         }
@@ -549,6 +552,25 @@ impl Editor {
 
     pub fn quit_requested(&self) -> bool {
         self.quit_requested
+    }
+
+    /// Replaces the settings and lets plugins read their sections again.
+    pub fn set_settings(&mut self, settings: Settings) {
+        self.settings = settings;
+        for hook in self.registry.settings_hooks.clone() {
+            hook(self);
+        }
+    }
+
+    /// A plugin's section of the settings; when it is wrong, its defaults, and the error
+    /// is shown.
+    pub fn settings_section<T: Section>(&mut self) -> T {
+        self.settings
+            .section::<T>()
+            .unwrap_or_else(|(error, defaults)| {
+                self.set_message(error.to_string());
+                defaults
+            })
     }
 
     /// State a plugin keeps between commands, created on first use.

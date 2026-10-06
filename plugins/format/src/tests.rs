@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use remacs_core::{Buffer, Editor, parse_sequence};
+use remacs_core::{Buffer, Editor, Settings, parse_sequence};
 use remacs_editing::EditingPlugin;
 use remacs_text::Text;
 
@@ -141,4 +141,51 @@ fn after_a_save_typing_and_files_nothing_formats_are_left_alone() {
     assert_eq!(editor.echo().as_deref(), Some("Formatting on save enabled"));
     assert_eq!(fs::read_to_string(&path).unwrap(), format!("// {UGLY}"));
     fs::remove_file(path).unwrap();
+}
+
+fn settings(files: &[(&str, &str)]) -> Settings {
+    Settings::from_files(
+        files
+            .iter()
+            .map(|(name, text)| (PathBuf::from(name), text.to_string())),
+    )
+}
+
+fn formats_on_save(editor: &mut Editor) -> bool {
+    editor.window_buffer_mut().save().unwrap();
+    editor.refresh();
+    !take_requests(editor, |_| true).is_empty()
+}
+
+#[test]
+fn the_settings_turn_formatting_on_save_on_and_a_toggle_lasts_until_they_change() {
+    let path =
+        std::env::temp_dir().join(format!("remacs-format-{}-settings.rs", std::process::id()));
+    fs::write(&path, UGLY).unwrap();
+    let mut editor = Editor::new(&[&EditingPlugin, &FormatPlugin]);
+    editor.set_settings(settings(&[("format.toml", "on-save = true\n")]));
+    editor.visit_file(&path).unwrap();
+    assert!(formats_on_save(&mut editor));
+
+    editor.run_command("format-on-save-mode");
+    editor.set_settings(settings(&[
+        ("format.toml", "on-save = true\n"),
+        ("ui.toml", ""),
+    ]));
+    assert!(!formats_on_save(&mut editor), "other files changed");
+
+    editor.set_settings(settings(&[]));
+    assert!(!formats_on_save(&mut editor));
+    editor.set_settings(settings(&[("format.toml", "on-save = true\n")]));
+    assert!(formats_on_save(&mut editor));
+    fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn a_wrong_setting_is_shown_and_leaves_formatting_on_save_off() {
+    let mut editor = editor();
+    editor.set_settings(settings(&[("format.toml", "on-save = \"yes\"\n")]));
+    let message = editor.echo().unwrap_or_default();
+    assert!(message.starts_with("format.toml:1: "), "{message}");
+    assert!(!editor.plugin_state::<crate::State>().on_save);
 }

@@ -9,7 +9,7 @@ Status: accepted, 2026-10-06 (issue #2)
   elsewhere in `$HOME`. Planned layout:
   - `config/`: settings;
   - `cache/projects/<root hash>/`, `cache/dirs/`: caches, e.g. the file index;
-  - `state/`: what lasts between sessions, e.g. recent files, `format-on-save-mode`;
+  - `state/`: what lasts between sessions, e.g. recent files, prompt history;
   - `servers/` (#10), `grammars/`, `plugins/` (WASM).
 - **Settings split into files, one section each**: `config/ui.toml` is the `ui` section.
   A section is a type implementing `remacs_config::Section` (serde, defaults for what is
@@ -37,6 +37,13 @@ Status: accepted, 2026-10-06 (issue #2)
   have no view or context.
 - **The editor's cursor is a block drawn under the text**, not a highlight background, so
   its height can differ from the line's; the character under it keeps its inverted color.
+- **Plugins read their own sections**: the `Editor` holds the settings
+  (`set_settings`), and runs `Registry::settings_hooks` whenever they are read; a hook
+  takes its section with `Editor::settings_section`, which shows an error and returns
+  the defaults when the section is wrong. The app reads `ui` itself.
+- **Settings give modes their starting state**: `format.toml` has `on-save = true` to
+  start with `format-on-save-mode` on. The command still toggles it for the session; the
+  toggle holds until the section itself changes, not when another file does.
 
 ## Consequences
 
@@ -49,5 +56,5 @@ Status: accepted, 2026-10-06 (issue #2)
 
 ## Open
 
-- Move `format-on-save-mode` to `state/` and the file index to `cache/`.
-- Plugins register their own sections through the registry.
+- `state/` and `cache/`, e.g. recent files and the file index.
+- Sections for the other plugins, e.g. `lsp.toml`.

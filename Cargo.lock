@@ -3922,6 +3922,7 @@ dependencies = [
 name = "remacs-core"
 version = "0.1.0"
 dependencies = [
+ "remacs-config",
  "remacs-text",
 ]
 
@@ -3987,6 +3988,7 @@ dependencies = [
  "remacs-core",
  "remacs-editing",
  "remacs-text",
+ "serde",
 ]
 
 [[package]]

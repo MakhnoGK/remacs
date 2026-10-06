@@ -41,7 +41,7 @@ use remacs_xref::XrefPlugin;
 
 use assets::Assets;
 use editor_view::EditorView;
-use settings::{apply_ui_settings, report, watch_settings};
+use settings::{ReadSettings, read_settings, report, watch_settings};
 
 const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
     &EditingPlugin,
@@ -65,9 +65,14 @@ const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
 ];
 
 fn main() -> ExitCode {
-    let (ui, errors) = apply_ui_settings();
+    let ReadSettings {
+        settings,
+        ui,
+        errors,
+    } = read_settings();
 
     let mut editor = Editor::new(BUILTIN_PLUGINS);
+    editor.set_settings(settings);
 
     if let Some(path) = std::env::args_os().nth(1).map(PathBuf::from) {
         let opened = if path.is_dir() {

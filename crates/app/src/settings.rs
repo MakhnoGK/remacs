@@ -17,12 +17,33 @@ const LINE_HEIGHTS: RangeInclusive<f32> = 1.0..=3.0;
 /// Changes this close together are read once, e.g. an editor's save done in steps.
 const SETTLE_TIME: Duration = Duration::from_millis(100);
 
-/// Reads the `ui` settings and applies the process-wide ones; the view applies the rest.
-pub fn apply_ui_settings() -> (UiSettings, Vec<SettingsError>) {
-    let (ui, errors) = load_ui_settings();
+/// What the settings files hold, with the `ui` section read, and what is wrong with them.
+pub struct ReadSettings {
+    /// For the plugins.
+    pub settings: Settings,
+    pub ui: UiSettings,
+    pub errors: Vec<SettingsError>,
+}
+
+/// Reads the settings and applies the process-wide part of `ui`; the view and the
+/// plugins apply the rest.
+pub fn read_settings() -> ReadSettings {
+    let (settings, mut errors) = home()
+        .map(|home| Settings::load(&config_dir(&home)))
+        .unwrap_or_default();
+    let ui = settings
+        .section::<UiSettings>()
+        .unwrap_or_else(|(error, defaults)| {
+            errors.push(error);
+            defaults
+        });
     font::set_code(ui.font.code_font());
     set_text_strokes(ui.font.strokes.into());
-    (ui, errors)
+    ReadSettings {
+        settings,
+        ui,
+        errors,
+    }
 }
 
 /// Shows the first error; all go to stderr.
@@ -55,29 +76,16 @@ pub fn watch_settings(view: WeakEntity<EditorView>, cx: &mut App) {
         while changes.next().await.is_some() {
             cx.background_executor().timer(SETTLE_TIME).await;
             while changes.try_recv().is_ok() {}
-            let (ui, errors) = apply_ui_settings();
-            let applied = view.update(cx, |view, cx| view.apply_settings(&ui, &errors, cx));
-            if applied.is_err() {
+            let read = read_settings();
+            if view
+                .update(cx, |view, cx| view.apply_settings(read, cx))
+                .is_err()
+            {
                 break;
             }
         }
     })
     .detach();
-}
-
-/// The `ui` section of the config, defaults where it is wrong, and what is wrong with it.
-fn load_ui_settings() -> (UiSettings, Vec<SettingsError>) {
-    let Some(home) = home() else {
-        return (UiSettings::default(), Vec::new());
-    };
-    let (settings, mut errors) = Settings::load(&config_dir(&home));
-    let ui = settings
-        .section::<UiSettings>()
-        .unwrap_or_else(|(error, defaults)| {
-            errors.push(error);
-            defaults
-        });
-    (ui, errors)
 }
 
 /// `ui.toml`.
