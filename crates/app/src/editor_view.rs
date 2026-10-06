@@ -8,8 +8,8 @@ use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
     AnyElement, ClipboardItem, Context, Div, FocusHandle, IntoElement, KeyDownEvent, MouseButton,
-    MouseDownEvent, ParentElement, Pixels, Render, ScrollHandle, ScrollWheelEvent, StyledText,
-    Subscription, Task, Window, div, font, prelude::*, px, rgb, rgba,
+    MouseDownEvent, ParentElement, Pixels, Point, Render, ScrollHandle, ScrollWheelEvent,
+    StyledText, Subscription, Task, Window, div, font, prelude::*, px, rgb, rgba,
 };
 use remacs_core::{
     Action, ChangedLines, Code, DocBlock, Editor, LineChange, Outline, Popup, Preview, PreviewBody,
@@ -68,7 +68,13 @@ pub struct EditorView {
     cursor_height: CursorHeight,
     /// And the code font they were measured from.
     metrics: Option<(CodeFont, Metrics)>,
-    scroll_remainder: Pixels,
+    /// What the wheel moved short of a whole line or column.
+    scroll_remainder: Point<Pixels>,
+    /// The text was scrolled sideways by hand, so point may be out of view until the next
+    /// input, as in VS Code; following point would undo the scroll.
+    scrolled_sideways: bool,
+    /// Some drawn line goes on past the right edge, so the text can scroll further right.
+    more_on_right: bool,
     documentation_scroll: DocumentationScroll,
     /// How far the minibuffer input is scrolled sideways.
     input_scroll: ScrollHandle,
@@ -125,7 +131,9 @@ impl EditorView {
             focus_handle: cx.focus_handle(),
             cursor_height,
             metrics: None,
-            scroll_remainder: px(0.0),
+            scroll_remainder: Point::default(),
+            scrolled_sideways: false,
+            more_on_right: false,
             documentation_scroll: DocumentationScroll::default(),
             input_scroll: ScrollHandle::new(),
             code_faces: HashMap::new(),
@@ -196,6 +204,7 @@ impl EditorView {
         if self.editor.quit_requested() {
             cx.quit();
         }
+        self.scrolled_sideways = false;
         self.schedule_refresh(cx);
         cx.notify();
     }
@@ -241,16 +250,43 @@ impl EditorView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let line_height = if self.showing_rows {
+        let line_height = px(if self.showing_rows {
             ROW_PITCH
         } else {
             font::code().line_height
-        };
-        let lines = self.wheel_lines(event, line_height);
+        });
+        let delta = event.delta.pixel_delta(line_height);
+        // A swipe is never quite straight: it scrolls along its main direction only.
+        if delta.x.abs() > delta.y.abs() {
+            self.scroll_sideways(delta.x, cx);
+            return;
+        }
+        let lines = wheel_steps(&mut self.scroll_remainder.y, delta.y, line_height);
         if lines != 0 {
             self.editor.scroll(lines);
             cx.notify();
         }
+    }
+
+    /// Scrolls the text by the columns the wheel moved, no further right than the drawn
+    /// lines go, leaving point where it is.
+    fn scroll_sideways(&mut self, delta: Pixels, cx: &mut Context<Self>) {
+        let Some(char_width) = self
+            .metrics
+            .as_ref()
+            .map(|(_, metrics)| metrics.char_width)
+            .filter(|_| !self.showing_rows)
+        else {
+            return;
+        };
+        let columns = wheel_steps(&mut self.scroll_remainder.x, delta, char_width);
+        if columns == 0 || columns > 0 && !self.more_on_right {
+            return;
+        }
+        let viewport = &mut self.editor.viewport;
+        viewport.first_column = viewport.first_column.saturating_add_signed(columns);
+        self.scrolled_sideways = true;
+        cx.notify();
     }
 
     /// Scrolls an outline's history by the rows the wheel moved.
@@ -260,21 +296,13 @@ impl EditorView {
         scroll: Scroll,
         cx: &mut Context<Self>,
     ) {
-        let rows = self.wheel_lines(event, COMMIT_HEIGHT);
+        let row_height = px(COMMIT_HEIGHT);
+        let delta = event.delta.pixel_delta(row_height).y;
+        let rows = wheel_steps(&mut self.scroll_remainder.y, delta, row_height);
         if rows != 0 {
             let action: Action = Rc::new(move |editor| scroll(editor, rows));
             self.run_action(&action, cx);
         }
-    }
-
-    /// Whole lines of `line_height` the wheel moved, down being positive; the rest is
-    /// kept for the next event.
-    fn wheel_lines(&mut self, event: &ScrollWheelEvent, line_height: f32) -> isize {
-        let line_height = px(line_height);
-        self.scroll_remainder += event.delta.pixel_delta(line_height).y;
-        let lines = (self.scroll_remainder / line_height).trunc();
-        self.scroll_remainder -= line_height * lines;
-        -lines as isize
     }
 
     fn on_mouse_down(
@@ -306,6 +334,7 @@ impl EditorView {
             + self.editor.viewport.first_column;
         let column = self.display_line(line).0.char_column_at(display_column);
         self.editor.set_point_at(line, column);
+        self.scrolled_sideways = false;
         cx.notify();
     }
 
@@ -411,7 +440,13 @@ impl EditorView {
         Some(column_of(region.start)..end)
     }
 
-    fn render_line(&self, line: usize, metrics: Metrics, gutter_width: Pixels) -> AnyElement {
+    /// The row of `line`, and whether the line goes on past its right edge.
+    fn render_line(
+        &self,
+        line: usize,
+        metrics: Metrics,
+        gutter_width: Pixels,
+    ) -> (AnyElement, bool) {
         let code_font = font::code();
         let row_height = px(code_font.line_height);
         let buffer = self.editor.window_buffer();
@@ -459,7 +494,7 @@ impl EditorView {
             rgba(glass::WINDOW_TINT).into()
         };
 
-        div()
+        let row = div()
             .flex()
             .flex_none()
             .h(row_height)
@@ -501,8 +536,8 @@ impl EditorView {
                     .when(continues, |text| {
                         text.child(edge_fade(Edge::Right, SCROLL_FADE_SIZE, under))
                     }),
-            )
-            .into_any_element()
+            );
+        (row.into_any_element(), continues)
     }
 
     /// Popups next to the text they belong to, e.g. completions under the word or the
@@ -646,15 +681,19 @@ impl EditorView {
             window.viewport_size().width - px(2.0 * ROW_MARGIN + ROW_RADIUS) - gutter_width;
         self.editor.viewport.width = (text_width / metrics.char_width).floor().max(1.0) as usize;
         self.editor.viewport.column_margin = SIDE_MARGIN_COLUMNS;
-        let point_column = self.point_display_column();
-        self.editor.viewport.ensure_column_visible(point_column);
+        if !self.scrolled_sideways {
+            let point_column = self.point_display_column();
+            self.editor.viewport.ensure_column_visible(point_column);
+        }
 
         let first_line = self.editor.viewport.first_line;
         let line_count = self.editor.window_buffer().text().line_count();
         let last_line = (first_line + drawn_rows).min(line_count);
         let popups = self.render_popups(metrics, gutter_width, window);
-        let lines =
-            (first_line..last_line).map(|line| self.render_line(line, metrics, gutter_width));
+        let (lines, continued): (Vec<_>, Vec<_>) = (first_line..last_line)
+            .map(|line| self.render_line(line, metrics, gutter_width))
+            .unzip();
+        self.more_on_right = continued.contains(&true);
         let text_left = px(ROW_MARGIN) + gutter_width;
         let changes = self
             .editor
@@ -977,6 +1016,15 @@ impl Render for EditorView {
             .children(status_above_scrim)
             .children(minibuffer)
     }
+}
+
+/// Whole `step`s the wheel moved by `delta` with what earlier events left in `remainder`,
+/// down or right being positive; the rest stays in `remainder`.
+fn wheel_steps(remainder: &mut Pixels, delta: Pixels, step: Pixels) -> isize {
+    *remainder += delta;
+    let steps = (*remainder / step).trunc();
+    *remainder -= step * steps;
+    -steps as isize
 }
 
 /// A bar in the gutter beside added or modified lines, or a tick between the lines where

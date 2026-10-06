@@ -20,8 +20,8 @@ Status: accepted, 2026-10-06
   character under point never fades.
 - **Only what is in view is laid out**: `display_line::slice_line` reads a line up to the
   columns on screen, so a megabyte line scrolled to its end costs a scan, not a layout.
-
-## Not covered
-
-- Scrolling sideways with the trackpad or a wheel: point would leave the view, and the
-  draw would scroll it back.
+- **Trackpad and wheel scroll sideways too**, along the swipe's main direction only, so a
+  swipe that is not quite straight does not drift. Point stays where it is and may leave
+  the view, as in VS Code, until the next key or click brings it back
+  (`EditorView::scrolled_sideways`). The scroll stops once no drawn line goes on past the
+  right edge.
