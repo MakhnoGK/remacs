@@ -12,8 +12,8 @@ Status: accepted, 2026-10-06 (issue #7)
   all be on a line, in any order; ASCII case is ignored unless the input has an uppercase
   letter, as in the other prompts. No regex, no fuzzy match over lines: exact results,
   and fast on gigabytes.
-- **The files are find-file's index** (files plugin `project_files`, `.gitignore`
-  respected, at most 100 000 files), so nothing walks the tree again. Until its first
+- **The files are find-file's index** (files plugin `project_files`, leaving out what
+  `files.toml` says, ADR 0046, at most 100 000 files), so nothing walks the tree again. Until its first
   scan finishes the prompt says "Searching…"; once the files change, the search runs
   again. Buffers with unsaved changes are searched as they are, first.
 - **Background threads, one search at a time**: up to 8 threads take files in turn; a

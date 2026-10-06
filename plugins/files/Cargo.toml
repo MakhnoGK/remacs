@@ -11,6 +11,7 @@ ignore.workspace = true
 notify.workspace = true
 remacs-core.workspace = true
 remacs-text.workspace = true
+serde.workspace = true
 
 [dev-dependencies]
 remacs-editing.workspace = true

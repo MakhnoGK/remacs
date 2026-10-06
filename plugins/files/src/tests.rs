@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
-use remacs_core::{Editor, Key, SCRATCH_BUFFER, parse_sequence};
+use remacs_core::{Editor, Key, SCRATCH_BUFFER, Settings, parse_sequence};
 use remacs_editing::EditingPlugin;
 use remacs_minibuffer::MinibufferPlugin;
 
@@ -22,7 +22,9 @@ impl Project {
         let _ = fs::remove_dir_all(&root);
         for (path, contents) in [
             (".git/HEAD", ""),
-            (".gitignore", "target/\n*.log\n"),
+            (".gitignore", ".env\n*.log\n"),
+            (".env", "KEY=1\n"),
+            ("node_modules/pkg/index.js", ""),
             ("Cargo.toml", "[package]\n"),
             ("src/marker.rs", ""),
             ("src/mark_ring.rs", ""),
@@ -165,10 +167,13 @@ fn file_index_follows_file_system_changes() {
     fs::remove_file(project.path("docs/marks.md")).unwrap();
 
     let expected: BTreeSet<String> = [
+        ".env",
+        ".gitignore",
         "Cargo.toml",
         "src/marker.rs",
         "src/mark_ring.rs",
         "src/added.rs",
+        "src/debug.log",
         "lib/nested/deep.rs",
     ]
     .map(String::from)
@@ -182,6 +187,27 @@ fn file_index_follows_file_system_changes() {
 }
 
 #[test]
+fn the_settings_say_what_is_left_out_and_gitignore_only_when_asked() {
+    let project = Project::new("index-settings");
+    let mut editor = editor_visiting(&project.path("Cargo.toml"));
+    let files_toml = "ignore = [\"docs/\", \"node_modules/\"]\nuse-gitignore = true\n";
+    let settings =
+        [("files.toml", files_toml)].map(|(name, text)| (PathBuf::from(name), text.to_owned()));
+    editor.set_settings(Settings::from_files(settings));
+    open_find_file(&mut editor);
+    let expected: BTreeSet<String> = [
+        ".gitignore",
+        "Cargo.toml",
+        "src/marker.rs",
+        "src/mark_ring.rs",
+        "target/marked.rs",
+    ]
+    .map(String::from)
+    .into();
+    assert_eq!(candidate_values(&editor), expected);
+}
+
+#[test]
 fn the_scan_is_cached_and_a_stale_cache_gives_way_to_the_next_scan() {
     let project = Project::new("index-cache");
     let cache = std::env::temp_dir().join(format!("remacs-cache-{}", std::process::id()));
@@ -189,14 +215,22 @@ fn the_scan_is_cached_and_a_stale_cache_gives_way_to_the_next_scan() {
     let mut first = editor_visiting(&project.path("Cargo.toml"));
     first.keep_caches_in(cache.clone());
     open_find_file(&mut first);
-    let cached = first.project_cache_dir(&project.0).unwrap().join("files");
+    let directory = first.project_cache_dir(&project.0).unwrap();
+    let cached = || {
+        fs::read_dir(&directory)
+            .ok()?
+            .flatten()
+            .map(|entry| entry.path())
+            .find(|path| path.extension().is_none())
+    };
     let deadline = Instant::now() + INDEX_TIMEOUT;
-    while !cached.exists() && Instant::now() < deadline {
+    while cached().is_none() && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(10));
     }
+    let cached = cached().unwrap();
     assert_eq!(
         fs::read_to_string(&cached).unwrap(),
-        "Cargo.toml\ndocs/marks.md\nsrc/mark_ring.rs\nsrc/marker.rs\n"
+        ".env\n.gitignore\nCargo.toml\ndocs/marks.md\nsrc/mark_ring.rs\nsrc/marker.rs\n"
     );
 
     fs::write(&cached, "gone.rs\n").unwrap();
@@ -204,6 +238,8 @@ fn the_scan_is_cached_and_a_stale_cache_gives_way_to_the_next_scan() {
     second.keep_caches_in(cache.clone());
     let notifications = open_find_file(&mut second);
     let scanned: BTreeSet<String> = [
+        ".env",
+        ".gitignore",
         "Cargo.toml",
         "docs/marks.md",
         "src/mark_ring.rs",

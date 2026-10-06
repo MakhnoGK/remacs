@@ -3,10 +3,16 @@
 mod buffers;
 mod file_index;
 mod find_file;
+mod ignored;
 mod project;
 mod saving;
 
-use remacs_core::{Command, Plugin, Registry};
+use std::rc::Rc;
+
+use remacs_core::{Command, Editor, Plugin, Registry};
+
+use crate::file_index::FileIndexes;
+use crate::ignored::FilesSettings;
 
 pub use file_index::FileIndex;
 pub use find_file::{directory_candidates, project_files};
@@ -47,7 +53,14 @@ impl Plugin for FilesPlugin {
         for &(keys, command) in BINDINGS {
             registry.keymap.bind(keys, command);
         }
+        registry.settings_hooks.push(Rc::new(read_settings));
     }
+}
+
+/// Indexes scan again once `files.toml` changes what they leave out.
+fn read_settings(editor: &mut Editor) {
+    let settings = editor.settings_section::<FilesSettings>();
+    editor.plugin_state::<FileIndexes>().set_settings(settings);
 }
 
 #[cfg(test)]

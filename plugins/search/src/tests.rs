@@ -340,7 +340,11 @@ fn the_window_shows_the_line_selected_and_quitting_puts_it_back() {
     press(&mut editor, "C-n");
     assert_eq!(
         shown(&editor),
-        ("io.rs".into(), second_line, vec![(7, false), (second_line, true)])
+        (
+            "io.rs".into(),
+            second_line,
+            vec![(7, false), (second_line, true)]
+        )
     );
     press(&mut editor, "C-n");
     let call = "fn main() {\n    let file = ".len();

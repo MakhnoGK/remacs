@@ -7,10 +7,12 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use ignore::{WalkBuilder, WalkState};
+use ignore::WalkState;
 use notify::event::ModifyKind;
 use notify::{Event, EventKind, RecursiveMode, Watcher};
 use remacs_core::Notifier;
+
+use crate::ignored::{FilesSettings, Ignored};
 
 /// Keeps a prompt opened over a huge tree responsive and the index small; a tree this
 /// big is indexed once and not kept current.
@@ -19,28 +21,46 @@ const MAX_FILES: usize = 100_000;
 const SETTLE_TIME: Duration = Duration::from_millis(50);
 const IGNORE_FILES: &[&str] = &[".gitignore", ".ignore"];
 
-/// One index per project root, kept for the editor's lifetime.
+/// One index per project root, kept until the settings of what is left out change.
 #[derive(Default)]
-pub struct FileIndexes(HashMap<PathBuf, Arc<FileIndex>>);
+pub struct FileIndexes {
+    indexes: HashMap<PathBuf, Arc<FileIndex>>,
+    settings: FilesSettings,
+}
 
 impl FileIndexes {
-    /// `cache` is the file the files are kept in between sessions, if any.
+    /// `cache` is the directory the files are kept in between sessions, if any.
     pub fn get_or_start(
         &mut self,
         root: &Path,
         cache: Option<PathBuf>,
         notifier: Notifier,
     ) -> Arc<FileIndex> {
-        Arc::clone(
-            self.0
-                .entry(root.to_path_buf())
-                .or_insert_with(|| Arc::new(FileIndex::start(root.to_path_buf(), cache, notifier))),
-        )
+        let settings = &self.settings;
+        Arc::clone(self.indexes.entry(root.to_path_buf()).or_insert_with(|| {
+            let ignored = Arc::new(Ignored::new(root, settings));
+            let cache = cache.map(|dir| dir.join(format!("files-{:x}", settings.key())));
+            Arc::new(FileIndex::start(
+                root.to_path_buf(),
+                cache,
+                notifier,
+                ignored,
+            ))
+        }))
+    }
+
+    /// Drops the indexes when what they leave out changed, so that the next asks scan
+    /// again.
+    pub fn set_settings(&mut self, settings: FilesSettings) {
+        if self.settings != settings {
+            self.indexes.clear();
+            self.settings = settings;
+        }
     }
 }
 
-/// Files under a root, relative to it, without hidden and ignored ones; scanned on a
-/// background thread and then kept current from file system events. The last scan's
+/// Files under a root, relative to it, without those the settings leave out; scanned on
+/// a background thread and then kept current from file system events. The last scan's
 /// files are cached, so that a huge tree is listed at once while it is scanned again.
 pub struct FileIndex {
     listing: Arc<Mutex<Listing>>,
@@ -60,7 +80,12 @@ enum Message {
 }
 
 impl FileIndex {
-    fn start(root: PathBuf, cache: Option<PathBuf>, notifier: Notifier) -> Self {
+    fn start(
+        root: PathBuf,
+        cache: Option<PathBuf>,
+        notifier: Notifier,
+        ignored: Arc<Ignored>,
+    ) -> Self {
         let listing = Arc::default();
         let (messages, received) = mpsc::channel();
         let worker = Worker {
@@ -68,6 +93,7 @@ impl FileIndex {
             cache,
             listing: Arc::clone(&listing),
             notifier,
+            ignored,
         };
         let events = messages.clone();
         thread::Builder::new()
@@ -101,6 +127,7 @@ struct Worker {
     cache: Option<PathBuf>,
     listing: Arc<Mutex<Listing>>,
     notifier: Notifier,
+    ignored: Arc<Ignored>,
 }
 
 impl Worker {
@@ -116,23 +143,23 @@ impl Worker {
             watcher.watch(&self.root, RecursiveMode::Recursive)?;
             Ok(watcher)
         });
-        let mut tree = Tree::scan(&self.root);
+        let mut tree = Tree::scan(&self.root, &self.ignored);
         self.publish_scan(&tree);
         if tree.truncated || watcher.is_err() {
             return;
         }
         while let Ok(Message::Changed(event)) = messages.recv() {
             let mut changes = Changes::default();
-            changes.add(&self.root, event);
+            changes.add(&self.root, event, &self.ignored);
             loop {
                 match messages.recv_timeout(SETTLE_TIME) {
-                    Ok(Message::Changed(event)) => changes.add(&self.root, event),
+                    Ok(Message::Changed(event)) => changes.add(&self.root, event, &self.ignored),
                     Err(RecvTimeoutError::Timeout) => break,
                     Ok(Message::Stop) | Err(RecvTimeoutError::Disconnected) => return,
                 }
             }
             let rescan_all = changes.rescan_all;
-            if !tree.apply(&self.root, changes) {
+            if !tree.apply(&self.root, &self.ignored, changes) {
                 continue;
             }
             // Smaller changes are not worth rewriting a cache that may hold 100 000 paths;
@@ -192,7 +219,7 @@ struct Changes {
 }
 
 impl Changes {
-    fn add(&mut self, root: &Path, event: notify::Result<Event>) {
+    fn add(&mut self, root: &Path, event: notify::Result<Event>, ignored: &Ignored) {
         let Ok(event) = event else {
             self.rescan_all = true;
             return;
@@ -211,9 +238,9 @@ impl Changes {
                 continue;
             };
             let name = relative.file_name().and_then(|name| name.to_str());
-            if name.is_some_and(|name| IGNORE_FILES.contains(&name)) {
+            if ignored.uses_gitignore() && name.is_some_and(|name| IGNORE_FILES.contains(&name)) {
                 self.rescan_all = true;
-            } else if !is_hidden(relative)
+            } else if !ignored.is_ignored(path, path.is_dir())
                 && let Some(parent) = relative.parent()
             {
                 self.directories.insert(path_key(parent));
@@ -231,15 +258,22 @@ struct Tree {
 }
 
 impl Tree {
-    fn scan(root: &Path) -> Self {
-        Self::walk(root, "", None, MAX_FILES)
+    fn scan(root: &Path, ignored: &Arc<Ignored>) -> Self {
+        Self::walk(root, ignored, "", None, MAX_FILES)
     }
 
-    /// Directories entered under `directory` and their files, honouring ignore files;
+    /// Directories entered under `directory` and their files, leaving out ignored ones;
     /// empty when `directory` is gone.
-    fn walk(root: &Path, directory: &str, max_depth: Option<usize>, max_files: usize) -> Self {
+    fn walk(
+        root: &Path,
+        ignored: &Arc<Ignored>,
+        directory: &str,
+        max_depth: Option<usize>,
+        max_files: usize,
+    ) -> Self {
         let tree = Mutex::new(Self::default());
-        WalkBuilder::new(root.join(directory))
+        ignored
+            .walker(&root.join(directory))
             .max_depth(max_depth)
             .build_parallel()
             .run(|| {
@@ -273,9 +307,9 @@ impl Tree {
     }
 
     /// Brings the changed directories up to date; false when nothing changed.
-    fn apply(&mut self, root: &Path, changes: Changes) -> bool {
+    fn apply(&mut self, root: &Path, ignored: &Arc<Ignored>, changes: Changes) -> bool {
         if changes.rescan_all {
-            *self = Self::scan(root);
+            *self = Self::scan(root, ignored);
             return true;
         }
         // Parents sort before their subdirectories, so a new directory is walked once.
@@ -283,17 +317,17 @@ impl Tree {
             .directories
             .iter()
             .fold(false, |changed, directory| {
-                self.rescan(root, directory) | changed
+                self.rescan(root, ignored, directory) | changed
             })
     }
 
     /// Lists `directory` again, walking subdirectories that appeared in it. Directories not
     /// in the index are ignored ones, or new ones that their parent's rescan picks up.
-    fn rescan(&mut self, root: &Path, directory: &str) -> bool {
+    fn rescan(&mut self, root: &Path, ignored: &Arc<Ignored>, directory: &str) -> bool {
         let Some(old_files) = self.directories.get(directory) else {
             return false;
         };
-        let mut listing = Self::walk(root, directory, Some(1), usize::MAX);
+        let mut listing = Self::walk(root, ignored, directory, Some(1), usize::MAX);
         let Some(mut files) = listing.directories.remove(directory) else {
             self.remove_subtree(directory);
             return true;
@@ -314,7 +348,7 @@ impl Tree {
             .filter(|key| !known.contains(*key))
         {
             let remaining = MAX_FILES.saturating_sub(self.file_count);
-            let subtree = Self::walk(root, added, None, remaining);
+            let subtree = Self::walk(root, ignored, added, None, remaining);
             self.file_count += subtree.file_count;
             self.directories.extend(subtree.directories);
             changed = true;
@@ -373,10 +407,4 @@ fn parent_key(key: &str) -> Option<&str> {
         Some(slash) => Some(&key[..slash]),
         None => (!key.is_empty()).then_some(""),
     }
-}
-
-fn is_hidden(relative: &Path) -> bool {
-    relative
-        .components()
-        .any(|component| component.as_os_str().to_string_lossy().starts_with('.'))
 }

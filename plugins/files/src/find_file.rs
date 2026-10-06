@@ -16,8 +16,6 @@ use crate::project::{
 pub const FILE_CATEGORY: &str = "file";
 /// Matches turned into rows; the counter still reports all of them.
 const MAX_CANDIDATES: usize = 500;
-/// In the project's cache directory.
-const FILE_INDEX_CACHE: &str = "files";
 
 /// Opens a file of the current project, matched by name (or by path once the input has
 /// a `/`); input starting with `/` or `~` browses the file system instead.
@@ -31,9 +29,7 @@ pub fn find_file(editor: &mut Editor) -> CommandResult {
 /// and kept current.
 pub fn project_files(editor: &mut Editor, root: &Path) -> Arc<FileIndex> {
     let notifier = editor.notifier();
-    let cache = editor
-        .project_cache_dir(root)
-        .map(|dir| dir.join(FILE_INDEX_CACHE));
+    let cache = editor.project_cache_dir(root);
     editor
         .plugin_state::<FileIndexes>()
         .get_or_start(root, cache, notifier)

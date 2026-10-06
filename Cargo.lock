@@ -3980,6 +3980,7 @@ dependencies = [
  "remacs-editing",
  "remacs-minibuffer",
  "remacs-text",
+ "serde",
 ]
 
 [[package]]
