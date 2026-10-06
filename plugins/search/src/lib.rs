@@ -1,10 +1,14 @@
 //! Built-in plugin: searching the buffer, its matching lines listed in a prompt like the
-//! other searches, like Emacs `consult-line`, and replacing in it, like `query-replace`.
+//! other searches, like Emacs `consult-line`, and replacing in it, like `query-replace`;
+//! searching the whole project's text, like `consult-ripgrep`.
 
 mod lines;
 mod preview;
+mod project;
 mod query;
 mod replace;
+mod scan;
+mod words;
 
 use std::rc::Rc;
 
@@ -20,9 +24,15 @@ const COMMANDS: &[Command] = &[
     Command::new(replace::SKIP_MATCH, "Leave this match and go to the next", replace::skip_match),
     Command::new(replace::REPLACE_ALL, "Replace this match and every one after it", replace::replace_all),
     Command::new(replace::QUIT, "Stop replacing, keeping what was replaced", replace::quit),
+    Command::new(project::PROJECT_SEARCH, "Search the project's text, listing the lines that match", project::project_search),
 ];
 
-const BINDINGS: &[(&str, &str)] = &[("C-s", lines::SEARCH), ("M-%", replace::QUERY_REPLACE)];
+const BINDINGS: &[(&str, &str)] = &[
+    ("C-s", lines::SEARCH),
+    ("M-%", replace::QUERY_REPLACE),
+    ("M-s g", project::PROJECT_SEARCH),
+    ("s-F", project::PROJECT_SEARCH),
+];
 
 impl Plugin for SearchPlugin {
     fn register(&self, registry: &mut Registry) {
@@ -35,6 +45,7 @@ impl Plugin for SearchPlugin {
         registry.decorators.push(Rc::new(preview::decorate));
         registry.post_command_hooks.push(Rc::new(preview::sync));
         registry.post_command_hooks.push(Rc::new(replace::sync));
+        registry.post_command_hooks.push(Rc::new(project::update));
     }
 }
 

@@ -43,8 +43,15 @@ impl FileIndexes {
 /// background thread and then kept current from file system events. The last scan's
 /// files are cached, so that a huge tree is listed at once while it is scanned again.
 pub struct FileIndex {
-    files: Arc<Mutex<Arc<Vec<String>>>>,
+    listing: Arc<Mutex<Listing>>,
     messages: Sender<Message>,
+}
+
+#[derive(Default)]
+struct Listing {
+    files: Arc<Vec<String>>,
+    /// The first scan finished; until then the files are the cached ones, or none.
+    scanned: bool,
 }
 
 enum Message {
@@ -54,12 +61,12 @@ enum Message {
 
 impl FileIndex {
     fn start(root: PathBuf, cache: Option<PathBuf>, notifier: Notifier) -> Self {
-        let files = Arc::default();
+        let listing = Arc::default();
         let (messages, received) = mpsc::channel();
         let worker = Worker {
             root,
             cache,
-            files: Arc::clone(&files),
+            listing: Arc::clone(&listing),
             notifier,
         };
         let events = messages.clone();
@@ -67,13 +74,19 @@ impl FileIndex {
             .name("file-index".into())
             .spawn(move || worker.run(events, received))
             .expect("spawning the file index thread");
-        Self { files, messages }
+        Self { listing, messages }
     }
 
     /// Shallow files first, then by path; the cached ones, or none, until the first scan
     /// finishes.
     pub fn files(&self) -> Arc<Vec<String>> {
-        Arc::clone(&self.files.lock().expect("index lock is never poisoned"))
+        self.files_and_scanned().0
+    }
+
+    /// The files, and whether the first scan finished, so that they are all there.
+    pub fn files_and_scanned(&self) -> (Arc<Vec<String>>, bool) {
+        let listing = self.listing.lock().expect("index lock is never poisoned");
+        (Arc::clone(&listing.files), listing.scanned)
     }
 }
 
@@ -86,14 +99,14 @@ impl Drop for FileIndex {
 struct Worker {
     root: PathBuf,
     cache: Option<PathBuf>,
-    files: Arc<Mutex<Arc<Vec<String>>>>,
+    listing: Arc<Mutex<Listing>>,
     notifier: Notifier,
 }
 
 impl Worker {
     fn run(self, events: Sender<Message>, messages: Receiver<Message>) {
         if let Some(cached) = self.cache.as_deref().and_then(read_cache) {
-            self.publish(cached);
+            self.publish(cached, false);
         }
         // Watching before the scan keeps changes made during it.
         let watcher = notify::recommended_watcher(move |event| {
@@ -127,22 +140,26 @@ impl Worker {
             if rescan_all {
                 self.publish_scan(&tree);
             } else {
-                self.publish(tree.files());
+                self.publish(tree.files(), true);
             }
         }
     }
 
     fn publish_scan(&self, tree: &Tree) {
-        let files = self.publish(tree.files());
+        let files = self.publish(tree.files(), true);
         if let Some(cache) = &self.cache {
             // Only a cache: when it cannot be written, the next session scans first.
             let _ = write_cache(cache, &files);
         }
     }
 
-    fn publish(&self, files: Vec<String>) -> Arc<Vec<String>> {
+    /// `scanned` once the files come from a scan, not the cache.
+    fn publish(&self, files: Vec<String>, scanned: bool) -> Arc<Vec<String>> {
         let files = Arc::new(files);
-        *self.files.lock().expect("index lock is never poisoned") = Arc::clone(&files);
+        *self.listing.lock().expect("index lock is never poisoned") = Listing {
+            files: Arc::clone(&files),
+            scanned,
+        };
         (self.notifier)();
         files
     }

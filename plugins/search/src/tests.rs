@@ -1,6 +1,10 @@
+use std::fs;
 use std::ops::Range;
+use std::path::PathBuf;
+use std::thread;
+use std::time::{Duration, Instant};
 
-use remacs_core::{Buffer, Editor, FUNDAMENTAL_MODE, Face, parse_sequence};
+use remacs_core::{Buffer, Editor, FUNDAMENTAL_MODE, Face, Settings, parse_sequence};
 use remacs_editing::EditingPlugin;
 use remacs_minibuffer::MinibufferPlugin;
 use remacs_text::Text;
@@ -214,6 +218,109 @@ fn found(query: &str, text: &Text, range: Range<usize>) -> Vec<usize> {
         true
     });
     starts
+}
+
+/// A Git work tree: two files with matches, an ignored one and a binary one.
+fn project(name: &str) -> PathBuf {
+    let root = std::env::temp_dir().join(format!("remacs-search-{name}-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(root.join(".git")).unwrap();
+    fs::create_dir_all(root.join("src/target")).unwrap();
+    fs::write(root.join(".gitignore"), "target/\n").unwrap();
+    fs::write(
+        root.join("src/main.rs"),
+        "fn main() {\n    let file = open(\"a\");\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/io.rs"),
+        "pub fn open_file() {}\nfn open() {}\n",
+    )
+    .unwrap();
+    fs::write(root.join("src/target/out.rs"), "open file\n").unwrap();
+    fs::write(root.join("data.bin"), b"open\0file\n").unwrap();
+    root.canonicalize().unwrap()
+}
+
+/// Refreshes until the prompt lists something and says nothing more is coming.
+fn wait_for_lines(editor: &mut Editor) -> Vec<(String, String, String)> {
+    let started = Instant::now();
+    loop {
+        editor.refresh();
+        let minibuffer = editor.minibuffer().unwrap();
+        let candidates = minibuffer.candidates();
+        if !candidates.is_empty() && minibuffer.note().is_none() {
+            return candidates
+                .iter()
+                .map(|candidate| {
+                    let group = candidate.group.as_deref().unwrap_or_default().to_owned();
+                    (group, candidate.annotation.clone(), candidate.label.clone())
+                })
+                .collect();
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "no lines found"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn the_project_is_searched_for_lines_with_every_word_unsaved_buffers_as_they_are() {
+    let root = project("words");
+    let mut editor = Editor::new(&[&EditingPlugin, &MinibufferPlugin, &SearchPlugin]);
+    editor.visit_file(&root.join("src/main.rs")).unwrap();
+    let buffer = editor.window_buffer_mut();
+    buffer.set_point(buffer.text().len());
+    buffer.insert("// open the file\n");
+
+    press(&mut editor, "M-s g");
+    type_text(&mut editor, "file open");
+    let lines = wait_for_lines(&mut editor);
+    assert_eq!(
+        lines,
+        [
+            (
+                "src/main.rs".into(),
+                "2".into(),
+                "let file = open(\"a\");".into()
+            ),
+            ("src/main.rs".into(), "4".into(), "// open the file".into()),
+            (
+                "src/io.rs".into(),
+                "1".into(),
+                "pub fn open_file() {}".into()
+            ),
+        ]
+    );
+
+    press(&mut editor, "C-n C-n RET");
+    let buffer = editor.window_buffer();
+    assert_eq!(buffer.path(), Some(root.join("src/io.rs").as_path()));
+    assert_eq!(buffer.point(), "pub fn ".len());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn the_search_stops_at_the_most_lines_the_settings_allow() {
+    let root = project("most");
+    let mut editor = Editor::new(&[&EditingPlugin, &MinibufferPlugin, &SearchPlugin]);
+    let settings = [("search.toml", "project-max-matches = 2\n")]
+        .map(|(name, text)| (PathBuf::from(name), text.to_owned()));
+    editor.set_settings(Settings::from_files(settings));
+    editor.visit_file(&root.join("src/io.rs")).unwrap();
+
+    press(&mut editor, "M-s g");
+    type_text(&mut editor, "open");
+    let started = Instant::now();
+    while editor.minibuffer().unwrap().note() != Some("First 2 lines") {
+        assert!(started.elapsed() < Duration::from_secs(10), "never stopped");
+        thread::sleep(Duration::from_millis(10));
+        editor.refresh();
+    }
+    assert_eq!(editor.minibuffer().unwrap().candidates().len(), 2);
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

@@ -1,6 +1,6 @@
 [package]
 name = "remacs-search"
-description = "Built-in plugin: searching the buffer, its matching lines listed in a prompt"
+description = "Built-in plugin: searching the buffer or the project, the matching lines listed in a prompt"
 version.workspace = true
 edition.workspace = true
 license-file.workspace = true
@@ -8,8 +8,11 @@ publish.workspace = true
 
 [dependencies]
 memchr.workspace = true
+memmap2.workspace = true
 remacs-core.workspace = true
+remacs-files.workspace = true
 remacs-text.workspace = true
+serde.workspace = true
 
 [dev-dependencies]
 remacs-editing.workspace = true

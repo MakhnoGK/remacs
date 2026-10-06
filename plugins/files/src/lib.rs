@@ -8,7 +8,8 @@ mod saving;
 
 use remacs_core::{Command, Plugin, Registry};
 
-pub use find_file::directory_candidates;
+pub use file_index::FileIndex;
+pub use find_file::{directory_candidates, project_files};
 pub use project::{abbreviate_home, default_directory, expand_home, project_root, with_slash};
 
 pub struct FilesPlugin;

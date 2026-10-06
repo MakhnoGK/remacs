@@ -23,14 +23,20 @@ const FILE_INDEX_CACHE: &str = "files";
 /// a `/`); input starting with `/` or `~` browses the file system instead.
 pub fn find_file(editor: &mut Editor) -> CommandResult {
     let root = project_root(&default_directory(editor));
+    let index = project_files(editor, &root);
+    read_file_name(editor, Rc::new(root), index, String::new())
+}
+
+/// The files of the project at `root`, indexed in the background from the first call on
+/// and kept current.
+pub fn project_files(editor: &mut Editor, root: &Path) -> Arc<FileIndex> {
     let notifier = editor.notifier();
     let cache = editor
-        .project_cache_dir(&root)
+        .project_cache_dir(root)
         .map(|dir| dir.join(FILE_INDEX_CACHE));
-    let index = editor
+    editor
         .plugin_state::<FileIndexes>()
-        .get_or_start(&root, cache, notifier);
-    read_file_name(editor, Rc::new(root), index, String::new())
+        .get_or_start(root, cache, notifier)
 }
 
 fn read_file_name(

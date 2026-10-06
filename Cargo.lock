@@ -4088,10 +4088,13 @@ name = "remacs-search"
 version = "0.1.0"
 dependencies = [
  "memchr",
+ "memmap2",
  "remacs-core",
  "remacs-editing",
+ "remacs-files",
  "remacs-minibuffer",
  "remacs-text",
+ "serde",
 ]
 
 [[package]]
