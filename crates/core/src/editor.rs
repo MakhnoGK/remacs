@@ -883,6 +883,8 @@ impl Editor {
         self.buffers[0].window_start = self.viewport.first_line;
         let buffer = self.buffers.remove(index);
         self.viewport.first_line = buffer.window_start;
+        // Left as it was, a short buffer would stay scrolled sideways.
+        self.viewport.first_column = 0;
         self.buffers.insert(0, buffer);
     }
 

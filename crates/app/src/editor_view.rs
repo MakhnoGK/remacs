@@ -20,7 +20,7 @@ use remacs_theme::{color, font, glass};
 
 use crate::changes_view::render_changes;
 use crate::conflict_view::codes as conflict_codes;
-use crate::display_line::DisplayLine;
+use crate::display_line::{DisplayLine, display_width, slice_line};
 use crate::highlights::{Highlights, combine, face_style, region_style};
 use crate::key_input::to_key;
 use crate::minibuffer_view::{is_problem_list, render_minibuffer, render_scrim};
@@ -35,8 +35,8 @@ use crate::table_view::{
     LIST_BOTTOM, ROW_PITCH, ROWS_TOP, TableCursor, fits_preview, render_hints, render_table,
 };
 use crate::widgets::{
-    Edge, Scrolled, cursor_text_style, edge_fade, icon, modified_dot, pill, pill_separator,
-    tone_color,
+    Edge, SCROLL_FADE_SIZE, Scrolled, cursor_text_style, edge_fade, hsla, icon, modified_dot, pill,
+    pill_separator, tone_color,
 };
 
 /// Minified files can hold megabytes on one line; lay out only what can be on screen.
@@ -46,6 +46,10 @@ const TITLE_BAR_HEIGHT: f32 = 44.0;
 const FOOTER_FADE_HEIGHT: f32 = 56.0;
 const TEXT_TOP: f32 = 64.0;
 const ROW_MARGIN: f32 = 8.0;
+const ROW_RADIUS: f32 = 6.0;
+/// Columns point keeps from a side with text scrolled past it, clear of the side fades;
+/// Zed keeps 5, Vim users often set `sidescrolloff` to 5–8.
+const SIDE_MARGIN_COLUMNS: usize = 7;
 const GUTTER_PADDING: f32 = 20.0;
 const MIN_GUTTER_DIGITS: usize = 3;
 /// Marks of changed lines are centered this far left of the text.
@@ -298,8 +302,9 @@ impl EditorView {
         let text_left = px(ROW_MARGIN) + self.gutter_width(metrics);
         let display_column = ((event.position.x - text_left) / metrics.char_width)
             .round()
-            .max(0.0) as usize;
-        let column = self.display_line(line).char_column_at(display_column);
+            .max(0.0) as usize
+            + self.editor.viewport.first_column;
+        let column = self.display_line(line).0.char_column_at(display_column);
         self.editor.set_point_at(line, column);
         cx.notify();
     }
@@ -342,27 +347,35 @@ impl EditorView {
         metrics.digit_width * digits.max(MIN_GUTTER_DIGITS) as f32 + px(GUTTER_PADDING)
     }
 
-    /// Bytes of `line` that can be on screen.
-    fn visible_range(&self, line: usize) -> Range<usize> {
-        let range = self
-            .editor
-            .window_buffer()
-            .text()
-            .line_range(line)
-            .unwrap_or_default();
-        range.start..range.end.min(range.start + MAX_RENDERED_LINE_BYTES)
-    }
-
-    fn display_line(&self, line: usize) -> DisplayLine {
+    /// The part of `line` in the viewport's columns, and the bytes of the buffer it shows.
+    fn display_line(&self, line: usize) -> (DisplayLine, Range<usize>) {
         let text = self.editor.window_buffer().text();
-        DisplayLine::new(&String::from_utf8_lossy(
-            &text.bytes_in(self.visible_range(line)),
-        ))
+        let range = text.line_range(line).unwrap_or_default();
+        let viewport = &self.editor.viewport;
+        let columns = viewport.first_column..viewport.first_column + viewport.width;
+        let part = slice_line(text.chunks(range.clone()).flatten().copied(), columns);
+        let start = range.start + part.bytes.start;
+        let end = range.start + part.bytes.end;
+        let visible = start..end.min(start + MAX_RENDERED_LINE_BYTES);
+        let continues = part.continues || visible.end < end;
+        let source = text.bytes_in(visible.clone());
+        let source = String::from_utf8_lossy(&source);
+        (DisplayLine::part(&source, part.start, continues), visible)
     }
 
-    /// Each decorator's faces on `line`, mapped onto its display text.
-    fn face_layers(&self, line: usize, display_line: &DisplayLine) -> Vec<Highlights> {
-        let visible = self.visible_range(line);
+    /// The display column of the window buffer's point.
+    fn point_display_column(&self) -> usize {
+        let buffer = self.editor.window_buffer();
+        let text = buffer.text();
+        let line_start = text
+            .line_range(buffer.point_line())
+            .unwrap_or_default()
+            .start;
+        display_width(text.chunks(line_start..buffer.point()).flatten().copied())
+    }
+
+    /// Each decorator's faces on the `visible` bytes, mapped onto their display text.
+    fn face_layers(&self, visible: Range<usize>, display_line: &DisplayLine) -> Vec<Highlights> {
         let to_line = |offset: usize| offset.clamp(visible.start, visible.end) - visible.start;
         self.editor
             .decorations(visible.clone())
@@ -403,8 +416,8 @@ impl EditorView {
         let row_height = px(code_font.line_height);
         let buffer = self.editor.window_buffer();
         let is_current = line == buffer.point_line();
-        let mut display_line = self.display_line(line);
-        let mut layers = self.face_layers(line, &display_line);
+        let (mut display_line, visible) = self.display_line(line);
+        let mut layers = self.face_layers(visible, &display_line);
         if let Some(columns) = self.region_columns(line) {
             layers.push(vec![(display_line.cell_range(columns), region_style())]);
         }
@@ -427,11 +440,23 @@ impl EditorView {
                     .bg(rgb(color::FG_MAIN)),
             );
         }
+        let scrolled_past = self
+            .editor
+            .viewport
+            .first_column
+            .saturating_sub(display_line.first_column());
+        let (hidden_start, continues) = (display_line.has_hidden_start(), display_line.continues);
         let content = StyledText::new(display_line.text).with_highlights(combine(&layers));
         let number_color = if is_current {
             color::FG_MAIN
         } else {
             color::FG_LINE_NUMBER
+        };
+        // The text fades into what the row is drawn on.
+        let under = if is_current {
+            hsla(color::BG_HL_LINE)
+        } else {
+            rgba(glass::WINDOW_TINT).into()
         };
 
         div()
@@ -439,7 +464,7 @@ impl EditorView {
             .flex_none()
             .h(row_height)
             .mx(px(ROW_MARGIN))
-            .rounded(px(6.0))
+            .rounded(px(ROW_RADIUS))
             .when(is_current, |row| row.bg(rgb(color::BG_HL_LINE)))
             .whitespace_nowrap()
             .line_height(row_height)
@@ -456,10 +481,26 @@ impl EditorView {
             .child(
                 div()
                     .relative()
-                    .text_size(px(code_font.size))
-                    // Before the text, so that it is drawn under it.
-                    .children(cursor)
-                    .child(content),
+                    .flex_1()
+                    .min_w_0()
+                    // Clear of the row's rounded end, which a fade would fill.
+                    .mr(px(ROW_RADIUS))
+                    .overflow_hidden()
+                    .child(
+                        div()
+                            .relative()
+                            .left(-metrics.char_width * scrolled_past as f32)
+                            .text_size(px(code_font.size))
+                            // Before the text, so that it is drawn under it.
+                            .children(cursor)
+                            .child(content),
+                    )
+                    .when(hidden_start, |text| {
+                        text.child(edge_fade(Edge::Left, SCROLL_FADE_SIZE, under))
+                    })
+                    .when(continues, |text| {
+                        text.child(edge_fade(Edge::Right, SCROLL_FADE_SIZE, under))
+                    }),
             )
             .into_any_element()
     }
@@ -492,11 +533,12 @@ impl EditorView {
                 if line_top >= window_size.height {
                     return None;
                 }
-                let visible = self.visible_range(line);
+                let (display_line, visible) = self.display_line(line);
                 let offset = popup.anchor.clamp(visible.start, visible.end) - visible.start;
-                let display_line = self.display_line(line);
                 let byte = display_line.display_range(offset..offset).start;
-                let column = display_line.text[..byte].chars().count();
+                let column = (display_line.first_column()
+                    + display_line.text[..byte].chars().count())
+                .saturating_sub(self.editor.viewport.first_column);
                 let anchor_left =
                     px(ROW_MARGIN) + gutter_width + metrics.char_width * column as f32;
                 let placement = Placement {
@@ -599,8 +641,14 @@ impl EditorView {
         self.editor.viewport.set_height(clear_rows);
         // Only the top fade is over lines point can be on.
         self.editor.viewport.margins = (1, 0);
-
         let gutter_width = self.gutter_width(metrics);
+        let text_width =
+            window.viewport_size().width - px(2.0 * ROW_MARGIN + ROW_RADIUS) - gutter_width;
+        self.editor.viewport.width = (text_width / metrics.char_width).floor().max(1.0) as usize;
+        self.editor.viewport.column_margin = SIDE_MARGIN_COLUMNS;
+        let point_column = self.point_display_column();
+        self.editor.viewport.ensure_column_visible(point_column);
+
         let first_line = self.editor.viewport.first_line;
         let line_count = self.editor.window_buffer().text().line_count();
         let last_line = (first_line + drawn_rows).min(line_count);

@@ -14,7 +14,7 @@ pub fn hsla(hex: u32) -> Hsla {
     rgb(hex).into()
 }
 
-const SCROLL_FADE_HEIGHT: f32 = 32.0;
+pub const SCROLL_FADE_SIZE: f32 = 32.0;
 
 /// Whether there is more of a list than is shown, before and after it.
 #[derive(Clone, Copy, Default)]
@@ -27,6 +27,8 @@ pub struct Scrolled {
 pub enum Edge {
     Top,
     Bottom,
+    Left,
+    Right,
 }
 
 /// `list`, its content dissolving into `under`, what it is drawn on, at the edges with more
@@ -34,19 +36,21 @@ pub enum Edge {
 pub fn fade_scrolled(list: Div, scrolled: Scrolled, under: Hsla) -> Div {
     list.relative()
         .when(scrolled.above, |list| {
-            list.child(edge_fade(Edge::Top, SCROLL_FADE_HEIGHT, under))
+            list.child(edge_fade(Edge::Top, SCROLL_FADE_SIZE, under))
         })
         .when(scrolled.below, |list| {
-            list.child(edge_fade(Edge::Bottom, SCROLL_FADE_HEIGHT, under))
+            list.child(edge_fade(Edge::Bottom, SCROLL_FADE_SIZE, under))
         })
 }
 
-/// Mixes what its parent drew within `height` of `edge` toward `under`: wholly at the edge,
+/// Mixes what its parent drew within `size` of `edge` toward `under`: wholly at the edge,
 /// less and less away from it. Unlike a gradient over the content, it lets the glass show.
-pub fn edge_fade(edge: Edge, height: f32, under: Hsla) -> impl IntoElement {
+pub fn edge_fade(edge: Edge, size: f32, under: Hsla) -> impl IntoElement {
     let angle = match edge {
         Edge::Top => 180.0,
         Edge::Bottom => 0.0,
+        Edge::Left => 90.0,
+        Edge::Right => 270.0,
     };
     let amount = linear_gradient(
         angle,
@@ -57,13 +61,12 @@ pub fn edge_fade(edge: Edge, height: f32, under: Hsla) -> impl IntoElement {
         |_, _, _| {},
         move |bounds, _, window, _| window.paint_fade(bounds, amount, under),
     )
-    .absolute()
-    .left_0()
-    .right_0()
-    .h(px(height));
+    .absolute();
     match edge {
-        Edge::Top => fade.top_0(),
-        Edge::Bottom => fade.bottom_0(),
+        Edge::Top => fade.left_0().right_0().h(px(size)).top_0(),
+        Edge::Bottom => fade.left_0().right_0().h(px(size)).bottom_0(),
+        Edge::Left => fade.top_0().bottom_0().w(px(size)).left_0(),
+        Edge::Right => fade.top_0().bottom_0().w(px(size)).right_0(),
     }
 }
 

@@ -9,6 +9,13 @@ pub struct Viewport {
     /// Lines at the top and bottom that point stays out of while there are more lines
     /// beyond them, like Emacs `scroll-margin`: the window fades them.
     pub margins: (usize, usize),
+    /// The display column at the left edge, like Emacs `window-hscroll`.
+    pub first_column: usize,
+    /// Columns that fit across; 0 until the window is first laid out.
+    pub width: usize,
+    /// Columns at the left and right that point stays out of while scrolled sideways,
+    /// like Emacs `hscroll-margin`: the window fades text past them.
+    pub column_margin: usize,
 }
 
 impl Viewport {
@@ -48,6 +55,26 @@ impl Viewport {
             self.first_line = top;
         } else if bottom > self.last_line() {
             self.first_line = bottom + 1 - self.height;
+        }
+    }
+
+    /// Scrolls sideways only as far as keeps display `column` out of the side margins,
+    /// unlike Emacs, which recenters; nothing before the first layout.
+    pub fn ensure_column_visible(&mut self, column: usize) {
+        if self.width == 0 {
+            return;
+        }
+        let margin = if 2 * self.column_margin < self.width {
+            self.column_margin
+        } else {
+            0
+        };
+        let left = column.saturating_sub(margin);
+        let right = column + margin;
+        if left < self.first_column {
+            self.first_column = left;
+        } else if right >= self.first_column + self.width {
+            self.first_column = right + 1 - self.width;
         }
     }
 
@@ -112,6 +139,7 @@ mod tests {
             first_line: 10,
             height: 5,
             margins: (1, 1),
+            ..Viewport::default()
         };
         viewport.ensure_visible(14, 100);
         assert_eq!(viewport.first_line, 11);
@@ -125,5 +153,37 @@ mod tests {
         viewport.ensure_visible(99, 100);
         assert_eq!(viewport.first_line, 95);
         assert_eq!(viewport.clamp(99, 100), 99);
+    }
+
+    #[test]
+    fn scrolls_sideways_before_point_reaches_an_edge() {
+        let mut viewport = Viewport {
+            width: 20,
+            column_margin: 7,
+            ..Viewport::default()
+        };
+        viewport.ensure_column_visible(12);
+        assert_eq!(viewport.first_column, 0);
+        viewport.ensure_column_visible(13);
+        assert_eq!(viewport.first_column, 1);
+        viewport.ensure_column_visible(100);
+        assert_eq!(viewport.first_column, 88);
+        viewport.ensure_column_visible(95);
+        assert_eq!(viewport.first_column, 88);
+        viewport.ensure_column_visible(94);
+        assert_eq!(viewport.first_column, 87);
+        viewport.ensure_column_visible(3);
+        assert_eq!(viewport.first_column, 0);
+    }
+
+    #[test]
+    fn drops_side_margins_that_leave_no_column_clear() {
+        let mut viewport = Viewport {
+            width: 10,
+            column_margin: 7,
+            ..Viewport::default()
+        };
+        viewport.ensure_column_visible(10);
+        assert_eq!(viewport.first_column, 1);
     }
 }
