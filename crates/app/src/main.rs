@@ -36,6 +36,7 @@ use remacs_languages::{GRAMMARS, LanguagesPlugin, PRETTIER_MODES, SERVERS};
 use remacs_lsp::LspPlugin;
 use remacs_minibuffer::MinibufferPlugin;
 use remacs_prettier::PrettierPlugin;
+use remacs_rename::RenamePlugin;
 use remacs_search::SearchPlugin;
 use remacs_syntax::SyntaxPlugin;
 use remacs_xref::XrefPlugin;
@@ -59,6 +60,7 @@ const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
     &DocumentationPlugin,
     &XrefPlugin,
     &ActionsPlugin,
+    &RenamePlugin,
     &FormatPlugin,
     // Format backends, asked in order; language servers format what the others leave.
     &PrettierPlugin::new(PRETTIER_MODES),

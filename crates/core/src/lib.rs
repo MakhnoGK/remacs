@@ -6,6 +6,7 @@ mod command;
 mod completion;
 mod decoration;
 mod editor;
+mod file_change;
 mod history;
 mod key;
 mod keymap;
@@ -29,6 +30,7 @@ pub use completion::{
 };
 pub use decoration::{Decorator, Face, Span};
 pub use editor::{Editor, Notifier, SCRATCH_BUFFER, SELF_INSERT_COMMAND};
+pub use file_change::{ChangedFiles, FileChange};
 pub use key::{Key, KeyCode, Modifiers, describe_sequence, parse_sequence};
 pub use keymap::{Binding, Keymap};
 pub use kill_ring::KillRing;

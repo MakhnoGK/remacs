@@ -26,6 +26,7 @@ remacs-dired.workspace = true
 remacs-documentation.workspace = true
 remacs-format.workspace = true
 remacs-prettier.workspace = true
+remacs-rename.workspace = true
 remacs-xref.workspace = true
 tree-sitter.workspace = true
 

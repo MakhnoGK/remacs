@@ -16,6 +16,7 @@ use remacs_format::FormatPlugin;
 use remacs_languages::{LanguagesPlugin, PRETTIER_MODES, SERVERS};
 use remacs_lsp::LspPlugin;
 use remacs_prettier::PrettierPlugin;
+use remacs_rename::RenamePlugin;
 use remacs_xref::XrefPlugin;
 
 static LSP: LspPlugin = LspPlugin::new(SERVERS);
@@ -584,6 +585,140 @@ fn rust_analyzer_updates_mod_declarations_of_files_renamed_in_dired() {
     let lib = fs::read_to_string(src.join("lib.rs")).unwrap();
     assert!(lib.starts_with("mod case_fiddle;"), "{lib}");
     assert!(src.join("case_fiddle.rs").exists());
+}
+
+/// Renames the symbol `at` points into to `new_name`, asking again while the server is
+/// still loading the project; returns the editor once the rename is said to be done.
+fn rename_symbol(file: &Path, at: &str, new_name: &str) -> Editor {
+    let plugins: Vec<&dyn Plugin> = PLUGINS
+        .iter()
+        .copied()
+        .chain([&RenamePlugin as &dyn Plugin])
+        .collect();
+    let mut editor = Editor::new(&plugins);
+    editor.visit_file(file).unwrap();
+    let source = fs::read_to_string(file).unwrap();
+    let point = source.find(at).unwrap() + 1;
+    let started = Instant::now();
+    loop {
+        assert!(started.elapsed() < TIMEOUT, "never asked for the new name");
+        editor.window_buffer_mut().set_point(point);
+        editor.run_command("rename-symbol");
+        thread::sleep(Duration::from_millis(300));
+        editor.refresh();
+        if editor.minibuffer().is_some() {
+            break;
+        }
+        eprintln!("{:?}", editor.echo());
+    }
+    let minibuffer = editor.minibuffer_mut().unwrap();
+    eprintln!("offered {:?}", minibuffer.input_text());
+    minibuffer.set_input(new_name);
+    editor.exit_minibuffer(false).unwrap();
+    refresh_until(&mut editor, "the rename", |editor| {
+        editor
+            .echo()
+            .is_some_and(|echo| !echo.starts_with("Renaming"))
+    });
+    eprintln!("{}", editor.echo().unwrap());
+    editor
+}
+
+#[test]
+#[ignore]
+fn rust_analyzer_renames_symbols_everywhere_saving_every_file() {
+    let root = project(
+        "rust-rename-symbol",
+        &[
+            (
+                "Cargo.toml",
+                "[package]\nname = \"demo\"\nedition = \"2024\"\n",
+            ),
+            (
+                "src/lib.rs",
+                "mod util;\n\npub fn run() {\n    util::helper();\n}\n",
+            ),
+            ("src/util.rs", "pub fn helper() {}\n"),
+        ],
+    );
+    let src = root.join("src").canonicalize().unwrap();
+    let editor = rename_symbol(&src.join("lib.rs"), "helper();", "assist");
+    assert!(editor.echo().unwrap().ends_with("2 places in 2 files"));
+    assert!(!editor.window_buffer().is_modified());
+    let lib = fs::read_to_string(src.join("lib.rs")).unwrap();
+    assert!(lib.contains("util::assist();"), "{lib}");
+    let util = fs::read_to_string(src.join("util.rs")).unwrap();
+    assert_eq!(util, "pub fn assist() {}\n");
+}
+
+#[test]
+#[ignore]
+fn rust_analyzer_renames_modules_with_their_files() {
+    let root = project(
+        "rust-rename-module",
+        &[
+            (
+                "Cargo.toml",
+                "[package]\nname = \"demo\"\nedition = \"2024\"\n",
+            ),
+            (
+                "src/lib.rs",
+                "mod util;\n\npub fn run() {\n    util::assist();\n}\n",
+            ),
+            ("src/util.rs", "pub fn assist() {}\n"),
+        ],
+    );
+    let src = root.join("src").canonicalize().unwrap();
+    let editor = rename_symbol(&src.join("lib.rs"), "util::", "tools");
+    assert!(editor.echo().unwrap().contains("moved util.rs to tools.rs"));
+    let lib = fs::read_to_string(src.join("lib.rs")).unwrap();
+    assert!(
+        lib.starts_with("mod tools;") && lib.contains("tools::assist();"),
+        "{lib}"
+    );
+    assert!(src.join("tools.rs").exists() && !src.join("util.rs").exists());
+}
+
+#[test]
+#[ignore]
+fn typescript_updates_imports_of_files_moved_in_dired() {
+    let root = project(
+        "ts-move",
+        &[
+            ("tsconfig.json", "{}\n"),
+            ("src/a.ts", "export const x = 1;\n"),
+            (
+                "src/b.ts",
+                "import { x } from \"./a\";\n\nconsole.log(x);\n",
+            ),
+        ],
+    );
+    let src = root.join("src").canonicalize().unwrap();
+    fs::create_dir_all(src.join("lib")).unwrap();
+    let plugins: Vec<&dyn Plugin> = [&DiredPlugin as &dyn Plugin]
+        .into_iter()
+        .chain(PLUGINS.iter().copied())
+        .collect();
+    let mut editor = Editor::new(&plugins);
+    // A served file starts the server for the project.
+    editor.visit_file(&src.join("b.ts")).unwrap();
+    list_directory(&mut editor, &src).unwrap();
+    refresh_until(&mut editor, "listing", |editor| {
+        editor.window_buffer().text().line_count() > 2
+    });
+    let buffer = editor.window_buffer_mut();
+    let source = buffer.contents(0..buffer.text().len());
+    buffer.set_point(source.find("a.ts").unwrap());
+    editor.run_command("dired-do-rename");
+    editor.minibuffer_mut().unwrap().set_input("lib/");
+    editor.exit_minibuffer(true).unwrap();
+    refresh_until(&mut editor, "the move", |editor| {
+        editor.echo().is_some_and(|echo| echo.starts_with("Moved"))
+    });
+    eprintln!("{}", editor.echo().unwrap());
+    let b = fs::read_to_string(src.join("b.ts")).unwrap();
+    assert!(b.starts_with("import { x } from \"./lib/a\";"), "{b}");
+    assert!(src.join("lib/a.ts").exists());
 }
 
 /// Formats the whole file and returns the buffer once it changed.

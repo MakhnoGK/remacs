@@ -65,6 +65,8 @@ pub struct Editor {
     cache_dir: Option<PathBuf>,
     notifier: Arc<RwLock<Notifier>>,
     refresh_at: Option<Instant>,
+    /// Files moved since [`Editor::take_moved_files`], from and to.
+    moved_files: Vec<(PathBuf, PathBuf)>,
 }
 
 impl Editor {
@@ -100,6 +102,7 @@ impl Editor {
             cache_dir: None,
             notifier: Arc::new(RwLock::new(Arc::new(|| {}))),
             refresh_at: None,
+            moved_files: Vec::new(),
         }
     }
 
@@ -209,9 +212,17 @@ impl Editor {
         Ok(())
     }
 
+    /// Files moved since the last call, from and to, for backends such as language
+    /// servers to be told.
+    pub fn take_moved_files(&mut self) -> Vec<(PathBuf, PathBuf)> {
+        mem::take(&mut self.moved_files)
+    }
+
     /// Makes buffers visiting `from`, or files under it, visit them at `to`, renamed
     /// after them, as Emacs does after `dired-rename-file`.
     pub fn file_moved(&mut self, from: &Path, to: &Path) {
+        self.moved_files
+            .push((from.to_path_buf(), to.to_path_buf()));
         for index in 0..self.buffers.len() {
             let Some(rest) = self.buffers[index]
                 .path()

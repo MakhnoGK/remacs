@@ -7,15 +7,17 @@ mod code_action;
 mod completion;
 mod definition;
 mod document;
+mod file_rename;
 mod hover;
 mod markdown;
 mod position;
-mod rename;
 mod settings;
 mod snippet;
+mod symbol_rename;
 mod symbols;
 mod transport;
 mod uri;
+mod workspace_edit;
 
 use std::rc::Rc;
 
@@ -70,7 +72,8 @@ impl Plugin for LspPlugin {
         let servers = self.servers;
         registry.post_command_hooks.push(Rc::new(move |editor| {
             document::sync(editor, servers);
-            rename::sync(editor, servers);
+            file_rename::sync(editor, servers);
+            symbol_rename::sync(editor, servers);
             symbols::sync(editor, servers);
         }));
         registry

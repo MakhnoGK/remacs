@@ -3892,6 +3892,7 @@ dependencies = [
  "remacs-lsp",
  "remacs-minibuffer",
  "remacs-prettier",
+ "remacs-rename",
  "remacs-search",
  "remacs-syntax",
  "remacs-theme",
@@ -4021,6 +4022,7 @@ dependencies = [
  "remacs-format",
  "remacs-lsp",
  "remacs-prettier",
+ "remacs-rename",
  "remacs-syntax",
  "remacs-xref",
  "tree-sitter",
@@ -4045,6 +4047,7 @@ dependencies = [
  "remacs-dired",
  "remacs-documentation",
  "remacs-format",
+ "remacs-rename",
  "remacs-text",
  "remacs-xref",
  "serde",
@@ -4069,6 +4072,15 @@ dependencies = [
  "remacs-format",
  "remacs-text",
  "serde_json",
+]
+
+[[package]]
+name = "remacs-rename"
+version = "0.1.0"
+dependencies = [
+ "remacs-core",
+ "remacs-editing",
+ "remacs-minibuffer",
 ]
 
 [[package]]

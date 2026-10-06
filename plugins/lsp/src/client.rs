@@ -11,14 +11,14 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 
 use lsp_types::notification::{
-    DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument,
-    Initialized, Notification, PublishDiagnostics,
+    DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidRenameFiles,
+    DidSaveTextDocument, Initialized, Notification, PublishDiagnostics,
 };
 use lsp_types::request::{
     ApplyWorkspaceEdit, CodeActionRequest, CodeActionResolveRequest, Completion,
     DocumentDiagnosticRequest, ExecuteCommand, Formatting, GotoDefinition, HoverRequest,
-    Initialize, RangeFormatting, Request, ResolveCompletionItem, WillRenameFiles,
-    WorkspaceConfiguration, WorkspaceDiagnosticRefresh, WorkspaceSymbolRequest,
+    Initialize, PrepareRenameRequest, RangeFormatting, Rename, Request, ResolveCompletionItem,
+    WillRenameFiles, WorkspaceConfiguration, WorkspaceDiagnosticRefresh, WorkspaceSymbolRequest,
 };
 use lsp_types::{
     ApplyWorkspaceEditParams, CodeAction, CodeActionOrCommand, CompletionItem,
@@ -41,7 +41,7 @@ use crate::position::{Encoding, from_lsp, to_lsp};
 use crate::settings::ServerSettings;
 use crate::symbols::{self, FoundSymbol};
 use crate::transport::{read_message, write_message};
-use crate::{code_action, definition, hover, uri};
+use crate::{code_action, definition, hover, symbol_rename, uri};
 
 const INITIALIZE_ID: u64 = 0;
 /// rust-analyzer's, with `quiescent` false while it loads the project.
@@ -132,15 +132,35 @@ pub(crate) enum Outgoing {
         text: Snapshot,
         range: Option<Range<usize>>,
     },
-    /// Asks what renaming files, from and to, would change in others; `id` is dired's.
+    /// Asks what renaming files, from and to, would change in others.
     WillRename {
         id: u64,
+        files: Vec<(Uri, Uri)>,
+    },
+    /// Tells that files were renamed, from and to.
+    DidRename {
         files: Vec<(Uri, Uri)>,
     },
     /// Asks for the project's symbols matching `query`; `id` is xref's.
     Symbols {
         id: u64,
         query: String,
+    },
+    /// Asks for the name of the symbol at `offset` of `text` to rename, or whether it can
+    /// be; `id` is the rename plugin's.
+    PrepareRename {
+        id: u64,
+        uri: Uri,
+        text: Snapshot,
+        offset: usize,
+    },
+    /// Asks for the edits renaming the symbol at `offset` of `text` makes.
+    Rename {
+        id: u64,
+        uri: Uri,
+        text: Snapshot,
+        offset: usize,
+        new_name: String,
     },
     /// Answers a request the server made.
     Reply {
@@ -165,6 +185,20 @@ pub(crate) struct Found {
     pub encoding: Encoding,
     /// Given while the server was still loading the project, so it may have missed some.
     pub settled: bool,
+}
+
+/// What a server answered about renaming a symbol.
+pub(crate) enum SymbolRenamed {
+    Name {
+        id: u64,
+        name: Result<String, String>,
+    },
+    /// None when there is nothing to change.
+    Edit {
+        id: u64,
+        edit: Result<Option<WorkspaceEdit>, String>,
+        encoding: Encoding,
+    },
 }
 
 /// The newest diagnostics a server reported for a file.
@@ -285,6 +319,14 @@ enum Pending {
     Symbols {
         id: u64,
     },
+    PrepareRename {
+        id: u64,
+        text: Snapshot,
+        offset: usize,
+    },
+    Rename {
+        id: u64,
+    },
 }
 
 impl Pending {
@@ -307,6 +349,7 @@ struct Inbox {
     /// Kept apart from `answers`, which are for the window buffer's document.
     renamed: Vec<Renamed>,
     found: Vec<Found>,
+    symbol_renamed: Vec<SymbolRenamed>,
 }
 
 type SharedInbox = Arc<Mutex<Inbox>>;
@@ -322,9 +365,12 @@ struct Negotiated {
     incremental: bool,
     completion: Option<CompletionSupport>,
     will_rename: bool,
+    did_rename: bool,
     formatting: bool,
     range_formatting: bool,
     workspace_symbols: bool,
+    rename: bool,
+    prepare_rename: bool,
 }
 
 /// A language server process for one project root. A writer thread sends what the editor
@@ -454,6 +500,10 @@ impl Client {
         std::mem::take(&mut lock(&self.inbox).found)
     }
 
+    pub fn take_symbol_renamed(&self) -> Vec<SymbolRenamed> {
+        std::mem::take(&mut lock(&self.inbox).symbol_renamed)
+    }
+
     pub fn pulls_diagnostics(&self) -> bool {
         self.pulls_diagnostics
     }
@@ -515,6 +565,7 @@ fn initialize_params(options: Option<Value>, root: &Path) -> Value {
                 },
                 "hover": { "contentFormat": ["markdown", "plaintext"] },
                 "definition": { "linkSupport": true },
+                "rename": { "prepareSupport": true },
                 // Without literal support servers send bare commands only.
                 "codeAction": {
                     "codeActionLiteralSupport": {
@@ -532,8 +583,13 @@ fn initialize_params(options: Option<Value>, root: &Path) -> Value {
             },
             "workspace": {
                 "applyEdit": true,
-                "workspaceEdit": { "documentChanges": true },
-                "fileOperations": { "willRename": true },
+                // Renaming a Rust module renames its file too.
+                "workspaceEdit": {
+                    "documentChanges": true,
+                    "resourceOperations": ["create", "rename"],
+                    "failureHandling": "abort",
+                },
+                "fileOperations": { "willRename": true, "didRename": true },
                 // Every kind, up to type parameters; else servers keep to the first 18.
                 "symbol": { "symbolKind": { "valueSet": (1..=26).collect::<Vec<u8>>() } },
             },
@@ -716,6 +772,58 @@ impl Writer {
                 let pending = Pending::WillRename { id: *id };
                 self.ask(WillRenameFiles::METHOD, params, pending)
             }
+            Outgoing::DidRename { files } => {
+                if !negotiated.did_rename {
+                    return Ok(());
+                }
+                let files: Vec<_> = files
+                    .iter()
+                    .map(|(old, new)| json!({ "oldUri": old, "newUri": new }))
+                    .collect();
+                json!({ "jsonrpc": "2.0", "method": DidRenameFiles::METHOD, "params": { "files": files } })
+            }
+            Outgoing::PrepareRename {
+                id,
+                uri,
+                text,
+                offset,
+            } => {
+                if !negotiated.rename || !negotiated.prepare_rename {
+                    let name = if negotiated.rename {
+                        symbol_rename::word_at(text, *offset).ok_or_else(nothing_to_rename)
+                    } else {
+                        Err(format!("{} cannot rename symbols", self.server))
+                    };
+                    let answer = SymbolRenamed::Name { id: *id, name };
+                    lock(&self.inbox).symbol_renamed.push(answer);
+                    (self.notifier)();
+                    return Ok(());
+                }
+                let params = json!({
+                    "textDocument": TextDocumentIdentifier::new(uri.clone()),
+                    "position": to_lsp(text, *offset, negotiated.encoding),
+                });
+                let pending = Pending::PrepareRename {
+                    id: *id,
+                    text: text.clone(),
+                    offset: *offset,
+                };
+                self.ask(PrepareRenameRequest::METHOD, params, pending)
+            }
+            Outgoing::Rename {
+                id,
+                uri,
+                text,
+                offset,
+                new_name,
+            } => {
+                let params = json!({
+                    "textDocument": TextDocumentIdentifier::new(uri.clone()),
+                    "position": to_lsp(text, *offset, negotiated.encoding),
+                    "newName": new_name,
+                });
+                self.ask(Rename::METHOD, params, Pending::Rename { id: *id })
+            }
             Outgoing::Symbols { id, query } => {
                 if !negotiated.workspace_symbols {
                     lock(&self.inbox).found.push(Found {
@@ -852,7 +960,10 @@ impl Outgoing {
             | Outgoing::Execute { .. }
             | Outgoing::Format { .. }
             | Outgoing::WillRename { .. }
-            | Outgoing::Symbols { .. } => unreachable!("the writer numbers requests"),
+            | Outgoing::DidRename { .. }
+            | Outgoing::Symbols { .. }
+            | Outgoing::PrepareRename { .. }
+            | Outgoing::Rename { .. } => unreachable!("the writer numbers requests"),
             Outgoing::Reply { id, result } => {
                 json!({ "jsonrpc": "2.0", "id": id, "result": result })
             }
@@ -880,6 +991,10 @@ fn content_change(
         range_length: None,
         text: contents(new, edit.start..edit.new_end),
     }
+}
+
+fn nothing_to_rename() -> String {
+    "Nothing to rename here".into()
 }
 
 /// A capability given as `true` or as its options.
@@ -1002,9 +1117,12 @@ impl Reader {
             incremental: !full_sync,
             completion: CompletionSupport::from_capabilities(capabilities),
             will_rename: capabilities["workspace"]["fileOperations"]["willRename"].is_object(),
+            did_rename: capabilities["workspace"]["fileOperations"]["didRename"].is_object(),
             formatting: is_provided(&capabilities["documentFormattingProvider"]),
             range_formatting: is_provided(&capabilities["documentRangeFormattingProvider"]),
             workspace_symbols: is_provided(&capabilities["workspaceSymbolProvider"]),
+            rename: is_provided(&capabilities["renameProvider"]),
+            prepare_rename: capabilities["renameProvider"]["prepareProvider"] == true,
         });
     }
 
@@ -1140,7 +1258,32 @@ impl Reader {
                 });
                 (self.notifier)();
             }
+            Pending::PrepareRename { id, text, offset } => {
+                let name = match error {
+                    Some(message) => Err(message),
+                    None => serde_json::from_value(result)
+                        .ok()
+                        .and_then(|response| {
+                            symbol_rename::name(response, &text, offset, self.encoding)
+                        })
+                        .ok_or_else(nothing_to_rename),
+                };
+                self.deliver_renamed(SymbolRenamed::Name { id, name });
+            }
+            Pending::Rename { id } => {
+                let edit = match error {
+                    Some(message) => Err(message),
+                    None => Ok(serde_json::from_value(result).ok()),
+                };
+                let encoding = self.encoding;
+                self.deliver_renamed(SymbolRenamed::Edit { id, edit, encoding });
+            }
         }
+    }
+
+    fn deliver_renamed(&mut self, answer: SymbolRenamed) {
+        lock(&self.inbox).symbol_renamed.push(answer);
+        (self.notifier)();
     }
 
     fn deliver(&mut self, answer: Answer) {

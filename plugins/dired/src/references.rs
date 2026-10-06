@@ -5,7 +5,7 @@ use std::fs;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
-use remacs_core::{DiffLine, Editor, FileDiff, FileEdits};
+use remacs_core::{DiffLine, Editor, FileChange, FileDiff, FileEdits};
 use remacs_files::abbreviate_home;
 
 use crate::listing::Listing;
@@ -21,7 +21,19 @@ pub struct RenameRequest {
 struct Requests {
     last_id: u64,
     queued: Vec<RenameRequest>,
+    /// A move waiting for the edits to the references to the files it moves.
+    waiting_move: Option<WaitingMove>,
 }
+
+struct WaitingMove {
+    id: u64,
+    /// The request was still queued after a command, so if it still is after the next
+    /// one, no backend takes such questions.
+    queued_after_command: bool,
+    then: MoveWithEdits,
+}
+
+type MoveWithEdits = Box<dyn FnOnce(&mut Editor, Vec<FileEdits>)>;
 
 /// What a listing being edited knows of the references its renames would update.
 #[derive(Default)]
@@ -50,20 +62,78 @@ pub fn ask(editor: &mut Editor, renames: Vec<(PathBuf, PathBuf)>) -> References 
     if renames.is_empty() {
         return References::default();
     }
-    let requests = editor.plugin_state::<Requests>();
-    requests.last_id += 1;
-    let id = requests.last_id;
-    requests.queued.push(RenameRequest {
-        id,
-        renames: renames.clone(),
-    });
-    // Backends' hooks may have run already in this pass.
-    editor.notifier()();
+    let id = queue(editor, renames.clone());
     References {
         id,
         renames,
         state: State::Unanswered,
     }
+}
+
+/// Asks backends what moving files, from and to, would update, then calls `then` with the
+/// edits; with none when no backend answers such questions.
+pub fn ask_before_moving(
+    editor: &mut Editor,
+    moves: Vec<(PathBuf, PathBuf)>,
+    then: impl FnOnce(&mut Editor, Vec<FileEdits>) + 'static,
+) -> Result<(), &'static str> {
+    if editor.plugin_state::<Requests>().waiting_move.is_some() {
+        return Err("Still finding references for the last move");
+    }
+    if moves.is_empty() {
+        then(editor, Vec::new());
+        return Ok(());
+    }
+    let id = queue(editor, moves);
+    editor.plugin_state::<Requests>().waiting_move = Some(WaitingMove {
+        id,
+        queued_after_command: false,
+        then: Box::new(then),
+    });
+    editor.set_message("Finding references to update…");
+    Ok(())
+}
+
+fn queue(editor: &mut Editor, renames: Vec<(PathBuf, PathBuf)>) -> u64 {
+    let requests = editor.plugin_state::<Requests>();
+    requests.last_id += 1;
+    let id = requests.last_id;
+    requests.queued.push(RenameRequest { id, renames });
+    // Backends' hooks may have run already in this pass.
+    editor.notifier()();
+    id
+}
+
+/// Moves without updating references once it is clear that no backend takes the
+/// question. Runs after every command, before the backends' hooks.
+pub fn after_command(editor: &mut Editor) {
+    let requests = editor.plugin_state::<Requests>();
+    let Some(waiting) = &mut requests.waiting_move else {
+        return;
+    };
+    let id = waiting.id;
+    if !requests.queued.iter().any(|request| request.id == id) {
+        return;
+    }
+    if !waiting.queued_after_command {
+        waiting.queued_after_command = true;
+        editor.notifier()();
+        return;
+    }
+    requests.queued.retain(|request| request.id != id);
+    if let Some(waiting) = requests.waiting_move.take() {
+        (waiting.then)(editor, Vec::new());
+    }
+}
+
+/// Makes the edits and saves the files edited, so that they match the renamed files on
+/// disk; returns the buffers edited.
+pub(crate) fn update(editor: &mut Editor, updates: Vec<FileEdits>) -> Result<Vec<String>, String> {
+    let changes = updates.into_iter().map(FileChange::Edit).collect();
+    editor
+        .change_files(changes)
+        .map(|changed| changed.edited)
+        .map_err(|error| format!("Could not update references: {error}"))
 }
 
 /// The questions asked since the last call, for a backend to answer.
@@ -80,6 +150,10 @@ pub fn take_rename_requests(editor: &mut Editor) -> Vec<RenameRequest> {
 /// Answers question `id` with the edits the renames call for, in offsets of the texts of
 /// the buffers visiting the files, else of the files.
 pub fn deliver_rename_edits(editor: &mut Editor, id: u64, edits: Vec<FileEdits>) {
+    let waiting_move = &mut editor.plugin_state::<Requests>().waiting_move;
+    if let Some(waiting) = waiting_move.take_if(|waiting| waiting.id == id) {
+        return (waiting.then)(editor, edits);
+    }
     let Some(directory) = editor.buffers().iter().find_map(|buffer| {
         let listing = buffer.local::<Listing>()?;
         (listing.editing.as_ref()?.references.id == id).then(|| buffer.default_directory())?

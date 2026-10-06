@@ -558,6 +558,46 @@ fn moving_marked_files_into_a_new_folder_takes_their_buffers_along() {
 }
 
 #[test]
+fn moving_updates_references_first_and_backends_hear_of_the_move() {
+    let tree = Tree::new("move-references");
+    let refs = tree.0.join("refs.txt");
+    fs::write(&refs, "use lib;\n").unwrap();
+    let mut editor = editor();
+    let buffer = editor.find_file_noselect(&refs).unwrap();
+    buffer.set_point(buffer.text().len());
+    buffer.insert("// unsaved\n");
+    open_directory(&mut editor, &tree.0, None, false).unwrap();
+    wait_for_listing(&mut editor);
+
+    press(&mut editor, "n n R");
+    type_text(&mut editor, "sub/");
+    press(&mut editor, "RET");
+    let request = take_rename_requests(&mut editor).pop().unwrap();
+    let (from, to) = (tree.0.join("lib.rs"), tree.0.join("sub/lib.rs"));
+    assert_eq!(request.renames, [(from.clone(), to.clone())]);
+    editor.refresh();
+    assert_eq!(
+        editor.echo().as_deref(),
+        Some("Finding references to update…")
+    );
+    assert!(from.exists());
+
+    let edits = FileEdits {
+        path: refs.clone(),
+        edits: vec![(4..7, "sub::lib".into())],
+    };
+    deliver_rename_edits(&mut editor, request.id, vec![edits]);
+    wait_for_message(&mut editor, "Moved lib.rs to");
+    assert!(editor.echo().unwrap().ends_with("; updated refs.txt"));
+    assert_eq!(
+        fs::read_to_string(&refs).unwrap(),
+        "use sub::lib;\n// unsaved\n"
+    );
+    assert!(to.exists() && !from.exists());
+    assert_eq!(editor.take_moved_files(), [(from, to)]);
+}
+
+#[test]
 fn files_already_there_are_kept_unless_overwriting() {
     let tree = Tree::new("overwrite");
     fs::write(tree.0.join("sub/lib.rs"), "old").unwrap();

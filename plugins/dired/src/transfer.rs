@@ -14,6 +14,7 @@ use crate::file_ops::{copy_path, move_path, remove};
 use crate::jobs::{self, Report, failure_message};
 use crate::listing::file_icon;
 use crate::marks::marked_or_at_point;
+use crate::references;
 
 const DESTINATION_CATEGORY: &str = "dired-destination";
 const RECENT_DESTINATIONS: usize = 5;
@@ -251,7 +252,67 @@ fn start(editor: &mut Editor, transfer: Transfer, answer: &str) -> CommandResult
             .map(Path::to_path_buf)
             .unwrap_or_default()
     };
+    let job = Job {
+        directory,
+        target_directory,
+        pairs,
+        what,
+        shown,
+        moving,
+        overwrite,
+        record_moves,
+    };
+    if !moving {
+        run(editor, job, Vec::new());
+        return Ok(());
+    }
+    // Files already there are skipped, so references to them stay.
+    let moves = job
+        .pairs
+        .iter()
+        .filter(|(_, to)| overwrite || fs::symlink_metadata(to).is_err())
+        .cloned()
+        .collect();
+    references::ask_before_moving(
+        editor,
+        moves,
+        move |editor, edits| match references::update(editor, edits) {
+            Ok(updated) => run(editor, job, updated),
+            Err(error) => editor.set_message(error),
+        },
+    )?;
+    Ok(())
+}
+
+/// A copy or move settled on.
+struct Job {
+    directory: PathBuf,
+    target_directory: PathBuf,
+    pairs: Vec<(PathBuf, PathBuf)>,
+    what: String,
+    /// The destination as the message names it.
+    shown: String,
+    moving: bool,
+    overwrite: bool,
+    record_moves: bool,
+}
+
+/// Copies or moves in the background; `updated` names the buffers whose references to
+/// the moved files were updated.
+fn run(editor: &mut Editor, job: Job, updated: Vec<String>) {
+    let Job {
+        directory,
+        target_directory,
+        pairs,
+        what,
+        shown,
+        moving,
+        overwrite,
+        record_moves,
+    } = job;
+    let verb = if moving { "move" } else { "copy" };
     let busy = if moving { "Moving…" } else { "Copying…" };
+    let count = pairs.len();
     jobs::run(editor, busy, move || {
         let (mut skipped, mut failures, mut moved) = (0, Vec::new(), Vec::new());
         for (from, to) in pairs {
@@ -278,9 +339,9 @@ fn start(editor: &mut Editor, transfer: Transfer, answer: &str) -> CommandResult
             }
         }
         let done = if moving { "Moved" } else { "Copied" };
-        let message = failure_message(verb, &failures).unwrap_or_else(|| match skipped {
+        let mut message = failure_message(verb, &failures).unwrap_or_else(|| match skipped {
             0 => format!("{done} {what} to {shown}"),
-            _ if skipped == names.len() => {
+            _ if skipped == count => {
                 format!("Nothing to {verb}: already in {shown} (Overwrite existing replaces)")
             }
             _ => format!(
@@ -288,6 +349,9 @@ fn start(editor: &mut Editor, transfer: Transfer, answer: &str) -> CommandResult
                 plural(skipped, "file")
             ),
         });
+        if !updated.is_empty() {
+            message.push_str(&format!("; updated {}", updated.join(", ")));
+        }
         Report {
             directories: vec![directory, target_directory],
             moved,
@@ -295,7 +359,6 @@ fn start(editor: &mut Editor, transfer: Transfer, answer: &str) -> CommandResult
             message,
         }
     });
-    Ok(())
 }
 
 fn file_name(path: &Path) -> String {

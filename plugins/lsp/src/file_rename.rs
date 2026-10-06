@@ -1,30 +1,42 @@
 //! Asks servers what renaming files calls for elsewhere, such as the `mod` declarations
-//! of renamed Rust modules (`workspace/willRenameFiles`), for names edited in dired.
+//! of renamed Rust modules (`workspace/willRenameFiles`), for files renamed or moved in
+//! dired and those a symbol's rename moves, and tells them once done
+//! (`workspace/didRenameFiles`).
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
 use lsp_types::Uri;
-use remacs_core::{Editor, FileEdits};
-use remacs_dired::RenameRequest;
+use remacs_core::{Editor, FileChange, FileEdits};
 
 use crate::LanguageServer;
 use crate::client::{Client, Outgoing};
-use crate::code_action::file_edits;
 use crate::document::Clients;
 use crate::uri;
+use crate::workspace_edit::file_edits;
 
 /// Edits collected for each question until every server asked has answered.
 #[derive(Default)]
 struct Asked {
-    by_id: HashMap<u64, Collected>,
+    last_key: u64,
+    by_key: HashMap<u64, Collected>,
 }
 
 struct Collected {
+    asker: Asker,
     unanswered: Vec<Part>,
     edits: Vec<FileEdits>,
+}
+
+/// Who the edits go to.
+pub(crate) enum Asker {
+    /// Dired's question `id`.
+    Dired(u64),
+    /// The rename plugin's request `id`, whose `changes` rename files: rust-analyzer then
+    /// leaves the edits to the references out of them, for `willRenameFiles` to give.
+    SymbolRename { id: u64, changes: Vec<FileChange> },
 }
 
 /// What one server is asked.
@@ -35,52 +47,84 @@ struct Part {
     ask_again: bool,
 }
 
-/// Hands answers over and sends dired's new questions.
+/// Hands answers over, sends dired's new questions and tells servers of files renamed.
 pub(crate) fn sync(editor: &mut Editor, servers: &'static [LanguageServer]) {
     collect_answers(editor);
     ask_settled_servers_again(editor);
     for request in remacs_dired::take_rename_requests(editor) {
-        ask(editor, servers, request);
+        ask(editor, servers, &request.renames, Asker::Dired(request.id));
+    }
+    let moved = editor.take_moved_files();
+    for part in by_server(editor, servers, &moved, |(_, to)| to) {
+        part.client.send(Outgoing::DidRename { files: part.files });
     }
 }
 
-/// Asks each server about the renames of the files it serves, starting it if needed, and
-/// of directories in the projects it already serves; with none, answers at once.
-fn ask(editor: &mut Editor, servers: &'static [LanguageServer], request: RenameRequest) {
-    let mut unanswered: Vec<Part> = Vec::new();
-    for (from, to) in &request.renames {
-        for client in clients_for(editor, servers, from) {
-            let rename = (uri::from_path(from), uri::from_path(to));
-            match unanswered
+/// Asks each server about the renames, from and to, of the files it serves, starting it
+/// if needed, and of directories in the projects it already serves; with none, answers
+/// at once.
+pub(crate) fn ask(
+    editor: &mut Editor,
+    servers: &'static [LanguageServer],
+    renames: &[(PathBuf, PathBuf)],
+    asker: Asker,
+) {
+    let unanswered = by_server(editor, servers, renames, |(from, _)| from);
+    if unanswered.is_empty() {
+        return answer(editor, asker, Vec::new());
+    }
+    let asked = editor.plugin_state::<Asked>();
+    asked.last_key += 1;
+    let key = asked.last_key;
+    for part in &unanswered {
+        part.client.send(Outgoing::WillRename {
+            id: key,
+            files: part.files.clone(),
+        });
+    }
+    let collected = Collected {
+        asker,
+        unanswered,
+        edits: Vec::new(),
+    };
+    asked.by_key.insert(key, collected);
+}
+
+fn answer(editor: &mut Editor, asker: Asker, edits: Vec<FileEdits>) {
+    match asker {
+        Asker::Dired(id) => remacs_dired::deliver_rename_edits(editor, id, edits),
+        Asker::SymbolRename { id, changes } => {
+            let edits = edits.into_iter().map(FileChange::Edit);
+            remacs_rename::deliver_changes(editor, id, Ok(edits.chain(changes).collect()));
+        }
+    }
+}
+
+/// The renames, from and to, for each server of the files `served` names in them.
+fn by_server(
+    editor: &mut Editor,
+    servers: &'static [LanguageServer],
+    renames: &[(PathBuf, PathBuf)],
+    served: impl Fn(&(PathBuf, PathBuf)) -> &PathBuf,
+) -> Vec<Part> {
+    let mut parts: Vec<Part> = Vec::new();
+    for rename in renames {
+        for client in clients_for(editor, servers, served(rename)) {
+            let files = (uri::from_path(&rename.0), uri::from_path(&rename.1));
+            match parts
                 .iter_mut()
                 .find(|part| Rc::ptr_eq(&part.client, &client))
             {
-                Some(part) => part.files.push(rename),
-                None => unanswered.push(Part {
+                Some(part) => part.files.push(files),
+                None => parts.push(Part {
                     client,
-                    files: vec![rename],
+                    files: vec![files],
                     ask_again: false,
                 }),
             }
         }
     }
-    if unanswered.is_empty() {
-        return remacs_dired::deliver_rename_edits(editor, request.id, Vec::new());
-    }
-    for part in &unanswered {
-        part.client.send(Outgoing::WillRename {
-            id: request.id,
-            files: part.files.clone(),
-        });
-    }
-    let collected = Collected {
-        unanswered,
-        edits: Vec::new(),
-    };
-    editor
-        .plugin_state::<Asked>()
-        .by_id
-        .insert(request.id, collected);
+    parts
 }
 
 /// The servers running for a directory's projects, or those for a file, started if
@@ -121,7 +165,7 @@ fn collect_answers(editor: &mut Editor) {
         .collect();
     for client in clients {
         for renamed in client.take_renamed() {
-            let asked = &mut editor.plugin_state::<Asked>().by_id;
+            let asked = &mut editor.plugin_state::<Asked>().by_key;
             let Some(collected) = asked.get_mut(&renamed.id) else {
                 continue;
             };
@@ -145,24 +189,24 @@ fn collect_answers(editor: &mut Editor) {
                 }),
                 None => Vec::new(),
             };
-            let asked = &mut editor.plugin_state::<Asked>().by_id;
+            let asked = &mut editor.plugin_state::<Asked>().by_key;
             if let Some(collected) = asked.get_mut(&renamed.id) {
                 collected.edits.extend(edits);
             }
             if done && let Some(collected) = asked.remove(&renamed.id) {
-                remacs_dired::deliver_rename_edits(editor, renamed.id, collected.edits);
+                answer(editor, collected.asker, collected.edits);
             }
         }
     }
 }
 
 fn ask_settled_servers_again(editor: &mut Editor) {
-    for (id, collected) in &mut editor.plugin_state::<Asked>().by_id {
+    for (key, collected) in &mut editor.plugin_state::<Asked>().by_key {
         for part in &mut collected.unanswered {
             if part.ask_again && part.client.is_settled() {
                 part.ask_again = false;
                 part.client.send(Outgoing::WillRename {
-                    id: *id,
+                    id: *key,
                     files: part.files.clone(),
                 });
             }

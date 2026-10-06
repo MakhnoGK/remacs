@@ -13,8 +13,8 @@ use remacs_xref::{Location, Symbol, SymbolRequest};
 use crate::LanguageServer;
 use crate::client::{Client, Outgoing};
 use crate::document::Clients;
+use crate::file_rename::clients_for;
 use crate::position::{Encoding, from_lsp, text_of};
-use crate::rename::clients_for;
 use crate::uri;
 
 /// A symbol as a server reported it; only the editor has the file's text to place it.

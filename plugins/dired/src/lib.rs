@@ -157,6 +157,9 @@ impl Plugin for DiredPlugin {
         registry.post_command_hooks.push(Rc::new(jobs::pick_up));
         registry
             .post_command_hooks
+            .push(Rc::new(references::after_command));
+        registry
+            .post_command_hooks
             .push(Rc::new(wdired::after_command));
         registry
             .post_command_hooks

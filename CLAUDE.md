@@ -7,6 +7,10 @@ Emacs-inspired IDE from scratch in Rust + gpui. Everything is a plugin.
 - Concise code, minimal comments: only the non-obvious "why", never the "what".
 - Separated responsibilities; DRY and SOLID.
 - Readable, descriptive names for variables, types and functions.
+- Everything tunable goes into config, not code constants: colors, sizes, timings, limits,
+  key bindings, behavior toggles. When adding or changing a feature, expose its settings
+  and update the default config in `~/.config/remacs/config/` (`ui.toml`, `lsp.toml`,
+  `format.toml`, or a new file) to match.
 
 ## Fixed decisions
 

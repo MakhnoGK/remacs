@@ -454,6 +454,23 @@ pub(crate) fn restart(editor: &mut Editor, name: &'static str) {
     }
 }
 
+/// The server that answers questions about `path`'s buffer, the file's URI and the text
+/// the server has.
+pub(crate) fn first_server(editor: &Editor, path: &Path) -> Option<(Rc<Client>, Uri, Snapshot)> {
+    let document = editor
+        .buffers()
+        .iter()
+        .find(|buffer| buffer.path() == Some(path))?
+        .local::<Documents>()?
+        .list
+        .first()?;
+    Some((
+        Rc::clone(&document.client),
+        document.uri.clone(),
+        document.sent_text(),
+    ))
+}
+
 /// Hands answers over, keeps every buffer's servers up to date and passes their
 /// diagnostics on, then sends what the plugins ask, including what the answers made them
 /// ask. Runs after every command and whenever a server published or answered something.

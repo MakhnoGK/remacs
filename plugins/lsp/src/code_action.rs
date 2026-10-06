@@ -1,13 +1,10 @@
-use lsp_types::{
-    CodeActionKind, CodeActionOrCommand, DocumentChangeOperation, DocumentChanges, OneOf, TextEdit,
-    Uri, WorkspaceEdit,
-};
+use lsp_types::{CodeActionKind, CodeActionOrCommand, WorkspaceEdit};
 use remacs_actions::Action;
-use remacs_core::{CommandResult, Editor, FileEdits};
+use remacs_core::{CommandResult, Editor};
 
 use crate::client::{Client, Outgoing};
-use crate::position::{Encoding, from_lsp, text_of};
-use crate::uri;
+use crate::position::Encoding;
+use crate::workspace_edit::file_edits;
 
 /// The actions as the menu shows them, in the server's order.
 pub(crate) fn menu(actions: &[CodeActionOrCommand]) -> Vec<Action> {
@@ -85,56 +82,4 @@ pub(crate) fn apply(
 ) -> CommandResult {
     let changes = file_edits(editor, edit, encoding)?;
     remacs_actions::apply(editor, id, changes)
-}
-
-/// The edits per file, in offsets of the texts the server has. `documentChanges` wins
-/// over `changes`, as the protocol says.
-pub(crate) fn file_edits(
-    editor: &Editor,
-    edit: WorkspaceEdit,
-    encoding: Encoding,
-) -> Result<Vec<FileEdits>, String> {
-    let mut by_file: Vec<(Uri, Vec<TextEdit>)> = Vec::new();
-    match edit.document_changes {
-        Some(DocumentChanges::Edits(edits)) => {
-            by_file.extend(edits.into_iter().map(|edit| {
-                let edits = edit.edits.into_iter().map(text_edit).collect();
-                (edit.text_document.uri, edits)
-            }));
-        }
-        Some(DocumentChanges::Operations(operations)) => {
-            for operation in operations {
-                let DocumentChangeOperation::Edit(edit) = operation else {
-                    return Err("Creating, renaming or deleting files is not supported".into());
-                };
-                let edits = edit.edits.into_iter().map(text_edit).collect();
-                by_file.push((edit.text_document.uri, edits));
-            }
-        }
-        None => by_file.extend(edit.changes.into_iter().flatten()),
-    }
-    by_file
-        .into_iter()
-        .map(|(uri, edits)| {
-            let path = uri::to_path(&uri).ok_or_else(|| format!("Not a file: {}", uri.as_str()))?;
-            let text = text_of(editor, &path)
-                .ok_or_else(|| format!("{}: cannot be read", path.display()))?;
-            let edits = edits
-                .into_iter()
-                .map(|edit| {
-                    let start = from_lsp(&text, edit.range.start, encoding);
-                    let end = from_lsp(&text, edit.range.end, encoding).max(start);
-                    (start..end, edit.new_text)
-                })
-                .collect();
-            Ok(FileEdits { path, edits })
-        })
-        .collect()
-}
-
-fn text_edit(edit: OneOf<TextEdit, lsp_types::AnnotatedTextEdit>) -> TextEdit {
-    match edit {
-        OneOf::Left(edit) => edit,
-        OneOf::Right(annotated) => annotated.text_edit,
-    }
 }

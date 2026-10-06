@@ -2,15 +2,13 @@
 //! applying renames the files whose lines changed, after updating references to them.
 
 use std::collections::HashMap;
-use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use remacs_core::{
-    Buffer, Button, Changes, CommandResult, Completions, Editor, Elsewhere, FileEdits, Prompt,
-    StatusItem, StatusSegment, Tone,
+    Buffer, Button, Changes, CommandResult, Completions, Editor, Elsewhere, Prompt, StatusItem,
+    StatusSegment, Tone,
 };
-use remacs_files::abbreviate_home;
 
 use crate::commands::NOT_A_LISTING;
 use crate::entry::{Entry, PARENT, describe_entries, plural};
@@ -113,7 +111,7 @@ pub fn apply(editor: &mut Editor) -> CommandResult {
         State::Known { edits, .. } => edits.clone(),
         State::Unanswered => Vec::new(),
     };
-    let updated = update_references(editor, updates)?;
+    let updated = references::update(editor, updates)?;
     let buffer = editor.window_buffer_mut();
     let renamed = rename_entries(buffer, &renames);
     let record_moves = stop_editing(buffer)?.record_moves;
@@ -379,27 +377,6 @@ fn check(buffer: &Buffer, renames: &[Rename]) -> Result<(), String> {
         Some(rename) => Err(format!("Two files would be named {}", rename.to)),
         None => Ok(()),
     }
-}
-
-/// Makes the edits, saving the files that had no unsaved changes so that they match the
-/// renamed files on disk; returns the buffers edited.
-fn update_references(editor: &mut Editor, updates: Vec<FileEdits>) -> Result<Vec<String>, String> {
-    let mut updated = Vec::new();
-    for edits in updates {
-        let path = edits.path.clone();
-        let failed =
-            |error: io::Error| format!("Could not update {}: {error}", abbreviate_home(&path));
-        let unsaved = editor
-            .buffers()
-            .iter()
-            .any(|buffer| buffer.path() == Some(path.as_path()) && buffer.is_modified());
-        let buffer = editor.edit_file(edits).map_err(failed)?;
-        if !unsaved {
-            buffer.save().map_err(failed)?;
-        }
-        updated.push(buffer.name().to_owned());
-    }
-    Ok(updated)
 }
 
 /// Lists the new names at once, marks and all; the read after renaming corrects any
