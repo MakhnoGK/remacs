@@ -1,4 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
@@ -22,17 +24,24 @@ const IGNORE_FILES: &[&str] = &[".gitignore", ".ignore"];
 pub struct FileIndexes(HashMap<PathBuf, Arc<FileIndex>>);
 
 impl FileIndexes {
-    pub fn get_or_start(&mut self, root: &Path, notifier: Notifier) -> Arc<FileIndex> {
+    /// `cache` is the file the files are kept in between sessions, if any.
+    pub fn get_or_start(
+        &mut self,
+        root: &Path,
+        cache: Option<PathBuf>,
+        notifier: Notifier,
+    ) -> Arc<FileIndex> {
         Arc::clone(
             self.0
                 .entry(root.to_path_buf())
-                .or_insert_with(|| Arc::new(FileIndex::start(root.to_path_buf(), notifier))),
+                .or_insert_with(|| Arc::new(FileIndex::start(root.to_path_buf(), cache, notifier))),
         )
     }
 }
 
 /// Files under a root, relative to it, without hidden and ignored ones; scanned on a
-/// background thread and then kept current from file system events.
+/// background thread and then kept current from file system events. The last scan's
+/// files are cached, so that a huge tree is listed at once while it is scanned again.
 pub struct FileIndex {
     files: Arc<Mutex<Arc<Vec<String>>>>,
     messages: Sender<Message>,
@@ -44,11 +53,12 @@ enum Message {
 }
 
 impl FileIndex {
-    fn start(root: PathBuf, notifier: Notifier) -> Self {
+    fn start(root: PathBuf, cache: Option<PathBuf>, notifier: Notifier) -> Self {
         let files = Arc::default();
         let (messages, received) = mpsc::channel();
         let worker = Worker {
             root,
+            cache,
             files: Arc::clone(&files),
             notifier,
         };
@@ -60,7 +70,8 @@ impl FileIndex {
         Self { files, messages }
     }
 
-    /// Shallow files first, then by path; empty until the first scan finishes.
+    /// Shallow files first, then by path; the cached ones, or none, until the first scan
+    /// finishes.
     pub fn files(&self) -> Arc<Vec<String>> {
         Arc::clone(&self.files.lock().expect("index lock is never poisoned"))
     }
@@ -74,12 +85,16 @@ impl Drop for FileIndex {
 
 struct Worker {
     root: PathBuf,
+    cache: Option<PathBuf>,
     files: Arc<Mutex<Arc<Vec<String>>>>,
     notifier: Notifier,
 }
 
 impl Worker {
     fn run(self, events: Sender<Message>, messages: Receiver<Message>) {
+        if let Some(cached) = self.cache.as_deref().and_then(read_cache) {
+            self.publish(cached);
+        }
         // Watching before the scan keeps changes made during it.
         let watcher = notify::recommended_watcher(move |event| {
             let _ = events.send(Message::Changed(event));
@@ -89,7 +104,7 @@ impl Worker {
             Ok(watcher)
         });
         let mut tree = Tree::scan(&self.root);
-        self.publish(&tree);
+        self.publish_scan(&tree);
         if tree.truncated || watcher.is_err() {
             return;
         }
@@ -103,16 +118,53 @@ impl Worker {
                     Ok(Message::Stop) | Err(RecvTimeoutError::Disconnected) => return,
                 }
             }
-            if tree.apply(&self.root, changes) {
-                self.publish(&tree);
+            let rescan_all = changes.rescan_all;
+            if !tree.apply(&self.root, changes) {
+                continue;
+            }
+            // Smaller changes are not worth rewriting a cache that may hold 100 000 paths;
+            // the next session's scan finds them.
+            if rescan_all {
+                self.publish_scan(&tree);
+            } else {
+                self.publish(tree.files());
             }
         }
     }
 
-    fn publish(&self, tree: &Tree) {
-        *self.files.lock().expect("index lock is never poisoned") = Arc::new(tree.files());
-        (self.notifier)();
+    fn publish_scan(&self, tree: &Tree) {
+        let files = self.publish(tree.files());
+        if let Some(cache) = &self.cache {
+            // Only a cache: when it cannot be written, the next session scans first.
+            let _ = write_cache(cache, &files);
+        }
     }
+
+    fn publish(&self, files: Vec<String>) -> Arc<Vec<String>> {
+        let files = Arc::new(files);
+        *self.files.lock().expect("index lock is never poisoned") = Arc::clone(&files);
+        (self.notifier)();
+        files
+    }
+}
+
+/// One path per line; none when the file is missing or empty.
+fn read_cache(path: &Path) -> Option<Vec<String>> {
+    let text = fs::read_to_string(path).ok()?;
+    let files: Vec<String> = text.lines().map(str::to_owned).collect();
+    (!files.is_empty()).then_some(files)
+}
+
+/// Through a temporary file, so that a crash never leaves half a list.
+fn write_cache(path: &Path, files: &[String]) -> io::Result<()> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    let mut text = files.join("\n");
+    text.push('\n');
+    let temporary = path.with_extension("tmp");
+    fs::write(&temporary, text)?;
+    fs::rename(temporary, path)
 }
 
 /// Directories whose listings may have changed.

@@ -30,6 +30,28 @@ pub fn state_dir(home: &Path) -> PathBuf {
     home.join("state")
 }
 
+/// The directory of what can be rebuilt, e.g. a project's file index.
+pub fn cache_dir(home: &Path) -> PathBuf {
+    home.join("cache")
+}
+
+/// A project's own directory under `cache`, named after its root for people and a hash of
+/// the root's path for uniqueness.
+pub fn project_cache_dir(cache: &Path, root: &Path) -> PathBuf {
+    let name = root
+        .file_name()
+        .map_or_else(|| "root".into(), |name| name.to_string_lossy());
+    let hash = fnv1a(root.as_os_str().as_encoded_bytes());
+    cache.join("projects").join(format!("{name}-{hash:016x}"))
+}
+
+/// Stable across runs and Rust versions, unlike `DefaultHasher`.
+fn fnv1a(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, &byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    })
+}
+
 /// Calls `on_change`, on a background thread, whenever a settings file in `dir` is
 /// written, created or removed; until the watcher is dropped. Creates `dir`, so that files
 /// added to it later are seen too.
@@ -169,6 +191,20 @@ fn line_at(text: &str, offset: usize) -> usize {
 mod tests {
     use super::*;
     use serde::Deserialize;
+
+    #[test]
+    fn each_project_has_its_own_stable_cache_directory() {
+        let cache = Path::new("/cache");
+        let remacs = project_cache_dir(cache, Path::new("/src/remacs"));
+        assert_eq!(remacs, project_cache_dir(cache, Path::new("/src/remacs")));
+        assert!(remacs.starts_with("/cache/projects"));
+        let name = remacs.file_name().unwrap().to_str().unwrap();
+        assert!(
+            name.starts_with("remacs-") && name.len() == "remacs-".len() + 16,
+            "{name}"
+        );
+        assert_ne!(remacs, project_cache_dir(cache, Path::new("/old/remacs")));
+    }
 
     #[derive(Debug, Deserialize, PartialEq)]
     #[serde(default, deny_unknown_fields)]

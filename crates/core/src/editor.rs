@@ -9,7 +9,7 @@ use std::rc::Rc;
 use std::sync::{Arc, PoisonError, RwLock};
 use std::time::{Duration, Instant};
 
-use remacs_config::{Section, Settings};
+use remacs_config::{Section, Settings, project_cache_dir};
 use remacs_text::Text;
 
 use crate::buffer::{Buffer, FileEdits};
@@ -62,6 +62,7 @@ pub struct Editor {
     quit_requested: bool,
     plugin_states: HashMap<TypeId, Box<dyn Any>>,
     settings: Settings,
+    cache_dir: Option<PathBuf>,
     notifier: Arc<RwLock<Notifier>>,
     refresh_at: Option<Instant>,
 }
@@ -96,6 +97,7 @@ impl Editor {
             quit_requested: false,
             plugin_states: HashMap::new(),
             settings: Settings::default(),
+            cache_dir: None,
             notifier: Arc::new(RwLock::new(Arc::new(|| {}))),
             refresh_at: None,
         }
@@ -505,6 +507,18 @@ impl Editor {
         if let Err(error) = self.history.keep_in(path) {
             self.set_message(error);
         }
+    }
+
+    /// Lets plugins keep what they can rebuild under `dir`, e.g. a project's file index.
+    pub fn keep_caches_in(&mut self, dir: PathBuf) {
+        self.cache_dir = Some(dir);
+    }
+
+    /// The directory a plugin may keep the project at `root`'s caches in; none until
+    /// [`Editor::keep_caches_in`], e.g. in tests.
+    pub fn project_cache_dir(&self, root: &Path) -> Option<PathBuf> {
+        let cache = self.cache_dir.as_deref()?;
+        Some(project_cache_dir(cache, root))
     }
 
     /// Scrolls without moving point unless it would leave the window.

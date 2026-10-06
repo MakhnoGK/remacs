@@ -182,6 +182,46 @@ fn file_index_follows_file_system_changes() {
 }
 
 #[test]
+fn the_scan_is_cached_and_a_stale_cache_gives_way_to_the_next_scan() {
+    let project = Project::new("index-cache");
+    let cache = std::env::temp_dir().join(format!("remacs-cache-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&cache);
+    let mut first = editor_visiting(&project.path("Cargo.toml"));
+    first.keep_caches_in(cache.clone());
+    open_find_file(&mut first);
+    let cached = first.project_cache_dir(&project.0).unwrap().join("files");
+    let deadline = Instant::now() + INDEX_TIMEOUT;
+    while !cached.exists() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(
+        fs::read_to_string(&cached).unwrap(),
+        "Cargo.toml\ndocs/marks.md\nsrc/mark_ring.rs\nsrc/marker.rs\n"
+    );
+
+    fs::write(&cached, "gone.rs\n").unwrap();
+    let mut second = editor_visiting(&project.path("Cargo.toml"));
+    second.keep_caches_in(cache.clone());
+    let notifications = open_find_file(&mut second);
+    let scanned: BTreeSet<String> = [
+        "Cargo.toml",
+        "docs/marks.md",
+        "src/mark_ring.rs",
+        "src/marker.rs",
+    ]
+    .map(String::from)
+    .into();
+    let deadline = Instant::now() + INDEX_TIMEOUT;
+    while candidate_values(&second) != scanned && Instant::now() < deadline {
+        let _ = notifications.recv_timeout(deadline - Instant::now());
+        second.refresh();
+    }
+    assert_eq!(candidate_values(&second), scanned);
+    // The index may still be writing the cache it just published.
+    let _ = fs::remove_dir_all(cache);
+}
+
+#[test]
 fn write_file_visits_the_new_file() {
     let project = Project::new("write-file");
     let mut editor = Editor::new(&[&EditingPlugin, &MinibufferPlugin, &FilesPlugin]);

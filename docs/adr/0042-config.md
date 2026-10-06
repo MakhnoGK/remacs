@@ -49,6 +49,12 @@ Status: accepted, 2026-10-06 (issue #2)
   startup after this session's, written after each answer through a temporary file. A
   prompt marked `private` (the kill ring's) adds nothing, so copied text never reaches
   the disk. A broken file is reported and left as it is.
+- **Projects' caches**: `cache/projects/<root name>-<FNV-1a of the root path>/`, given
+  to plugins by `Editor::project_cache_dir` once the app calls `keep_caches_in` (tests do
+  not). First user: `files`, the file index, one path per line. A session lists it at once
+  while the scan runs, then the scan replaces it. It is written after each full scan only:
+  rewriting up to 100 000 paths for every created file is not worth it, and the next
+  session's scan finds such changes.
 
 ## Consequences
 
@@ -61,5 +67,6 @@ Status: accepted, 2026-10-06 (issue #2)
 
 ## Open
 
-- `cache/`, e.g. the file index; more `state/`, e.g. recent files once remacs has them.
+- More `state/`, e.g. recent files once remacs has them; `cache/dirs/` once something
+  needs it.
 - Sections for the other plugins, e.g. `lsp.toml`.
