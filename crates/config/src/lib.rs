@@ -8,6 +8,7 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::de::DeserializeOwned;
 
 /// `$XDG_CONFIG_HOME/remacs`, else `~/.config/remacs`.
@@ -22,6 +23,33 @@ pub fn home() -> Option<PathBuf> {
 /// The directory of the settings files.
 pub fn config_dir(home: &Path) -> PathBuf {
     home.join("config")
+}
+
+/// Calls `on_change`, on a background thread, whenever a settings file in `dir` is
+/// written, created or removed; until the watcher is dropped. Creates `dir`, so that files
+/// added to it later are seen too.
+pub fn watch(
+    dir: &Path,
+    mut on_change: impl FnMut() + Send + 'static,
+) -> notify::Result<RecommendedWatcher> {
+    fs::create_dir_all(dir)?;
+    let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
+        if event.is_ok_and(|event| changes_settings(&event)) {
+            on_change();
+        }
+    })?;
+    // Editors often save by renaming a new file over the old one, so the directory is
+    // watched, not the files.
+    watcher.watch(dir, RecursiveMode::NonRecursive)?;
+    Ok(watcher)
+}
+
+fn changes_settings(event: &Event) -> bool {
+    !matches!(event.kind, EventKind::Access(_))
+        && event
+            .paths
+            .iter()
+            .any(|path| path.extension() == Some(OsStr::new("toml")))
 }
 
 /// Settings read from one file; what is left out keeps its default.
@@ -216,5 +244,25 @@ mod tests {
         let (dir, settings, _) = settings_with("other", &[("sample.toml.bak", "size = 0\n")]);
         assert_eq!(settings.section::<Sample>(), Ok(Sample::default()));
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn writing_a_settings_file_is_seen_and_the_directory_is_created() {
+        let dir = std::env::temp_dir()
+            .join(format!("remacs-config-{}-watch", std::process::id()))
+            .join("config");
+        let _ = fs::remove_dir_all(&dir);
+        let (changed, changes) = std::sync::mpsc::channel();
+        let _watcher = watch(&dir, move || {
+            let _ = changed.send(());
+        })
+        .unwrap();
+        fs::write(dir.join("sample.toml"), "size = 15\n").unwrap();
+        assert!(
+            changes
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .is_ok()
+        );
+        fs::remove_dir_all(dir.parent().unwrap()).unwrap();
     }
 }

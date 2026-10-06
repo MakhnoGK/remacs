@@ -2,7 +2,7 @@ use crate::{
     Bounds, DevicePixels, Font, FontFallbacks, FontFeatures, FontId, FontMetrics, FontRun,
     FontStyle, FontWeight, GlyphId, LineLayout, Pixels, PlatformTextSystem, Point,
     RenderGlyphParams, Result, SUBPIXEL_VARIANTS_X, ShapedGlyph, ShapedRun, SharedString, Size,
-    TextStrokes, point, px, size, swap_rgba_pa_to_bgra, text_strokes,
+    point, px, size, swap_rgba_pa_to_bgra,
 };
 use anyhow::anyhow;
 use cocoa::appkit::CGFloat;
@@ -51,7 +51,7 @@ use super::open_type::apply_features_and_fallbacks;
 const kCGImageAlphaOnly: u32 = 7;
 
 fn is_thick(params: &RenderGlyphParams) -> bool {
-    !params.is_emoji && text_strokes() == TextStrokes::Thick
+    params.thick && !params.is_emoji
 }
 
 pub(crate) struct MacTextSystem(RwLock<MacTextSystemState>);

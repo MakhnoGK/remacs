@@ -42,10 +42,12 @@ Status: accepted, 2026-10-06 (issue #2)
 
 - Line height is a multiplier, so changing the size keeps the proportions.
 - Metrics are re-measured whenever the code font differs from the one they came from.
-- Settings are read at startup; changes need a restart until the config is watched.
+- **Settings apply as soon as a file changes**: `config/` (created at startup) is watched
+  with `notify`, changes settle for 100 ms, then the section is read again and applied,
+  strokes included (ADR 0034). The directory is watched, not the files, as editors often
+  save by renaming over them.
 
 ## Open
 
-- Reload on change (`notify` on `config/`); strokes may still need a restart (ADR 0034).
 - Move `format-on-save-mode` to `state/` and the file index to `cache/`.
 - Plugins register their own sections through the registry.

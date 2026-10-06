@@ -17,10 +17,10 @@ Status: accepted, 2026-10-04 (issue #11)
 
 ## Consequences
 
-- Changes to the vendored gpui: `text_system.rs` (the setting),
+- Changes to the vendored gpui: `text_system.rs` (the setting, and `thick` in
+  `RenderGlyphParams`), `window.rs` (sets it when painting a glyph),
   `platform/mac/text_system.rs` (rasterization), `taffy.rs` (two float literals typed, as
   a path dependency's warnings are no longer capped). Upgrading gpui means re-applying them.
-- Changing the strokes at runtime would leave already-rasterized glyphs in the atlas as
-  they were; it is set at startup only.
-
-- The strokes are read from `ui.toml` (`font.strokes`) at startup; see ADR 0042.
+- The strokes are part of a glyph's atlas key, so changing them at runtime rasterizes the
+  glyphs again on the next frame. They are read from `ui.toml` (`font.strokes`), see
+  ADR 0042.

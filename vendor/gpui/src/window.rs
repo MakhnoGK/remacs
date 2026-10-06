@@ -3014,6 +3014,7 @@ impl Window {
             subpixel_variant,
             scale_factor,
             is_emoji: false,
+            thick: crate::text_strokes() == crate::TextStrokes::Thick,
         };
 
         let raster_bounds = self.text_system().raster_bounds(&params)?;
@@ -3070,6 +3071,7 @@ impl Window {
             subpixel_variant: Default::default(),
             scale_factor,
             is_emoji: true,
+            thick: false,
         };
 
         let raster_bounds = self.text_system().raster_bounds(&params)?;

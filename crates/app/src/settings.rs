@@ -1,16 +1,72 @@
 use std::ops::RangeInclusive;
 use std::sync::Arc;
+use std::time::Duration;
 
-use gpui::TextStrokes;
-use remacs_config::{Section, Settings, SettingsError, config_dir, home};
-use remacs_theme::font::CodeFont;
+use futures::StreamExt;
+use futures::channel::mpsc;
+use gpui::{App, TextStrokes, WeakEntity, set_text_strokes};
+use remacs_config::{Section, Settings, SettingsError, config_dir, home, watch};
+use remacs_core::Editor;
+use remacs_theme::font::{self, CodeFont};
 use serde::Deserialize;
+
+use crate::editor_view::EditorView;
 
 const FONT_SIZES: RangeInclusive<f32> = 6.0..=72.0;
 const LINE_HEIGHTS: RangeInclusive<f32> = 1.0..=3.0;
+/// Changes this close together are read once, e.g. an editor's save done in steps.
+const SETTLE_TIME: Duration = Duration::from_millis(100);
+
+/// Reads the `ui` settings and applies the process-wide ones; the view applies the rest.
+pub fn apply_ui_settings() -> (UiSettings, Vec<SettingsError>) {
+    let (ui, errors) = load_ui_settings();
+    font::set_code(ui.font.code_font());
+    set_text_strokes(ui.font.strokes.into());
+    (ui, errors)
+}
+
+/// Shows the first error; all go to stderr.
+pub fn report(errors: &[SettingsError], editor: &mut Editor) {
+    for error in errors {
+        eprintln!("remacs: {error}");
+    }
+    if let Some(error) = errors.first() {
+        editor.set_message(error.to_string());
+    }
+}
+
+/// Applies the settings again whenever their files change, for as long as `view` lives.
+pub fn watch_settings(view: WeakEntity<EditorView>, cx: &mut App) {
+    let Some(home) = home() else {
+        return;
+    };
+    let (changed, mut changes) = mpsc::unbounded();
+    let watcher = match watch(&config_dir(&home), move || {
+        let _ = changed.unbounded_send(());
+    }) {
+        Ok(watcher) => watcher,
+        Err(error) => {
+            eprintln!("remacs: settings are not watched: {error}");
+            return;
+        }
+    };
+    cx.spawn(async move |cx| {
+        let _watcher = watcher;
+        while changes.next().await.is_some() {
+            cx.background_executor().timer(SETTLE_TIME).await;
+            while changes.try_recv().is_ok() {}
+            let (ui, errors) = apply_ui_settings();
+            let applied = view.update(cx, |view, cx| view.apply_settings(&ui, &errors, cx));
+            if applied.is_err() {
+                break;
+            }
+        }
+    })
+    .detach();
+}
 
 /// The `ui` section of the config, defaults where it is wrong, and what is wrong with it.
-pub fn load_ui_settings() -> (UiSettings, Vec<SettingsError>) {
+fn load_ui_settings() -> (UiSettings, Vec<SettingsError>) {
     let Some(home) = home() else {
         return (UiSettings::default(), Vec::new());
     };

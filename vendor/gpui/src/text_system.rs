@@ -47,8 +47,8 @@ pub enum TextStrokes {
 
 static THICK_TEXT_STROKES: AtomicBool = AtomicBool::new(false);
 
-/// Sets the strokes of glyphs rasterized from now on. Glyphs already in a window's atlas
-/// keep theirs, so call it before opening windows.
+/// Sets the strokes of glyphs painted from now on. They are part of a glyph's atlas key,
+/// so a change applies from the next frame on; refresh the windows after it.
 pub fn set_text_strokes(strokes: TextStrokes) {
     THICK_TEXT_STROKES.store(strokes == TextStrokes::Thick, Ordering::Relaxed);
 }
@@ -797,6 +797,8 @@ pub(crate) struct RenderGlyphParams {
     pub(crate) subpixel_variant: Point<u8>,
     pub(crate) scale_factor: f32,
     pub(crate) is_emoji: bool,
+    /// Rasterized with thick strokes; see [`set_text_strokes`].
+    pub(crate) thick: bool,
 }
 
 impl Eq for RenderGlyphParams {}
@@ -809,6 +811,7 @@ impl Hash for RenderGlyphParams {
         self.subpixel_variant.hash(state);
         self.scale_factor.to_bits().hash(state);
         self.is_emoji.hash(state);
+        self.thick.hash(state);
     }
 }
 
