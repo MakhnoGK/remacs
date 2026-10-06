@@ -321,7 +321,9 @@ impl EditorView {
         let size = px(code_font.size);
         let metrics = Metrics {
             char_width: advance(code_font.size, 'm'),
-            glyph_height: text_system.ascent(font_id, size) + text_system.descent(font_id, size),
+            // The font's descent is negative here, unlike a laid-out line's.
+            glyph_height: text_system.ascent(font_id, size)
+                + text_system.descent(font_id, size).abs(),
             digit_width: advance(code_font.line_number_size(), '0'),
             note_code_width: advance(font::STATUS_SIZE, 'm'),
         };
