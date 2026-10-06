@@ -13,6 +13,7 @@ mod keymap;
 mod kill_ring;
 mod minibuffer;
 mod mode;
+mod mouse;
 mod outline;
 mod plugin;
 mod popup;
@@ -39,6 +40,7 @@ pub use minibuffer::{
     PromptOption, VISIBLE_CANDIDATES,
 };
 pub use mode::{CommentSyntax, FUNDAMENTAL_MODE, Mode, Modes};
+pub use mouse::MouseSelection;
 pub use outline::{
     Banner, BannerButton, BannerPart, CommitChain, CommitRow, ConflictBlock, ConflictRegion,
     ConflictSide, ConflictView, DiffRow, Fact, FactValue, GraphEdge, GraphNode, GraphRow, History,

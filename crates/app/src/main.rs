@@ -94,7 +94,7 @@ fn main() -> ExitCode {
     }
     report(&errors, &mut editor);
 
-    let cursor_height = ui.cursor.height;
+    let (cursor_height, mouse) = (ui.cursor.height, ui.mouse);
     Application::new()
         .with_assets(Assets)
         .run(move |cx: &mut App| {
@@ -111,7 +111,7 @@ fn main() -> ExitCode {
                 ..Default::default()
             };
             cx.open_window(options, |window, cx| {
-                let view = cx.new(|cx| EditorView::new(editor, cursor_height, window, cx));
+                let view = cx.new(|cx| EditorView::new(editor, cursor_height, mouse, window, cx));
                 window.focus(view.read(cx).focus_handle());
                 watch_settings(view.downgrade(), cx);
                 view

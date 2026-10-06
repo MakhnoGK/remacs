@@ -14,6 +14,8 @@ use crate::editor_view::EditorView;
 
 const FONT_SIZES: RangeInclusive<f32> = 6.0..=72.0;
 const LINE_HEIGHTS: RangeInclusive<f32> = 1.0..=3.0;
+/// Milliseconds.
+const DRAG_SCROLL_INTERVALS: RangeInclusive<u64> = 5..=1000;
 /// Changes this close together are read once, e.g. an editor's save done in steps.
 const SETTLE_TIME: Duration = Duration::from_millis(100);
 
@@ -94,6 +96,7 @@ pub fn watch_settings(view: WeakEntity<EditorView>, cx: &mut App) {
 pub struct UiSettings {
     pub font: FontSettings,
     pub cursor: CursorSettings,
+    pub mouse: MouseSettings,
 }
 
 impl Section for UiSettings {
@@ -118,6 +121,14 @@ impl Section for UiSettings {
                 font.line_height,
                 LINE_HEIGHTS.start(),
                 LINE_HEIGHTS.end()
+            ));
+        }
+        let interval = self.mouse.drag_scroll_interval;
+        if !DRAG_SCROLL_INTERVALS.contains(&interval) {
+            return Err(format!(
+                "mouse.drag-scroll-interval {interval} is outside {}..={}",
+                DRAG_SCROLL_INTERVALS.start(),
+                DRAG_SCROLL_INTERVALS.end()
             ));
         }
         Ok(())
@@ -191,6 +202,28 @@ pub enum CursorHeight {
     Font,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct MouseSettings {
+    /// Milliseconds between the lines scrolled while a selection is dragged past the
+    /// text's top or bottom.
+    pub drag_scroll_interval: u64,
+}
+
+impl MouseSettings {
+    pub fn drag_scroll_interval(&self) -> Duration {
+        Duration::from_millis(self.drag_scroll_interval)
+    }
+}
+
+impl Default for MouseSettings {
+    fn default() -> Self {
+        Self {
+            drag_scroll_interval: 40,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,9 +242,10 @@ mod tests {
     fn reads_every_setting() {
         let settings = parse(
             "[font]\nfamily = \"Menlo\"\nsize = 15\nline-height = 1.5\nstrokes = \"thin\"\n\
-             [cursor]\nheight = \"font\"\n",
+             [cursor]\nheight = \"font\"\n[mouse]\ndrag-scroll-interval = 60\n",
         )
         .unwrap();
+        assert_eq!(settings.mouse.drag_scroll_interval, 60);
         assert_eq!(settings.font.family, "Menlo");
         assert_eq!(settings.font.code_font().line_height, 23.0);
         assert_eq!(settings.font.strokes, Strokes::Thin);
@@ -223,5 +257,6 @@ mod tests {
         assert!(parse("[font]\nsize = 2\n").is_err());
         assert!(parse("[font]\nline-height = 0.5\n").is_err());
         assert!(parse("[cursor]\nheight = \"half\"\n").is_err());
+        assert!(parse("[mouse]\ndrag-scroll-interval = 0\n").is_err());
     }
 }

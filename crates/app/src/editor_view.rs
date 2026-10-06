@@ -7,13 +7,14 @@ use std::time::Instant;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
-    AnyElement, ClipboardItem, Context, Div, FocusHandle, IntoElement, KeyDownEvent, MouseButton,
-    MouseDownEvent, ParentElement, Pixels, Point, Render, ScrollHandle, ScrollWheelEvent,
-    StyledText, Subscription, Task, Window, div, font, prelude::*, px, rgb, rgba,
+    AnyElement, App, ClipboardItem, Context, DispatchPhase, Div, FocusHandle, IntoElement,
+    KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels,
+    Point, Render, ScrollHandle, ScrollWheelEvent, StyledText, Subscription, Task, Window, canvas,
+    div, font, prelude::*, px, rgb, rgba,
 };
 use remacs_core::{
-    Action, ChangedLines, Code, DocBlock, Editor, LineChange, Outline, Popup, Preview, PreviewBody,
-    Scroll, StatusSegment,
+    Action, ChangedLines, Code, DocBlock, Editor, LineChange, MouseSelection, Outline, Popup,
+    Preview, PreviewBody, Scroll, StatusSegment,
 };
 use remacs_theme::font::CodeFont;
 use remacs_theme::{color, font, glass};
@@ -30,7 +31,7 @@ use crate::outline_view::{
 };
 use crate::popup_view::{DocumentationScroll, DocumentationView, Placement, render_popup};
 use crate::preview_view::render_preview;
-use crate::settings::{CursorHeight, ReadSettings, report};
+use crate::settings::{CursorHeight, MouseSettings, ReadSettings, report};
 use crate::table_view::{
     LIST_BOTTOM, ROW_PITCH, ROWS_TOP, TableCursor, fits_preview, render_hints, render_table,
 };
@@ -66,6 +67,13 @@ pub struct EditorView {
     editor: Editor,
     focus_handle: FocusHandle,
     cursor_height: CursorHeight,
+    mouse: MouseSettings,
+    /// While the button pressed over the text is held.
+    mouse_selection: Option<MouseSelection>,
+    /// Where the mouse was last seen while selecting.
+    drag_position: Point<Pixels>,
+    /// Scrolls toward the mouse while it is held past the text's top or bottom.
+    drag_scroll: Option<Task<()>>,
     /// And the code font they were measured from.
     metrics: Option<(CodeFont, Metrics)>,
     /// What the wheel moved short of a whole line or column.
@@ -103,6 +111,7 @@ impl EditorView {
     pub fn new(
         mut editor: Editor,
         cursor_height: CursorHeight,
+        mouse: MouseSettings,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -130,6 +139,10 @@ impl EditorView {
             editor,
             focus_handle: cx.focus_handle(),
             cursor_height,
+            mouse,
+            mouse_selection: None,
+            drag_position: Point::default(),
+            drag_scroll: None,
             metrics: None,
             scroll_remainder: Point::default(),
             scrolled_sideways: false,
@@ -154,6 +167,7 @@ impl EditorView {
     /// Takes settings read again: the view's part, and the plugins' sections.
     pub fn apply_settings(&mut self, read: ReadSettings, cx: &mut Context<Self>) {
         self.cursor_height = read.ui.cursor.height;
+        self.mouse = read.ui.mouse;
         self.editor.set_settings(read.settings);
         report(&read.errors, &mut self.editor);
         cx.notify();
@@ -264,6 +278,7 @@ impl EditorView {
         let lines = wheel_steps(&mut self.scroll_remainder.y, delta.y, line_height);
         if lines != 0 {
             self.editor.scroll(lines);
+            self.drag_selection();
             cx.notify();
         }
     }
@@ -322,20 +337,119 @@ impl EditorView {
         else {
             return;
         };
-        let row = ((event.position.y - px(TEXT_TOP)) / px(font::code().line_height)).floor();
-        if row < 0.0 {
+        let Ok(row) = usize::try_from(self.row_at(event.position.y)) else {
             return;
-        }
-        let line = self.editor.viewport.first_line + row as usize;
-        let text_left = px(ROW_MARGIN) + self.gutter_width(metrics);
-        let display_column = ((event.position.x - text_left) / metrics.char_width)
-            .round()
-            .max(0.0) as usize
-            + self.editor.viewport.first_column;
-        let column = self.display_line(line).0.char_column_at(display_column);
-        self.editor.set_point_at(line, column);
+        };
+        let line = self.editor.viewport.first_line + row;
+        let offset = self.offset_at(line, event.position.x, metrics);
+        let buffer = self.editor.window_buffer_mut();
+        let (clicks, extend) = (event.click_count, event.modifiers.shift);
+        self.mouse_selection = Some(MouseSelection::press(buffer, offset, clicks, extend));
+        self.drag_position = event.position;
         self.scrolled_sideways = false;
         cx.notify();
+    }
+
+    fn on_mouse_move(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
+        if event.pressed_button != Some(MouseButton::Left) {
+            self.release_mouse();
+            return;
+        }
+        self.drag_position = event.position;
+        if self.drag_selection() != 0 && self.drag_scroll.is_none() {
+            let interval = self.mouse.drag_scroll_interval();
+            self.drag_scroll = Some(cx.spawn(async move |view, cx| {
+                loop {
+                    cx.background_executor().timer(interval).await;
+                    let scrolled = view.update(cx, |view, cx| view.scroll_to_drag(cx));
+                    if !matches!(scrolled, Ok(true)) {
+                        break;
+                    }
+                }
+            }));
+        }
+        cx.notify();
+    }
+
+    fn release_mouse(&mut self) {
+        self.mouse_selection = None;
+        self.drag_scroll = None;
+    }
+
+    /// Scrolls a line toward the mouse held past the text's top or bottom, extending the
+    /// selection; false once the mouse is back over the text.
+    fn scroll_to_drag(&mut self, cx: &mut Context<Self>) -> bool {
+        let direction = self.drag_selection();
+        if direction == 0 {
+            self.drag_scroll = None;
+            return false;
+        }
+        let first_line = self.editor.viewport.first_line;
+        self.editor.scroll(direction);
+        if self.editor.viewport.first_line != first_line {
+            self.drag_selection();
+            cx.notify();
+        }
+        true
+    }
+
+    /// Extends the selection to the mouse, or to the nearest line point can be on without
+    /// scrolling; returns which way the text must scroll to reach the mouse.
+    fn drag_selection(&mut self) -> isize {
+        let (Some(selection), Some((_, metrics))) = (&self.mouse_selection, &self.metrics) else {
+            return 0;
+        };
+        let (selection, metrics) = (selection.clone(), *metrics);
+        let viewport = &self.editor.viewport;
+        let line_count = self.editor.window_buffer().text().line_count();
+        let row = self.row_at(self.drag_position.y);
+        let under = viewport.first_line.saturating_add_signed(row);
+        let line = viewport.clamp(under, line_count);
+        let offset = self.offset_at(line, self.drag_position.x, metrics);
+        selection.drag(self.editor.window_buffer_mut(), offset);
+        self.scrolled_sideways = false;
+        // Past the last line there is nothing more to scroll to.
+        let last_line = line_count.saturating_sub(1);
+        under.min(last_line).cmp(&line.min(last_line)) as isize
+    }
+
+    /// The text row at `y` in the window, negative above the text.
+    fn row_at(&self, y: Pixels) -> isize {
+        ((y - px(TEXT_TOP)) / px(font::code().line_height)).floor() as isize
+    }
+
+    /// The offset in the window buffer nearest to `x` on `line`; past the last line, the
+    /// end of the text.
+    fn offset_at(&self, line: usize, x: Pixels, metrics: Metrics) -> usize {
+        let text_left = px(ROW_MARGIN) + self.gutter_width(metrics);
+        let display_column = ((x - text_left) / metrics.char_width).round().max(0.0) as usize
+            + self.editor.viewport.first_column;
+        let column = self.display_line(line).0.char_column_at(display_column);
+        let text = self.editor.window_buffer().text();
+        text.offset_at_char_column(line, column)
+    }
+
+    /// Follows the mouse anywhere, even outside the window, while a selection is dragged.
+    fn render_drag_listeners(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        self.mouse_selection.as_ref()?;
+        let view = cx.entity().downgrade();
+        let paint = move |_, _, window: &mut Window, _: &mut App| {
+            let moved = view.clone();
+            window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
+                if phase == DispatchPhase::Bubble {
+                    let _ = moved.update(cx, |view, cx| view.on_mouse_move(event, cx));
+                }
+            });
+            window.on_mouse_event(move |event: &MouseUpEvent, phase, _, cx| {
+                if phase == DispatchPhase::Bubble && event.button == MouseButton::Left {
+                    let _ = view.update(cx, |view, cx| {
+                        view.release_mouse();
+                        cx.notify();
+                    });
+                }
+            });
+        };
+        Some(canvas(|_, _, _| {}, paint).absolute().size_full())
     }
 
     fn metrics(&mut self, window: &Window) -> Metrics {
@@ -1015,6 +1129,7 @@ impl Render for EditorView {
             .children(popups)
             .children(status_above_scrim)
             .children(minibuffer)
+            .children(self.render_drag_listeners(cx))
     }
 }
 
