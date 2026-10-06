@@ -83,7 +83,9 @@ fn ask(editor: &mut Editor, servers: &'static [LanguageServer], request: RenameR
         .insert(request.id, collected);
 }
 
-fn clients_for(
+/// The servers running for a directory's projects, or those for a file, started if
+/// needed.
+pub(crate) fn clients_for(
     editor: &mut Editor,
     servers: &'static [LanguageServer],
     path: &Path,

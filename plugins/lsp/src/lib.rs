@@ -12,6 +12,7 @@ mod markdown;
 mod position;
 mod rename;
 mod snippet;
+mod symbols;
 mod transport;
 mod uri;
 
@@ -69,6 +70,7 @@ impl Plugin for LspPlugin {
         registry.post_command_hooks.push(Rc::new(move |editor| {
             document::sync(editor, servers);
             rename::sync(editor, servers);
+            symbols::sync(editor, servers);
         }));
     }
 }

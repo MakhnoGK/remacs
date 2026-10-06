@@ -4112,6 +4112,7 @@ version = "0.1.0"
 dependencies = [
  "remacs-core",
  "remacs-editing",
+ "remacs-files",
  "remacs-minibuffer",
  "remacs-text",
 ]

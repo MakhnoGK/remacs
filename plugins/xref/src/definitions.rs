@@ -96,7 +96,7 @@ pub fn deliver(editor: &mut Editor, id: u64, mut locations: Vec<Location>) {
 }
 
 /// Goes to `location`, remembering where from for `xref-go-back`.
-fn jump(editor: &mut Editor, location: &Location) -> CommandResult {
+pub(crate) fn jump(editor: &mut Editor, location: &Location) -> CommandResult {
     let buffer = editor.window_buffer();
     let from = buffer.path().map(|path| Location {
         path: path.to_path_buf(),

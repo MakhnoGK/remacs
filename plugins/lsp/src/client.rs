@@ -18,7 +18,7 @@ use lsp_types::request::{
     ApplyWorkspaceEdit, CodeActionRequest, CodeActionResolveRequest, Completion,
     DocumentDiagnosticRequest, ExecuteCommand, Formatting, GotoDefinition, HoverRequest,
     Initialize, RangeFormatting, Request, ResolveCompletionItem, WillRenameFiles,
-    WorkspaceConfiguration, WorkspaceDiagnosticRefresh,
+    WorkspaceConfiguration, WorkspaceDiagnosticRefresh, WorkspaceSymbolRequest,
 };
 use lsp_types::{
     ApplyWorkspaceEditParams, CodeAction, CodeActionOrCommand, CompletionItem,
@@ -38,6 +38,7 @@ use crate::LanguageServer;
 use crate::completion::{self, CompletionSupport, Origin};
 use crate::markdown::CodeModes;
 use crate::position::{Encoding, from_lsp, to_lsp};
+use crate::symbols::{self, FoundSymbol};
 use crate::transport::{read_message, write_message};
 use crate::{code_action, definition, hover, uri};
 
@@ -135,6 +136,11 @@ pub(crate) enum Outgoing {
         id: u64,
         files: Vec<(Uri, Uri)>,
     },
+    /// Asks for the project's symbols matching `query`; `id` is xref's.
+    Symbols {
+        id: u64,
+        query: String,
+    },
     /// Answers a request the server made.
     Reply {
         id: Value,
@@ -148,6 +154,15 @@ pub(crate) struct Renamed {
     pub edit: Option<WorkspaceEdit>,
     pub encoding: Encoding,
     /// Given while the server was still loading the project, so it may have missed files.
+    pub settled: bool,
+}
+
+/// The symbols a server found for a query; none when it cannot look.
+pub(crate) struct Found {
+    pub id: u64,
+    pub symbols: Vec<FoundSymbol>,
+    pub encoding: Encoding,
+    /// Given while the server was still loading the project, so it may have missed some.
     pub settled: bool,
 }
 
@@ -266,6 +281,9 @@ enum Pending {
     WillRename {
         id: u64,
     },
+    Symbols {
+        id: u64,
+    },
 }
 
 impl Pending {
@@ -287,6 +305,7 @@ struct Inbox {
     answers: Vec<Answer>,
     /// Kept apart from `answers`, which are for the window buffer's document.
     renamed: Vec<Renamed>,
+    found: Vec<Found>,
 }
 
 type SharedInbox = Arc<Mutex<Inbox>>;
@@ -304,6 +323,7 @@ struct Negotiated {
     will_rename: bool,
     formatting: bool,
     range_formatting: bool,
+    workspace_symbols: bool,
 }
 
 /// A language server process for one project root. A writer thread sends what the editor
@@ -413,6 +433,10 @@ impl Client {
         std::mem::take(&mut lock(&self.inbox).renamed)
     }
 
+    pub fn take_found(&self) -> Vec<Found> {
+        std::mem::take(&mut lock(&self.inbox).found)
+    }
+
     pub fn pulls_diagnostics(&self) -> bool {
         self.pulls_diagnostics
     }
@@ -492,6 +516,8 @@ fn initialize_params(server: &LanguageServer, root: &Path) -> Value {
                 "applyEdit": true,
                 "workspaceEdit": { "documentChanges": true },
                 "fileOperations": { "willRename": true },
+                // Every kind, up to type parameters; else servers keep to the first 18.
+                "symbol": { "symbolKind": { "valueSet": (1..=26).collect::<Vec<u8>>() } },
             },
         },
     })
@@ -672,6 +698,21 @@ impl Writer {
                 let pending = Pending::WillRename { id: *id };
                 self.ask(WillRenameFiles::METHOD, params, pending)
             }
+            Outgoing::Symbols { id, query } => {
+                if !negotiated.workspace_symbols {
+                    lock(&self.inbox).found.push(Found {
+                        id: *id,
+                        symbols: Vec::new(),
+                        encoding: negotiated.encoding,
+                        settled: true,
+                    });
+                    (self.notifier)();
+                    return Ok(());
+                }
+                let params = json!({ "query": query });
+                let pending = Pending::Symbols { id: *id };
+                self.ask(WorkspaceSymbolRequest::METHOD, params, pending)
+            }
             Outgoing::Format {
                 uri,
                 id,
@@ -742,6 +783,7 @@ fn is_superseded(message: &Outgoing, later: &[Outgoing]) -> bool {
                 question: other, ..
             },
         ) => question == other,
+        (Outgoing::Symbols { .. }, Outgoing::Symbols { .. }) => true,
         _ => false,
     })
 }
@@ -791,7 +833,8 @@ impl Outgoing {
             | Outgoing::ResolveAction { .. }
             | Outgoing::Execute { .. }
             | Outgoing::Format { .. }
-            | Outgoing::WillRename { .. } => unreachable!("the writer numbers requests"),
+            | Outgoing::WillRename { .. }
+            | Outgoing::Symbols { .. } => unreachable!("the writer numbers requests"),
             Outgoing::Reply { id, result } => {
                 json!({ "jsonrpc": "2.0", "id": id, "result": result })
             }
@@ -943,6 +986,7 @@ impl Reader {
             will_rename: capabilities["workspace"]["fileOperations"]["willRename"].is_object(),
             formatting: is_provided(&capabilities["documentFormattingProvider"]),
             range_formatting: is_provided(&capabilities["documentRangeFormattingProvider"]),
+            workspace_symbols: is_provided(&capabilities["workspaceSymbolProvider"]),
         });
     }
 
@@ -1060,6 +1104,19 @@ impl Reader {
                 lock(&self.inbox).renamed.push(Renamed {
                     id,
                     edit,
+                    encoding: self.encoding,
+                    settled: self.settled.load(Ordering::Relaxed),
+                });
+                (self.notifier)();
+            }
+            Pending::Symbols { id } => {
+                let response = error
+                    .is_none()
+                    .then(|| serde_json::from_value(result).ok())
+                    .flatten();
+                lock(&self.inbox).found.push(Found {
+                    id,
+                    symbols: symbols::found(response),
                     encoding: self.encoding,
                     settled: self.settled.load(Ordering::Relaxed),
                 });

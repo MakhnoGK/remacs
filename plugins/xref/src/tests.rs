@@ -1,11 +1,14 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use remacs_core::{Editor, parse_sequence};
+use remacs_core::{Editor, SymbolKind, parse_sequence};
 use remacs_editing::EditingPlugin;
 use remacs_minibuffer::MinibufferPlugin;
 
-use crate::{Location, Request, XrefPlugin, deliver, take_requests};
+use crate::{
+    Location, Request, Symbol, SymbolRequest, XrefPlugin, deliver, deliver_symbols, take_requests,
+    take_symbol_requests,
+};
 
 /// `main.rs` calling `lib.rs`'s `helper`, each defined once in `lib.rs` and once in `mod.rs`.
 fn project(name: &str) -> (PathBuf, PathBuf, PathBuf) {
@@ -86,6 +89,121 @@ fn several_definitions_are_listed_to_choose_from() {
     assert_eq!(place(&editor), (module, 7));
     press(&mut editor, "M-,");
     assert_eq!(place(&editor), (main, 18));
+}
+
+fn symbol(
+    name: &str,
+    kind: SymbolKind,
+    container: Option<&str>,
+    path: &Path,
+    offset: usize,
+) -> Symbol {
+    Symbol {
+        name: name.into(),
+        kind: Some(kind),
+        container: container.map(Into::into),
+        location: Location {
+            path: path.to_path_buf(),
+            offset,
+        },
+        line: usize::from(offset > 0),
+    }
+}
+
+type Row = (String, String, Option<&'static str>, String);
+
+fn symbol_rows(editor: &Editor) -> Vec<Row> {
+    editor
+        .minibuffer()
+        .unwrap()
+        .candidates()
+        .iter()
+        .map(|candidate| {
+            let detail = candidate.detail.clone().unwrap_or_default().into_owned();
+            (
+                candidate.label.clone(),
+                candidate.annotation.clone(),
+                candidate.tag,
+                detail,
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn symbols_of_the_project_are_found_by_name_as_it_is_typed() {
+    let (main, lib, module) = project("apropos");
+    let mut editor = editor_at(&main, 18);
+    press(&mut editor, "C-M-. h e l p");
+    let requests = take_symbol_requests(&mut editor);
+    assert_eq!(requests.len(), 4);
+    assert_eq!(
+        requests.last(),
+        Some(&SymbolRequest {
+            id: 4,
+            query: "help".into(),
+            from: main.clone(),
+        })
+    );
+    assert_eq!(editor.minibuffer().unwrap().note(), Some("Searching…"));
+
+    let symbols = vec![
+        symbol("helper", SymbolKind::Function, None, &lib, 14),
+        symbol("helper", SymbolKind::Function, Some("module"), &module, 7),
+        symbol("health", SymbolKind::Variable, None, &lib, 0),
+    ];
+    deliver_symbols(&mut editor, 3, Ok(Vec::new()));
+    assert_eq!(editor.minibuffer().unwrap().note(), Some("Searching…"));
+    deliver_symbols(&mut editor, 4, Ok(symbols));
+    let row = |name: &str, container: &str, kind, detail: &str| -> Row {
+        (name.into(), container.into(), Some(kind), detail.into())
+    };
+    assert_eq!(
+        symbol_rows(&editor),
+        [
+            row("helper", "", "function", "lib.rs:2"),
+            row("helper", "module", "function", "mod.rs:2"),
+            row("health", "", "variable", "lib.rs:1"),
+        ]
+    );
+    assert_eq!(
+        editor.minibuffer().unwrap().candidates()[0].matches,
+        std::slice::from_ref(&(0..4))
+    );
+
+    // Until the backends answer again, what they found is narrowed to the new input.
+    press(&mut editor, "e");
+    assert_eq!(take_symbol_requests(&mut editor).len(), 1);
+    assert_eq!(symbol_rows(&editor).len(), 2);
+
+    press(&mut editor, "C-n RET");
+    assert_eq!(place(&editor), (module, 7));
+    press(&mut editor, "M-,");
+    assert_eq!(place(&editor), (main, 18));
+}
+
+#[test]
+fn without_a_backend_the_symbol_prompt_says_why_and_a_later_answer_replaces() {
+    let (main, lib, _) = project("apropos-none");
+    let mut editor = editor_at(&main, 0);
+    press(&mut editor, "C-M-. x");
+    let id = take_symbol_requests(&mut editor)[0].id;
+    deliver_symbols(
+        &mut editor,
+        id,
+        Err("No language server for this project".into()),
+    );
+    let minibuffer = editor.minibuffer().unwrap();
+    assert!(minibuffer.candidates().is_empty());
+    assert_eq!(
+        minibuffer.note(),
+        Some("No language server for this project")
+    );
+
+    // E.g. once a backend that answered while loading the project answers again.
+    let found = vec![symbol("x", SymbolKind::Constant, None, &lib, 0)];
+    deliver_symbols(&mut editor, id, Ok(found));
+    assert_eq!(symbol_rows(&editor).len(), 1);
 }
 
 #[test]
