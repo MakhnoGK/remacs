@@ -170,7 +170,7 @@ pub fn render_outline(
             } => Some(clicks(
                 row_frame(selected)
                     .child(state_letter(Some(state), selected).w(px(12.0)))
-                    .child(div().flex_none().font_family(font::MONO).child(name))
+                    .child(div().flex_none().font_family(font::mono()).child(name))
                     .child(
                         div()
                             .flex_1()
@@ -203,7 +203,7 @@ pub fn render_outline(
                     .child(
                         div()
                             .flex_none()
-                            .font_family(font::MONO)
+                            .font_family(font::mono())
                             .text_size(px(font::STATUS_SIZE))
                             .text_color(rgb(if selected {
                                 color::FG_ALT
@@ -339,7 +339,7 @@ fn render_banner(banner: Banner, cx: &mut Context<EditorView>) -> Div {
                 .child(
                     div()
                         .flex_none()
-                        .font_family(font::MONO)
+                        .font_family(font::mono())
                         .text_size(px(font::STATUS_SIZE))
                         .text_color(rgb(color::FG_FAINT))
                         .child(id),
@@ -433,7 +433,7 @@ pub fn render_toolbar(buttons: Vec<ToolbarButton>, cx: &mut Context<EditorView>)
                         .px(px(5.0))
                         .rounded(px(4.0))
                         .bg(rgba(glass::SELECTION))
-                        .font_family(font::MONO)
+                        .font_family(font::mono())
                         .text_size(px(font::SMALL_SIZE))
                         .line_height(px(16.0))
                         .text_color(rgb(color::FG_MAIN))
@@ -628,7 +628,7 @@ fn render_commit(commit: CommitRow, indent: f32) -> Div {
                 .flex_none()
                 .w(px(64.0))
                 .text_right()
-                .font_family(font::MONO)
+                .font_family(font::mono())
                 .text_size(px(font::STATUS_SIZE))
                 .text_color(rgb(color::FG_LINE_NUMBER))
                 .child(id),
@@ -713,7 +713,7 @@ fn render_facts(facts: Vec<Fact>, cx: &mut Context<EditorView>) -> Div {
                 FactValue::Ref(chip) => ref_chip(chip),
                 FactValue::Code(text) => div()
                     .flex_none()
-                    .font_family(font::MONO)
+                    .font_family(font::mono())
                     .text_size(px(font::STATUS_SIZE))
                     .text_color(rgb(color::FG_BODY))
                     .child(text),
@@ -789,7 +789,7 @@ pub fn ref_chip(chip: RefChip) -> Div {
         .border_1()
         .border_color(border)
         .bg(background)
-        .font_family(font::MONO)
+        .font_family(font::mono())
         .text_size(px(font::SMALL_SIZE))
         .text_color(rgb(foreground))
         .child(chip.name)
@@ -875,7 +875,7 @@ fn diff_frame(lines: Vec<AnyElement>) -> Div {
         .bg(rgba(glass::WELL))
         .border_1()
         .border_color(rgba(0xffffff0f))
-        .font_family(font::MONO)
+        .font_family(font::mono())
         .text_size(px(font::STATUS_SIZE))
         .line_height(px(DIFF_LINE_HEIGHT))
         .children(lines)

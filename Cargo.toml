@@ -10,6 +10,7 @@ license-file = "LICENSE"
 publish = false
 
 [workspace.dependencies]
+remacs-config = { path = "crates/config" }
 remacs-core = { path = "crates/core" }
 remacs-text = { path = "crates/text" }
 remacs-theme = { path = "crates/theme" }
@@ -43,6 +44,7 @@ notify = "8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 streaming-iterator = "0.1"
+toml = { version = "1", default-features = false, features = ["std", "parse", "serde"] }
 trash = { version = "5.2", default-features = false }
 tree-sitter = "0.27"
 tree-sitter-c = "0.24"

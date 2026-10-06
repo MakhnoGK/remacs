@@ -15,6 +15,7 @@ use remacs_core::{
     Action, ChangedLines, Code, DocBlock, Editor, LineChange, Outline, Popup, Preview, PreviewBody,
     Scroll, StatusSegment,
 };
+use remacs_theme::font::CodeFont;
 use remacs_theme::{color, font, glass};
 
 use crate::changes_view::render_changes;
@@ -29,18 +30,18 @@ use crate::outline_view::{
 };
 use crate::popup_view::{DocumentationScroll, DocumentationView, Placement, render_popup};
 use crate::preview_view::render_preview;
+use crate::settings::CursorHeight;
 use crate::table_view::{
     LIST_BOTTOM, ROW_PITCH, ROWS_TOP, TableCursor, fits_preview, render_hints, render_table,
 };
 use crate::widgets::{
-    Edge, Scrolled, cursor_style, edge_fade, icon, modified_dot, pill, pill_separator, tone_color,
+    Edge, Scrolled, cursor_text_style, edge_fade, icon, modified_dot, pill, pill_separator,
+    tone_color,
 };
 
 /// Minified files can hold megabytes on one line; lay out only what can be on screen.
 const MAX_RENDERED_LINE_BYTES: usize = 2048;
 const TITLE_BAR_HEIGHT: f32 = 44.0;
-/// The top margin's line.
-const TEXT_FADE_HEIGHT: f32 = font::CODE_LINE_HEIGHT;
 /// Over the status pill; point stays above it.
 const FOOTER_FADE_HEIGHT: f32 = 56.0;
 const TEXT_TOP: f32 = 64.0;
@@ -60,7 +61,9 @@ const MAX_HIGHLIGHTED_SNIPPETS: usize = 64;
 pub struct EditorView {
     editor: Editor,
     focus_handle: FocusHandle,
-    metrics: Option<Metrics>,
+    cursor_height: CursorHeight,
+    /// And the code font they were measured from.
+    metrics: Option<(CodeFont, Metrics)>,
     scroll_remainder: Pixels,
     documentation_scroll: DocumentationScroll,
     /// How far the minibuffer input is scrolled sideways.
@@ -75,17 +78,24 @@ pub struct EditorView {
     _activation: Subscription,
 }
 
-/// Monospace advances, measured once from the code font.
+/// Measured from the code font.
 #[derive(Clone, Copy)]
 struct Metrics {
     char_width: Pixels,
+    /// Ascent and descent.
+    glyph_height: Pixels,
     digit_width: Pixels,
     /// Of code quoted in notes.
     note_code_width: Pixels,
 }
 
 impl EditorView {
-    pub fn new(mut editor: Editor, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        mut editor: Editor,
+        cursor_height: CursorHeight,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let (notify, mut notifications) = mpsc::unbounded();
         editor.set_notifier(Arc::new(move || {
             let _ = notify.unbounded_send(());
@@ -109,6 +119,7 @@ impl EditorView {
         let mut view = Self {
             editor,
             focus_handle: cx.focus_handle(),
+            cursor_height,
             metrics: None,
             scroll_remainder: px(0.0),
             documentation_scroll: DocumentationScroll::default(),
@@ -221,7 +232,7 @@ impl EditorView {
         let line_height = if self.showing_rows {
             ROW_PITCH
         } else {
-            font::CODE_LINE_HEIGHT
+            font::code().line_height
         };
         let lines = self.wheel_lines(event, line_height);
         if lines != 0 {
@@ -265,11 +276,13 @@ impl EditorView {
         // their own clicks.
         let Some(metrics) = self
             .metrics
+            .as_ref()
+            .map(|(_, metrics)| *metrics)
             .filter(|_| self.editor.minibuffer().is_none() && !self.showing_rows)
         else {
             return;
         };
-        let row = ((event.position.y - px(TEXT_TOP)) / px(font::CODE_LINE_HEIGHT)).floor();
+        let row = ((event.position.y - px(TEXT_TOP)) / px(font::code().line_height)).floor();
         if row < 0.0 {
             return;
         }
@@ -284,20 +297,28 @@ impl EditorView {
     }
 
     fn metrics(&mut self, window: &Window) -> Metrics {
-        *self.metrics.get_or_insert_with(|| {
-            let text_system = window.text_system();
-            let font_id = text_system.resolve_font(&font(font::MONO));
-            let advance = |size: f32, character| {
-                text_system
-                    .advance(font_id, px(size), character)
-                    .map_or(px(size * 0.6), |advance| advance.width)
-            };
-            Metrics {
-                char_width: advance(font::CODE_SIZE, 'm'),
-                digit_width: advance(font::LINE_NUMBER_SIZE, '0'),
-                note_code_width: advance(font::STATUS_SIZE, 'm'),
-            }
-        })
+        let code_font = font::code();
+        if let Some((measured, metrics)) = &self.metrics
+            && *measured == code_font
+        {
+            return *metrics;
+        }
+        let text_system = window.text_system();
+        let font_id = text_system.resolve_font(&font(code_font.family.clone()));
+        let advance = |size: f32, character| {
+            text_system
+                .advance(font_id, px(size), character)
+                .map_or(px(size * 0.6), |advance| advance.width)
+        };
+        let size = px(code_font.size);
+        let metrics = Metrics {
+            char_width: advance(code_font.size, 'm'),
+            glyph_height: text_system.ascent(font_id, size) + text_system.descent(font_id, size),
+            digit_width: advance(code_font.line_number_size(), '0'),
+            note_code_width: advance(font::STATUS_SIZE, 'm'),
+        };
+        self.metrics = Some((code_font, metrics));
+        metrics
     }
 
     fn gutter_width(&self, metrics: Metrics) -> Pixels {
@@ -367,7 +388,9 @@ impl EditorView {
         Some(column_of(region.start)..end)
     }
 
-    fn render_line(&self, line: usize, gutter_width: Pixels) -> AnyElement {
+    fn render_line(&self, line: usize, metrics: Metrics, gutter_width: Pixels) -> AnyElement {
+        let code_font = font::code();
+        let row_height = px(code_font.line_height);
         let buffer = self.editor.window_buffer();
         let is_current = line == buffer.point_line();
         let mut display_line = self.display_line(line);
@@ -375,9 +398,24 @@ impl EditorView {
         if let Some(columns) = self.region_columns(line) {
             layers.push(vec![(display_line.cell_range(columns), region_style())]);
         }
+        let mut cursor = None;
         if is_current {
-            let cursor = display_line.cursor_cell(buffer.point_column());
-            layers.push(vec![(cursor, cursor_style())]);
+            let cell = display_line.cursor_cell(buffer.point_column());
+            let column = display_line.text[..cell.start].chars().count();
+            layers.push(vec![(cell, cursor_text_style())]);
+            let height = match self.cursor_height {
+                CursorHeight::Line => row_height,
+                CursorHeight::Font => metrics.glyph_height.min(row_height),
+            };
+            cursor = Some(
+                div()
+                    .absolute()
+                    .left(metrics.char_width * column as f32)
+                    .top((row_height - height) / 2.0)
+                    .w(metrics.char_width)
+                    .h(height)
+                    .bg(rgb(color::FG_MAIN)),
+            );
         }
         let content = StyledText::new(display_line.text).with_highlights(combine(&layers));
         let number_color = if is_current {
@@ -389,22 +427,30 @@ impl EditorView {
         div()
             .flex()
             .flex_none()
-            .h(px(font::CODE_LINE_HEIGHT))
+            .h(row_height)
             .mx(px(ROW_MARGIN))
             .rounded(px(6.0))
             .when(is_current, |row| row.bg(rgb(color::BG_HL_LINE)))
             .whitespace_nowrap()
+            .line_height(row_height)
             .child(
                 div()
                     .flex_none()
                     .w(gutter_width)
                     .pr(px(GUTTER_PADDING))
                     .text_right()
-                    .text_size(px(font::LINE_NUMBER_SIZE))
+                    .text_size(px(code_font.line_number_size()))
                     .text_color(rgb(number_color))
                     .child((line + 1).to_string()),
             )
-            .child(div().text_size(px(font::CODE_SIZE)).child(content))
+            .child(
+                div()
+                    .relative()
+                    .text_size(px(code_font.size))
+                    // Before the text, so that it is drawn under it.
+                    .children(cursor)
+                    .child(content),
+            )
             .into_any_element()
     }
 
@@ -417,7 +463,7 @@ impl EditorView {
         window: &Window,
     ) -> Vec<AnyElement> {
         let window_size = window.viewport_size();
-        let line_height = px(font::CODE_LINE_HEIGHT);
+        let line_height = px(font::code().line_height);
         let popups = self.editor.popups();
         self.documentation_scroll.update(&popups);
         self.highlight_code_in(&popups);
@@ -534,7 +580,7 @@ impl EditorView {
     fn render_text(&mut self, window: &Window) -> (AnyElement, Vec<AnyElement>) {
         let metrics = self.metrics(window);
         // Point stays above the footer fade; lines under it are drawn but not counted.
-        let line_height = px(font::CODE_LINE_HEIGHT);
+        let line_height = px(font::code().line_height);
         let text_height = window.viewport_size().height - px(TEXT_TOP);
         let clear_rows = ((text_height - px(FOOTER_FADE_HEIGHT)) / line_height)
             .floor()
@@ -549,7 +595,8 @@ impl EditorView {
         let line_count = self.editor.window_buffer().text().line_count();
         let last_line = (first_line + drawn_rows).min(line_count);
         let popups = self.render_popups(metrics, gutter_width, window);
-        let lines = (first_line..last_line).map(|line| self.render_line(line, gutter_width));
+        let lines =
+            (first_line..last_line).map(|line| self.render_line(line, metrics, gutter_width));
         let text_left = px(ROW_MARGIN) + gutter_width;
         let changes = self
             .editor
@@ -568,7 +615,8 @@ impl EditorView {
             .children(lines)
             .children(changes)
             .when(first_line > 0, |body| {
-                body.child(edge_fade(Edge::Top, TEXT_FADE_HEIGHT, glass))
+                // Over the top margin's line.
+                body.child(edge_fade(Edge::Top, line_height.into(), glass))
             })
             .when(first_line + clear_rows < line_count, |body| {
                 body.child(edge_fade(Edge::Bottom, FOOTER_FADE_HEIGHT, glass))
@@ -696,7 +744,11 @@ impl EditorView {
             .px(px(8.0))
             .rounded(px(6.0))
             .when(segment.active, |button| button.bg(rgba(glass::SELECTION)))
-            .font_family(if segment.code { font::MONO } else { font::UI })
+            .font_family(if segment.code {
+                font::mono()
+            } else {
+                font::UI.into()
+            })
             .text_color(rgb(text_color))
             .when_some(segment.command, |button, command| {
                 button.on_mouse_down(
@@ -751,7 +803,7 @@ impl EditorView {
                             .items_center()
                             .gap(px(6.0))
                             .px(px(8.0))
-                            .font_family(font::MONO)
+                            .font_family(font::mono())
                             .when(buffer.is_modified(), |position| {
                                 position.child(modified_dot())
                             })
@@ -855,9 +907,9 @@ impl Render for EditorView {
             .relative()
             .overflow_hidden()
             .bg(rgba(glass::WINDOW_TINT))
-            .font_family(font::MONO)
+            .font_family(font::mono())
             .text_color(rgb(color::FG_MAIN))
-            .line_height(px(font::CODE_LINE_HEIGHT))
+            .line_height(px(font::LINE_HEIGHT))
             .child(body)
             .children(hints)
             .children(status_below_scrim)
@@ -876,7 +928,7 @@ fn render_line_change(
     shown: Range<usize>,
     text_left: Pixels,
 ) -> Option<AnyElement> {
-    let line_height = px(font::CODE_LINE_HEIGHT);
+    let line_height = px(font::code().line_height);
     let top = |line: usize| line_height * (line - shown.start) as f32;
     let mark = if changed.lines.is_empty() {
         div()

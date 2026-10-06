@@ -36,8 +36,8 @@ pub fn render_preview(preview: Preview, code_faces: &dyn Fn(&Code) -> Highlights
             div()
                 .min_w_0()
                 .truncate()
-                .font_family(font::MONO)
-                .text_size(px(font::CODE_SIZE))
+                .font_family(font::mono())
+                .text_size(px(font::MONO_SIZE))
                 .child(title),
         )
         .children(version.map(|(_, status)| state_letter(Some(status.state), false)))
@@ -86,7 +86,7 @@ fn render_body(body: PreviewBody, code_faces: &dyn Fn(&Code) -> Highlights) -> D
         .border_1()
         .border_color(rgba(0xffffff0f))
         .whitespace_nowrap()
-        .font_family(font::MONO)
+        .font_family(font::mono())
         .text_size(px(font::STATUS_SIZE))
         .line_height(px(CODE_LINE_HEIGHT));
     match body {
@@ -169,7 +169,7 @@ fn render_details(
         let value = div()
             .min_w_0()
             .truncate()
-            .font_family(font::MONO)
+            .font_family(font::mono())
             .text_color(rgb(color::FG_BODY))
             .child(value);
         (label, value)
@@ -194,7 +194,7 @@ fn render_details(
         }
         let value = div()
             .flex_none()
-            .font_family(font::MONO)
+            .font_family(font::mono())
             .text_color(rgb(color::FG_BODY))
             .child(StyledText::new(text).with_highlights(faces));
         (name, value)

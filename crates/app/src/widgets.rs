@@ -139,7 +139,7 @@ pub fn mark_badge(mark: Mark) -> Div {
         Mark::Flagged => badge
             .size(px(16.0))
             .bg(rgb(color::BG_DANGER))
-            .font_family(font::MONO)
+            .font_family(font::mono())
             .text_size(px(10.0))
             .line_height(px(16.0))
             .text_color(rgb(color::FG_ON_DANGER))
@@ -165,7 +165,7 @@ pub fn state_letter(state: Option<FileState>, selected: bool) -> Div {
     div()
         .flex_none()
         .text_center()
-        .font_family(font::MONO)
+        .font_family(font::mono())
         .text_size(px(font::STATUS_SIZE))
         .when_some(state, |slot, state| {
             slot.text_color(rgb(state_color(state, selected)))
@@ -185,7 +185,7 @@ pub fn line_counts(lines: LineCounts, selected: bool) -> Div {
         .flex()
         .flex_none()
         .gap(px(10.0))
-        .font_family(font::MONO)
+        .font_family(font::mono())
         .text_size(px(font::STATUS_SIZE))
         .when(lines.added > 0, |counts| {
             counts.child(count(format!("+{}", lines.added), added))
@@ -215,8 +215,8 @@ pub fn list_items(items: Vec<ListItem>, max: usize, row_height: f32) -> Vec<Div>
                 .child(
                     div()
                         .flex_none()
-                        .font_family(font::MONO)
-                        .text_size(px(font::CODE_SIZE))
+                        .font_family(font::mono())
+                        .text_size(px(font::MONO_SIZE))
                         .child(item.label),
                 )
                 .child(
@@ -235,15 +235,15 @@ pub fn list_items(items: Vec<ListItem>, max: usize, row_height: f32) -> Vec<Div>
                 .flex_1()
                 .min_w_0()
                 .truncate()
-                .font_family(font::MONO)
-                .text_size(px(font::CODE_SIZE))
+                .font_family(font::mono())
+                .text_size(px(font::MONO_SIZE))
                 .text_color(rgb(color::FG_KBD))
                 .child(item.label),
         )
         .child(
             div()
                 .flex_none()
-                .font_family(font::MONO)
+                .font_family(font::mono())
                 .text_size(px(font::STATUS_SIZE))
                 .text_color(rgb(color::FG_DIM))
                 .child(item.detail),
@@ -301,7 +301,7 @@ pub fn choice_chip(label: &str, value: &str) -> Div {
     toggle_chip(&format!("{label}:"), false)
         .child(
             div()
-                .font_family(font::MONO)
+                .font_family(font::mono())
                 .text_color(rgb(color::FG_MAIN))
                 .child(value.to_owned()),
         )
@@ -356,8 +356,15 @@ pub fn key_caps(sequence: &str) -> impl Iterator<Item = Div> + '_ {
 /// The block cursor: the character under it drawn inverted.
 pub fn cursor_style() -> HighlightStyle {
     HighlightStyle {
-        color: Some(hsla(color::BG_MAIN)),
         background_color: Some(hsla(color::FG_MAIN)),
+        ..cursor_text_style()
+    }
+}
+
+/// The character under a block cursor drawn on its own, under the text.
+pub fn cursor_text_style() -> HighlightStyle {
+    HighlightStyle {
+        color: Some(hsla(color::BG_MAIN)),
         ..Default::default()
     }
 }
@@ -449,7 +456,7 @@ pub fn kbd(key: &str, selected: bool) -> Div {
         .border_1()
         .border_color(rgba(glass::CONTROL_BORDER))
         .shadow(vec![shadow(0x00000099, 1.0, 0.0, 0.0)])
-        .font_family(font::MONO)
+        .font_family(font::mono())
         .text_size(px(font::SMALL_SIZE))
         .text_color(rgb(foreground))
         .child(key.to_owned())

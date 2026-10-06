@@ -445,7 +445,7 @@ fn render_field(minibuffer: &Minibuffer, input_scroll: &ScrollHandle) -> impl In
             .text_size(px(font::INPUT_SIZE))
             .child(prompt.label.clone());
     }
-    let typed_font = |typed: bool| if typed { font::MONO } else { font::UI };
+    let typed_font = |typed: bool| if typed { font::mono() } else { font::UI.into() };
     field
         .child(
             div()
@@ -465,7 +465,7 @@ fn render_field(minibuffer: &Minibuffer, input_scroll: &ScrollHandle) -> impl In
             field.child(
                 div()
                     .flex_none()
-                    .font_family(font::MONO)
+                    .font_family(font::mono())
                     .text_size(px(font::INPUT_SIZE))
                     .text_color(rgb(color::FG_DIM))
                     .child(prompt.prefix.clone()),
@@ -478,7 +478,7 @@ fn render_field(minibuffer: &Minibuffer, input_scroll: &ScrollHandle) -> impl In
             let length = minibuffer.input_text().chars().count();
             div()
                 .flex_none()
-                .font_family(font::MONO)
+                .font_family(font::mono())
                 .text_size(px(font::STATUS_SIZE))
                 .text_color(rgb(if length > message.subject_limit {
                     color::WARNING
@@ -524,7 +524,7 @@ fn render_severity_counts(candidates: &[Candidate]) -> impl IntoElement {
                 .bg(rgba(glass::CONTROL))
                 .border_1()
                 .border_color(rgba(0xffffff12))
-                .font_family(font::MONO)
+                .font_family(font::mono())
                 .text_size(px(font::STATUS_SIZE))
                 .text_color(rgb(color::FG_KBD))
                 .child(icon(severity, color::FG_KBD))
@@ -555,7 +555,7 @@ fn render_input(minibuffer: &Minibuffer, scroll: &ScrollHandle) -> impl IntoElem
         .overflow_x_scroll()
         .track_scroll(scroll)
         .whitespace_nowrap()
-        .font_family(font::MONO)
+        .font_family(font::mono())
         .text_size(px(font::INPUT_SIZE))
         .child(part(0..cursor.start))
         .child(
@@ -624,8 +624,8 @@ fn render_description(minibuffer: &Minibuffer) -> Option<impl IntoElement> {
         .rounded(px(8.0))
         .border_1()
         .border_color(field_border(active))
-        .font_family(font::MONO)
-        .text_size(px(font::CODE_SIZE))
+        .font_family(font::mono())
+        .text_size(px(font::MONO_SIZE))
         .line_height(px(DESCRIPTION_LINE_HEIGHT))
         .text_color(rgb(color::FG_BODY))
         .children(lines)
@@ -804,7 +804,7 @@ fn render_problem(
                 .flex_none()
                 .w(px(POSITION_WIDTH))
                 .text_right()
-                .font_family(font::MONO)
+                .font_family(font::mono())
                 .text_size(px(font::STATUS_SIZE))
                 .text_color(rgb(secondary))
                 .child(candidate.annotation.clone()),
@@ -840,7 +840,7 @@ fn render_step(
                 .bg(rgba(glass::CONTROL))
                 .border_1()
                 .border_color(rgba(0xffffff14))
-                .font_family(font::MONO)
+                .font_family(font::mono())
                 .text_size(px(font::STATUS_SIZE))
                 .text_color(rgb(action_color))
                 .child(action)
@@ -855,7 +855,7 @@ fn render_step(
             div()
                 .flex_none()
                 .w(px(64.0))
-                .font_family(font::MONO)
+                .font_family(font::mono())
                 .text_size(px(font::STATUS_SIZE))
                 .text_color(rgb(if selected {
                     color::FG_ALT
@@ -898,7 +898,7 @@ fn render_entry(
                     .py(px(2.0))
                     .rounded(px(5.0))
                     .bg(rgba(0xffffff0f))
-                    .font_family(font::MONO)
+                    .font_family(font::mono())
                     .text_size(px(font::STATUS_SIZE))
                     .text_color(rgb(color::FG_ALT))
                     .child(candidate.label.clone()),
@@ -1045,7 +1045,7 @@ fn render_message(candidate: &Candidate, selected: bool) -> impl IntoElement {
                     code.px(px(5.0))
                         .rounded(px(4.0))
                         .bg(rgba(code_background))
-                        .font_family(font::MONO)
+                        .font_family(font::mono())
                         .text_size(px(font::STATUS_SIZE))
                         .text_color(rgb(code_color))
                 })
@@ -1075,8 +1075,8 @@ fn render_candidate(
         .flex_initial()
         .min_w_0()
         .truncate()
-        .font_family(font::MONO)
-        .text_size(px(font::CODE_SIZE))
+        .font_family(font::mono())
+        .text_size(px(font::MONO_SIZE))
         .text_color(rgb(if candidate.dim {
             color::FG_DIM
         } else {

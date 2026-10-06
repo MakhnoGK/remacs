@@ -142,14 +142,65 @@ pub mod glass {
 }
 
 pub mod font {
+    use std::sync::{Arc, LazyLock, PoisonError, RwLock};
+
     pub const UI: &str = "SF Pro Text";
-    pub const MONO: &str = "Monaco";
 
     pub const UI_SIZE: f32 = 13.0;
     pub const STATUS_SIZE: f32 = 12.0;
     pub const INPUT_SIZE: f32 = 14.0;
     pub const SMALL_SIZE: f32 = 11.0;
-    pub const CODE_SIZE: f32 = 13.0;
-    pub const CODE_LINE_HEIGHT: f32 = 22.0;
-    pub const LINE_NUMBER_SIZE: f32 = 12.0;
+    /// Of monospace text on surfaces, e.g. prompts and tables.
+    pub const MONO_SIZE: f32 = 13.0;
+    /// Of text on surfaces.
+    pub const LINE_HEIGHT: f32 = 22.0;
+
+    /// The font of code, set from the config. Its family is the monospace one everywhere;
+    /// its size and line height are the window buffer's text's.
+    #[derive(Clone, Debug, PartialEq)]
+    pub struct CodeFont {
+        pub family: Arc<str>,
+        pub size: f32,
+        /// In pixels.
+        pub line_height: f32,
+    }
+
+    impl CodeFont {
+        pub fn line_number_size(&self) -> f32 {
+            self.size - 1.0
+        }
+    }
+
+    impl Default for CodeFont {
+        fn default() -> Self {
+            Self {
+                family: Arc::from("Monaco"),
+                size: 13.0,
+                line_height: 22.0,
+            }
+        }
+    }
+
+    static CODE_FONT: LazyLock<RwLock<CodeFont>> = LazyLock::new(Default::default);
+
+    pub fn code() -> CodeFont {
+        CODE_FONT
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// The family of monospace text.
+    pub fn mono() -> Arc<str> {
+        Arc::clone(
+            &CODE_FONT
+                .read()
+                .unwrap_or_else(PoisonError::into_inner)
+                .family,
+        )
+    }
+
+    pub fn set_code(font: CodeFont) {
+        *CODE_FONT.write().unwrap_or_else(PoisonError::into_inner) = font;
+    }
 }

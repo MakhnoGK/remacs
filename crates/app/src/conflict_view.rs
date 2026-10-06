@@ -139,8 +139,8 @@ fn render_header(view: &ConflictView, cx: &mut Context<EditorView>) -> Div {
         )
         .child(
             div()
-                .font_family(font::MONO)
-                .text_size(px(font::CODE_SIZE))
+                .font_family(font::mono())
+                .text_size(px(font::MONO_SIZE))
                 .text_color(rgb(color::FG_MAIN))
                 .child(view.name.clone()),
         )
@@ -193,7 +193,7 @@ fn numbered<'a>(
                     .w(px(NUMBER_WIDTH))
                     .pr(px(16.0))
                     .text_right()
-                    .font_family(font::MONO)
+                    .font_family(font::mono())
                     .text_size(px(font::STATUS_SIZE))
                     .text_color(rgb(if resolved {
                         RESOLVED
@@ -206,8 +206,8 @@ fn numbered<'a>(
                 div()
                     .flex_1()
                     .min_w_0()
-                    .font_family(font::MONO)
-                    .text_size(px(font::CODE_SIZE))
+                    .font_family(font::mono())
+                    .text_size(px(font::MONO_SIZE))
                     .text_color(rgb(color::FG_MAIN))
                     .child(StyledText::new(line.clone()).with_highlights(faces_in(faces, range))),
             );
@@ -331,7 +331,7 @@ fn render_side(
         .child(div().text_color(rgb(role_color)).child(role))
         .children(id.map(|id| {
             div()
-                .font_family(font::MONO)
+                .font_family(font::mono())
                 .text_color(rgb(color::FG_FAINT))
                 .child(id)
         }))

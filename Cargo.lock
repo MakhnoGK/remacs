@@ -3879,6 +3879,7 @@ dependencies = [
  "gpui",
  "remacs-actions",
  "remacs-completion",
+ "remacs-config",
  "remacs-core",
  "remacs-diagnostics",
  "remacs-dired",
@@ -3895,6 +3896,8 @@ dependencies = [
  "remacs-syntax",
  "remacs-theme",
  "remacs-xref",
+ "serde",
+ "toml 1.1.6+spec-1.1.0",
 ]
 
 [[package]]
@@ -3904,6 +3907,14 @@ dependencies = [
  "remacs-core",
  "remacs-editing",
  "remacs-text",
+]
+
+[[package]]
+name = "remacs-config"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "toml 1.1.6+spec-1.1.0",
 ]
 
 [[package]]

@@ -23,6 +23,4 @@ Status: accepted, 2026-10-04 (issue #11)
 - Changing the strokes at runtime would leave already-rasterized glyphs in the atlas as
   they were; it is set at startup only.
 
-## Open
-
-- The strokes are a constant in `remacs-app`; they move to the config once there is one.
+- The strokes are read from `ui.toml` (`font.strokes`) at startup; see ADR 0042.

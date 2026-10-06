@@ -248,7 +248,7 @@ fn render_note_line(line: &str, code_chars: usize) -> Div {
                         chip.pr(px(CHIP_PADDING)).rounded_r(px(CHIP_RADIUS))
                     })
                     .bg(rgba(glass::NOTE_CODE))
-                    .font_family(font::MONO)
+                    .font_family(font::mono())
                     .text_size(px(font::STATUS_SIZE))
                     .text_color(rgb(color::FG_NOTE_CODE))
                     .child(text.to_owned()),
@@ -360,9 +360,9 @@ fn render_hover(
                     .border_color(rgba(0xffffff0f))
                     .overflow_hidden()
                     .whitespace_nowrap()
-                    .font_family(font::MONO)
-                    .text_size(px(font::CODE_SIZE))
-                    .line_height(px(font::CODE_LINE_HEIGHT))
+                    .font_family(font::mono())
+                    .text_size(px(font::MONO_SIZE))
+                    .line_height(px(font::LINE_HEIGHT))
                     .child(render_code(signature, view)),
             )
         })
@@ -469,7 +469,7 @@ fn render_row(row: &Candidate, selected: bool) -> impl IntoElement {
             row.bg(rgba(glass::SELECTION))
                 .shadow(vec![shadow(0x00000073, 1.0, 3.0, 0.0)])
         })
-        .font_family(font::MONO)
+        .font_family(font::mono())
         .child(match row.kind {
             Some(kind) => render_badge(kind).into_any_element(),
             None => div().flex_none().w(px(BADGE_SIZE)).into_any_element(),
@@ -479,7 +479,7 @@ fn render_row(row: &Candidate, selected: bool) -> impl IntoElement {
                 .flex_1()
                 .min_w_0()
                 .truncate()
-                .text_size(px(font::CODE_SIZE))
+                .text_size(px(font::MONO_SIZE))
                 .child(label),
         )
         .when_some(row.detail.clone(), |row, detail| {
@@ -558,8 +558,8 @@ fn render_documentation(
                     .flex_none()
                     .overflow_hidden()
                     .whitespace_nowrap()
-                    .font_family(font::MONO)
-                    .text_size(px(font::CODE_SIZE))
+                    .font_family(font::mono())
+                    .text_size(px(font::MONO_SIZE))
                     .line_height(px(BODY_LINE_HEIGHT))
                     .child(render_code(signature, view)),
             )
@@ -644,7 +644,7 @@ fn render_block(block: &DocBlock, view: &DocumentationView) -> AnyElement {
             .bg(rgba(glass::FIELD))
             .overflow_hidden()
             .whitespace_nowrap()
-            .font_family(font::MONO)
+            .font_family(font::mono())
             .text_size(px(font::STATUS_SIZE))
             .line_height(px(18.0))
             .text_color(rgb(color::FG_ALT))

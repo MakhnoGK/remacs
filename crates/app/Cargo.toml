@@ -20,6 +20,7 @@ futures.workspace = true
 gpui.workspace = true
 remacs-actions.workspace = true
 remacs-completion.workspace = true
+remacs-config.workspace = true
 remacs-core.workspace = true
 remacs-diagnostics.workspace = true
 remacs-dired.workspace = true
@@ -36,6 +37,10 @@ remacs-search.workspace = true
 remacs-syntax.workspace = true
 remacs-theme.workspace = true
 remacs-xref.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+toml.workspace = true
 
 [lints]
 workspace = true

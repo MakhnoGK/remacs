@@ -237,7 +237,7 @@ fn render_crumb(crumb: Button, cx: &mut Context<EditorView>) -> AnyElement {
         .rounded(px(6.0))
         .border_1()
         .border_color(rgba(0x00000000))
-        .text_size(px(font::CODE_SIZE))
+        .text_size(px(font::MONO_SIZE))
         .text_color(rgb(color::FG_DIM))
         .when(crumb.selected, |crumb| {
             crumb
@@ -330,10 +330,10 @@ fn render_row(
     let state = row.state;
     let cells = row.cells.into_iter().zip(columns).map(|(text, column)| {
         let (family, size, text_color) = match column.style {
-            CellStyle::Primary => (font::MONO, font::CODE_SIZE, primary_color),
-            CellStyle::Figure => (font::MONO, font::STATUS_SIZE, color::FG_DIM),
-            CellStyle::Label => (font::UI, font::STATUS_SIZE, color::FG_FAINT),
-            CellStyle::Faint => (font::MONO, font::STATUS_SIZE, color::FG_LINE_NUMBER),
+            CellStyle::Primary => (font::mono(), font::MONO_SIZE, primary_color),
+            CellStyle::Figure => (font::mono(), font::STATUS_SIZE, color::FG_DIM),
+            CellStyle::Label => (font::UI.into(), font::STATUS_SIZE, color::FG_FAINT),
+            CellStyle::Faint => (font::mono(), font::STATUS_SIZE, color::FG_LINE_NUMBER),
             CellStyle::State => {
                 return state_letter(state, highlighted).w(px(column.width.unwrap_or_default()));
             }
@@ -433,8 +433,8 @@ fn render_field(
         .border_1()
         .border_color(rgba(0xffffff14))
         .bg(rgba(glass::FIELD))
-        .font_family(font::MONO)
-        .text_size(px(font::CODE_SIZE))
+        .font_family(font::mono())
+        .text_size(px(font::MONO_SIZE))
         .text_color(rgb(text_color))
         .when(edited, |input| {
             input

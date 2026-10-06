@@ -90,7 +90,7 @@ fn render_edit(before: String, after: String) -> Div {
         .px(px(10.0))
         .rounded(px(8.0))
         .bg(rgba(glass::PANE))
-        .font_family(font::MONO)
+        .font_family(font::mono())
         .text_size(px(font::STATUS_SIZE))
         .text_color(rgb(color::FG_MAIN))
         .child(
@@ -143,7 +143,7 @@ fn render_elsewhere(elsewhere: Elsewhere) -> Vec<Div> {
         .border_color(rgba(0xffffff0f))
         .overflow_hidden()
         .whitespace_nowrap()
-        .font_family(font::MONO)
+        .font_family(font::mono())
         .text_size(px(font::STATUS_SIZE))
         .line_height(px(DIFF_LINE_HEIGHT))
         .text_color(rgb(color::FG_KBD))

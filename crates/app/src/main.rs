@@ -10,6 +10,7 @@ mod minibuffer_view;
 mod outline_view;
 mod popup_view;
 mod preview_view;
+mod settings;
 mod table_view;
 mod widgets;
 
@@ -17,8 +18,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use gpui::{
-    App, Application, Bounds, TextStrokes, TitlebarOptions, WindowBackgroundAppearance,
-    WindowBounds, WindowOptions, point, prelude::*, px, set_text_strokes, size,
+    App, Application, Bounds, TitlebarOptions, WindowBackgroundAppearance, WindowBounds,
+    WindowOptions, point, prelude::*, px, set_text_strokes, size,
 };
 use remacs_actions::ActionsPlugin;
 use remacs_completion::CompletionPlugin;
@@ -36,10 +37,12 @@ use remacs_minibuffer::MinibufferPlugin;
 use remacs_prettier::PrettierPlugin;
 use remacs_search::SearchPlugin;
 use remacs_syntax::SyntaxPlugin;
+use remacs_theme::font;
 use remacs_xref::XrefPlugin;
 
 use assets::Assets;
 use editor_view::EditorView;
+use settings::load_ui_settings;
 
 const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
     &EditingPlugin,
@@ -62,10 +65,11 @@ const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
     &LspPlugin::new(SERVERS),
 ];
 
-// TODO: read from the config once remacs has one.
-const TEXT_STROKES: TextStrokes = TextStrokes::Thick;
-
 fn main() -> ExitCode {
+    let (ui, errors) = load_ui_settings();
+    font::set_code(ui.font.code_font());
+    set_text_strokes(ui.font.strokes.into());
+
     let mut editor = Editor::new(BUILTIN_PLUGINS);
 
     if let Some(path) = std::env::args_os().nth(1).map(PathBuf::from) {
@@ -79,8 +83,14 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     }
+    for error in &errors {
+        eprintln!("remacs: {error}");
+    }
+    if let Some(error) = errors.first() {
+        editor.set_message(error.to_string());
+    }
 
-    set_text_strokes(TEXT_STROKES);
+    let cursor_height = ui.cursor.height;
     Application::new()
         .with_assets(Assets)
         .run(move |cx: &mut App| {
@@ -97,7 +107,7 @@ fn main() -> ExitCode {
                 ..Default::default()
             };
             cx.open_window(options, |window, cx| {
-                let view = cx.new(|cx| EditorView::new(editor, window, cx));
+                let view = cx.new(|cx| EditorView::new(editor, cursor_height, window, cx));
                 window.focus(view.read(cx).focus_handle());
                 view
             })
