@@ -35,7 +35,7 @@ pub struct Job {
     pub root: PathBuf,
     pub files: Arc<Vec<String>>,
     pub unsaved: Vec<(String, Snapshot)>,
-    pub words: Words,
+    pub words: Arc<Words>,
     pub max_lines: usize,
 }
 

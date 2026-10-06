@@ -29,7 +29,12 @@ Status: accepted, 2026-10-06 (issue #7)
   point on the line's first match.
 - **`search.toml`**: `project-max-matches` (10 000) stops the search there and says
   "First N lines".
+- **The window follows the selection** (user's choice over a pane in the prompt), like
+  consult's preview: the selected line's file is shown behind the prompt, point on the
+  match, the words lit on the lines drawn and the selected line's apart (up to 4 KiB of
+  a line). `C-g` puts back the buffer, point and view; files that had no buffer before
+  are closed again, except the one chosen with RET.
 
 ## Later
 
-Showing the selected line before choosing it; replacing across the project (#9).
+Replacing across the project (#9).

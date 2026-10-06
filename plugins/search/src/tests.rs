@@ -302,6 +302,63 @@ fn the_project_is_searched_for_lines_with_every_word_unsaved_buffers_as_they_are
     fs::remove_dir_all(root).unwrap();
 }
 
+/// The window buffer's file name, point, and its lit words: where each starts, whether
+/// on the chosen line.
+fn shown(editor: &Editor) -> (String, usize, Vec<(usize, bool)>) {
+    let buffer = editor.window_buffer();
+    let lit = editor
+        .decorations(0..buffer.text().len())
+        .into_iter()
+        .flatten()
+        .filter_map(|span| match span.face {
+            Face::SearchMatch => Some((span.range.start, false)),
+            Face::SearchCurrent => Some((span.range.start, true)),
+            _ => None,
+        })
+        .collect();
+    (buffer.name().to_owned(), buffer.point(), lit)
+}
+
+fn has_buffer(editor: &Editor, name: &str) -> bool {
+    editor.buffers().iter().any(|buffer| buffer.name() == name)
+}
+
+#[test]
+fn the_window_shows_the_line_selected_and_quitting_puts_it_back() {
+    let root = project("preview");
+    let mut editor = Editor::new(&[&EditingPlugin, &MinibufferPlugin, &SearchPlugin]);
+    editor.visit_file(&root.join("src/main.rs")).unwrap();
+
+    press(&mut editor, "M-s g");
+    type_text(&mut editor, "open");
+    assert_eq!(wait_for_lines(&mut editor).len(), 3);
+    let second_line = "pub fn open_file() {}\nfn ".len();
+    assert_eq!(
+        shown(&editor),
+        ("io.rs".into(), 7, vec![(7, true), (second_line, false)])
+    );
+    press(&mut editor, "C-n");
+    assert_eq!(
+        shown(&editor),
+        ("io.rs".into(), second_line, vec![(7, false), (second_line, true)])
+    );
+    press(&mut editor, "C-n");
+    let call = "fn main() {\n    let file = ".len();
+    assert_eq!(shown(&editor), ("main.rs".into(), call, vec![(call, true)]));
+
+    press(&mut editor, "C-g");
+    assert_eq!(shown(&editor), ("main.rs".into(), 0, Vec::new()));
+    assert!(!has_buffer(&editor, "io.rs"));
+
+    press(&mut editor, "M-s g");
+    type_text(&mut editor, "open");
+    wait_for_lines(&mut editor);
+    press(&mut editor, "RET");
+    assert_eq!(shown(&editor), ("io.rs".into(), 7, Vec::new()));
+    assert!(has_buffer(&editor, "main.rs"));
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn the_search_stops_at_the_most_lines_the_settings_allow() {
     let root = project("most");

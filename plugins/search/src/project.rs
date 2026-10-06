@@ -1,6 +1,7 @@
 //! Searching the text of the whole project, the matching lines listed by file in a prompt
 //! like the other searches, like Emacs `consult-ripgrep`.
 
+use std::mem;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -10,6 +11,7 @@ use remacs_files::{
 };
 use serde::Deserialize;
 
+use crate::project_preview::{Place, Preview, go_to};
 use crate::scan::{Job, Scan};
 use crate::words::Words;
 
@@ -54,11 +56,15 @@ struct ProjectSearch {
     /// The files searched are all the project's, not those cached or none while its
     /// first scan runs.
     all_files: bool,
+    words: Option<Arc<Words>>,
     scan: Option<Scan>,
+    preview: Preview,
+    /// The file of the line chosen, which stays open.
+    chosen: Option<PathBuf>,
 }
 
-/// Reads words and lists the project's lines that have them all, grouped by file;
-/// choosing one goes to its first match.
+/// Reads words and lists the project's lines that have them all, grouped by file, the
+/// window showing the one selected; choosing one goes to its first match.
 pub fn project_search(editor: &mut Editor) -> CommandResult {
     let root = project_root(&default_directory(editor));
     let index = project_files(editor, &root);
@@ -76,31 +82,59 @@ pub fn project_search(editor: &mut Editor) -> CommandResult {
         hints: &[("↵", "Go to"), ("C-g", "Cancel")],
         ..Prompt::default()
     };
+    let preview = Preview::begin(editor);
     *editor.plugin_state::<ProjectSearch>() = ProjectSearch {
         root,
         index: Some(index),
         max_lines,
+        preview,
         ..ProjectSearch::default()
     };
-    editor.read(prompt, candidates, |editor, answer| go_to(editor, &answer))
+    editor.read(prompt, candidates, |editor, answer| {
+        let place = Place::parse(&answer).ok_or("No match")?;
+        let state = editor.plugin_state::<ProjectSearch>();
+        let path = state.root.join(place.file);
+        state.chosen = Some(path.clone());
+        go_to(editor, &path, &place)
+    })
 }
 
 /// Searches again whenever the words typed or the project's files change, stopping the
-/// last search; stops once the prompt is gone. Runs after every command.
+/// last search, and shows the line selected; once the prompt is gone, stops and ends the
+/// preview. Runs after every command.
 pub fn update(editor: &mut Editor) {
-    let input = editor
+    let open = editor
         .minibuffer()
         .filter(|minibuffer| minibuffer.prompt().category == CATEGORY)
-        .map(|minibuffer| minibuffer.input_text());
-    let Some(input) = input else {
+        .map(|minibuffer| {
+            let selected = minibuffer
+                .selected_candidate()
+                .map(|candidate| candidate.value.clone());
+            (minibuffer.input_text(), selected)
+        });
+    let Some((input, selected)) = open else {
         if editor
             .find_plugin_state::<ProjectSearch>()
             .is_some_and(|state| state.index.is_some())
         {
-            *editor.plugin_state::<ProjectSearch>() = ProjectSearch::default();
+            let state = mem::take(editor.plugin_state::<ProjectSearch>());
+            state.preview.end(editor, state.chosen.as_deref());
         }
         return;
     };
+    search(editor, input);
+    let state = editor.plugin_state::<ProjectSearch>();
+    let (root, mut preview) = (state.root.clone(), mem::take(&mut state.preview));
+    match state.words.clone() {
+        Some(words) => preview.show(editor, &root, selected.as_deref(), &words),
+        None => preview.show_nothing(editor),
+    }
+    editor.plugin_state::<ProjectSearch>().preview = preview;
+}
+
+/// Starts searching for `input` unless it is searched for in the project's files as they
+/// are now.
+fn search(editor: &mut Editor, input: String) {
     let Some(state) = editor.find_plugin_state::<ProjectSearch>() else {
         return;
     };
@@ -119,12 +153,13 @@ pub fn update(editor: &mut Editor) {
     let unsaved = unsaved_buffers(editor, &root);
     let notifier = editor.notifier();
     let state = editor.plugin_state::<ProjectSearch>();
-    state.scan = Words::new(&input).map(|words| {
+    state.words = Words::new(&input).map(Arc::new);
+    state.scan = state.words.as_ref().map(|words| {
         let job = Job {
             root,
             files: Arc::clone(&files),
             unsaved,
-            words,
+            words: Arc::clone(words),
             max_lines: state.max_lines,
         };
         Scan::start(job, notifier)
@@ -164,7 +199,7 @@ fn candidates(editor: &Editor, input: &str) -> Completions {
                 matches: hit.matches.clone(),
                 annotation: (hit.line + 1).to_string(),
                 group: Some(file.clone().into()),
-                ..Candidate::new(format!("{file}:{}:{}", hit.line, hit.column))
+                ..Candidate::new(Place::value(file, hit.line, hit.column))
             });
         }
     }
@@ -180,26 +215,4 @@ fn candidates(editor: &Editor, input: &str) -> Completions {
         count_groups: true,
         ..candidates.into()
     }
-}
-
-/// Visits the file of a found line, point on its first match, centered when off screen.
-fn go_to(editor: &mut Editor, answer: &str) -> CommandResult {
-    let mut parts = answer.rsplitn(3, ':');
-    let (Some(column), Some(line), Some(file)) = (parts.next(), parts.next(), parts.next()) else {
-        return Err("No match".into());
-    };
-    let (Ok(column), Ok(line)) = (column.parse::<usize>(), line.parse::<usize>()) else {
-        return Err("No match".into());
-    };
-    let path = editor.plugin_state::<ProjectSearch>().root.join(file);
-    editor.visit_file(&path)?;
-    let buffer = editor.window_buffer_mut();
-    let range = buffer.text().line_range(line).unwrap_or_default();
-    buffer.deactivate_mark();
-    buffer.set_point((range.start + column).min(range.end));
-    let line = buffer.point_line();
-    if !editor.viewport.contains(line) {
-        editor.viewport.center_on(line);
-    }
-    Ok(())
 }

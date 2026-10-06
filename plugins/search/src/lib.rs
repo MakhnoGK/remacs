@@ -5,6 +5,7 @@
 mod lines;
 mod preview;
 mod project;
+mod project_preview;
 mod query;
 mod replace;
 mod scan;
@@ -43,6 +44,7 @@ impl Plugin for SearchPlugin {
             registry.keymap.bind(keys, command);
         }
         registry.decorators.push(Rc::new(preview::decorate));
+        registry.decorators.push(Rc::new(project_preview::decorate));
         registry.post_command_hooks.push(Rc::new(preview::sync));
         registry.post_command_hooks.push(Rc::new(replace::sync));
         registry.post_command_hooks.push(Rc::new(project::update));
