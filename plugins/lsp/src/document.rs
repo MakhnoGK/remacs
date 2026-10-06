@@ -20,6 +20,7 @@ use crate::client::{Answer, Client, Outgoing, Published, Question};
 use crate::completion::Origin;
 use crate::markdown::CodeModes;
 use crate::position::{Encoding, from_lsp};
+use crate::settings::{LspSettings, ServerSettings};
 use crate::{code_action, definition, uri};
 
 /// Servers hold whole files in memory and reparse them; larger ones stay unsynced.
@@ -360,6 +361,8 @@ pub(crate) struct Clients {
     failed: HashSet<&'static str>,
     /// Per server, directories lacking its required files, so they are looked for once.
     declined: HashMap<&'static str, HashSet<PathBuf>>,
+    /// What servers start with.
+    settings: LspSettings,
 }
 
 impl Clients {
@@ -370,10 +373,11 @@ impl Clients {
             .map(|((_, root), client)| (root.as_path(), client))
     }
 
-    /// Whether `server` is known not to serve `path`: it could not start, or the file's
-    /// project lacks what it requires.
+    /// Whether `server` is known not to serve `path`: it is turned off, it could not start,
+    /// or the file's project lacks what it requires.
     fn passes_over(&self, server: &LanguageServer, path: &Path) -> bool {
-        self.failed.contains(server.name)
+        !self.settings.enabled(server.name)
+            || self.failed.contains(server.name)
             || path.parent().is_some_and(|directory| {
                 self.declined
                     .get(server.name)
@@ -402,7 +406,8 @@ impl Clients {
         if let Some(client) = self.running.get(&(server.name, root.clone())) {
             return Ok(Some(Rc::clone(client)));
         }
-        match Client::start(server, &root, notifier) {
+        let settings = self.settings.server(server.name);
+        match Client::start(server, settings, &root, notifier) {
             Ok(client) => {
                 let client = Rc::new(client);
                 self.running.insert((server.name, root), Rc::clone(&client));
@@ -410,9 +415,42 @@ impl Clients {
             }
             Err(error) => {
                 self.failed.insert(server.name);
-                Err(format!("{}: {error}", server.command))
+                let command = settings
+                    .and_then(ServerSettings::command)
+                    .unwrap_or_else(|| server.command.into());
+                Err(format!("{}: {error}", command.display()))
             }
         }
+    }
+}
+
+/// Puts `settings` in place for servers started from now on; returns the previous ones.
+pub(crate) fn replace_settings(editor: &mut Editor, settings: LspSettings) -> LspSettings {
+    mem::replace(&mut editor.plugin_state::<Clients>().settings, settings)
+}
+
+/// Stops server `name` everywhere and forgets that it failed; the next sync starts it
+/// again where it is wanted. Its files are closed and the processes, left without
+/// clients, exit as their input closes.
+pub(crate) fn restart(editor: &mut Editor, name: &'static str) {
+    let clients = editor.plugin_state::<Clients>();
+    clients.running.retain(|(server, _), _| *server != name);
+    clients.failed.remove(name);
+    for buffer in editor.buffers_mut() {
+        let Some(documents) = buffer.local_mut::<Documents>() else {
+            continue;
+        };
+        let attached = documents.list.len();
+        documents
+            .list
+            .retain(|document| document.server.name != name);
+        if documents.list.len() == attached {
+            continue;
+        }
+        if documents.list.is_empty() {
+            buffer.remove_local::<Documents>();
+        }
+        diagnostics::clear(buffer, name);
     }
 }
 

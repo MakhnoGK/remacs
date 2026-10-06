@@ -575,12 +575,14 @@ impl Editor {
         self.quit_requested
     }
 
-    /// Replaces the settings and lets plugins read their sections again.
+    /// Replaces the settings and lets plugins read their sections again, then refreshes,
+    /// so that they act on them without waiting for a command, e.g. restart a server.
     pub fn set_settings(&mut self, settings: Settings) {
         self.settings = settings;
         for hook in self.registry.settings_hooks.clone() {
             hook(self);
         }
+        self.refresh();
     }
 
     /// A plugin's section of the settings; when it is wrong, its defaults, and the error

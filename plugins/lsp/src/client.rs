@@ -38,6 +38,7 @@ use crate::LanguageServer;
 use crate::completion::{self, CompletionSupport, Origin};
 use crate::markdown::CodeModes;
 use crate::position::{Encoding, from_lsp, to_lsp};
+use crate::settings::ServerSettings;
 use crate::symbols::{self, FoundSymbol};
 use crate::transport::{read_message, write_message};
 use crate::{code_action, definition, hover, uri};
@@ -343,9 +344,22 @@ pub(crate) struct Client {
 }
 
 impl Client {
-    pub fn start(server: &LanguageServer, root: &Path, notifier: Notifier) -> io::Result<Self> {
-        let mut child = Command::new(program(server, root))
-            .args(server.args)
+    /// `settings` change the built-in `server`, as `lsp.toml` says.
+    pub fn start(
+        server: &LanguageServer,
+        settings: Option<&ServerSettings>,
+        root: &Path,
+        notifier: Notifier,
+    ) -> io::Result<Self> {
+        let program = settings
+            .and_then(ServerSettings::command)
+            .unwrap_or_else(|| program(server, root));
+        let mut command = Command::new(program);
+        match settings.and_then(ServerSettings::args) {
+            Some(args) => command.args(args),
+            None => command.args(server.args),
+        };
+        let mut child = command
             .current_dir(root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -365,17 +379,20 @@ impl Client {
             notifier: Arc::clone(&notifier),
             next_id: INITIALIZE_ID + 1,
         };
-        let initialize = initialize_params(server, root);
+        let options = settings
+            .and_then(ServerSettings::initialization_options)
+            .cloned()
+            .or_else(|| server.initialization_options.map(built_in_json));
+        let initialize = initialize_params(options, root);
         thread::Builder::new()
             .name(format!("{} writer", server.name))
             .spawn(move || writer.write_all(initialize, negotiated, queued))?;
         let reader = Reader {
             server: server.name,
-            configuration: server
-                .configuration
-                .map(|configuration| {
-                    serde_json::from_str(configuration).expect("the configuration is JSON")
-                })
+            configuration: settings
+                .and_then(ServerSettings::configuration)
+                .cloned()
+                .or_else(|| server.configuration.map(built_in_json))
                 .unwrap_or_default(),
             replies: outgoing.clone(),
             agreed: Some(agreed),
@@ -466,12 +483,13 @@ fn program(server: &LanguageServer, root: &Path) -> PathBuf {
         .unwrap_or_else(|| server.command.into())
 }
 
-fn initialize_params(server: &LanguageServer, root: &Path) -> Value {
+fn built_in_json(json: &str) -> Value {
+    serde_json::from_str(json).expect("built-in server settings are JSON")
+}
+
+fn initialize_params(options: Option<Value>, root: &Path) -> Value {
     let root_uri = uri::from_path(root);
     let name = root.file_name().map(|name| name.to_string_lossy());
-    let options = server
-        .initialization_options
-        .map(|options| serde_json::from_str::<Value>(options).expect("options are JSON"));
     json!({
         "processId": std::process::id(),
         "clientInfo": { "name": "remacs" },

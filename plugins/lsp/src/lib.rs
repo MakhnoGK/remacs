@@ -11,6 +11,7 @@ mod hover;
 mod markdown;
 mod position;
 mod rename;
+mod settings;
 mod snippet;
 mod symbols;
 mod transport;
@@ -72,5 +73,8 @@ impl Plugin for LspPlugin {
             rename::sync(editor, servers);
             symbols::sync(editor, servers);
         }));
+        registry
+            .settings_hooks
+            .push(Rc::new(move |editor| settings::read(editor, servers)));
     }
 }

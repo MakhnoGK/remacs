@@ -40,7 +40,25 @@ Status: accepted, 2026-10-06 (issue #2)
 - **Plugins read their own sections**: the `Editor` holds the settings
   (`set_settings`), and runs `Registry::settings_hooks` whenever they are read; a hook
   takes its section with `Editor::settings_section`, which shows an error and returns
-  the defaults when the section is wrong. The app reads `ui` itself.
+  the defaults when the section is wrong. The app reads `ui` itself. `set_settings` then
+  refreshes, so plugins act on new settings without waiting for a command.
+- **`lsp.toml` changes the built-in servers by name**, what it leaves out stays built in:
+
+  ```toml
+  [servers.rust-analyzer]
+  command = "~/bin/rust-analyzer"   # a path, or a name on PATH
+  args = []
+  initialization-options = { check = { command = "clippy" } }
+  configuration = {}                # answered for workspace/configuration
+
+  [servers.eslint]
+  enabled = false
+  ```
+
+  A server whose settings changed is restarted: its clients are dropped (the process
+  exits as its input closes), its files closed and their diagnostics cleared, and a
+  failure to start is forgotten; the refresh then starts it with the new settings where
+  it is wanted. Unknown server names are reported with the known ones.
 - **Settings give modes their starting state**: `format.toml` has `on-save = true` to
   start with `format-on-save-mode` on. The command still toggles it for the session; the
   toggle holds until the section itself changes, not when another file does.
@@ -69,4 +87,5 @@ Status: accepted, 2026-10-06 (issue #2)
 
 - More `state/`, e.g. recent files once remacs has them; `cache/dirs/` once something
   needs it.
-- Sections for the other plugins, e.g. `lsp.toml`.
+- `lsp.toml` servers for languages remacs has no built-in server for; servers downloaded
+  into `servers/` (#10).
