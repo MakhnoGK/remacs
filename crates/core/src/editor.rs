@@ -16,6 +16,7 @@ use crate::buffer::{Buffer, FileEdits};
 use crate::command::{CommandResult, Commands};
 use crate::completion::Completions;
 use crate::decoration::Span;
+use crate::history::History;
 use crate::key::{Key, describe_sequence};
 use crate::keymap::{Binding, Keymap};
 use crate::kill_ring::KillRing;
@@ -35,7 +36,6 @@ pub const SCRATCH_BUFFER: &str = "*scratch*";
 const ABORT_KEY: &str = "C-g";
 /// Like Emacs, consecutive self-inserts undo together, at most this many at a time.
 const MAX_AMALGAMATED_INSERTS: usize = 20;
-const MAX_HISTORY: usize = 100;
 
 /// Called from any thread when background work has results; the UI then calls
 /// [`Editor::refresh`] on its own thread.
@@ -57,8 +57,7 @@ pub struct Editor {
     last_command_killed: bool,
     command_count: u64,
     amalgamated_inserts: usize,
-    /// Answers given to the minibuffer, newest first, by completion category.
-    history: HashMap<&'static str, Vec<String>>,
+    history: History,
     message: Option<String>,
     quit_requested: bool,
     plugin_states: HashMap<TypeId, Box<dyn Any>>,
@@ -92,7 +91,7 @@ impl Editor {
             last_command_killed: false,
             command_count: 0,
             amalgamated_inserts: 0,
-            history: HashMap::new(),
+            history: History::default(),
             message: None,
             quit_requested: false,
             plugin_states: HashMap::new(),
@@ -497,7 +496,15 @@ impl Editor {
 
     /// Earlier answers in a completion category, newest first.
     pub fn history(&self, category: &str) -> &[String] {
-        self.history.get(category).map_or(&[], Vec::as_slice)
+        self.history.get(category)
+    }
+
+    /// Keeps the minibuffer history in `path` across sessions: reads it now and writes it
+    /// after each answer.
+    pub fn keep_history_in(&mut self, path: PathBuf) {
+        if let Err(error) = self.history.keep_in(path) {
+            self.set_message(error);
+        }
     }
 
     /// Scrolls without moving point unless it would leave the window.
@@ -794,12 +801,12 @@ impl Editor {
 
     fn finish_minibuffer(&mut self, answer: String) -> CommandResult {
         let minibuffer = self.minibuffer.take().ok_or("Not in the minibuffer")?;
-        let category = minibuffer.prompt().category;
-        if !category.is_empty() {
-            let history = self.history.entry(category).or_default();
-            history.retain(|earlier| *earlier != answer);
-            history.insert(0, answer.clone());
-            history.truncate(MAX_HISTORY);
+        let prompt = minibuffer.prompt();
+        if !prompt.category.is_empty()
+            && !prompt.private
+            && let Err(error) = self.history.add(prompt.category, answer.clone())
+        {
+            self.set_message(error);
         }
         (minibuffer.on_answer)(self, answer)
     }

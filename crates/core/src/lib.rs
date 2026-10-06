@@ -6,6 +6,7 @@ mod command;
 mod completion;
 mod decoration;
 mod editor;
+mod history;
 mod key;
 mod keymap;
 mod kill_ring;

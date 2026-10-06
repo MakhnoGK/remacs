@@ -25,6 +25,11 @@ pub fn config_dir(home: &Path) -> PathBuf {
     home.join("config")
 }
 
+/// The directory of what lasts between sessions, e.g. the minibuffer history.
+pub fn state_dir(home: &Path) -> PathBuf {
+    home.join("state")
+}
+
 /// Calls `on_change`, on a background thread, whenever a settings file in `dir` is
 /// written, created or removed; until the watcher is dropped. Creates `dir`, so that files
 /// added to it later are seen too.

@@ -23,6 +23,7 @@ use gpui::{
 };
 use remacs_actions::ActionsPlugin;
 use remacs_completion::CompletionPlugin;
+use remacs_config::{home, state_dir};
 use remacs_core::{Editor, Plugin};
 use remacs_diagnostics::DiagnosticsPlugin;
 use remacs_dired::{DiredPlugin, list_directory};
@@ -73,6 +74,9 @@ fn main() -> ExitCode {
 
     let mut editor = Editor::new(BUILTIN_PLUGINS);
     editor.set_settings(settings);
+    if let Some(home) = home() {
+        editor.keep_history_in(state_dir(&home).join("history.json"));
+    }
 
     if let Some(path) = std::env::args_os().nth(1).map(PathBuf::from) {
         let opened = if path.is_dir() {

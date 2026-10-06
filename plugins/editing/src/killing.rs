@@ -127,6 +127,7 @@ fn yank_from_kill_ring(editor: &mut Editor) -> CommandResult {
     let prompt = Prompt {
         label: "Yank".into(),
         category: "kill-ring",
+        private: true,
         require_match: true,
         hints: &[("↵", "Insert"), ("C-g", "Cancel")],
         ..Prompt::default()

@@ -44,6 +44,11 @@ Status: accepted, 2026-10-06 (issue #2)
 - **Settings give modes their starting state**: `format.toml` has `on-save = true` to
   start with `format-on-save-mode` on. The command still toggles it for the session; the
   toggle holds until the section itself changes, not when another file does.
+- **The minibuffer history lasts across sessions**, like Emacs savehist:
+  `state/history.json`, by completion category, newest first, 100 answers each. Read at
+  startup after this session's, written after each answer through a temporary file. A
+  prompt marked `private` (the kill ring's) adds nothing, so copied text never reaches
+  the disk. A broken file is reported and left as it is.
 
 ## Consequences
 
@@ -56,5 +61,5 @@ Status: accepted, 2026-10-06 (issue #2)
 
 ## Open
 
-- `state/` and `cache/`, e.g. recent files and the file index.
+- `cache/`, e.g. the file index; more `state/`, e.g. recent files once remacs has them.
 - Sections for the other plugins, e.g. `lsp.toml`.

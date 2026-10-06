@@ -39,6 +39,9 @@ pub struct Prompt {
     /// Emacs completion category (`command`, `file`, `buffer`), for commands that act on
     /// the selected candidate.
     pub category: &'static str,
+    /// Answers are left out of the history, which is saved across sessions, e.g. text
+    /// from the kill ring.
+    pub private: bool,
     /// Dim text before the input, such as the directory the input is relative to.
     pub prefix: String,
     pub placeholder: &'static str,
