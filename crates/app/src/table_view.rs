@@ -14,7 +14,7 @@ use crate::highlights::{combine, region_style};
 use crate::preview_view::PREVIEW_WIDTH;
 use crate::widgets::{
     Scrolled, cursor_style, fade_scrolled, icon, kbd, key_caps, mark_badge, modified_dot, pill,
-    segment, segmented, shadow, state_letter,
+    scrolled_by, segment, segmented, shadow, state_letter,
 };
 
 const LIST_TOP: f32 = 52.0;
@@ -42,12 +42,14 @@ pub struct TableCursor {
     pub regions: Vec<Option<Range<usize>>>,
 }
 
-/// The rows of a table buffer from `first_line` on, under its path and sort controls, with
-/// the selected row's preview, or the pending changes, beside them.
+/// The rows of a table buffer from `first_line` on, `scrolled_past` of the first row
+/// hidden, under its path and sort controls, with the selected row's preview, or the
+/// pending changes, beside them.
 pub fn render_table(
     table: Table,
     first_line: usize,
     scrolled: Scrolled,
+    scrolled_past: f32,
     cursor: TableCursor,
     side: Option<Div>,
     cx: &mut Context<EditorView>,
@@ -80,7 +82,10 @@ pub fn render_table(
             };
             render_row(row, columns, at_point, line, activate, cx)
         });
-    let rows = div().flex().flex_col().gap(px(ROW_GAP)).children(rows);
+    let rows = scrolled_by(
+        div().flex().flex_col().gap(px(ROW_GAP)).children(rows),
+        ROW_PITCH * scrolled_past,
+    );
     let list = div()
         .flex_1()
         .min_w_0()

@@ -11,6 +11,7 @@ mod outline_view;
 mod popup_view;
 mod preview_view;
 mod settings;
+mod smooth_scroll;
 mod table_view;
 mod widgets;
 
@@ -94,7 +95,7 @@ fn main() -> ExitCode {
     }
     report(&errors, &mut editor);
 
-    let (cursor_height, mouse) = (ui.cursor.height, ui.mouse);
+    let (cursor_height, mouse, scroll) = (ui.cursor.height, ui.mouse, ui.scroll);
     Application::new()
         .with_assets(Assets)
         .run(move |cx: &mut App| {
@@ -111,7 +112,8 @@ fn main() -> ExitCode {
                 ..Default::default()
             };
             cx.open_window(options, |window, cx| {
-                let view = cx.new(|cx| EditorView::new(editor, cursor_height, mouse, window, cx));
+                let view =
+                    cx.new(|cx| EditorView::new(editor, cursor_height, mouse, scroll, window, cx));
                 window.focus(view.read(cx).focus_handle());
                 watch_settings(view.downgrade(), cx);
                 view

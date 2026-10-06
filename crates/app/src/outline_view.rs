@@ -15,7 +15,7 @@ use crate::editor_view::EditorView;
 use crate::highlights::Highlights;
 use crate::table_view::{LIST_BOTTOM, clickable};
 use crate::widgets::{
-    Scrolled, fade_scrolled, icon, kbd, line_counts, over, segment, segmented, shadow,
+    Scrolled, fade_scrolled, icon, kbd, line_counts, over, scrolled_by, segment, segmented, shadow,
     state_letter, tone_color,
 };
 
@@ -74,26 +74,34 @@ pub fn fitting_rows(
 ) -> usize {
     let room = rows_height(window_height, fact_count, has_banner);
     let mut used = 0.0;
-    for (index, row) in rows.iter().enumerate() {
-        let is_diff = |row: Option<&OutlineRow>| matches!(row, Some(OutlineRow::Diff(_)));
-        let mut height = match row {
-            OutlineRow::Heading { .. } => HEADING_HEIGHT + ROW_GAP,
-            OutlineRow::File { .. } | OutlineRow::Item { .. } => ROW_HEIGHT + ROW_GAP,
-            OutlineRow::Diff(_) => DIFF_LINE_HEIGHT,
-        };
-        if is_diff(Some(row)) && !is_diff(index.checked_sub(1).and_then(|before| rows.get(before)))
-        {
-            height += DIFF_TOP + ROW_GAP;
-        }
-        if is_diff(Some(row)) && !is_diff(rows.get(index + 1)) {
-            height += DIFF_BOTTOM;
-        }
-        used += height;
+    for index in 0..rows.len() {
+        used += row_height(rows, index);
         if used > room {
             return index.max(1);
         }
     }
     rows.len()
+}
+
+/// The height `rows[index]` takes in the pane, the gap after it and a diff's frame
+/// included; 0 past the end.
+pub fn row_height(rows: &[OutlineRow], index: usize) -> f32 {
+    let is_diff = |row: Option<&OutlineRow>| matches!(row, Some(OutlineRow::Diff(_)));
+    let Some(row) = rows.get(index) else {
+        return 0.0;
+    };
+    let mut height = match row {
+        OutlineRow::Heading { .. } => HEADING_HEIGHT + ROW_GAP,
+        OutlineRow::File { .. } | OutlineRow::Item { .. } => ROW_HEIGHT + ROW_GAP,
+        OutlineRow::Diff(_) => DIFF_LINE_HEIGHT,
+    };
+    if is_diff(Some(row)) && !is_diff(index.checked_sub(1).and_then(|before| rows.get(before))) {
+        height += DIFF_TOP + ROW_GAP;
+    }
+    if is_diff(Some(row)) && !is_diff(rows.get(index + 1)) {
+        height += DIFF_BOTTOM;
+    }
+    height
 }
 
 fn rows_height(window_height: Pixels, fact_count: usize, has_banner: bool) -> f32 {
@@ -105,10 +113,13 @@ fn rows_height(window_height: Pixels, fact_count: usize, has_banner: bool) -> f3
     (window_height / px(1.0)) - pane_top(has_banner) - LIST_BOTTOM - 2.0 * PANE_PADDING - facts
 }
 
-/// Whether the outline's rows and its history go on beyond what is shown.
+/// Whether the outline's rows and its history go on beyond what is shown, and how far
+/// their first row is scrolled past, in pixels.
 pub struct OutlineScrolled {
     pub rows: Scrolled,
+    pub rows_shift: f32,
     pub history: Scrolled,
+    pub history_shift: f32,
 }
 
 /// The outline's facts and its rows from `first_line` on, point's line selected, in a
@@ -232,9 +243,13 @@ pub fn render_outline(
     }
     let side = match conflict {
         Some(conflict) => Some(render_conflict(conflict, code_faces, cx)),
-        None => history.map(|history| render_history(history, scrolled.history, cx)),
+        None => history
+            .map(|history| render_history(history, scrolled.history, scrolled.history_shift, cx)),
     };
-    let rows = div().flex().flex_col().gap(px(ROW_GAP)).children(children);
+    let rows = scrolled_by(
+        div().flex().flex_col().gap(px(ROW_GAP)).children(children),
+        scrolled.rows_shift,
+    );
     let pane = div()
         .flex()
         .flex_col()
@@ -470,7 +485,12 @@ pub fn fitting_commits(window_height: Pixels, has_banner: bool) -> usize {
     (room / COMMIT_HEIGHT).floor().max(0.0) as usize
 }
 
-fn render_history(history: History, scrolled: Scrolled, cx: &mut Context<EditorView>) -> Div {
+fn render_history(
+    history: History,
+    scrolled: Scrolled,
+    shift: f32,
+    cx: &mut Context<EditorView>,
+) -> Div {
     let History {
         scopes,
         search,
@@ -542,7 +562,11 @@ fn render_history(history: History, scrolled: Scrolled, cx: &mut Context<EditorV
                 .into_iter()
                 .map(|commit| render_commit(commit, indent)),
         );
-        fade_scrolled(commits, scrolled, rgba(glass::WINDOW_TINT).into())
+        fade_scrolled(
+            scrolled_by(commits, shift),
+            scrolled,
+            rgba(glass::WINDOW_TINT).into(),
+        )
     };
     div()
         .flex()

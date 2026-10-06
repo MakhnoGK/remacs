@@ -43,6 +43,16 @@ pub fn fade_scrolled(list: Div, scrolled: Scrolled, under: Hsla) -> Div {
         })
 }
 
+/// `list` moved up by `shift` pixels, its first row partly scrolled past, in a box that
+/// takes the room left and clips it.
+pub fn scrolled_by(list: Div, shift: f32) -> Div {
+    div()
+        .flex_1()
+        .min_h_0()
+        .overflow_hidden()
+        .child(list.relative().top(px(-shift)))
+}
+
 /// Mixes what its parent drew within `size` of `edge` toward `under`: wholly at the edge,
 /// less and less away from it. Unlike a gradient over the content, it lets the glass show.
 pub fn edge_fade(edge: Edge, size: f32, under: Hsla) -> impl IntoElement {

@@ -16,6 +16,8 @@ const FONT_SIZES: RangeInclusive<f32> = 6.0..=72.0;
 const LINE_HEIGHTS: RangeInclusive<f32> = 1.0..=3.0;
 /// Milliseconds.
 const DRAG_SCROLL_INTERVALS: RangeInclusive<u64> = 5..=1000;
+/// Milliseconds; 0 turns the animation off.
+const SCROLL_ANIMATION_DURATIONS: RangeInclusive<u64> = 0..=1000;
 /// Changes this close together are read once, e.g. an editor's save done in steps.
 const SETTLE_TIME: Duration = Duration::from_millis(100);
 
@@ -97,6 +99,7 @@ pub struct UiSettings {
     pub font: FontSettings,
     pub cursor: CursorSettings,
     pub mouse: MouseSettings,
+    pub scroll: ScrollSettings,
 }
 
 impl Section for UiSettings {
@@ -129,6 +132,14 @@ impl Section for UiSettings {
                 "mouse.drag-scroll-interval {interval} is outside {}..={}",
                 DRAG_SCROLL_INTERVALS.start(),
                 DRAG_SCROLL_INTERVALS.end()
+            ));
+        }
+        let duration = self.scroll.animation_duration;
+        if !SCROLL_ANIMATION_DURATIONS.contains(&duration) {
+            return Err(format!(
+                "scroll.animation-duration {duration} is outside {}..={}",
+                SCROLL_ANIMATION_DURATIONS.start(),
+                SCROLL_ANIMATION_DURATIONS.end()
             ));
         }
         Ok(())
@@ -216,6 +227,28 @@ impl MouseSettings {
     }
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct ScrollSettings {
+    /// Milliseconds the text takes to glide to where a command or a wheel notch scrolled
+    /// it; 0 jumps.
+    pub animation_duration: u64,
+}
+
+impl ScrollSettings {
+    pub fn animation_duration(&self) -> Duration {
+        Duration::from_millis(self.animation_duration)
+    }
+}
+
+impl Default for ScrollSettings {
+    fn default() -> Self {
+        Self {
+            animation_duration: 150,
+        }
+    }
+}
+
 impl Default for MouseSettings {
     fn default() -> Self {
         Self {
@@ -242,10 +275,12 @@ mod tests {
     fn reads_every_setting() {
         let settings = parse(
             "[font]\nfamily = \"Menlo\"\nsize = 15\nline-height = 1.5\nstrokes = \"thin\"\n\
-             [cursor]\nheight = \"font\"\n[mouse]\ndrag-scroll-interval = 60\n",
+             [cursor]\nheight = \"font\"\n[mouse]\ndrag-scroll-interval = 60\n\
+             [scroll]\nanimation-duration = 0\n",
         )
         .unwrap();
         assert_eq!(settings.mouse.drag_scroll_interval, 60);
+        assert_eq!(settings.scroll.animation_duration, 0);
         assert_eq!(settings.font.family, "Menlo");
         assert_eq!(settings.font.code_font().line_height, 23.0);
         assert_eq!(settings.font.strokes, Strokes::Thin);
@@ -258,5 +293,6 @@ mod tests {
         assert!(parse("[font]\nline-height = 0.5\n").is_err());
         assert!(parse("[cursor]\nheight = \"half\"\n").is_err());
         assert!(parse("[mouse]\ndrag-scroll-interval = 0\n").is_err());
+        assert!(parse("[scroll]\nanimation-duration = 5000\n").is_err());
     }
 }

@@ -9,8 +9,8 @@ use futures::channel::mpsc;
 use gpui::{
     AnyElement, App, ClipboardItem, Context, DispatchPhase, Div, FocusHandle, IntoElement,
     KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels,
-    Point, Render, ScrollHandle, ScrollWheelEvent, StyledText, Subscription, Task, Window, canvas,
-    div, font, prelude::*, px, rgb, rgba,
+    Point, Render, ScrollDelta, ScrollHandle, ScrollWheelEvent, StyledText, Subscription, Task,
+    Window, canvas, div, font, prelude::*, px, rgb, rgba,
 };
 use remacs_core::{
     Action, ChangedLines, Code, DocBlock, Editor, LineChange, MouseSelection, Outline, Popup,
@@ -27,11 +27,12 @@ use crate::key_input::to_key;
 use crate::minibuffer_view::{is_problem_list, render_minibuffer, render_scrim};
 use crate::outline_view::{
     COMMIT_HEIGHT, OutlineScrolled, fits_history, fitting_commits, fitting_rows, max_outline_lines,
-    render_outline, render_toolbar,
+    render_outline, render_toolbar, row_height,
 };
 use crate::popup_view::{DocumentationScroll, DocumentationView, Placement, render_popup};
 use crate::preview_view::render_preview;
-use crate::settings::{CursorHeight, MouseSettings, ReadSettings, report};
+use crate::settings::{CursorHeight, MouseSettings, ReadSettings, ScrollSettings, report};
+use crate::smooth_scroll::SmoothScroll;
 use crate::table_view::{
     LIST_BOTTOM, ROW_PITCH, ROWS_TOP, TableCursor, fits_preview, render_hints, render_table,
 };
@@ -76,8 +77,17 @@ pub struct EditorView {
     drag_scroll: Option<Task<()>>,
     /// And the code font they were measured from.
     metrics: Option<(CodeFont, Metrics)>,
-    /// What the wheel moved short of a whole line or column.
-    scroll_remainder: Point<Pixels>,
+    scroll: ScrollSettings,
+    /// Where the lines or rows are drawn, following the viewport's first line.
+    vertical: SmoothScroll,
+    /// Where the text is drawn sideways, following the viewport's first column.
+    sideways: SmoothScroll,
+    /// The buffer the scrolls follow; another one is shown at once.
+    scrolled_buffer: String,
+    /// Commits of an outline's history scrolled past its first one, short of a whole one.
+    history_fraction: f32,
+    /// Whether the history was last drawn with commits above and below it.
+    history_scrolled: Scrolled,
     /// The text was scrolled sideways by hand, so point may be out of view until the next
     /// input, as in VS Code; following point would undo the scroll.
     scrolled_sideways: bool,
@@ -112,6 +122,7 @@ impl EditorView {
         mut editor: Editor,
         cursor_height: CursorHeight,
         mouse: MouseSettings,
+        scroll: ScrollSettings,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -144,7 +155,12 @@ impl EditorView {
             drag_position: Point::default(),
             drag_scroll: None,
             metrics: None,
-            scroll_remainder: Point::default(),
+            scroll,
+            vertical: SmoothScroll::default(),
+            sideways: SmoothScroll::default(),
+            scrolled_buffer: String::new(),
+            history_fraction: 0.0,
+            history_scrolled: Scrolled::default(),
             scrolled_sideways: false,
             more_on_right: false,
             documentation_scroll: DocumentationScroll::default(),
@@ -168,6 +184,7 @@ impl EditorView {
     pub fn apply_settings(&mut self, read: ReadSettings, cx: &mut Context<Self>) {
         self.cursor_height = read.ui.cursor.height;
         self.mouse = read.ui.mouse;
+        self.scroll = read.ui.scroll;
         self.editor.set_settings(read.settings);
         report(&read.errors, &mut self.editor);
         cx.notify();
@@ -264,28 +281,46 @@ impl EditorView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let line_height = px(if self.showing_rows {
+        let row_height = px(if self.showing_rows {
             ROW_PITCH
         } else {
             font::code().line_height
         });
-        let delta = event.delta.pixel_delta(line_height);
+        let (delta, at_once) = match event.delta {
+            // A trackpad moves the content under the fingers, momentum included.
+            ScrollDelta::Pixels(delta) => (delta, true),
+            ScrollDelta::Lines(_) => (event.delta.pixel_delta(row_height), false),
+        };
         // A swipe is never quite straight: it scrolls along its main direction only.
         if delta.x.abs() > delta.y.abs() {
-            self.scroll_sideways(delta.x, cx);
+            self.scroll_sideways(-delta.x, at_once, cx);
             return;
         }
-        let lines = wheel_steps(&mut self.scroll_remainder.y, delta.y, line_height);
-        if lines != 0 {
-            self.editor.scroll(lines);
-            self.drag_selection();
-            cx.notify();
-        }
+        self.scroll_vertically(-delta.y / row_height, at_once);
+        self.drag_selection();
+        cx.notify();
     }
 
-    /// Scrolls the text by the columns the wheel moved, no further right than the drawn
-    /// lines go, leaving point where it is.
-    fn scroll_sideways(&mut self, delta: Pixels, cx: &mut Context<Self>) {
+    /// Scrolls by `rows` lines or rows, fractions included, leaving point where it is
+    /// unless it would leave the window; `at_once` skips the glide.
+    fn scroll_vertically(&mut self, rows: f32, at_once: bool) {
+        let first_line = self.editor.viewport.first_line;
+        let last_start = self
+            .editor
+            .window_buffer()
+            .text()
+            .line_count()
+            .saturating_sub(1);
+        let position = (self.vertical.target(first_line) + rows).clamp(0.0, last_start as f32);
+        self.editor.scroll(position as isize - first_line as isize);
+        let first_line = self.editor.viewport.first_line;
+        self.vertical
+            .rest_at(first_line, position - first_line as f32, at_once);
+    }
+
+    /// Scrolls the text sideways by `delta`, no further right than the drawn lines go,
+    /// leaving point where it is.
+    fn scroll_sideways(&mut self, delta: Pixels, at_once: bool, cx: &mut Context<Self>) {
         let Some(char_width) = self
             .metrics
             .as_ref()
@@ -294,17 +329,20 @@ impl EditorView {
         else {
             return;
         };
-        let columns = wheel_steps(&mut self.scroll_remainder.x, delta, char_width);
-        if columns == 0 || columns > 0 && !self.more_on_right {
+        let columns = delta / char_width;
+        if columns > 0.0 && !self.more_on_right {
             return;
         }
         let viewport = &mut self.editor.viewport;
-        viewport.first_column = viewport.first_column.saturating_add_signed(columns);
+        let position = (self.sideways.target(viewport.first_column) + columns).max(0.0);
+        viewport.first_column = position as usize;
+        self.sideways
+            .rest_at(viewport.first_column, position.fract(), at_once);
         self.scrolled_sideways = true;
         cx.notify();
     }
 
-    /// Scrolls an outline's history by the rows the wheel moved.
+    /// Scrolls an outline's history by what the wheel moved, part of a commit included.
     pub fn scroll_history(
         &mut self,
         event: &ScrollWheelEvent,
@@ -313,10 +351,22 @@ impl EditorView {
     ) {
         let row_height = px(COMMIT_HEIGHT);
         let delta = event.delta.pixel_delta(row_height).y;
-        let rows = wheel_steps(&mut self.scroll_remainder.y, delta, row_height);
-        if rows != 0 {
+        let mut position = self.history_fraction - delta / row_height;
+        // Nothing is above the newest commit or below the oldest.
+        if !self.history_scrolled.above {
+            position = position.max(0.0);
+        }
+        if !self.history_scrolled.below {
+            position = position.min(0.0);
+        }
+        let whole = position.floor();
+        self.history_fraction = position - whole;
+        if whole != 0.0 {
+            let rows = whole as isize;
             let action: Action = Rc::new(move |editor| scroll(editor, rows));
             self.run_action(&action, cx);
+        } else {
+            cx.notify();
         }
     }
 
@@ -337,10 +387,9 @@ impl EditorView {
         else {
             return;
         };
-        let Ok(row) = usize::try_from(self.row_at(event.position.y)) else {
+        let Some(line) = self.line_at(event.position.y) else {
             return;
         };
-        let line = self.editor.viewport.first_line + row;
         let offset = self.offset_at(line, event.position.x, metrics);
         let buffer = self.editor.window_buffer_mut();
         let (clicks, extend) = (event.click_count, event.modifiers.shift);
@@ -402,8 +451,9 @@ impl EditorView {
         let (selection, metrics) = (selection.clone(), *metrics);
         let viewport = &self.editor.viewport;
         let line_count = self.editor.window_buffer().text().line_count();
-        let row = self.row_at(self.drag_position.y);
-        let under = viewport.first_line.saturating_add_signed(row);
+        // Above the text counts as the first line, which is above any line point is on
+        // with the text scrolled.
+        let under = self.line_at(self.drag_position.y).unwrap_or(0);
         let line = viewport.clamp(under, line_count);
         let offset = self.offset_at(line, self.drag_position.x, metrics);
         selection.drag(self.editor.window_buffer_mut(), offset);
@@ -413,17 +463,18 @@ impl EditorView {
         under.min(last_line).cmp(&line.min(last_line)) as isize
     }
 
-    /// The text row at `y` in the window, negative above the text.
-    fn row_at(&self, y: Pixels) -> isize {
-        ((y - px(TEXT_TOP)) / px(font::code().line_height)).floor() as isize
+    /// The line drawn at `y` in the window, none above the text.
+    fn line_at(&self, y: Pixels) -> Option<usize> {
+        let rows = (y - px(TEXT_TOP)) / px(font::code().line_height);
+        (rows >= 0.0).then(|| (self.vertical.shown() + rows) as usize)
     }
 
     /// The offset in the window buffer nearest to `x` on `line`; past the last line, the
     /// end of the text.
     fn offset_at(&self, line: usize, x: Pixels, metrics: Metrics) -> usize {
         let text_left = px(ROW_MARGIN) + self.gutter_width(metrics);
-        let display_column = ((x - text_left) / metrics.char_width).round().max(0.0) as usize
-            + self.editor.viewport.first_column;
+        let columns = (x - text_left) / metrics.char_width + self.sideways.shown();
+        let display_column = columns.round().max(0.0) as usize;
         let column = self.display_line(line).0.char_column_at(display_column);
         let text = self.editor.window_buffer().text();
         text.offset_at_char_column(line, column)
@@ -490,12 +541,13 @@ impl EditorView {
         metrics.digit_width * digits.max(MIN_GUTTER_DIGITS) as f32 + px(GUTTER_PADDING)
     }
 
-    /// The part of `line` in the viewport's columns, and the bytes of the buffer it shows.
+    /// The part of `line` in the drawn columns, and the bytes of the buffer it shows.
     fn display_line(&self, line: usize) -> (DisplayLine, Range<usize>) {
         let text = self.editor.window_buffer().text();
         let range = text.line_range(line).unwrap_or_default();
-        let viewport = &self.editor.viewport;
-        let columns = viewport.first_column..viewport.first_column + viewport.width;
+        let first_column = self.first_drawn_column();
+        // One more for the column partly scrolled in.
+        let columns = first_column..first_column + self.editor.viewport.width + 1;
         let part = slice_line(text.chunks(range.clone()).flatten().copied(), columns);
         let start = range.start + part.bytes.start;
         let end = range.start + part.bytes.end;
@@ -504,6 +556,11 @@ impl EditorView {
         let source = text.bytes_in(visible.clone());
         let source = String::from_utf8_lossy(&source);
         (DisplayLine::part(&source, part.start, continues), visible)
+    }
+
+    /// The display column at the left edge, partly scrolled past.
+    fn first_drawn_column(&self) -> usize {
+        self.sideways.shown() as usize
     }
 
     /// The display column of the window buffer's point.
@@ -589,11 +646,7 @@ impl EditorView {
                     .bg(rgb(color::FG_MAIN)),
             );
         }
-        let scrolled_past = self
-            .editor
-            .viewport
-            .first_column
-            .saturating_sub(display_line.first_column());
+        let scrolled_past = self.sideways.shown() - display_line.first_column() as f32;
         let (hidden_start, continues) = (display_line.has_hidden_start(), display_line.continues);
         let content = StyledText::new(display_line.text).with_highlights(combine(&layers));
         let number_color = if is_current {
@@ -638,7 +691,7 @@ impl EditorView {
                     .child(
                         div()
                             .relative()
-                            .left(-metrics.char_width * scrolled_past as f32)
+                            .left(-metrics.char_width * scrolled_past.max(0.0))
                             .text_size(px(code_font.size))
                             // Before the text, so that it is drawn under it.
                             .children(cursor)
@@ -677,8 +730,11 @@ impl EditorView {
             .iter()
             .filter_map(|popup| {
                 let line = self.editor.window_buffer().text().line_of(popup.anchor);
-                let row = line.checked_sub(self.editor.viewport.first_line)?;
-                let line_top = px(TEXT_TOP) + line_height * row as f32;
+                let row = line as f32 - self.vertical.shown();
+                if row < 0.0 {
+                    return None;
+                }
+                let line_top = px(TEXT_TOP) + line_height * row;
                 if line_top >= window_size.height {
                     return None;
                 }
@@ -687,9 +743,10 @@ impl EditorView {
                 let byte = display_line.display_range(offset..offset).start;
                 let column = (display_line.first_column()
                     + display_line.text[..byte].chars().count())
-                .saturating_sub(self.editor.viewport.first_column);
+                    as f32
+                    - self.sideways.shown();
                 let anchor_left =
-                    px(ROW_MARGIN) + gutter_width + metrics.char_width * column as f32;
+                    px(ROW_MARGIN) + gutter_width + metrics.char_width * column.max(0.0);
                 let placement = Placement {
                     anchor_left,
                     line_top,
@@ -800,9 +857,11 @@ impl EditorView {
             self.editor.viewport.ensure_column_visible(point_column);
         }
 
-        let first_line = self.editor.viewport.first_line;
+        let top = self.advance_scroll(clear_rows, window);
+        let first_line = top as usize;
         let line_count = self.editor.window_buffer().text().line_count();
-        let last_line = (first_line + drawn_rows).min(line_count);
+        // One more for the line partly scrolled in at the bottom.
+        let last_line = (first_line + drawn_rows + 1).min(line_count);
         let popups = self.render_popups(metrics, gutter_width, window);
         let (lines, continued): (Vec<_>, Vec<_>) = (first_line..last_line)
             .map(|line| self.render_line(line, metrics, gutter_width))
@@ -815,17 +874,22 @@ impl EditorView {
             .into_iter()
             .filter_map(|changed| render_line_change(changed, first_line..last_line, text_left));
         let glass = rgba(glass::WINDOW_TINT).into();
+        let lines = div()
+            .relative()
+            .top(-line_height * top.fract())
+            .flex()
+            .flex_col()
+            .children(lines)
+            .children(changes);
         let body = div()
             .absolute()
             .top(px(TEXT_TOP))
             .left_0()
             .right_0()
             .bottom_0()
-            .flex()
-            .flex_col()
-            .children(lines)
-            .children(changes)
-            .when(first_line > 0, |body| {
+            .overflow_hidden()
+            .child(lines)
+            .when(top > 0.0, |body| {
                 // Over the top margin's line.
                 body.child(edge_fade(Edge::Top, line_height.into(), glass))
             })
@@ -834,6 +898,31 @@ impl EditorView {
             })
             .into_any_element();
         (body, popups)
+    }
+
+    /// Moves where the content is drawn toward the viewport, `screen_rows` tall, and
+    /// returns where it is drawn from; another buffer is shown at once. Asks for frames
+    /// while it glides.
+    fn advance_scroll(&mut self, screen_rows: usize, window: &Window) -> f32 {
+        let viewport = self.editor.viewport;
+        let name = self.editor.window_buffer().name();
+        if self.scrolled_buffer != name {
+            self.scrolled_buffer = name.to_owned();
+            self.vertical.jump(viewport.first_line);
+            self.sideways.jump(viewport.first_column);
+            self.history_fraction = 0.0;
+        }
+        let now = Instant::now();
+        let duration = self.scroll.animation_duration();
+        let top = self
+            .vertical
+            .advance(viewport.first_line, now, duration, screen_rows as f32);
+        self.sideways
+            .advance(viewport.first_column, now, duration, viewport.width as f32);
+        if self.vertical.is_animating() || self.sideways.is_animating() {
+            window.request_animation_frame();
+        }
+        top
     }
 
     pub fn run_command(&mut self, name: &str, cx: &mut Context<Self>) {
@@ -905,15 +994,25 @@ impl EditorView {
             fitting = fit(&outline);
         }
         self.editor.viewport.set_height(fitting);
-        let first_line = self.editor.viewport.first_line;
+        let top = self.advance_scroll(fitting, window);
+        let first_line = top as usize;
+        if first_line != self.editor.viewport.first_line {
+            outline = self
+                .editor
+                .outline(first_line..first_line + outline_lines)?;
+            fitting = fit(&outline);
+        }
         let mut scrolled = OutlineScrolled {
             rows: Scrolled {
-                above: first_line > 0,
+                above: top > 0.0,
                 below: outline.rows.len() > fitting,
             },
+            rows_shift: row_height(&outline.rows, 0) * top.fract(),
             history: Scrolled::default(),
+            history_shift: 0.0,
         };
-        outline.rows.truncate(fitting);
+        // One more for the row partly scrolled in at the bottom.
+        outline.rows.truncate(fitting + 1);
         if !fits_history(window.viewport_size().width) {
             outline.history = None;
             outline.conflict = None;
@@ -921,11 +1020,19 @@ impl EditorView {
         let has_banner = outline.banner.is_some();
         if let Some(history) = &mut outline.history {
             let fitting = fitting_commits(height, has_banner);
-            scrolled.history = Scrolled {
+            self.history_scrolled = Scrolled {
                 above: history.scrolled,
                 below: history.commits.len() > fitting,
             };
-            history.commits.truncate(fitting);
+            if !self.history_scrolled.below {
+                self.history_fraction = 0.0;
+            }
+            scrolled.history = Scrolled {
+                above: history.scrolled || self.history_fraction > 0.0,
+                ..self.history_scrolled
+            };
+            scrolled.history_shift = COMMIT_HEIGHT * self.history_fraction;
+            history.commits.truncate(fitting + 1);
         }
         for code in outline.conflict.iter().flat_map(conflict_codes) {
             self.highlight_code(&code);
@@ -1040,8 +1147,9 @@ impl Render for EditorView {
             / px(ROW_PITCH))
         .floor()
         .max(1.0) as usize;
-        // One row more than fits tells whether there are rows below.
-        let table = self.editor.table(first_line..first_line + table_rows + 1);
+        // One row more than fits is partly scrolled in; another tells whether there are
+        // rows below.
+        let table = self.editor.table(first_line..first_line + table_rows + 2);
         let outline = match table {
             Some(_) => None,
             None => {
@@ -1059,11 +1167,18 @@ impl Render for EditorView {
             (Some(mut table), _) => {
                 self.editor.viewport.set_height(table_rows);
                 self.editor.viewport.margins = (1, 1);
+                let top = self.advance_scroll(table_rows, window);
+                let first_line = top as usize;
+                if first_line != self.editor.viewport.first_line
+                    && let Some(shown) = self.editor.table(first_line..first_line + table_rows + 2)
+                {
+                    table = shown;
+                }
                 let scrolled = Scrolled {
-                    above: first_line > 0,
-                    below: table.rows.len() > table_rows,
+                    above: top > 0.0,
+                    below: table.rows.len() > table_rows + usize::from(top.fract() > 0.0),
                 };
-                table.rows.truncate(table_rows);
+                table.rows.truncate(table_rows + 1);
                 let buffer = self.editor.window_buffer();
                 let cursor = TableCursor {
                     line: buffer.point_line(),
@@ -1079,8 +1194,8 @@ impl Render for EditorView {
                     (Some(changes), _) => Some(render_changes(changes, cx)),
                     (None, preview) => preview.map(|preview| self.render_preview(preview)),
                 };
-                let body =
-                    render_table(table, first_line, scrolled, cursor, side, cx).into_any_element();
+                let body = render_table(table, first_line, scrolled, top.fract(), cursor, side, cx)
+                    .into_any_element();
                 (body, Some(hints), Vec::new())
             }
             (None, None) => {
@@ -1131,15 +1246,6 @@ impl Render for EditorView {
             .children(minibuffer)
             .children(self.render_drag_listeners(cx))
     }
-}
-
-/// Whole `step`s the wheel moved by `delta` with what earlier events left in `remainder`,
-/// down or right being positive; the rest stays in `remainder`.
-fn wheel_steps(remainder: &mut Pixels, delta: Pixels, step: Pixels) -> isize {
-    *remainder += delta;
-    let steps = (*remainder / step).trunc();
-    *remainder -= step * steps;
-    -steps as isize
 }
 
 /// A bar in the gutter beside added or modified lines, or a tick between the lines where
