@@ -23,6 +23,18 @@ pub enum Icon {
     Pull,
     /// Sending commits out, an arrow up.
     Push,
+    /// Starting a program, a triangle.
+    Run,
+    /// Ending a program, a square.
+    Stop,
+    /// Starting a program again, a circular arrow.
+    Rerun,
+    /// A Rust package, run by cargo.
+    Package,
+    /// An npm script.
+    Script,
+    /// A program run as it is.
+    Terminal,
 }
 
 /// What a completion candidate or a documented symbol is; the UI gives each its own badge.

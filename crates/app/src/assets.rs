@@ -18,6 +18,12 @@ pub const PLUS_ICON: &str = "icons/plus.svg";
 pub const PULL_ICON: &str = "icons/pull.svg";
 pub const PUSH_ICON: &str = "icons/push.svg";
 pub const REMOTE_ICON: &str = "icons/remote.svg";
+pub const RUN_ICON: &str = "icons/run.svg";
+pub const STOP_ICON: &str = "icons/stop.svg";
+pub const RERUN_ICON: &str = "icons/rerun.svg";
+pub const PACKAGE_ICON: &str = "icons/package.svg";
+pub const SCRIPT_ICON: &str = "icons/script.svg";
+pub const TERMINAL_ICON: &str = "icons/terminal.svg";
 
 /// Compiled into the binary, so the app needs no resource directory.
 const ASSETS: &[(&str, &[u8])] = &[
@@ -43,6 +49,15 @@ const ASSETS: &[(&str, &[u8])] = &[
     (PULL_ICON, include_bytes!("../assets/icons/pull.svg")),
     (PUSH_ICON, include_bytes!("../assets/icons/push.svg")),
     (REMOTE_ICON, include_bytes!("../assets/icons/remote.svg")),
+    (RUN_ICON, include_bytes!("../assets/icons/run.svg")),
+    (STOP_ICON, include_bytes!("../assets/icons/stop.svg")),
+    (RERUN_ICON, include_bytes!("../assets/icons/rerun.svg")),
+    (PACKAGE_ICON, include_bytes!("../assets/icons/package.svg")),
+    (SCRIPT_ICON, include_bytes!("../assets/icons/script.svg")),
+    (
+        TERMINAL_ICON,
+        include_bytes!("../assets/icons/terminal.svg"),
+    ),
 ];
 
 pub struct Assets;

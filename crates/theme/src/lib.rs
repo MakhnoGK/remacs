@@ -72,6 +72,15 @@ pub mod color {
         }
     }
 
+    /// The 16 colors programs name with ANSI escape codes, normal then bright; black is
+    /// lifted to stay readable on the dark glass.
+    pub const ANSI: [u32; 16] = [
+        0x595959, 0xff5f59, 0x44bc44, 0xfec43f, 0x2fafff, 0xfeacd0, 0x00d3d0, 0xdcdcdc, 0x7f7f7f,
+        0xff7f86, 0x88ca9f, 0xffe08a, 0x79a8ff, 0xb6a0ff, 0x6ae4b9, 0xffffff,
+    ];
+    /// Links in a program's output, e.g. a `file:line`.
+    pub const LINK: u32 = 0x79a8ff;
+
     pub const KEYWORD: u32 = 0xb6a0ff;
     pub const TYPE: u32 = 0x6ae4b9;
     pub const FUNCTION: u32 = 0xfeacd0;

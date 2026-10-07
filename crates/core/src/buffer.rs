@@ -235,6 +235,23 @@ impl Buffer {
         self.set_point(point + text.len());
     }
 
+    /// Appends output nobody typed, like a program's, unrecorded for undo; point at the
+    /// end follows it, like an Emacs process marker.
+    pub fn append_output(&mut self, text: &str) {
+        let follow = self.point == self.text.len();
+        self.text.append_output(text);
+        if follow {
+            self.point = self.text.len();
+        }
+    }
+
+    /// Drops output from `len` on, unrecorded, as when a program redraws its last line.
+    pub fn truncate_output(&mut self, len: usize) {
+        self.text.truncate_output(len);
+        self.point = self.point.min(self.text.len());
+        self.mark = self.mark.map(|mark| mark.min(self.text.len()));
+    }
+
     pub fn delete(&mut self, range: Range<usize>) {
         let shift = |offset: usize| {
             if offset >= range.end {

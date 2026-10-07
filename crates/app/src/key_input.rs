@@ -28,9 +28,18 @@ pub fn to_key(keystroke: &Keystroke) -> Option<Key> {
         "pageup" => KeyCode::PageUp,
         "pagedown" => KeyCode::PageDown,
         "space" => KeyCode::Char(' '),
-        name => return char_key(name, modifiers),
+        name => match function_key(name) {
+            Some(number) => KeyCode::Function(number),
+            None => return char_key(name, modifiers),
+        },
     };
     Some(Key::new(modifiers, code))
+}
+
+/// `8` for gpui's `f8`.
+fn function_key(name: &str) -> Option<u8> {
+    let number = name.strip_prefix('f')?.parse().ok()?;
+    (1..=12).contains(&number).then_some(number)
 }
 
 /// gpui reports shifted letters as `shift` + lowercase; Emacs folds shift into the character.

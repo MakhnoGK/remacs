@@ -7,8 +7,10 @@ mod completion;
 mod decoration;
 mod editor;
 mod file_change;
+mod gutter;
 mod history;
 mod key;
+mod key_bindings;
 mod keymap;
 mod kill_ring;
 mod minibuffer;
@@ -29,9 +31,10 @@ pub use completion::{
     Candidate, Completions, EntryAction, Expansion, Icon, Match, Selection, SymbolKind, filter,
     filter_candidates, flex_match, rank,
 };
-pub use decoration::{Decorator, Face, Span};
+pub use decoration::{ConsoleColor, ConsoleStyle, Decorator, Face, Span};
 pub use editor::{Editor, Notifier, SCRATCH_BUFFER, SELF_INSERT_COMMAND};
 pub use file_change::{ChangedFiles, FileChange};
+pub use gutter::{GutterIcon, GutterMark, GutterProvider, TextControls, TextControlsProvider};
 pub use key::{Key, KeyCode, Modifiers, describe_sequence, parse_sequence};
 pub use keymap::{Binding, Keymap};
 pub use kill_ring::KillRing;

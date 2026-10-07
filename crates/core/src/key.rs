@@ -25,6 +25,8 @@ pub enum KeyCode {
     End,
     PageUp,
     PageDown,
+    /// `F1` to `F12`, named `<f1>` to `<f12>`.
+    Function(u8),
 }
 
 /// Emacs names of non-character keys.
@@ -72,6 +74,7 @@ impl Key {
         }
         let code = match KEY_NAMES.iter().find(|(_, name)| *name == rest) {
             Some((code, _)) => *code,
+            None if rest.starts_with("<f") => KeyCode::Function(function_key_number(rest)?),
             None => {
                 let mut chars = rest.chars();
                 let character = chars.next()?;
@@ -94,6 +97,12 @@ impl Key {
             _ => None,
         }
     }
+}
+
+/// `12` for `<f12>`.
+fn function_key_number(name: &str) -> Option<u8> {
+    let number = name.strip_prefix("<f")?.strip_suffix('>')?.parse().ok()?;
+    (1..=12).contains(&number).then_some(number)
 }
 
 pub fn parse_sequence(notation: &str) -> Option<Vec<Key>> {
@@ -124,6 +133,7 @@ impl fmt::Display for Key {
             Some((_, name)) => formatter.write_str(name),
             None => match self.code {
                 KeyCode::Char(character) => write!(formatter, "{character}"),
+                KeyCode::Function(number) => write!(formatter, "<f{number}>"),
                 _ => unreachable!("every named key has a name"),
             },
         }
@@ -137,7 +147,8 @@ mod tests {
     #[test]
     fn parses_and_describes_emacs_notation() {
         for notation in [
-            "a", "C-x", "M-<", "C-M-%", "s-z", "RET", "S-<up>", "C--", "SPC",
+            "a", "C-x", "M-<", "C-M-%", "s-z", "RET", "S-<up>", "C--", "SPC", "<f8>", "S-<f8>",
+            "s-<f12>",
         ] {
             assert_eq!(Key::parse(notation).unwrap().to_string(), notation);
         }
@@ -146,6 +157,7 @@ mod tests {
             "C-x C-s"
         );
         assert_eq!(Key::parse("C-xy"), None);
+        assert_eq!(Key::parse("<f13>"), None);
     }
 
     #[test]

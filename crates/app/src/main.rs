@@ -38,6 +38,7 @@ use remacs_lsp::LspPlugin;
 use remacs_minibuffer::MinibufferPlugin;
 use remacs_prettier::PrettierPlugin;
 use remacs_rename::RenamePlugin;
+use remacs_run::{RunPlugin, keep_configurations_in};
 use remacs_search::SearchPlugin;
 use remacs_syntax::SyntaxPlugin;
 use remacs_xref::XrefPlugin;
@@ -56,6 +57,7 @@ const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
     &LanguagesPlugin,
     &SyntaxPlugin::new(GRAMMARS),
     &DiagnosticsPlugin,
+    &RunPlugin,
     // Before their backends, so that what they ask after a command is sent in the same pass.
     &CompletionPlugin,
     &DocumentationPlugin,
@@ -80,6 +82,7 @@ fn main() -> ExitCode {
     if let Some(home) = home() {
         editor.keep_history_in(state_dir(&home).join("history.json"));
         editor.keep_caches_in(cache_dir(&home));
+        keep_configurations_in(&mut editor, &home);
     }
 
     if let Some(path) = std::env::args_os().nth(1).map(PathBuf::from) {

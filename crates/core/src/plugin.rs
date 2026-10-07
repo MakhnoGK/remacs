@@ -3,6 +3,7 @@ use std::rc::Rc;
 use crate::command::Commands;
 use crate::decoration::Decorator;
 use crate::editor::Editor;
+use crate::gutter::{GutterProvider, TextControlsProvider};
 use crate::keymap::Keymap;
 use crate::mode::Modes;
 use crate::outline::OutlineProvider;
@@ -50,6 +51,10 @@ pub struct Registry {
     pub tables: Vec<TableProvider>,
     /// Draw buffers as outlines; the first that knows the buffer does.
     pub outlines: Vec<OutlineProvider>,
+    /// Marks beside the lines of buffers drawn as text, all plugins' together.
+    pub gutters: Vec<GutterProvider>,
+    /// Controls of buffers drawn as text; the first that knows the buffer has them.
+    pub text_controls: Vec<TextControlsProvider>,
     /// For each file, the first that controls it.
     pub version_controls: Vec<Rc<dyn VersionControl>>,
 }

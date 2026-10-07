@@ -1,12 +1,14 @@
 use std::ops::Range;
 
-use gpui::{HighlightStyle, UnderlineStyle, px, rgba};
-use remacs_core::Face;
+use gpui::{FontStyle, FontWeight, HighlightStyle, UnderlineStyle, px, rgba};
+use remacs_core::{ConsoleColor, ConsoleStyle, Face};
 use remacs_theme::color;
 
 use crate::widgets::hsla;
 
 const UNDERLINE_THICKNESS: f32 = 1.5;
+/// How far dim colored text fades toward what it is drawn on.
+const CONSOLE_DIM_FADE: f32 = 0.4;
 
 /// Byte ranges of a line's display text and their styles, sorted and non-overlapping.
 pub type Highlights = Vec<(Range<usize>, HighlightStyle)>;
@@ -49,6 +51,51 @@ pub fn face_style(face: Face) -> HighlightStyle {
             color: Some(hsla(color::BG_MAIN)),
             ..Default::default()
         },
+        Face::Console(style) => console_style(style),
+        Face::Link => HighlightStyle {
+            color: Some(hsla(color::LINK)),
+            ..underline(color::LINK)
+        },
+    }
+}
+
+/// Dim text without a color of its own takes the theme's gray, as terminals do.
+fn console_style(style: ConsoleStyle) -> HighlightStyle {
+    let color = match (style.color, style.dim) {
+        (Some(color), _) => Some(console_color(color)),
+        (None, true) => Some(color::ANSI[8]),
+        (None, false) => None,
+    };
+    HighlightStyle {
+        color: color.map(hsla),
+        font_weight: style.bold.then_some(FontWeight::BOLD),
+        font_style: style.italic.then_some(FontStyle::Italic),
+        underline: style.underline.then(|| UnderlineStyle {
+            thickness: px(1.0),
+            color: None,
+            wavy: false,
+        }),
+        fade_out: (style.dim && style.color.is_some()).then_some(CONSOLE_DIM_FADE),
+        ..Default::default()
+    }
+}
+
+/// `0xRRGGBB` of an indexed color as xterm defines the 256: the theme's 16, a 6×6×6
+/// cube, then 24 grays.
+fn console_color(color: ConsoleColor) -> u32 {
+    const CUBE_LEVELS: [u32; 6] = [0, 95, 135, 175, 215, 255];
+    match color {
+        ConsoleColor::Rgb(rgb) => rgb,
+        ConsoleColor::Indexed(index @ 0..16) => color::ANSI[usize::from(index)],
+        ConsoleColor::Indexed(index @ 16..232) => {
+            let cube = u32::from(index - 16);
+            let level = |step: u32| CUBE_LEVELS[(step % 6) as usize];
+            level(cube / 36) << 16 | level(cube / 6) << 8 | level(cube)
+        }
+        ConsoleColor::Indexed(index) => {
+            let gray = 8 + 10 * u32::from(index - 232);
+            gray << 16 | gray << 8 | gray
+        }
     }
 }
 

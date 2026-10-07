@@ -35,14 +35,24 @@ pub fn cache_dir(home: &Path) -> PathBuf {
     home.join("cache")
 }
 
-/// A project's own directory under `cache`, named after its root for people and a hash of
-/// the root's path for uniqueness.
+/// The directory of run configurations, one file per project.
+pub fn run_dir(home: &Path) -> PathBuf {
+    home.join("run")
+}
+
+/// A project's own directory under `cache`.
 pub fn project_cache_dir(cache: &Path, root: &Path) -> PathBuf {
+    cache.join("projects").join(project_name(root))
+}
+
+/// What a project's own files and directories are called: after its root for people, and
+/// a hash of the root's path for uniqueness.
+pub fn project_name(root: &Path) -> String {
     let name = root
         .file_name()
         .map_or_else(|| "root".into(), |name| name.to_string_lossy());
     let hash = fnv1a(root.as_os_str().as_encoded_bytes());
-    cache.join("projects").join(format!("{name}-{hash:016x}"))
+    format!("{name}-{hash:016x}")
 }
 
 /// Stable across runs and Rust versions, unlike `DefaultHasher`.

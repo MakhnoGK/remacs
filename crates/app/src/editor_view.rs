@@ -13,8 +13,8 @@ use gpui::{
     Window, canvas, div, font, prelude::*, px, rgb, rgba,
 };
 use remacs_core::{
-    Action, ChangedLines, Code, DocBlock, Editor, LineChange, MouseSelection, Outline, Popup,
-    Preview, PreviewBody, Scroll, StatusSegment,
+    Action, ChangedLines, Code, DocBlock, Editor, GutterIcon, GutterMark, Icon, LineChange,
+    MouseSelection, Outline, Popup, Preview, PreviewBody, Scroll, StatusSegment,
 };
 use remacs_theme::font::CodeFont;
 use remacs_theme::{color, font, glass};
@@ -54,6 +54,8 @@ const ROW_RADIUS: f32 = 6.0;
 const SIDE_MARGIN_COLUMNS: usize = 7;
 const GUTTER_PADDING: f32 = 20.0;
 const MIN_GUTTER_DIGITS: usize = 3;
+/// The column of marks left of the line numbers, e.g. where a program can be run from.
+const MARKS_WIDTH: f32 = 24.0;
 /// Marks of changed lines are centered this far left of the text.
 const CHANGE_MARK_CENTER: f32 = 8.5;
 const CHANGE_BAR_WIDTH: f32 = 3.0;
@@ -538,7 +540,27 @@ impl EditorView {
             .line_count()
             .to_string()
             .len();
-        metrics.digit_width * digits.max(MIN_GUTTER_DIGITS) as f32 + px(GUTTER_PADDING)
+        let marks = if self.has_marks_column() {
+            px(MARKS_WIDTH)
+        } else {
+            px(0.0)
+        };
+        marks + metrics.digit_width * digits.max(MIN_GUTTER_DIGITS) as f32 + px(GUTTER_PADDING)
+    }
+
+    /// Some plugin may mark lines of the window buffer, so the gutter makes room for it.
+    fn has_marks_column(&self) -> bool {
+        self.editor.gutter_marks(0..0).is_some()
+    }
+
+    /// Puts point on `line` and runs the command of its gutter mark.
+    fn click_gutter_mark(&mut self, line: usize, command: &'static str, cx: &mut Context<Self>) {
+        if self.editor.minibuffer().is_some() {
+            return;
+        }
+        self.editor.set_point_at(line, 0);
+        self.editor.run_command(command);
+        self.after_input(cx);
     }
 
     /// The part of `line` in the drawn columns, and the bytes of the buffer it shows.
@@ -611,12 +633,14 @@ impl EditorView {
         Some(column_of(region.start)..end)
     }
 
-    /// The row of `line`, and whether the line goes on past its right edge.
+    /// The row of `line`, its gutter mark in `mark_slot` when the gutter has a column for
+    /// marks, and whether the line goes on past its right edge.
     fn render_line(
         &self,
         line: usize,
         metrics: Metrics,
         gutter_width: Pixels,
+        mark_slot: Option<Div>,
     ) -> (AnyElement, bool) {
         let code_font = font::code();
         let row_height = px(code_font.line_height);
@@ -646,6 +670,11 @@ impl EditorView {
                     .bg(rgb(color::FG_MAIN)),
             );
         }
+        let marks_width = if mark_slot.is_some() {
+            px(MARKS_WIDTH)
+        } else {
+            px(0.0)
+        };
         let scrolled_past = self.sideways.shown() - display_line.first_column() as f32;
         let (hidden_start, continues) = (display_line.has_hidden_start(), display_line.continues);
         let content = StyledText::new(display_line.text).with_highlights(combine(&layers));
@@ -670,10 +699,18 @@ impl EditorView {
             .when(is_current, |row| row.bg(rgb(color::BG_HL_LINE)))
             .whitespace_nowrap()
             .line_height(row_height)
+            .children(mark_slot.map(|slot| {
+                slot.flex_none()
+                    .w(px(MARKS_WIDTH))
+                    .h(row_height)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+            }))
             .child(
                 div()
                     .flex_none()
-                    .w(gutter_width)
+                    .w(gutter_width - marks_width)
                     .pr(px(GUTTER_PADDING))
                     .text_right()
                     .text_size(px(code_font.line_number_size()))
@@ -834,8 +871,45 @@ impl EditorView {
             .child(div().text_color(rgb(color::FG_DIM)).child("— remacs"))
     }
 
+    /// The gutter's mark slots for `lines`, mapped by line, when some plugin may mark the
+    /// window buffer; a click on a mark runs its command.
+    fn render_mark_slots(
+        &self,
+        lines: Range<usize>,
+        cx: &mut Context<Self>,
+    ) -> Option<HashMap<usize, Div>> {
+        let marks = self.editor.gutter_marks(lines.clone())?;
+        let mut slots: HashMap<usize, Div> = lines.map(|line| (line, div())).collect();
+        for mark in marks {
+            let GutterMark {
+                line,
+                icon: mark_icon,
+                command,
+            } = mark;
+            let Some(slot) = slots.remove(&line) else {
+                continue;
+            };
+            let glyph = match mark_icon {
+                GutterIcon::Run => icon(Icon::Run, color::VC_ADDED),
+            };
+            let slot = slot.cursor_pointer().child(glyph).on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |view, _: &MouseDownEvent, _, cx| {
+                    cx.stop_propagation();
+                    view.click_gutter_mark(line, command, cx);
+                }),
+            );
+            slots.insert(line, slot);
+        }
+        Some(slots)
+    }
+
     /// The window buffer's lines from the viewport on, with the popups placed over them.
-    fn render_text(&mut self, window: &Window) -> (AnyElement, Vec<AnyElement>) {
+    fn render_text(
+        &mut self,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> (AnyElement, Vec<AnyElement>) {
         let metrics = self.metrics(window);
         // Point stays above the footer fade; lines under it are drawn but not counted.
         let line_height = px(font::code().line_height);
@@ -863,8 +937,12 @@ impl EditorView {
         // One more for the line partly scrolled in at the bottom.
         let last_line = (first_line + drawn_rows + 1).min(line_count);
         let popups = self.render_popups(metrics, gutter_width, window);
+        let mut mark_slots = self.render_mark_slots(first_line..last_line, cx);
         let (lines, continued): (Vec<_>, Vec<_>) = (first_line..last_line)
-            .map(|line| self.render_line(line, metrics, gutter_width))
+            .map(|line| {
+                let slot = mark_slots.as_mut().and_then(|slots| slots.remove(&line));
+                self.render_line(line, metrics, gutter_width, slot)
+            })
             .unzip();
         self.more_on_right = continued.contains(&true);
         let text_left = px(ROW_MARGIN) + gutter_width;
@@ -1199,8 +1277,14 @@ impl Render for EditorView {
                 (body, Some(hints), Vec::new())
             }
             (None, None) => {
-                let (body, popups) = self.render_text(window);
-                (body, None, popups)
+                let (body, popups) = self.render_text(window, cx);
+                let controls = self.editor.text_controls().unwrap_or_default();
+                if !controls.toolbar.is_empty() {
+                    toolbar = Some(render_toolbar(controls.toolbar, cx).into_any_element());
+                }
+                let hints = (!controls.hints.is_empty())
+                    .then(|| render_hints(controls.hints).into_any_element());
+                (body, hints, popups)
             }
         };
         let minibuffer = self

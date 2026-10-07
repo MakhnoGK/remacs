@@ -16,8 +16,10 @@ use crate::buffer::{Buffer, FileEdits};
 use crate::command::{CommandResult, Commands};
 use crate::completion::Completions;
 use crate::decoration::Span;
+use crate::gutter::{GutterMark, TextControls};
 use crate::history::History;
 use crate::key::{Key, describe_sequence};
+use crate::key_bindings::KeysSettings;
 use crate::keymap::{Binding, Keymap};
 use crate::kill_ring::KillRing;
 use crate::minibuffer::{Dialog, Minibuffer, Prompt};
@@ -48,6 +50,8 @@ pub struct Editor {
     pub viewport: Viewport,
     pub kill_ring: KillRing,
     registry: Registry,
+    /// The plugins' bindings, under those of `keys.toml`.
+    default_keymap: Keymap,
     pending_keys: Vec<Key>,
     last_key: Option<Key>,
     /// The command being run; M-x replaces it with the command it runs, as in Emacs.
@@ -85,6 +89,7 @@ impl Editor {
             minibuffer: None,
             viewport: Viewport::default(),
             kill_ring: KillRing::default(),
+            default_keymap: registry.keymap.clone(),
             registry,
             pending_keys: Vec::new(),
             last_key: None,
@@ -590,6 +595,12 @@ impl Editor {
     /// so that they act on them without waiting for a command, e.g. restart a server.
     pub fn set_settings(&mut self, settings: Settings) {
         self.settings = settings;
+        let keys = self.settings_section::<KeysSettings>();
+        let (keymap, errors) = keys.apply(&self.default_keymap, &self.registry.commands);
+        self.registry.keymap = keymap;
+        if let Some(error) = errors.into_iter().next() {
+            self.set_message(error);
+        }
         for hook in self.registry.settings_hooks.clone() {
             hook(self);
         }
@@ -678,6 +689,29 @@ impl Editor {
             .outlines
             .iter()
             .find_map(|describe| describe(self, lines.clone()))
+    }
+
+    /// Marks beside `lines` of the window buffer, sorted by line; none when no plugin has
+    /// marks for the buffer.
+    pub fn gutter_marks(&self, lines: Range<usize>) -> Option<Vec<GutterMark>> {
+        let mut marks: Option<Vec<GutterMark>> = None;
+        for provide in &self.registry.gutters {
+            if let Some(more) = provide(self, lines.clone()) {
+                marks.get_or_insert_default().extend(more);
+            }
+        }
+        if let Some(marks) = &mut marks {
+            marks.sort_by_key(|mark| mark.line);
+        }
+        marks
+    }
+
+    /// Controls of the window buffer, if a plugin has any for it.
+    pub fn text_controls(&self) -> Option<TextControls> {
+        self.registry
+            .text_controls
+            .iter()
+            .find_map(|describe| describe(self))
     }
 
     /// The version control keeping `path`, if any.

@@ -7,7 +7,8 @@ use remacs_theme::{color, font, glass};
 
 use crate::assets::{
     BRANCH_ICON, CHECK_ICON, CHEVRON_DOWN_ICON, ERROR_ICON, FILE_ICON, FOLDER_ICON, INFO_ICON,
-    PLUS_ICON, PULL_ICON, PUSH_ICON, REMOTE_ICON, WARNING_ICON,
+    PACKAGE_ICON, PLUS_ICON, PULL_ICON, PUSH_ICON, REMOTE_ICON, RERUN_ICON, RUN_ICON, SCRIPT_ICON,
+    STOP_ICON, TERMINAL_ICON, WARNING_ICON,
 };
 
 pub fn hsla(hex: u32) -> Hsla {
@@ -112,6 +113,12 @@ pub fn icon(icon: Icon, text_color: u32) -> Svg {
         Icon::Create => (PLUS_ICON, 14.0, text_color),
         Icon::Pull => (PULL_ICON, 12.0, text_color),
         Icon::Push => (PUSH_ICON, 12.0, text_color),
+        Icon::Run => (RUN_ICON, 12.0, color::VC_ADDED),
+        Icon::Stop => (STOP_ICON, 12.0, text_color),
+        Icon::Rerun => (RERUN_ICON, 12.0, text_color),
+        Icon::Package => (PACKAGE_ICON, 12.0, text_color),
+        Icon::Script => (SCRIPT_ICON, 12.0, text_color),
+        Icon::Terminal => (TERMINAL_ICON, 12.0, text_color),
     };
     svg()
         .path(path)

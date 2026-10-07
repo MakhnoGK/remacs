@@ -3893,6 +3893,7 @@ dependencies = [
  "remacs-minibuffer",
  "remacs-prettier",
  "remacs-rename",
+ "remacs-run",
  "remacs-search",
  "remacs-syntax",
  "remacs-theme",
@@ -3925,7 +3926,9 @@ version = "0.1.0"
 dependencies = [
  "remacs-config",
  "remacs-text",
+ "serde",
  "serde_json",
+ "toml 1.1.6+spec-1.1.0",
 ]
 
 [[package]]
@@ -4082,6 +4085,22 @@ dependencies = [
  "remacs-core",
  "remacs-editing",
  "remacs-minibuffer",
+]
+
+[[package]]
+name = "remacs-run"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "remacs-config",
+ "remacs-core",
+ "remacs-editing",
+ "remacs-files",
+ "remacs-minibuffer",
+ "remacs-text",
+ "serde",
+ "serde_json",
+ "toml 1.1.6+spec-1.1.0",
 ]
 
 [[package]]

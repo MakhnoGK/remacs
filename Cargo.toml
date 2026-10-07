@@ -28,6 +28,7 @@ remacs-lsp = { path = "plugins/lsp" }
 remacs-minibuffer = { path = "plugins/minibuffer" }
 remacs-prettier = { path = "plugins/prettier" }
 remacs-rename = { path = "plugins/rename" }
+remacs-run = { path = "plugins/run" }
 remacs-search = { path = "plugins/search" }
 remacs-syntax = { path = "plugins/syntax" }
 remacs-xref = { path = "plugins/xref" }

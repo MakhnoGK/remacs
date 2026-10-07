@@ -58,6 +58,38 @@ impl Text {
         pieces.insert(offset, piece, sources);
     }
 
+    /// Appends output nobody typed, like a program's, to a text nobody edits: it is not
+    /// recorded for undo, and an unmodified text stays unmodified.
+    pub fn append_output(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        let unmodified = !self.is_modified();
+        let end = self.snapshot.len();
+        let Snapshot { sources, pieces } = &mut self.snapshot;
+        let piece = sources.append(text.as_bytes());
+        pieces.insert(end, piece, sources);
+        if unmodified {
+            self.saved = self.snapshot.pieces.clone();
+        }
+    }
+
+    /// Drops output from `len` on, as a program redrawing its last line does; unrecorded,
+    /// like [`Text::append_output`].
+    pub fn truncate_output(&mut self, len: usize) {
+        let end = self.snapshot.len();
+        if len >= end {
+            return;
+        }
+        self.assert_char_boundary(len);
+        let unmodified = !self.is_modified();
+        let Snapshot { sources, pieces } = &mut self.snapshot;
+        pieces.remove(len..end, sources);
+        if unmodified {
+            self.saved = self.snapshot.pieces.clone();
+        }
+    }
+
     pub fn delete(&mut self, range: Range<usize>) {
         if range.is_empty() {
             return;
@@ -256,6 +288,23 @@ mod tests {
         assert_eq!(text.pieces.pieces_from(0).count(), 3);
         text.undo();
         assert_eq!(text.bytes_in(0..text.len()), b"ab");
+    }
+
+    #[test]
+    fn output_is_neither_undone_nor_a_modification() {
+        let mut text = Text::from("$ ");
+        text.append_output("ok\n");
+        assert_eq!(text.bytes_in(0..text.len()), b"$ ok\n");
+        assert!(!text.is_modified());
+        text.append_output("50%");
+        text.truncate_output(5);
+        text.append_output("100%");
+        assert_eq!(text.bytes_in(0..text.len()), b"$ ok\n100%");
+        assert!(!text.is_modified());
+        assert_eq!(text.undo(), None);
+        text.insert(0, "#");
+        text.append_output("done\n");
+        assert!(text.is_modified());
     }
 
     #[test]

@@ -9,7 +9,7 @@ pub enum Binding {
     Unbound,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Keymap {
     commands: HashMap<Vec<Key>, &'static str>,
     prefixes: HashSet<Vec<Key>>,
@@ -18,12 +18,31 @@ pub struct Keymap {
 impl Keymap {
     /// Binds a key sequence in Emacs notation, e.g. `"C-x C-s"`.
     pub fn bind(&mut self, notation: &str, command: &'static str) {
-        let keys =
-            parse_sequence(notation).unwrap_or_else(|| panic!("invalid key sequence {notation:?}"));
+        if !self.try_bind(notation, command) {
+            panic!("invalid key sequence {notation:?}");
+        }
+    }
+
+    /// Like [`Keymap::bind`], for notation that may be wrong, e.g. from a settings file;
+    /// false when it is.
+    pub fn try_bind(&mut self, notation: &str, command: &'static str) -> bool {
+        let Some(keys) = parse_sequence(notation).filter(|keys| !keys.is_empty()) else {
+            return false;
+        };
         for prefix_len in 1..keys.len() {
             self.prefixes.insert(keys[..prefix_len].to_vec());
         }
         self.commands.insert(keys, command);
+        true
+    }
+
+    /// Leaves a key sequence unbound; false when the notation is wrong.
+    pub fn unbind(&mut self, notation: &str) -> bool {
+        let Some(keys) = parse_sequence(notation) else {
+            return false;
+        };
+        self.commands.remove(&keys);
+        true
     }
 
     pub fn lookup(&self, keys: &[Key]) -> Binding {

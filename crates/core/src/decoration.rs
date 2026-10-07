@@ -23,6 +23,28 @@ pub enum Face {
     /// Matches of a search, like Emacs `lazy-highlight`; the one chosen, like `isearch`.
     SearchMatch,
     SearchCurrent,
+    /// Text a program printed, styled by its ANSI escape codes.
+    Console(ConsoleStyle),
+    /// Followed by a key or a click, like a `file:line` in a program's output.
+    Link,
+}
+
+/// How a program asked for its text to be drawn, with SGR escape codes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ConsoleStyle {
+    pub color: Option<ConsoleColor>,
+    pub bold: bool,
+    pub dim: bool,
+    pub italic: bool,
+    pub underline: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConsoleColor {
+    /// 0 to 15 are the theme's, the rest xterm's color cube and grays.
+    Indexed(u8),
+    /// `0xRRGGBB`.
+    Rgb(u32),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
