@@ -7,9 +7,16 @@ Status: accepted, 2026-10-05 (issue #3)
 - **Window (board 22)**: the window is `WindowBackgroundAppearance::Blurred` and the
   editor's root is tinted `glass::WINDOW_TINT` (`rgba(0,0,0,0.8)`) instead of opaque black.
   The corners are the system's; a titled window's radius cannot be set.
-- **gpui's blur view uses `UnderWindowBackground`**: on macOS 27 the `Selection` material
-  gpui chose is a flat fill with no backdrop blur, which gpui then strips, leaving the
-  desktop sharp. gpui still removes the material's tint and saturation, so the blur is plain.
+- **Window glass from `ui.toml`** (2026-10-07): `[glass] opacity` sets the tint's alpha
+  (`glass::window_tint()`), `blur` the desktop's blur radius. The window is now
+  `Transparent` and `Window::set_background_blur_radius` calls the window server's
+  `CGSSetWindowBackgroundBlurRadius`, as Terminal.app and Ghostty do: the
+  `NSVisualEffectView` material below has no radius to set. The window server blurs no
+  more than 64px; 60 looks like the old material.
+- **gpui's blur view uses `UnderWindowBackground`** (no longer used by remacs): on macOS 27
+  the `Selection` material gpui chose is a flat fill with no backdrop blur, which gpui then
+  strips, leaving the desktop sharp. gpui still removes the material's tint and saturation,
+  so the blur is plain.
 - **Backdrop blur in the vendored gpui** (`Styled::backdrop_filter(radius, saturation)`,
   `Window::paint_backdrop_filter`): CSS `backdrop-filter: blur() saturate()` for what the
   window itself draws; the desktop under the window is the window server's. A new

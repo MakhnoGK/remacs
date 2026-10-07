@@ -268,7 +268,7 @@ pub fn render_outline(
         .child(fade_scrolled(
             rows,
             scrolled.rows,
-            over(glass::PANE, glass::WINDOW_TINT),
+            over(glass::PANE, glass::window_tint()),
         ));
     let panes = div()
         .absolute()
@@ -565,7 +565,7 @@ fn render_history(
         fade_scrolled(
             scrolled_by(commits, shift),
             scrolled,
-            rgba(glass::WINDOW_TINT).into(),
+            rgba(glass::window_tint()).into(),
         )
     };
     div()

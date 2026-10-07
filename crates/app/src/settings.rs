@@ -8,6 +8,7 @@ use gpui::{App, TextStrokes, WeakEntity, set_text_strokes};
 use remacs_config::{Section, Settings, SettingsError, config_dir, home, watch};
 use remacs_core::Editor;
 use remacs_theme::font::{self, CodeFont};
+use remacs_theme::glass;
 use serde::Deserialize;
 
 use crate::editor_view::EditorView;
@@ -18,6 +19,9 @@ const LINE_HEIGHTS: RangeInclusive<f32> = 1.0..=3.0;
 const DRAG_SCROLL_INTERVALS: RangeInclusive<u64> = 5..=1000;
 /// Milliseconds; 0 turns the animation off.
 const SCROLL_ANIMATION_DURATIONS: RangeInclusive<u64> = 0..=1000;
+const GLASS_OPACITIES: RangeInclusive<f32> = 0.0..=1.0;
+/// Pixels; the window server blurs no more than 64.
+const GLASS_BLURS: RangeInclusive<u32> = 0..=64;
 /// Changes this close together are read once, e.g. an editor's save done in steps.
 const SETTLE_TIME: Duration = Duration::from_millis(100);
 
@@ -43,6 +47,7 @@ pub fn read_settings() -> ReadSettings {
         });
     font::set_code(ui.font.code_font());
     set_text_strokes(ui.font.strokes.into());
+    glass::set_window_opacity(ui.glass.opacity);
     ReadSettings {
         settings,
         ui,
@@ -100,6 +105,7 @@ pub struct UiSettings {
     pub cursor: CursorSettings,
     pub mouse: MouseSettings,
     pub scroll: ScrollSettings,
+    pub glass: GlassSettings,
 }
 
 impl Section for UiSettings {
@@ -142,6 +148,23 @@ impl Section for UiSettings {
                 SCROLL_ANIMATION_DURATIONS.end()
             ));
         }
+        let glass = &self.glass;
+        if !GLASS_OPACITIES.contains(&glass.opacity) {
+            return Err(format!(
+                "glass.opacity {} is outside {}..={}",
+                glass.opacity,
+                GLASS_OPACITIES.start(),
+                GLASS_OPACITIES.end()
+            ));
+        }
+        if !GLASS_BLURS.contains(&glass.blur) {
+            return Err(format!(
+                "glass.blur {} is outside {}..={}",
+                glass.blur,
+                GLASS_BLURS.start(),
+                GLASS_BLURS.end()
+            ));
+        }
         Ok(())
     }
 }
@@ -155,6 +178,7 @@ pub struct FontSettings {
     /// Times the size.
     pub line_height: f32,
     pub strokes: Strokes,
+    pub ligatures: bool,
 }
 
 impl FontSettings {
@@ -164,6 +188,7 @@ impl FontSettings {
             size: self.size,
             // Whole pixels keep rows from blurring at their edges.
             line_height: (self.size * self.line_height).round(),
+            ligatures: self.ligatures,
         }
     }
 }
@@ -176,6 +201,7 @@ impl Default for FontSettings {
             size: code_font.size,
             line_height: 1.7,
             strokes: Strokes::default(),
+            ligatures: code_font.ligatures,
         }
     }
 }
@@ -257,6 +283,25 @@ impl Default for MouseSettings {
     }
 }
 
+/// The window's glass over the desktop.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct GlassSettings {
+    /// Of the window's tint: 0.0 shows the desktop as it is, 1.0 hides it.
+    pub opacity: f32,
+    /// Pixels the desktop behind the window is blurred by; 0 leaves it sharp.
+    pub blur: u32,
+}
+
+impl Default for GlassSettings {
+    fn default() -> Self {
+        Self {
+            opacity: 0.8,
+            blur: 60,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -275,15 +320,24 @@ mod tests {
     fn reads_every_setting() {
         let settings = parse(
             "[font]\nfamily = \"Menlo\"\nsize = 15\nline-height = 1.5\nstrokes = \"thin\"\n\
+             ligatures = false\n\
              [cursor]\nheight = \"font\"\n[mouse]\ndrag-scroll-interval = 60\n\
-             [scroll]\nanimation-duration = 0\n",
+             [scroll]\nanimation-duration = 0\n[glass]\nopacity = 0.5\nblur = 0\n",
         )
         .unwrap();
+        assert_eq!(
+            settings.glass,
+            GlassSettings {
+                opacity: 0.5,
+                blur: 0
+            }
+        );
         assert_eq!(settings.mouse.drag_scroll_interval, 60);
         assert_eq!(settings.scroll.animation_duration, 0);
         assert_eq!(settings.font.family, "Menlo");
         assert_eq!(settings.font.code_font().line_height, 23.0);
         assert_eq!(settings.font.strokes, Strokes::Thin);
+        assert!(!settings.font.code_font().ligatures);
         assert_eq!(settings.cursor.height, CursorHeight::Font);
     }
 
@@ -294,5 +348,7 @@ mod tests {
         assert!(parse("[cursor]\nheight = \"half\"\n").is_err());
         assert!(parse("[mouse]\ndrag-scroll-interval = 0\n").is_err());
         assert!(parse("[scroll]\nanimation-duration = 5000\n").is_err());
+        assert!(parse("[glass]\nopacity = 1.5\n").is_err());
+        assert!(parse("[glass]\nblur = 65\n").is_err());
     }
 }

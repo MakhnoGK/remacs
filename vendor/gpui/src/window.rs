@@ -1792,6 +1792,12 @@ impl Window {
             .set_background_appearance(background_appearance);
     }
 
+    /// Blurs what is behind a [`WindowBackgroundAppearance::Transparent`] window by `radius`
+    /// pixels; 0 removes the blur. Only macOS blurs.
+    pub fn set_background_blur_radius(&self, radius: u32) {
+        self.platform_window.set_background_blur_radius(radius);
+    }
+
     /// Mark the window as dirty at the platform level.
     pub fn set_window_edited(&mut self, edited: bool) {
         self.platform_window.set_edited(edited);

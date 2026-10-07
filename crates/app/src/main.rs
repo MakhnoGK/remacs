@@ -106,7 +106,8 @@ fn main() -> ExitCode {
     }
     report(&errors, &mut editor);
 
-    let (cursor_height, mouse, scroll) = (ui.cursor.height, ui.mouse, ui.scroll);
+    let (cursor_height, mouse, scroll, window_blur) =
+        (ui.cursor.height, ui.mouse, ui.scroll, ui.glass.blur);
     Application::new()
         .with_assets(Assets)
         .run(move |cx: &mut App| {
@@ -119,12 +120,22 @@ fn main() -> ExitCode {
                     appears_transparent: true,
                     traffic_light_position: Some(point(px(18.0), px(16.0))),
                 }),
-                window_background: WindowBackgroundAppearance::Blurred,
+                // Blurred by the radius in the settings, not by the system's fixed material.
+                window_background: WindowBackgroundAppearance::Transparent,
                 ..Default::default()
             };
             cx.open_window(options, |window, cx| {
-                let view =
-                    cx.new(|cx| EditorView::new(editor, cursor_height, mouse, scroll, window, cx));
+                let view = cx.new(|cx| {
+                    EditorView::new(
+                        editor,
+                        cursor_height,
+                        mouse,
+                        scroll,
+                        window_blur,
+                        window,
+                        cx,
+                    )
+                });
                 window.focus(view.read(cx).focus_handle());
                 watch_settings(view.downgrade(), cx);
                 view

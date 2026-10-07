@@ -1310,6 +1310,14 @@ impl PlatformWindow for MacWindow {
         }
     }
 
+    fn set_background_blur_radius(&self, radius: u32) {
+        let this = self.0.as_ref().lock();
+        unsafe {
+            let window_number = this.native_window.windowNumber();
+            CGSSetWindowBackgroundBlurRadius(CGSMainConnectionID(), window_number, radius.into());
+        }
+    }
+
     fn set_edited(&mut self, edited: bool) {
         unsafe {
             let window = self.0.lock().native_window;

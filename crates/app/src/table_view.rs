@@ -98,7 +98,7 @@ pub fn render_table(
         .child(fade_scrolled(
             rows,
             scrolled,
-            rgba(glass::WINDOW_TINT).into(),
+            rgba(glass::window_tint()).into(),
         ));
     div()
         .absolute()

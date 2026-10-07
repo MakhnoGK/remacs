@@ -483,6 +483,8 @@ pub(crate) trait PlatformWindow: HasWindowHandle + HasDisplayHandle {
     fn is_hovered(&self) -> bool;
     fn set_title(&mut self, title: &str);
     fn set_background_appearance(&self, background_appearance: WindowBackgroundAppearance);
+    /// Blurs what is behind a transparent window by `radius` pixels; 0 removes the blur.
+    fn set_background_blur_radius(&self, _radius: u32) {}
     fn minimize(&self);
     fn zoom(&self);
     fn toggle_fullscreen(&self);

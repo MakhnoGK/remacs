@@ -41,8 +41,8 @@ use crate::table_view::{
     LIST_BOTTOM, ROW_PITCH, ROWS_TOP, TableCursor, fits_preview, render_hints, render_table,
 };
 use crate::widgets::{
-    Edge, SCROLL_FADE_SIZE, Scrolled, cursor_text_style, edge_fade, hsla, icon, modified_dot, pill,
-    pill_separator, tone_color,
+    Edge, SCROLL_FADE_SIZE, Scrolled, code_font_features, cursor_text_style, edge_fade, hsla, icon,
+    modified_dot, pill, pill_separator, tone_color,
 };
 
 /// Minified files can hold megabytes on one line; lay out only what can be on screen.
@@ -84,6 +84,10 @@ pub struct EditorView {
     /// And the code font they were measured from.
     metrics: Option<(CodeFont, Metrics)>,
     scroll: ScrollSettings,
+    /// Pixels the desktop behind the window is blurred by, and by how much it was last
+    /// blurred; the window server is told only of a change.
+    window_blur: u32,
+    applied_window_blur: Option<u32>,
     /// Where the lines or rows are drawn, following the viewport's first line.
     vertical: SmoothScroll,
     /// Where the text is drawn sideways, following the viewport's first column.
@@ -129,6 +133,7 @@ impl EditorView {
         cursor_height: CursorHeight,
         mouse: MouseSettings,
         scroll: ScrollSettings,
+        window_blur: u32,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -162,6 +167,8 @@ impl EditorView {
             drag_scroll: None,
             metrics: None,
             scroll,
+            window_blur,
+            applied_window_blur: None,
             vertical: SmoothScroll::default(),
             sideways: SmoothScroll::default(),
             scrolled_buffer: String::new(),
@@ -191,6 +198,7 @@ impl EditorView {
         self.cursor_height = read.ui.cursor.height;
         self.mouse = read.ui.mouse;
         self.scroll = read.ui.scroll;
+        self.window_blur = read.ui.glass.blur;
         self.editor.set_settings(read.settings);
         report(&read.errors, &mut self.editor);
         cx.notify();
@@ -693,7 +701,7 @@ impl EditorView {
         let under = if is_current {
             hsla(color::BG_HL_LINE)
         } else {
-            rgba(glass::WINDOW_TINT).into()
+            rgba(glass::window_tint()).into()
         };
 
         let row = div()
@@ -998,7 +1006,7 @@ impl EditorView {
             .line_changes(first_line..last_line)
             .into_iter()
             .filter_map(|changed| render_line_change(changed, first_line..last_line, text_left));
-        let glass = rgba(glass::WINDOW_TINT).into();
+        let glass = rgba(glass::window_tint()).into();
         let lines = div()
             .relative()
             .top(-line_height * top.fract())
@@ -1267,6 +1275,10 @@ impl EditorView {
 impl Render for EditorView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         window.set_window_title(&format!("{} — remacs", self.editor.window_buffer().name()));
+        if self.applied_window_blur != Some(self.window_blur) {
+            window.set_background_blur_radius(self.window_blur);
+            self.applied_window_blur = Some(self.window_blur);
+        }
         let first_line = self.editor.viewport.first_line;
         let table_rows = ((window.viewport_size().height - px(ROWS_TOP) - px(LIST_BOTTOM))
             / px(ROW_PITCH))
@@ -1375,8 +1387,9 @@ impl Render for EditorView {
             .size_full()
             .relative()
             .overflow_hidden()
-            .bg(rgba(glass::WINDOW_TINT))
+            .bg(rgba(glass::window_tint()))
             .font_family(font::mono())
+            .font_features(code_font_features())
             .text_color(rgb(color::FG_MAIN))
             .line_height(px(font::LINE_HEIGHT))
             .child(body)

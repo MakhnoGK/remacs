@@ -1,6 +1,6 @@
 use crate::{
     self as gpui, AbsoluteLength, AlignContent, AlignItems, BackdropFilter, BorderStyle,
-    CursorStyle, DefiniteLength, Display, Fill, FlexDirection, FlexWrap, Font, FontStyle,
+    CursorStyle, DefiniteLength, Display, Fill, FlexDirection, FlexWrap, Font, FontFeatures, FontStyle,
     FontWeight, GridPlacement, Hsla, JustifyContent, Length, Pixels, SharedString,
     StrikethroughStyle, StyleRefinement, TextAlign, TextOverflow, TextStyleRefinement,
     UnderlineStyle, WhiteSpace, px, relative, rems,
@@ -618,6 +618,14 @@ pub trait Styled: Sized {
         self.text_style()
             .get_or_insert_with(Default::default)
             .font_family = Some(family_name.into());
+        self
+    }
+
+    /// Sets the OpenType features of the font of this element and its children.
+    fn font_features(mut self, features: FontFeatures) -> Self {
+        self.text_style()
+            .get_or_insert_with(Default::default)
+            .font_features = Some(features);
         self
     }
 

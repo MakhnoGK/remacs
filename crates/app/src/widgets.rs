@@ -1,5 +1,7 @@
+use std::sync::Arc;
+
 use gpui::{
-    BoxShadow, Div, HighlightStyle, Hsla, IntoElement, ParentElement, Rgba, Styled, Svg, canvas,
+    BoxShadow, Div, FontFeatures, HighlightStyle, Hsla, IntoElement, ParentElement, Rgba, Styled, Svg, canvas,
     div, linear_color_stop, linear_gradient, point, prelude::FluentBuilder, px, rgb, rgba, svg,
 };
 use remacs_core::{FileState, Icon, LineCounts, ListItem, Mark, Tone};
@@ -13,6 +15,15 @@ use crate::assets::{
 
 pub fn hsla(hex: u32) -> Hsla {
     rgb(hex).into()
+}
+
+/// What the code font may do with its characters; fonts join them through either feature.
+pub fn code_font_features() -> FontFeatures {
+    if font::code().ligatures {
+        FontFeatures::default()
+    } else {
+        FontFeatures(Arc::new(vec![("calt".into(), 0), ("liga".into(), 0)]))
+    }
 }
 
 pub const SCROLL_FADE_SIZE: f32 = 32.0;

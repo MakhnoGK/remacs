@@ -93,8 +93,22 @@ pub mod color {
 
 /// Translucent surfaces over the blurred desktop or editor. Colors are `0xRRGGBBAA`.
 pub mod glass {
-    /// Over the blurred desktop, under everything in the window.
-    pub const WINDOW_TINT: u32 = 0x000000cc;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    const WINDOW_TINT_RGB: u32 = 0x000000;
+    static WINDOW_TINT: AtomicU32 = AtomicU32::new(WINDOW_TINT_RGB << 8 | 0xcc);
+
+    /// Over the blurred desktop, under everything in the window; its opacity is set from
+    /// the config.
+    pub fn window_tint() -> u32 {
+        WINDOW_TINT.load(Ordering::Relaxed)
+    }
+
+    /// From 0.0, the desktop as it is, to 1.0, the tint alone.
+    pub fn set_window_opacity(opacity: f32) {
+        let alpha = (opacity.clamp(0.0, 1.0) * 255.0).round() as u32;
+        WINDOW_TINT.store(WINDOW_TINT_RGB << 8 | alpha, Ordering::Relaxed);
+    }
 
     /// Floating surfaces, e.g. prompts and completion, over the blurred editor.
     pub const SURFACE: u32 = 0x1c1c1eb8;
@@ -183,6 +197,8 @@ pub mod font {
         pub size: f32,
         /// In pixels.
         pub line_height: f32,
+        /// Whether the font may join characters into one glyph, e.g. `=>` into an arrow.
+        pub ligatures: bool,
     }
 
     impl CodeFont {
@@ -197,6 +213,7 @@ pub mod font {
                 family: Arc::from("Monaco"),
                 size: 13.0,
                 line_height: 22.0,
+                ligatures: true,
             }
         }
     }
