@@ -2,6 +2,7 @@
 //! words lit, like Emacs consult's preview; quitting puts the buffer, point and view
 //! back, and the files opened only to be shown are closed.
 
+use std::io;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -106,13 +107,7 @@ impl Preview {
             return self.restore(editor);
         };
         let path = root.join(place.file);
-        if !editor
-            .buffers()
-            .iter()
-            .any(|buffer| buffer.path() == Some(path.as_path()))
-        {
-            self.opened.push(path.clone());
-        }
+        self.note_opened(editor, &path);
         if go_to(editor, &path, &place).is_err() {
             return;
         }
@@ -120,6 +115,30 @@ impl Preview {
             words: Arc::clone(words),
             line: place.line,
         });
+    }
+
+    /// Shows the file at `path` in the window.
+    pub fn visit(&mut self, editor: &mut Editor, path: &Path) -> io::Result<()> {
+        self.note_opened(editor, path);
+        editor.visit_file(path)
+    }
+
+    /// Closes the file at `path` if it was opened to be shown.
+    pub fn close(&mut self, editor: &mut Editor, path: &Path) {
+        if let Some(index) = self.opened.iter().position(|opened| opened == path) {
+            self.opened.swap_remove(index);
+            kill_file_buffer(editor, path);
+        }
+    }
+
+    fn note_opened(&mut self, editor: &Editor, path: &Path) {
+        if !editor
+            .buffers()
+            .iter()
+            .any(|buffer| buffer.path() == Some(path))
+        {
+            self.opened.push(path.to_path_buf());
+        }
     }
 
     /// Shows what the window showed before, as there is nothing to search for.
@@ -138,16 +157,8 @@ impl Preview {
             self.restore(editor);
         }
         for path in self.opened {
-            if Some(path.as_path()) == chosen {
-                continue;
-            }
-            let name = editor
-                .buffers()
-                .iter()
-                .find(|buffer| buffer.path() == Some(path.as_path()))
-                .map(|buffer| buffer.name().to_owned());
-            if let Some(name) = name {
-                editor.kill_buffer(&name);
+            if Some(path.as_path()) != chosen {
+                kill_file_buffer(editor, &path);
             }
         }
     }
@@ -160,6 +171,17 @@ impl Preview {
             editor.window_buffer_mut().set_point(origin.point);
             editor.viewport.first_line = origin.first_line;
         }
+    }
+}
+
+fn kill_file_buffer(editor: &mut Editor, path: &Path) {
+    let name = editor
+        .buffers()
+        .iter()
+        .find(|buffer| buffer.path() == Some(path))
+        .map(|buffer| buffer.name().to_owned());
+    if let Some(name) = name {
+        editor.kill_buffer(&name);
     }
 }
 

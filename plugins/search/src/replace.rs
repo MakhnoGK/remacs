@@ -81,24 +81,12 @@ pub fn skip_match(editor: &mut Editor) -> CommandResult {
 pub fn replace_all(editor: &mut Editor) -> CommandResult {
     let buffer = editor.window_buffer_mut();
     let replacing = replacing(buffer)?;
-    let mut matches = Vec::new();
-    let len = replacing.query.match_len();
-    replacing.query.find(
-        buffer.text(),
-        replacing.current.start..buffer.text().len(),
-        |start| {
-            matches.push(start..start + len);
-            true
-        },
+    let (query, from, to) = (
+        replacing.query.clone(),
+        replacing.current.start,
+        replacing.to.clone(),
     );
-    let to = replacing.to.clone();
-    let count = matches.len();
-    buffer.apply_edits(
-        matches
-            .into_iter()
-            .map(|range| (range, to.clone()))
-            .collect(),
-    );
+    let count = replace_from(buffer, &query, from, &to);
     if let Some(replacing) = buffer.local_mut::<Replacing>() {
         replacing.replaced += count;
     }
@@ -226,7 +214,25 @@ fn replacing(buffer: &Buffer) -> Result<&Replacing, &'static str> {
     buffer.local::<Replacing>().ok_or(NOT_REPLACING)
 }
 
-fn next_match(buffer: &Buffer, query: &Query, from: usize) -> Option<Range<usize>> {
+/// Replaces every match from `from` on with `to`, as one edit; returns how many.
+pub fn replace_from(buffer: &mut Buffer, query: &Query, from: usize, to: &str) -> usize {
+    let mut matches = Vec::new();
+    let len = query.match_len();
+    query.find(buffer.text(), from..buffer.text().len(), |start| {
+        matches.push(start..start + len);
+        true
+    });
+    let count = matches.len();
+    buffer.apply_edits(
+        matches
+            .into_iter()
+            .map(|range| (range, to.to_owned()))
+            .collect(),
+    );
+    count
+}
+
+pub fn next_match(buffer: &Buffer, query: &Query, from: usize) -> Option<Range<usize>> {
     let text = buffer.text();
     let mut found = None;
     query.find(text, from.min(text.len())..text.len(), |start| {

@@ -37,6 +37,8 @@ pub struct Job {
     pub unsaved: Vec<(String, Snapshot)>,
     pub words: Arc<Words>,
     pub max_lines: usize,
+    /// Lines of one file at most, e.g. one to tell only which files match.
+    pub max_file_lines: usize,
 }
 
 /// A matching line.
@@ -179,7 +181,8 @@ impl Worker {
             counted = range.start;
             let text = String::from_utf8_lossy(&bytes[range]);
             hits.push(hit(&self.job.words, line, &text));
-            hits.len() < self.job.max_lines && !self.cancelled.load(Ordering::Relaxed)
+            hits.len() < self.job.max_lines.min(self.job.max_file_lines)
+                && !self.cancelled.load(Ordering::Relaxed)
         });
         hits
     }

@@ -19,9 +19,21 @@ pub struct Words {
 
 impl Words {
     pub fn new(input: &str) -> Option<Self> {
+        Self::of(input, input.split_whitespace().collect())
+    }
+
+    /// The whole input as one word, spaces included, as text to replace is taken.
+    pub fn phrase(input: &str) -> Option<Self> {
+        Self::of(
+            input,
+            (!input.is_empty()).then_some(input).into_iter().collect(),
+        )
+    }
+
+    fn of(input: &str, words: Vec<&str>) -> Option<Self> {
         let ignore_case = !input.chars().any(char::is_uppercase);
-        let mut words: Vec<String> = input
-            .split_whitespace()
+        let mut words: Vec<String> = words
+            .into_iter()
             .map(|word| {
                 if ignore_case {
                     word.to_ascii_lowercase()
@@ -143,6 +155,19 @@ mod tests {
         );
         assert_eq!(lines("File open", text), ["File::open(path)"]);
         assert!(Words::new(" \t").is_none());
+    }
+
+    #[test]
+    fn a_phrase_is_found_whole_spaces_included() {
+        let text = "let file = open();\nfile =\nopen file\n";
+        let words = Words::phrase("file =").unwrap();
+        let mut found = Vec::new();
+        words.lines(text.as_bytes(), &mut Vec::new(), |range| {
+            found.push(&text[range]);
+            true
+        });
+        assert_eq!(found, ["let file = open();", "file ="]);
+        assert!(Words::phrase("").is_none());
     }
 
     #[test]

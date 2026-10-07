@@ -47,6 +47,10 @@ impl Section for SearchSettings {
 
 #[derive(Default)]
 struct ProjectSearch {
+    /// Of the prompt it lists lines for.
+    category: &'static str,
+    /// The input is one string to find, spaces included, rather than words.
+    phrase: bool,
     root: PathBuf,
     index: Option<Arc<FileIndex>>,
     max_lines: usize,
@@ -66,31 +70,15 @@ struct ProjectSearch {
 /// Reads words and lists the project's lines that have them all, grouped by file, the
 /// window showing the one selected; choosing one goes to its first match.
 pub fn project_search(editor: &mut Editor) -> CommandResult {
-    let root = project_root(&default_directory(editor));
-    let index = project_files(editor, &root);
-    let max_lines = editor
-        .settings_section::<SearchSettings>()
-        .project_max_matches;
     let prompt = Prompt {
         label: "Search project".into(),
         category: CATEGORY,
-        prefix: with_slash(&abbreviate_home(&root)),
         placeholder: "Words to find…",
         require_match: true,
-        count: Count::Position,
-        wide: true,
         hints: &[("↵", "Go to"), ("C-g", "Cancel")],
         ..Prompt::default()
     };
-    let preview = Preview::begin(editor);
-    *editor.plugin_state::<ProjectSearch>() = ProjectSearch {
-        root,
-        index: Some(index),
-        max_lines,
-        preview,
-        ..ProjectSearch::default()
-    };
-    editor.read(prompt, candidates, |editor, answer| {
+    read_lines(editor, prompt, false, |editor, answer| {
         let place = Place::parse(&answer).ok_or("No match")?;
         let state = editor.plugin_state::<ProjectSearch>();
         let path = state.root.join(place.file);
@@ -99,13 +87,60 @@ pub fn project_search(editor: &mut Editor) -> CommandResult {
     })
 }
 
-/// Searches again whenever the words typed or the project's files change, stopping the
-/// last search, and shows the line selected; once the prompt is gone, stops and ends the
+/// Opens `prompt` listing the project's lines that have what is typed, grouped by file,
+/// the window showing the one selected: every word, or with `phrase`, the whole input.
+/// The project's root goes before the input.
+pub fn read_lines(
+    editor: &mut Editor,
+    prompt: Prompt,
+    phrase: bool,
+    on_answer: impl FnOnce(&mut Editor, String) -> CommandResult + 'static,
+) -> CommandResult {
+    let root = project_root(&default_directory(editor));
+    let index = project_files(editor, &root);
+    let max_lines = editor
+        .settings_section::<SearchSettings>()
+        .project_max_matches;
+    let prompt = Prompt {
+        prefix: with_slash(&abbreviate_home(&root)),
+        count: Count::Position,
+        wide: true,
+        ..prompt
+    };
+    let preview = Preview::begin(editor);
+    *editor.plugin_state::<ProjectSearch>() = ProjectSearch {
+        category: prompt.category,
+        phrase,
+        root,
+        index: Some(index),
+        max_lines,
+        preview,
+        ..ProjectSearch::default()
+    };
+    editor.read(prompt, candidates, on_answer)
+}
+
+/// The project searched by the open prompt, its files, and what was typed.
+pub fn searched(editor: &Editor) -> Option<(PathBuf, Arc<FileIndex>, String)> {
+    let state = editor.find_plugin_state::<ProjectSearch>()?;
+    let index = Arc::clone(state.index.as_ref()?);
+    Some((state.root.clone(), index, state.input.clone()))
+}
+
+/// Searches again whenever the input or the project's files change, stopping the last
+/// search, and shows the line selected; once the prompt is gone, stops and ends the
 /// preview. Runs after every command.
 pub fn update(editor: &mut Editor) {
+    let Some(category) = editor
+        .find_plugin_state::<ProjectSearch>()
+        .filter(|state| state.index.is_some())
+        .map(|state| state.category)
+    else {
+        return;
+    };
     let open = editor
         .minibuffer()
-        .filter(|minibuffer| minibuffer.prompt().category == CATEGORY)
+        .filter(|minibuffer| minibuffer.prompt().category == category)
         .map(|minibuffer| {
             let selected = minibuffer
                 .selected_candidate()
@@ -113,13 +148,8 @@ pub fn update(editor: &mut Editor) {
             (minibuffer.input_text(), selected)
         });
     let Some((input, selected)) = open else {
-        if editor
-            .find_plugin_state::<ProjectSearch>()
-            .is_some_and(|state| state.index.is_some())
-        {
-            let state = mem::take(editor.plugin_state::<ProjectSearch>());
-            state.preview.end(editor, state.chosen.as_deref());
-        }
+        let state = mem::take(editor.plugin_state::<ProjectSearch>());
+        state.preview.end(editor, state.chosen.as_deref());
         return;
     };
     search(editor, input);
@@ -153,7 +183,12 @@ fn search(editor: &mut Editor, input: String) {
     let unsaved = unsaved_buffers(editor, &root);
     let notifier = editor.notifier();
     let state = editor.plugin_state::<ProjectSearch>();
-    state.words = Words::new(&input).map(Arc::new);
+    let words = if state.phrase {
+        Words::phrase(&input)
+    } else {
+        Words::new(&input)
+    };
+    state.words = words.map(Arc::new);
     state.scan = state.words.as_ref().map(|words| {
         let job = Job {
             root,
@@ -161,6 +196,7 @@ fn search(editor: &mut Editor, input: String) {
             unsaved,
             words: Arc::clone(words),
             max_lines: state.max_lines,
+            max_file_lines: usize::MAX,
         };
         Scan::start(job, notifier)
     });
@@ -170,7 +206,7 @@ fn search(editor: &mut Editor, input: String) {
 }
 
 /// Buffers of the project's files with unsaved changes, by path from `root`.
-fn unsaved_buffers(editor: &Editor, root: &Path) -> Vec<(String, remacs_text::Snapshot)> {
+pub fn unsaved_buffers(editor: &Editor, root: &Path) -> Vec<(String, remacs_text::Snapshot)> {
     editor
         .buffers()
         .iter()

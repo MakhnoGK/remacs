@@ -384,6 +384,114 @@ fn the_search_stops_at_the_most_lines_the_settings_allow() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// Opens `project-query-replace` in the project's main.rs and answers it, then refreshes
+/// until it asks at a match or ends.
+fn replacing_in_project(name: &str, from: &str, to: &str) -> (PathBuf, Editor) {
+    let root = project(name);
+    let mut editor = Editor::new(&[&EditingPlugin, &MinibufferPlugin, &SearchPlugin]);
+    editor.visit_file(&root.join("src/main.rs")).unwrap();
+    press(&mut editor, "M-s %");
+    type_text(&mut editor, from);
+    press(&mut editor, "RET");
+    type_text(&mut editor, to);
+    press(&mut editor, "RET");
+    wait_for_match(&mut editor);
+    (root, editor)
+}
+
+fn wait_for_match(editor: &mut Editor) {
+    let started = Instant::now();
+    while editor
+        .minibuffer()
+        .is_some_and(|minibuffer| minibuffer.note() == Some("Searching…"))
+    {
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "no match found"
+        );
+        thread::sleep(Duration::from_millis(10));
+        editor.refresh();
+    }
+}
+
+fn read(root: &std::path::Path, file: &str) -> String {
+    fs::read_to_string(root.join(file)).unwrap()
+}
+
+#[test]
+fn replacing_in_the_project_asks_file_by_file_saves_and_goes_back() {
+    let (root, mut editor) = replacing_in_project("replace", "file", "path");
+    let asked = editor.minibuffer().unwrap().note().unwrap().to_owned();
+    assert!(
+        ["src/main.rs", "src/io.rs"].contains(&asked.as_str()),
+        "{asked}"
+    );
+    assert_eq!(
+        shown(&editor)
+            .2
+            .iter()
+            .filter(|(_, chosen)| *chosen)
+            .count(),
+        1
+    );
+    press(&mut editor, "y");
+    wait_for_match(&mut editor);
+    press(&mut editor, "y");
+    wait_for_match(&mut editor);
+
+    assert!(editor.minibuffer().is_none());
+    assert_eq!(
+        editor.echo().as_deref(),
+        Some("Replaced 2 occurrences in 2 files")
+    );
+    assert_eq!(
+        read(&root, "src/main.rs"),
+        "fn main() {\n    let path = open(\"a\");\n}\n"
+    );
+    assert_eq!(
+        read(&root, "src/io.rs"),
+        "pub fn open_path() {}\nfn open() {}\n"
+    );
+    assert_eq!(read(&root, "src/target/out.rs"), "open file\n");
+    assert_eq!(shown(&editor), ("main.rs".into(), 0, Vec::new()));
+    assert!(!editor.window_buffer().is_modified());
+    assert!(!has_buffer(&editor, "io.rs"));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn replacing_everywhere_skipping_and_stopping() {
+    let (root, mut editor) = replacing_in_project("everywhere", "open", "load");
+    press(&mut editor, "A");
+    wait_for_match(&mut editor);
+    assert!(editor.minibuffer().is_none());
+    assert_eq!(
+        editor.echo().as_deref(),
+        Some("Replaced 3 occurrences in 2 files")
+    );
+    assert_eq!(
+        read(&root, "src/io.rs"),
+        "pub fn load_file() {}\nfn load() {}\n"
+    );
+    fs::remove_dir_all(root).unwrap();
+
+    let (root, mut editor) = replacing_in_project("skipping", "open", "load");
+    press(&mut editor, "n q");
+    assert!(editor.minibuffer().is_none());
+    assert_eq!(
+        editor.echo().as_deref(),
+        Some("Replaced 0 occurrences in 0 files")
+    );
+    assert!(read(&root, "src/io.rs").contains("open"));
+    assert!(read(&root, "src/main.rs").contains("open"));
+    fs::remove_dir_all(root).unwrap();
+
+    let (root, editor) = replacing_in_project("nothing", "nowhere", "here");
+    assert!(editor.minibuffer().is_none());
+    assert_eq!(editor.echo().as_deref(), Some("No matches in the project"));
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn matches_across_chunks_are_found_once_each() {
     let mut text = Text::from("world aaa");
