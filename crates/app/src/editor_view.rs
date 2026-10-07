@@ -10,11 +10,14 @@ use gpui::{
     AnyElement, App, ClipboardItem, Context, DispatchPhase, Div, FocusHandle, IntoElement,
     KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels,
     Point, Render, ScrollDelta, ScrollHandle, ScrollWheelEvent, StyledText, Subscription, Task,
-    Window, canvas, div, font, prelude::*, px, rgb, rgba,
+    Window, canvas, div, font, prelude::*, px, rgb, rgba, svg,
 };
+
+use crate::assets::{EXECUTION_POINT_ICON, LOGPOINT_ICON};
 use remacs_core::{
-    Action, ChangedLines, Code, DocBlock, Editor, GutterIcon, GutterMark, Icon, LineChange,
-    MouseSelection, Outline, Popup, Preview, PreviewBody, Scroll, StatusSegment,
+    Action, BreakpointIcon, ChangedLines, Code, DocBlock, Editor, GutterIcon, GutterMark, Icon,
+    LineChange, LineExtra, MouseSelection, Outline, Popup, Preview, PreviewBody, Scroll,
+    StatusSegment,
 };
 use remacs_theme::font::CodeFont;
 use remacs_theme::{color, font, glass};
@@ -29,6 +32,7 @@ use crate::outline_view::{
     COMMIT_HEIGHT, OutlineScrolled, fits_history, fitting_commits, fitting_rows, max_outline_lines,
     render_outline, render_toolbar, row_height,
 };
+use crate::pane_view::{PANE_BOTTOM, PANE_GAP, render_pane};
 use crate::popup_view::{DocumentationScroll, DocumentationView, Placement, render_popup};
 use crate::preview_view::render_preview;
 use crate::settings::{CursorHeight, MouseSettings, ReadSettings, ScrollSettings, report};
@@ -641,7 +645,9 @@ impl EditorView {
         metrics: Metrics,
         gutter_width: Pixels,
         mark_slot: Option<Div>,
+        extra: Option<LineExtra>,
     ) -> (AnyElement, bool) {
+        let (band, note) = extra.map_or((None, None), |extra| (extra.band, extra.note));
         let code_font = font::code();
         let row_height = px(code_font.line_height);
         let buffer = self.editor.window_buffer();
@@ -697,6 +703,12 @@ impl EditorView {
             .mx(px(ROW_MARGIN))
             .rounded(px(ROW_RADIUS))
             .when(is_current, |row| row.bg(rgb(color::BG_HL_LINE)))
+            .when_some(band, |row, tone| {
+                let band = tone_color(tone, color::FG_MAIN);
+                row.bg(rgba((band << 8) | 0x26))
+                    .border_1()
+                    .border_color(rgba((band << 8) | 0x4d))
+            })
             .whitespace_nowrap()
             .line_height(row_height)
             .children(mark_slot.map(|slot| {
@@ -732,7 +744,13 @@ impl EditorView {
                             .text_size(px(code_font.size))
                             // Before the text, so that it is drawn under it.
                             .children(cursor)
-                            .child(content),
+                            .child(div().flex().child(content).children(note.map(|note| {
+                                div()
+                                    .ml(metrics.char_width * 4.0)
+                                    .text_size(px(font::STATUS_SIZE))
+                                    .text_color(rgb(color::FG_FAINT))
+                                    .child(note)
+                            }))),
                     )
                     .when(hidden_start, |text| {
                         text.child(edge_fade(Edge::Left, SCROLL_FADE_SIZE, under))
@@ -879,41 +897,63 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) -> Option<HashMap<usize, Div>> {
         let marks = self.editor.gutter_marks(lines.clone())?;
-        let mut slots: HashMap<usize, Div> = lines.map(|line| (line, div())).collect();
+        let mut by_line: HashMap<usize, Vec<GutterMark>> = HashMap::new();
         for mark in marks {
-            let GutterMark {
-                line,
-                icon: mark_icon,
-                command,
-            } = mark;
-            let Some(slot) = slots.remove(&line) else {
-                continue;
-            };
-            let glyph = match mark_icon {
-                GutterIcon::Run => icon(Icon::Run, color::VC_ADDED),
-            };
-            let slot = slot.cursor_pointer().child(glyph).on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |view, _: &MouseDownEvent, _, cx| {
-                    cx.stop_propagation();
-                    view.click_gutter_mark(line, command, cx);
-                }),
-            );
-            slots.insert(line, slot);
+            by_line.entry(mark.line).or_default().push(mark);
         }
+        let empty_click = self.editor.gutter_click();
+        let slots = lines
+            .map(|line| {
+                let mut marks = by_line.remove(&line).unwrap_or_default();
+                marks.sort_by_key(|mark| mark.icon);
+                // A run mark gives way to a breakpoint; the execution point goes over both.
+                let execution = marks
+                    .iter()
+                    .position(|mark| mark.icon == GutterIcon::ExecutionPoint)
+                    .map(|index| marks.remove(index));
+                let shown = marks.pop();
+                let command = shown
+                    .as_ref()
+                    .map(|mark| mark.command)
+                    .or(empty_click)
+                    .or(execution.as_ref().map(|mark| mark.command));
+                let slot = div()
+                    .relative()
+                    .children(shown.map(|mark| gutter_glyph(mark.icon)))
+                    .children(execution.map(|_| {
+                        div()
+                            .absolute()
+                            .left(px(4.0))
+                            .top(px(5.0))
+                            .child(gutter_glyph(GutterIcon::ExecutionPoint))
+                    }));
+                let slot = match command {
+                    Some(command) => slot.cursor_pointer().on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |view, _: &MouseDownEvent, _, cx| {
+                            cx.stop_propagation();
+                            view.click_gutter_mark(line, command, cx);
+                        }),
+                    ),
+                    None => slot,
+                };
+                (line, slot)
+            })
+            .collect();
         Some(slots)
     }
 
     /// The window buffer's lines from the viewport on, with the popups placed over them.
     fn render_text(
         &mut self,
+        reserved: Pixels,
         window: &Window,
         cx: &mut Context<Self>,
     ) -> (AnyElement, Vec<AnyElement>) {
         let metrics = self.metrics(window);
         // Point stays above the footer fade; lines under it are drawn but not counted.
         let line_height = px(font::code().line_height);
-        let text_height = window.viewport_size().height - px(TEXT_TOP);
+        let text_height = window.viewport_size().height - px(TEXT_TOP) - reserved;
         let clear_rows = ((text_height - px(FOOTER_FADE_HEIGHT)) / line_height)
             .floor()
             .max(1.0) as usize;
@@ -938,10 +978,17 @@ impl EditorView {
         let last_line = (first_line + drawn_rows + 1).min(line_count);
         let popups = self.render_popups(metrics, gutter_width, window);
         let mut mark_slots = self.render_mark_slots(first_line..last_line, cx);
+        let mut extras: HashMap<usize, LineExtra> = self
+            .editor
+            .line_extras(first_line..last_line)
+            .into_iter()
+            .map(|extra| (extra.line, extra))
+            .collect();
         let (lines, continued): (Vec<_>, Vec<_>) = (first_line..last_line)
             .map(|line| {
                 let slot = mark_slots.as_mut().and_then(|slots| slots.remove(&line));
-                self.render_line(line, metrics, gutter_width, slot)
+                let extra = extras.remove(&line);
+                self.render_line(line, metrics, gutter_width, slot, extra)
             })
             .unzip();
         self.more_on_right = continued.contains(&true);
@@ -964,7 +1011,7 @@ impl EditorView {
             .top(px(TEXT_TOP))
             .left_0()
             .right_0()
-            .bottom_0()
+            .bottom(reserved)
             .overflow_hidden()
             .child(lines)
             .when(top > 0.0, |body| {
@@ -1237,6 +1284,7 @@ impl Render for EditorView {
         };
         self.showing_rows = table.is_some() || outline.is_some();
         let mut toolbar = None;
+        let mut pane = None;
         let (body, hints, popups) = match (table, outline) {
             (None, Some((body, hints, outline_toolbar))) => {
                 toolbar = outline_toolbar;
@@ -1277,13 +1325,24 @@ impl Render for EditorView {
                 (body, Some(hints), Vec::new())
             }
             (None, None) => {
-                let (body, popups) = self.render_text(window, cx);
+                let shown_pane = self.editor.pane();
+                let reserved = shown_pane
+                    .as_ref()
+                    .map_or(px(0.0), |pane| px(pane.height + PANE_BOTTOM + PANE_GAP));
+                let (body, popups) = self.render_text(reserved, window, cx);
                 let controls = self.editor.text_controls().unwrap_or_default();
                 if !controls.toolbar.is_empty() {
                     toolbar = Some(render_toolbar(controls.toolbar, cx).into_any_element());
                 }
-                let hints = (!controls.hints.is_empty())
-                    .then(|| render_hints(controls.hints).into_any_element());
+                let hints = shown_pane
+                    .as_ref()
+                    .map_or(controls.hints, |pane| pane.hints);
+                let hints = (!hints.is_empty()).then(|| render_hints(hints).into_any_element());
+                pane = shown_pane.map(|shown| {
+                    render_pane(shown, cx)
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .into_any_element()
+                });
                 (body, hints, popups)
             }
         };
@@ -1321,6 +1380,7 @@ impl Render for EditorView {
             .text_color(rgb(color::FG_MAIN))
             .line_height(px(font::LINE_HEIGHT))
             .child(body)
+            .children(pane)
             .children(hints)
             .children(status_below_scrim)
             .when(minibuffer.is_some(), |root| root.child(render_scrim(modal)))
@@ -1329,6 +1389,49 @@ impl Render for EditorView {
             .children(status_above_scrim)
             .children(minibuffer)
             .children(self.render_drag_listeners(cx))
+    }
+}
+
+/// A gutter mark as drawn: run triangles and execution arrows are icons, breakpoints dots.
+fn gutter_glyph(mark: GutterIcon) -> AnyElement {
+    let dot = || div().flex_none().size(px(12.0)).rounded_full();
+    match mark {
+        GutterIcon::Run => icon(Icon::Run, color::VC_ADDED).into_any_element(),
+        GutterIcon::ExecutionPoint => svg()
+            .path(EXECUTION_POINT_ICON)
+            .w(px(15.0))
+            .h(px(12.0))
+            .text_color(rgb(color::WARNING))
+            .into_any_element(),
+        GutterIcon::Breakpoint(BreakpointIcon::Plain) => {
+            dot().bg(rgb(color::ERROR)).into_any_element()
+        }
+        GutterIcon::Breakpoint(BreakpointIcon::Conditional) => dot()
+            .bg(rgb(color::ERROR))
+            .flex()
+            .items_center()
+            .justify_center()
+            .font_family(font::mono())
+            .text_size(px(9.0))
+            .font_weight(gpui::FontWeight::BOLD)
+            .text_color(rgb(color::FG_MAIN))
+            .child("?")
+            .into_any_element(),
+        GutterIcon::Breakpoint(BreakpointIcon::Log) => svg()
+            .path(LOGPOINT_ICON)
+            .size(px(12.0))
+            .text_color(rgb(color::ERROR))
+            .into_any_element(),
+        GutterIcon::Breakpoint(BreakpointIcon::Disabled) => dot()
+            .border(px(1.5))
+            .border_color(rgb(color::FG_DIM))
+            .into_any_element(),
+        GutterIcon::Breakpoint(BreakpointIcon::Unverified) => dot()
+            .border(px(1.5))
+            .border_dashed()
+            .border_color(rgb(color::ERROR))
+            .opacity(0.85)
+            .into_any_element(),
     }
 }
 

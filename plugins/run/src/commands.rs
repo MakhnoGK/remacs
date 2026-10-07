@@ -9,15 +9,22 @@ use crate::configuration_store;
 use crate::console::{self, link_at, resolve};
 use crate::entry_points::EntryPoint;
 use crate::links::Target;
+use crate::process::Starter;
 use crate::sessions::{self, Session, get, of_window, sessions};
 use crate::window::{entry_point_for, window_root};
 
-/// Runs the configuration of the console in the window again; elsewhere the project's
-/// chosen one, else the entry point at point, else asks which to run.
 pub fn run(editor: &mut Editor) -> CommandResult {
+    run_with(editor, None)
+}
+
+/// Runs the configuration of the console in the window again, the way it was started;
+/// elsewhere the project's chosen one, else the entry point at point, else asks which to
+/// run. `starter` starts it other than by running it.
+pub fn run_with(editor: &mut Editor, starter: Option<Starter>) -> CommandResult {
     if let Some(session) = of_window(editor).and_then(|id| get(editor, id)) {
         let (root, configuration) = (session.root.clone(), session.configuration.clone());
-        return sessions::run(editor, &root, configuration);
+        let starter = starter.or_else(|| session.starter.clone());
+        return sessions::run(editor, &root, configuration, starter);
     }
     let root = window_root(editor).ok_or("Not in a project")?;
     let store = configuration_store(editor);
@@ -30,27 +37,36 @@ pub fn run(editor: &mut Editor) -> CommandResult {
         editor.set_message(error);
     }
     if let Some(configuration) = chosen {
-        return sessions::run(editor, &root, configuration);
+        return sessions::run(editor, &root, configuration, starter);
     }
     let line = editor.window_buffer().point_line();
     match entry_point_for(editor, line) {
-        Some((root, entry)) => run_entry_point(editor, &root, entry),
-        None => chooser::choose(editor),
+        Some((root, entry)) => run_entry_point(editor, &root, entry, starter),
+        None => chooser::choose_with(editor, starter),
     }
 }
 
-/// Runs the entry point at point, or the buffer's first.
 pub fn run_at_point(editor: &mut Editor) -> CommandResult {
+    run_at_point_with(editor, None)
+}
+
+/// Runs the entry point at point, or the buffer's first.
+pub fn run_at_point_with(editor: &mut Editor, starter: Option<Starter>) -> CommandResult {
     let line = editor.window_buffer().point_line();
     let (root, entry) = entry_point_for(editor, line).ok_or("Nothing to run here")?;
-    run_entry_point(editor, &root, entry)
+    run_entry_point(editor, &root, entry, starter)
 }
 
 /// Runs `entry`'s configuration, saved first if the project has none of its kind, and
 /// makes it the project's chosen one.
-pub fn run_entry_point(editor: &mut Editor, root: &Path, entry: EntryPoint) -> CommandResult {
+pub fn run_entry_point(
+    editor: &mut Editor,
+    root: &Path,
+    entry: EntryPoint,
+    starter: Option<Starter>,
+) -> CommandResult {
     let configuration = configuration_store(editor).find_or_add(root, entry.configuration)?;
-    run_configuration(editor, root, configuration)
+    run_configuration(editor, root, configuration, starter)
 }
 
 /// Makes `configuration` the project's chosen one and runs it.
@@ -58,11 +74,12 @@ pub fn run_configuration(
     editor: &mut Editor,
     root: &Path,
     configuration: Configuration,
+    starter: Option<Starter>,
 ) -> CommandResult {
     if let Err(error) = configuration_store(editor).select(root, &configuration.name) {
         editor.set_message(format!("Could not keep the chosen configuration: {error}"));
     }
-    sessions::run(editor, root, configuration)
+    sessions::run(editor, root, configuration, starter)
 }
 
 /// Visits the project's run file at `configuration`, saved first if it is not there yet.

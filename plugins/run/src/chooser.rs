@@ -16,6 +16,7 @@ use crate::configuration::Configuration;
 use crate::configuration_store;
 use crate::discovery::discover;
 use crate::launch::launch;
+use crate::process::Starter;
 use crate::sessions::{self, Session, Sessions};
 use crate::window::window_root;
 
@@ -124,8 +125,13 @@ impl Listing {
     }
 }
 
-/// Asks which configuration of the window buffer's project to run, and runs it.
 pub fn choose(editor: &mut Editor) -> CommandResult {
+    choose_with(editor, None)
+}
+
+/// Asks which configuration of the window buffer's project to run, and runs it, or starts
+/// it with `starter`.
+pub fn choose_with(editor: &mut Editor, starter: Option<Starter>) -> CommandResult {
     let root = window_root(editor).ok_or("Not in a project")?;
     let (project, error) = configuration_store(editor).project(&root);
     let saved = project.configurations.clone();
@@ -167,7 +173,7 @@ pub fn choose(editor: &mut Editor) -> CommandResult {
             } else {
                 configuration_store(editor).find_or_add(&root, entry.configuration)?
             };
-            run_configuration(editor, &root, configuration)
+            run_configuration(editor, &root, configuration, starter)
         },
     )
 }

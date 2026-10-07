@@ -17,6 +17,7 @@ mod minibuffer;
 mod mode;
 mod mouse;
 mod outline;
+mod pane;
 mod plugin;
 mod popup;
 mod status;
@@ -34,7 +35,10 @@ pub use completion::{
 pub use decoration::{ConsoleColor, ConsoleStyle, Decorator, Face, Span};
 pub use editor::{Editor, Notifier, SCRATCH_BUFFER, SELF_INSERT_COMMAND};
 pub use file_change::{ChangedFiles, FileChange};
-pub use gutter::{GutterIcon, GutterMark, GutterProvider, TextControls, TextControlsProvider};
+pub use gutter::{
+    BreakpointIcon, GutterIcon, GutterMark, GutterProvider, LineExtra, LineExtraProvider,
+    TextControls, TextControlsProvider,
+};
 pub use key::{Key, KeyCode, Modifiers, describe_sequence, parse_sequence};
 pub use keymap::{Binding, Keymap};
 pub use kill_ring::KillRing;
@@ -49,6 +53,7 @@ pub use outline::{
     ConflictSide, ConflictView, DiffRow, Fact, FactValue, GraphEdge, GraphNode, GraphRow, History,
     Outline, OutlineProvider, OutlineRow, RefChip, RefKind, Scroll, ToolbarButton,
 };
+pub use pane::{Pane, PaneButton, PaneColumn, PaneProvider, PaneRow};
 pub use plugin::{Hook, MinorKeymap, Plugin, Registry};
 pub use popup::{Code, CodeHighlighter, DocBlock, Documentation, Note, Popup, PopupProvider};
 pub use remacs_config::{Section, Settings};

@@ -24,9 +24,19 @@ pub const RERUN_ICON: &str = "icons/rerun.svg";
 pub const PACKAGE_ICON: &str = "icons/package.svg";
 pub const SCRIPT_ICON: &str = "icons/script.svg";
 pub const TERMINAL_ICON: &str = "icons/terminal.svg";
+pub const LOGPOINT_ICON: &str = "icons/logpoint.svg";
+pub const EXECUTION_POINT_ICON: &str = "icons/execution-point.svg";
 
 /// Compiled into the binary, so the app needs no resource directory.
 const ASSETS: &[(&str, &[u8])] = &[
+    (
+        LOGPOINT_ICON,
+        include_bytes!("../assets/icons/logpoint.svg"),
+    ),
+    (
+        EXECUTION_POINT_ICON,
+        include_bytes!("../assets/icons/execution-point.svg"),
+    ),
     (FILE_ICON, include_bytes!("../assets/icons/file.svg")),
     (FOLDER_ICON, include_bytes!("../assets/icons/folder.svg")),
     (ERROR_ICON, include_bytes!("../assets/icons/error.svg")),

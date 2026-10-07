@@ -4,12 +4,12 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use remacs_core::{CommandResult, Editor};
+use remacs_core::{CommandResult, Editor, Tone};
 
 use crate::configuration::Configuration;
 use crate::console::{self, Console, colored, dim};
 use crate::launch::launch;
-use crate::process::{Event, Exit, Process};
+use crate::process::{Event, Exit, Process, Program, Starter};
 use crate::settings::RunSettings;
 
 /// While a program runs, how often the status pill's clock is redrawn.
@@ -33,7 +33,9 @@ pub struct Session {
     pub state: State,
     pub started: Instant,
     pub finished: Option<Instant>,
-    process: Option<Process>,
+    process: Option<Box<dyn Program>>,
+    /// Starts it other than by running it, e.g. under a debugger.
+    pub starter: Option<Starter>,
     /// Runs again once the process it stopped has ended.
     rerun: bool,
 }
@@ -41,6 +43,11 @@ pub struct Session {
 impl Session {
     pub fn is_running(&self) -> bool {
         matches!(self.state, State::Running | State::Stopping)
+    }
+
+    /// What its program says of how it goes, in place of `running`.
+    pub fn program_state(&self) -> Option<(String, Tone)> {
+        self.process.as_ref()?.state()
     }
 
     /// How long it ran, or has run so far.
@@ -106,15 +113,21 @@ pub fn of_window(editor: &Editor) -> Option<u64> {
         .map(|console| console.session)
 }
 
-/// Runs `configuration` of the project at `root` in its console, shown in the window;
-/// a run still going is stopped first.
-pub fn run(editor: &mut Editor, root: &Path, configuration: Configuration) -> CommandResult {
+/// Runs `configuration` of the project at `root` in its console, shown in the window,
+/// or starts it with `starter`; a run still going is stopped first.
+pub fn run(
+    editor: &mut Editor,
+    root: &Path,
+    configuration: Configuration,
+    starter: Option<Starter>,
+) -> CommandResult {
     let settings = sessions(editor).settings.clone();
     launch(&configuration, root, &settings)?;
     let id = match find(editor, root, &configuration.name) {
         Some(id) => {
             let session = get_mut(editor, id).expect("found");
             session.configuration = configuration;
+            session.starter = starter;
             id
         }
         None => {
@@ -129,6 +142,7 @@ pub fn run(editor: &mut Editor, root: &Path, configuration: Configuration) -> Co
                 started: Instant::now(),
                 finished: None,
                 process: None,
+                starter,
                 rerun: false,
             });
             id
@@ -148,9 +162,17 @@ pub fn run(editor: &mut Editor, root: &Path, configuration: Configuration) -> Co
 fn start(editor: &mut Editor, id: u64) -> CommandResult {
     let settings = sessions(editor).settings.clone();
     let notifier = editor.notifier();
-    let session = get_mut(editor, id).ok_or("No such run")?;
+    let session = get(editor, id).ok_or("No such run")?;
     let launch = launch(&session.configuration, &session.root, &settings)?;
-    session.process = Some(Process::start(launch.clone(), notifier));
+    let process: Box<dyn Program> = match session.starter.clone() {
+        Some(starter) => {
+            let (root, configuration) = (session.root.clone(), session.configuration.clone());
+            starter(editor, &root, &configuration, &launch)?
+        }
+        None => Box::new(Process::start(launch.clone(), notifier)),
+    };
+    let session = get_mut(editor, id).ok_or("No such run")?;
+    session.process = Some(process);
     session.state = State::Running;
     session.started = Instant::now();
     session.finished = None;

@@ -1,0 +1,22 @@
+[package]
+name = "remacs-tools"
+description = "Built-in plugin: downloads the programs remacs runs, like debug adapters, on first use"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+libc.workspace = true
+remacs-config.workspace = true
+remacs-core.workspace = true
+remacs-files.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+remacs-editing.workspace = true
+remacs-minibuffer.workspace = true
+
+[lints]
+workspace = true

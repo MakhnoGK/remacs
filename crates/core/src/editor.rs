@@ -16,7 +16,7 @@ use crate::buffer::{Buffer, FileEdits};
 use crate::command::{CommandResult, Commands};
 use crate::completion::Completions;
 use crate::decoration::Span;
-use crate::gutter::{GutterMark, TextControls};
+use crate::gutter::{GutterMark, LineExtra, TextControls};
 use crate::history::History;
 use crate::key::{Key, describe_sequence};
 use crate::key_bindings::KeysSettings;
@@ -25,6 +25,7 @@ use crate::kill_ring::KillRing;
 use crate::minibuffer::{Dialog, Minibuffer, Prompt};
 use crate::mode::Mode;
 use crate::outline::Outline;
+use crate::pane::Pane;
 use crate::plugin::{Plugin, Registry};
 use crate::popup::Popup;
 use crate::status::StatusSegment;
@@ -337,7 +338,14 @@ impl Editor {
             Binding::Prefix => {}
             Binding::Unbound => {
                 let keys = mem::take(&mut self.pending_keys);
-                let typed = self.minibuffer.as_ref().is_none_or(Minibuffer::is_typed);
+                let typed = match &self.minibuffer {
+                    Some(minibuffer) => minibuffer.is_typed(),
+                    None => !self
+                        .registry
+                        .typing_blockers
+                        .iter()
+                        .any(|blocks| blocks(self)),
+                };
                 if typed && keys.len() == 1 && key.printable_char().is_some() {
                     self.run_command(SELF_INSERT_COMMAND);
                 } else {
@@ -704,6 +712,24 @@ impl Editor {
             marks.sort_by_key(|mark| mark.line);
         }
         marks
+    }
+
+    pub fn line_extras(&self, lines: Range<usize>) -> Vec<LineExtra> {
+        self.registry
+            .line_extras
+            .iter()
+            .flat_map(|provide| provide(self, lines.clone()))
+            .collect()
+    }
+
+    /// The panel under the window buffer, if a plugin has one to show.
+    pub fn pane(&self) -> Option<Pane> {
+        self.registry.panes.iter().find_map(|provide| provide(self))
+    }
+
+    /// What a click beside a line without a gutter mark runs, if anything.
+    pub fn gutter_click(&self) -> Option<&'static str> {
+        self.registry.gutter_click
     }
 
     /// Controls of the window buffer, if a plugin has any for it.

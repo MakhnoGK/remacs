@@ -462,7 +462,7 @@ fn a_run_shows_its_output_colored_and_how_it_ended() {
     let root = home.join("project");
     fs::create_dir_all(&root).unwrap();
     let script = r"printf '\033[31mfailed\033[0m at src/x.rs:2:5\n'; exit 3";
-    commands::run_configuration(&mut editor, &root, shell("check", script)).unwrap();
+    commands::run_configuration(&mut editor, &root, shell("check", script), None).unwrap();
     assert_eq!(editor.window_buffer().name(), "*run: check*");
     wait_until(&mut editor, |editor| {
         contents(editor).contains("Process exited")
@@ -516,6 +516,7 @@ fn a_running_program_reads_input_and_stops_when_asked() {
         &mut editor,
         &root,
         shell("echo", "read line; echo got $line; sleep 30"),
+        None,
     )
     .unwrap();
     press(&mut editor, "M->");
@@ -539,8 +540,8 @@ fn rerunning_a_running_program_stops_it_first_and_reuses_its_console() {
     let mut editor = editor(&home);
     let root = home.join("project");
     fs::create_dir_all(&root).unwrap();
-    commands::run_configuration(&mut editor, &root, shell("loop", "echo started; sleep 30"))
-        .unwrap();
+    let looping = shell("loop", "echo started; sleep 30");
+    commands::run_configuration(&mut editor, &root, looping, None).unwrap();
     wait_until(&mut editor, |editor| contents(editor).contains("started"));
     press(&mut editor, "C-r");
     wait_until(&mut editor, |editor| {
@@ -569,7 +570,7 @@ fn a_failed_step_before_launch_stops_the_run() {
     fs::create_dir_all(&root).unwrap();
     let mut configuration = shell("main", "echo main ran");
     configuration.before_launch = vec!["echo building".into(), "exit 2".into()];
-    commands::run_configuration(&mut editor, &root, configuration).unwrap();
+    commands::run_configuration(&mut editor, &root, configuration, None).unwrap();
     wait_until(&mut editor, |editor| {
         contents(editor).contains("Process exited")
     });

@@ -3,10 +3,11 @@ use std::rc::Rc;
 use crate::command::Commands;
 use crate::decoration::Decorator;
 use crate::editor::Editor;
-use crate::gutter::{GutterProvider, TextControlsProvider};
+use crate::gutter::{GutterProvider, LineExtraProvider, TextControlsProvider};
 use crate::keymap::Keymap;
 use crate::mode::Modes;
 use crate::outline::OutlineProvider;
+use crate::pane::PaneProvider;
 use crate::popup::{CodeHighlighter, PopupProvider};
 use crate::status::StatusProvider;
 use crate::syntax::SyntaxProbe;
@@ -31,6 +32,9 @@ pub struct Registry {
     /// Active over `minibuffer_keymap` while a prompt edits a message.
     pub message_keymap: Keymap,
     pub minor_keymaps: Vec<MinorKeymap>,
+    /// While one holds, typed characters no keymap binds are not inserted, e.g. while a
+    /// pane has the keys.
+    pub typing_blockers: Vec<fn(&Editor) -> bool>,
     pub modes: Modes,
     /// Run after every command and whenever background work has results, like Emacs
     /// `post-command-hook`.
@@ -53,6 +57,13 @@ pub struct Registry {
     pub outlines: Vec<OutlineProvider>,
     /// Marks beside the lines of buffers drawn as text, all plugins' together.
     pub gutters: Vec<GutterProvider>,
+    /// Run by a click beside a line that has no mark, after point moved to it, e.g. to
+    /// add a breakpoint there.
+    pub gutter_click: Option<&'static str>,
+    /// Bands behind lines of buffers drawn as text, and notes after them.
+    pub line_extras: Vec<LineExtraProvider>,
+    /// Panels under the window buffer; the first that has one shows it.
+    pub panes: Vec<PaneProvider>,
     /// Controls of buffers drawn as text; the first that knows the buffer has them.
     pub text_controls: Vec<TextControlsProvider>,
     /// For each file, the first that controls it.

@@ -32,12 +32,14 @@ remacs-git.workspace = true
 remacs-languages.workspace = true
 remacs-lsp.workspace = true
 remacs-minibuffer.workspace = true
+remacs-debug.workspace = true
 remacs-prettier.workspace = true
 remacs-rename.workspace = true
 remacs-run.workspace = true
 remacs-search.workspace = true
 remacs-syntax.workspace = true
 remacs-theme.workspace = true
+remacs-tools.workspace = true
 remacs-xref.workspace = true
 serde.workspace = true
 

@@ -29,7 +29,12 @@ use crate::configuration::Store;
 use crate::console::Console;
 use crate::settings::RunSettings;
 
+pub use chooser::choose_with;
+pub use commands::{run_at_point_with, run_with};
 pub use configuration::{Configuration, Kind, PackageManager};
+pub use launch::Launch;
+pub use menu::DEBUG_AT_POINT;
+pub use process::{Event, Exit, Program, Starter};
 
 pub struct RunPlugin;
 

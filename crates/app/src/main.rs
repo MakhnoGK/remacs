@@ -8,6 +8,7 @@ mod highlights;
 mod key_input;
 mod minibuffer_view;
 mod outline_view;
+mod pane_view;
 mod popup_view;
 mod preview_view;
 mod settings;
@@ -26,6 +27,7 @@ use remacs_actions::ActionsPlugin;
 use remacs_completion::CompletionPlugin;
 use remacs_config::{cache_dir, home, state_dir};
 use remacs_core::{Editor, Plugin};
+use remacs_debug::{DebugPlugin, keep_breakpoints_in};
 use remacs_diagnostics::DiagnosticsPlugin;
 use remacs_dired::{DiredPlugin, list_directory};
 use remacs_documentation::DocumentationPlugin;
@@ -41,6 +43,7 @@ use remacs_rename::RenamePlugin;
 use remacs_run::{RunPlugin, keep_configurations_in};
 use remacs_search::SearchPlugin;
 use remacs_syntax::SyntaxPlugin;
+use remacs_tools::{ToolsPlugin, keep_tools_in};
 use remacs_xref::XrefPlugin;
 
 use assets::Assets;
@@ -57,7 +60,10 @@ const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
     &LanguagesPlugin,
     &SyntaxPlugin::new(GRAMMARS),
     &DiagnosticsPlugin,
+    // Before the run plugin, which then shows in the same pass what the debugger did.
+    &DebugPlugin,
     &RunPlugin,
+    &ToolsPlugin,
     // Before their backends, so that what they ask after a command is sent in the same pass.
     &CompletionPlugin,
     &DocumentationPlugin,
@@ -83,6 +89,8 @@ fn main() -> ExitCode {
         editor.keep_history_in(state_dir(&home).join("history.json"));
         editor.keep_caches_in(cache_dir(&home));
         keep_configurations_in(&mut editor, &home);
+        keep_tools_in(&mut editor, &home);
+        keep_breakpoints_in(&mut editor, &home);
     }
 
     if let Some(path) = std::env::args_os().nth(1).map(PathBuf::from) {

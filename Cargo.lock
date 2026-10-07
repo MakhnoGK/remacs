@@ -3881,6 +3881,7 @@ dependencies = [
  "remacs-completion",
  "remacs-config",
  "remacs-core",
+ "remacs-debug",
  "remacs-diagnostics",
  "remacs-dired",
  "remacs-documentation",
@@ -3897,6 +3898,7 @@ dependencies = [
  "remacs-search",
  "remacs-syntax",
  "remacs-theme",
+ "remacs-tools",
  "remacs-xref",
  "serde",
  "toml 1.1.6+spec-1.1.0",
@@ -3929,6 +3931,23 @@ dependencies = [
  "serde",
  "serde_json",
  "toml 1.1.6+spec-1.1.0",
+]
+
+[[package]]
+name = "remacs-debug"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "remacs-config",
+ "remacs-core",
+ "remacs-editing",
+ "remacs-files",
+ "remacs-minibuffer",
+ "remacs-run",
+ "remacs-text",
+ "remacs-tools",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -4142,6 +4161,20 @@ dependencies = [
 [[package]]
 name = "remacs-theme"
 version = "0.1.0"
+
+[[package]]
+name = "remacs-tools"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "remacs-config",
+ "remacs-core",
+ "remacs-editing",
+ "remacs-files",
+ "remacs-minibuffer",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "remacs-xref"

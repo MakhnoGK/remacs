@@ -52,6 +52,11 @@ pub fn status(editor: &Editor) -> Option<StatusSegment> {
 }
 
 fn state_item(session: &Session) -> StatusItem {
+    if session.state == State::Running
+        && let Some((text, tone)) = session.program_state()
+    {
+        return StatusItem::toned(text, tone);
+    }
     let (text, tone) = match session.state {
         State::Running => (
             format!("running {}", clock(session.elapsed())),

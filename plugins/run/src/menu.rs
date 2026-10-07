@@ -20,13 +20,27 @@ pub const QUIT: &str = "run-menu-quit";
 const OWN_COMMANDS: &[&str] = &[ENTRY_POINT_MENU, NEXT, PREVIOUS, CHOOSE, QUIT];
 const HINTS: &[(&str, &str)] = &[("↵", "Choose"), ("C-n C-p", "Next / previous")];
 
+/// The debugger's command, offered when a plugin has it.
+pub const DEBUG_AT_POINT: &str = "debug-at-point";
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Item {
     Run,
+    Debug,
     Edit,
 }
 
-const ITEMS: [Item; 2] = [Item::Run, Item::Edit];
+fn items(editor: &Editor) -> Vec<Item> {
+    let debug = editor.commands().get(DEBUG_AT_POINT).is_some();
+    [
+        Some(Item::Run),
+        debug.then_some(Item::Debug),
+        Some(Item::Edit),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
+}
 
 struct Menu {
     root: PathBuf,
@@ -115,14 +129,15 @@ pub fn popup(editor: &Editor) -> Option<Popup> {
         .saved
         .as_deref()
         .unwrap_or(&menu.entry.configuration.name);
-    let rows = ITEMS
-        .iter()
+    let rows = items(editor)
+        .into_iter()
         .map(|item| match item {
             Item::Run => Candidate {
                 detail: menu.command_line.clone().map(Into::into),
                 tag: menu.saved.is_none().then_some("new"),
                 ..Candidate::new(format!("Run '{name}'"))
             },
+            Item::Debug => Candidate::new(format!("Debug '{name}'")),
             Item::Edit => Candidate::new("Edit configuration…"),
         })
         .collect();
@@ -149,6 +164,7 @@ pub fn previous(editor: &mut Editor) -> CommandResult {
 }
 
 fn step(editor: &mut Editor, forward: bool) -> CommandResult {
+    let count = items(editor).len();
     let menu = state(editor).menu.as_mut().ok_or("No menu")?;
     let selected = menu.selection.selected();
     let index = if forward {
@@ -156,7 +172,7 @@ fn step(editor: &mut Editor, forward: bool) -> CommandResult {
     } else {
         selected.saturating_sub(1)
     };
-    menu.selection.select(index, ITEMS.len(), ITEMS.len());
+    menu.selection.select(index, count, count);
     Ok(())
 }
 
@@ -166,9 +182,18 @@ pub fn quit(editor: &mut Editor) -> CommandResult {
 }
 
 pub fn choose(editor: &mut Editor) -> CommandResult {
+    let items = items(editor);
     let menu = state(editor).menu.take().ok_or("No menu")?;
-    match ITEMS[menu.selection.selected()] {
-        Item::Run => run_entry_point(editor, &menu.root, menu.entry),
+    match items[menu.selection.selected()] {
+        Item::Run => run_entry_point(editor, &menu.root, menu.entry, None),
+        Item::Debug => {
+            let debug = editor
+                .commands()
+                .get(DEBUG_AT_POINT)
+                .ok_or("No debugger")?
+                .run;
+            debug(editor)
+        }
         Item::Edit => edit_configuration(editor, &menu.root, menu.entry.configuration),
     }
 }

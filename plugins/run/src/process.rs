@@ -10,11 +10,35 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::Duration;
 
-use remacs_core::Notifier;
+use std::path::Path;
+use std::rc::Rc;
 
+use remacs_core::{Editor, Notifier, Tone};
+
+use crate::configuration::Configuration;
 use crate::launch::Launch;
 
 const READ_SIZE: usize = 64 * 1024;
+
+/// What a console shows the run of: a launch's processes, or a program another plugin
+/// drives, like a debugger's.
+pub trait Program {
+    fn try_event(&self) -> Option<Event>;
+    /// Asks it to end; what it started is killed after `timeout`.
+    fn stop(&self, timeout: Duration);
+    /// False when the program does not read its input.
+    fn write_input(&self, input: &[u8]) -> bool;
+    fn close_input(&self);
+    /// How it goes, in place of `running`, e.g. `paused`.
+    fn state(&self) -> Option<(String, Tone)> {
+        None
+    }
+}
+
+/// Starts a configuration of the project at the root given another way than running it,
+/// e.g. under a debugger; called for every run of a session.
+pub type Starter =
+    Rc<dyn Fn(&mut Editor, &Path, &Configuration, &Launch) -> Result<Box<dyn Program>, String>>;
 
 pub enum Event {
     /// A step starts, as a shell would show its command.
@@ -94,13 +118,15 @@ impl Process {
             .expect("spawning a process thread");
         Self { events, control }
     }
+}
 
-    pub fn try_event(&self) -> Option<Event> {
+impl Program for Process {
+    fn try_event(&self) -> Option<Event> {
         self.events.try_recv().ok()
     }
 
     /// Asks the process group to end, and kills it once `timeout` has passed.
-    pub fn stop(&self, timeout: Duration) {
+    fn stop(&self, timeout: Duration) {
         self.control.stopping.store(true, Ordering::Relaxed);
         let Some(group) = *lock(&self.control.group) else {
             return;
@@ -120,7 +146,7 @@ impl Process {
 
     /// Writes `input` to the running step, or keeps it for the step about to start; false
     /// when the program does not read its input.
-    pub fn write_input(&self, input: &[u8]) -> bool {
+    fn write_input(&self, input: &[u8]) -> bool {
         let mut stdin = lock(&self.control.stdin);
         let written = match &mut *stdin {
             Input::Waiting(kept) => {
@@ -137,7 +163,7 @@ impl Process {
     }
 
     /// Closes the running step's input, as `C-d` does in a terminal.
-    pub fn close_input(&self) {
+    fn close_input(&self) {
         *lock(&self.control.stdin) = Input::Closed;
     }
 }

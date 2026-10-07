@@ -17,6 +17,7 @@ remacs-theme = { path = "crates/theme" }
 remacs-actions = { path = "plugins/actions" }
 remacs-completion = { path = "plugins/completion" }
 remacs-diagnostics = { path = "plugins/diagnostics" }
+remacs-debug = { path = "plugins/debug" }
 remacs-dired = { path = "plugins/dired" }
 remacs-documentation = { path = "plugins/documentation" }
 remacs-editing = { path = "plugins/editing" }
@@ -31,6 +32,7 @@ remacs-rename = { path = "plugins/rename" }
 remacs-run = { path = "plugins/run" }
 remacs-search = { path = "plugins/search" }
 remacs-syntax = { path = "plugins/syntax" }
+remacs-tools = { path = "plugins/tools" }
 remacs-xref = { path = "plugins/xref" }
 
 # Without `font-kit` gpui falls back to a no-op text system on macOS.
