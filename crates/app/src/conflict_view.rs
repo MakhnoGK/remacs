@@ -5,7 +5,7 @@ use gpui::{
 use remacs_core::{
     Action, Code, ConflictBlock, ConflictRegion, ConflictSide, ConflictView, RefKind,
 };
-use remacs_theme::{color, font};
+use remacs_theme::{color, font, glass};
 
 use crate::assets::{CHEVRON_DOWN_ICON, CHEVRON_UP_ICON, FILE_ICON};
 use crate::editor_view::EditorView;
@@ -19,6 +19,13 @@ const LINE_HEIGHT: f32 = 22.0;
 const NUMBER_WIDTH: f32 = 40.0;
 /// Under the resolved lines, and their numbers.
 const RESOLVED: u32 = color::VC_ADDED;
+/// Alphas over the glass: the resolved lines and their chip, a side's header and lines.
+const RESOLVED_ALPHA: u32 = 0x1a;
+const RESOLVED_CHIP_ALPHA: u32 = 0x2e;
+const SIDE_HEADER_ALPHA: u32 = 0x29;
+const SIDE_LINE_ALPHA: u32 = 0x14;
+const CURRENT_BORDER: u32 = 0x2fafff59;
+const SIDE_HEADER_TEXT: u32 = 0xc0c0c0;
 
 /// The snippets of code in the view, each highlighted on its own: the lines between the
 /// conflicts and each side of them.
@@ -62,7 +69,7 @@ pub fn render_conflict(
                             let Some(said) = &resolved else {
                                 return row;
                             };
-                            row.bg(rgba(RESOLVED << 8 | 0x12))
+                            row.bg(rgba(RESOLVED << 8 | RESOLVED_ALPHA))
                                 .when(index == 0, |row| row.child(resolved_chip(said)))
                         },
                         resolved.is_some(),
@@ -92,9 +99,9 @@ pub fn render_conflict(
                 .overflow_hidden()
                 .py(px(6.0))
                 .rounded(px(12.0))
-                .bg(rgb(0x050505))
+                .bg(rgba(glass::WELL))
                 .border_1()
-                .border_color(rgba(0xffffff0f))
+                .border_color(rgba(glass::WELL_BORDER))
                 .children(body),
         )
 }
@@ -108,10 +115,10 @@ fn render_header(view: &ConflictView, cx: &mut Context<EditorView>) -> Div {
                 .justify_center()
                 .size(px(28.0))
                 .rounded(px(7.0))
-                .bg(rgb(color::BG_BUTTON))
+                .bg(rgba(glass::CONTROL))
                 .border_1()
-                .border_color(rgba(0xffffff14))
-                .shadow(vec![shadow(0x00000099, 1.0, 2.0, 0.0)])
+                .border_color(rgba(glass::CONTROL_BORDER))
+                .shadow(vec![shadow(0x00000066, 1.0, 2.0, 0.0)])
                 .child(
                     svg()
                         .path(icon)
@@ -222,7 +229,7 @@ fn resolved_chip(said: &str) -> Div {
         .px(px(8.0))
         .py(px(1.0))
         .rounded(px(5.0))
-        .bg(rgba(RESOLVED << 8 | 0x24))
+        .bg(rgba(RESOLVED << 8 | RESOLVED_CHIP_ALPHA))
         .text_size(px(font::SMALL_SIZE))
         .text_color(rgb(color::FG_ADDED))
         .child(said.to_owned())
@@ -262,12 +269,17 @@ fn render_block(
         .mx(px(8.0))
         .rounded(px(10.0))
         .overflow_hidden()
-        .bg(rgb(0x0b0b0b))
+        .bg(rgba(glass::SURFACE))
+        .backdrop_filter(px(glass::CARD_BLUR), glass::CARD_SATURATION)
         .border_1()
-        .border_color(rgba(if current { 0x2fafff59 } else { 0xffffff1a }))
+        .border_color(rgba(if current {
+            CURRENT_BORDER
+        } else {
+            glass::CARD_BORDER
+        }))
         .shadow(vec![
-            shadow(0x00000099, 1.0, 2.0, 0.0),
-            shadow(0x00000073, 10.0, 28.0, 0.0),
+            shadow(0x00000080, 1.0, 2.0, 0.0),
+            shadow(0x00000066, 10.0, 28.0, 0.0),
         ])
         .child(ours.header)
         .children(ours.lines)
@@ -281,8 +293,8 @@ fn render_block(
                 .py(px(8.0))
                 .px(px(12.0))
                 .border_t_1()
-                .border_color(rgba(0xffffff14))
-                .bg(rgb(0x141414))
+                .border_color(rgba(glass::DIVIDER))
+                .bg(rgba(glass::CARD_FOOTER))
                 .child(key_button("Keep both", key("b"), keep_both, cx))
                 .child(key_button("Edit manually", key("e"), edit, cx)),
         )
@@ -320,13 +332,13 @@ fn render_side(
         .h(px(34.0))
         .pl(px(12.0))
         .pr(px(8.0))
-        .bg(rgba(tint << 8 | 0x21))
+        .bg(rgba(tint << 8 | SIDE_HEADER_ALPHA))
         .when(bordered, |header| {
-            header.border_t_1().border_color(rgba(0xffffff14))
+            header.border_t_1().border_color(rgba(glass::DIVIDER))
         })
         .whitespace_nowrap()
         .text_size(px(font::STATUS_SIZE))
-        .text_color(rgb(0xb8b8b8))
+        .text_color(rgb(SIDE_HEADER_TEXT))
         .child(ref_chip(chip))
         .child(div().text_color(rgb(role_color)).child(role))
         .children(id.map(|id| {
@@ -339,7 +351,11 @@ fn render_side(
         .child(div().flex_1());
     let faces = code_faces(&Code::new(lines.join("\n"), mode));
     let lines = numbered(first, &lines, &faces, |row, _| row, false)
-        .map(|row| row.mx_0().rounded_none().bg(rgba(tint << 8 | 0x0f)))
+        .map(|row| {
+            row.mx_0()
+                .rounded_none()
+                .bg(rgba(tint << 8 | SIDE_LINE_ALPHA))
+        })
         .collect();
     Side { header, lines }
 }
@@ -361,14 +377,14 @@ fn key_button(
             .pl(px(10.0))
             .pr(px(if key.is_some() { 5.0 } else { 10.0 }))
             .rounded(px(6.0))
-            .bg(rgb(color::BG_BUTTON))
+            .bg(rgba(glass::CONTROL))
             .border_1()
-            .border_color(rgba(0xffffff14))
-            .shadow(vec![shadow(0x00000080, 1.0, 2.0, 0.0)])
+            .border_color(rgba(glass::CONTROL_BORDER))
+            .shadow(vec![shadow(0x00000066, 1.0, 2.0, 0.0)])
             .text_size(px(font::STATUS_SIZE))
             .text_color(rgb(color::FG_MAIN))
             .child(label)
-            .children(key.map(|key| kbd(key, false))),
+            .children(key.map(|key| kbd(key, false).h(px(18.0)).bg(rgba(glass::KEY_ON_CONTROL)))),
         action,
         cx,
     )

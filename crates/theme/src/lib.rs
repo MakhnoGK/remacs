@@ -123,6 +123,17 @@ pub mod glass {
     pub const PANE_BORDER: u32 = 0xffffff17;
     /// Code shown in a pane or surface.
     pub const WELL: u32 = 0x00000066;
+    pub const WELL_BORDER: u32 = 0xffffff12;
+    /// A card over code in a well, e.g. a conflict's sides: surface glass, blurred less.
+    pub const CARD_BORDER: u32 = 0xffffff24;
+    pub const CARD_BLUR: f32 = 20.0;
+    pub const CARD_SATURATION: f32 = 1.4;
+    /// The strip under a card's content, holding its buttons.
+    pub const CARD_FOOTER: u32 = 0xffffff0a;
+    /// Between the parts of a card.
+    pub const DIVIDER: u32 = 0xffffff1a;
+    /// A key cap on a button, sunk into it.
+    pub const KEY_ON_CONTROL: u32 = 0x0000004d;
     pub const ADDED: u32 = 0x00381fd9;
     pub const REMOVED: u32 = 0x4f1119d9;
 

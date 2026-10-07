@@ -41,6 +41,10 @@ Status: accepted, 2026-10-05 (issue #3)
   replace are gone from the theme.
 - **The boards give the look, not the structure**: elements and features are remacs's own;
   e.g. find file keeps its single column, without the board's preview.
+- **The conflict view** (board 29, 2026-10-07): the code sits in a `WELL`; each conflict
+  is a card of `SURFACE` glass over it, blurred 20px (`CARD_*`), its sides tinted over
+  the glass, its buttons `CONTROL`s with key caps sunk into them. The rebase banner is a
+  little stronger amber on glass.
 
 ## Consequences
 
@@ -51,5 +55,4 @@ Status: accepted, 2026-10-05 (issue #3)
 
 ## Open
 
-- The conflict view, on no glass board, keeps its opaque near-black panes.
 - The boards' inset top highlight on surfaces: gpui has no inset shadows.
