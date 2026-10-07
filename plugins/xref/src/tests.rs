@@ -206,6 +206,44 @@ fn without_a_backend_the_symbol_prompt_says_why_and_a_later_answer_replaces() {
     assert_eq!(symbol_rows(&editor).len(), 1);
 }
 
+fn has_buffer(editor: &Editor, path: &Path) -> bool {
+    editor
+        .buffers()
+        .iter()
+        .any(|buffer| buffer.path() == Some(path))
+}
+
+#[test]
+fn the_window_shows_the_symbol_selected_and_quitting_puts_it_back() {
+    let (main, lib, module) = project("apropos-preview");
+    let mut editor = editor_at(&main, 18);
+    let found = || {
+        vec![
+            symbol("helper", SymbolKind::Function, None, &lib, 14),
+            symbol("helper", SymbolKind::Function, None, &module, 7),
+        ]
+    };
+    press(&mut editor, "C-M-. h");
+    let id = take_symbol_requests(&mut editor)[0].id;
+    deliver_symbols(&mut editor, id, Ok(found()));
+    editor.refresh();
+    assert_eq!(place(&editor), (lib.clone(), 14));
+    press(&mut editor, "C-n");
+    assert_eq!(place(&editor), (module.clone(), 7));
+    press(&mut editor, "C-g");
+    assert_eq!(place(&editor), (main.clone(), 18));
+    assert!(!has_buffer(&editor, &lib) && !has_buffer(&editor, &module));
+
+    press(&mut editor, "C-M-. h");
+    let id = take_symbol_requests(&mut editor)[0].id;
+    deliver_symbols(&mut editor, id, Ok(found()));
+    press(&mut editor, "C-n RET");
+    assert_eq!(place(&editor), (module, 7));
+    assert!(!has_buffer(&editor, &lib));
+    press(&mut editor, "M-,");
+    assert_eq!(place(&editor), (main, 18));
+}
+
 #[test]
 fn answers_after_another_command_or_without_definitions() {
     let (main, lib, _) = project("late");

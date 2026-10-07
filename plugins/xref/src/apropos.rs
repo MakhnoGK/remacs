@@ -7,10 +7,9 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use remacs_core::{
-    Candidate, CommandResult, Completions, Count, Editor, Minibuffer, Prompt, SymbolKind,
-    flex_match,
+    Candidate, CommandResult, Completions, Count, Editor, Prompt, SymbolKind, flex_match,
 };
-use remacs_files::project_root;
+use remacs_files::{FilePreview, project_root};
 
 use crate::definitions::{Location, jump};
 
@@ -52,6 +51,9 @@ struct Apropos {
     found: Vec<Symbol>,
     failure: Option<String>,
     found_for: String,
+    /// The window shows the symbol selected while the prompt is open.
+    preview: Option<FilePreview>,
+    shown: Option<Location>,
 }
 
 /// Reads a symbol's name and goes to it.
@@ -67,11 +69,13 @@ pub(crate) fn find_apropos(editor: &mut Editor) -> CommandResult {
     } else {
         from.parent().unwrap_or(Path::new("/"))
     });
+    let preview = FilePreview::begin(editor);
     let state = editor.plugin_state::<Apropos>();
     *state = Apropos {
         next_id: state.next_id,
         from,
         root,
+        preview: Some(preview),
         ..Apropos::default()
     };
     let prompt = Prompt {
@@ -93,21 +97,42 @@ pub(crate) fn find_apropos(editor: &mut Editor) -> CommandResult {
                 Some(found.get(index)?.location.clone())
             })
             .ok_or("No match")?;
+        // Back where the search started, so that `xref-go-back` returns there.
+        if let Some(preview) = editor.plugin_state::<Apropos>().preview.take() {
+            preview.restore(editor);
+            preview.end(editor, Some(&location.path));
+        }
         jump(editor, &location)
     })
 }
 
-/// Asks the backends again whenever the name typed changes. Runs after every command.
+/// Shows the symbol selected and asks the backends again whenever the name typed
+/// changes; once the prompt is gone, puts back what the window showed. Runs after every
+/// command.
 pub(crate) fn update(editor: &mut Editor) {
-    let input = editor
+    let open = editor
         .minibuffer()
         .filter(|minibuffer| minibuffer.prompt().category == SYMBOL_CATEGORY)
-        .map(Minibuffer::input_text);
+        .map(|minibuffer| {
+            let selected = minibuffer
+                .selected_candidate()
+                .and_then(|candidate| candidate.value.parse::<usize>().ok());
+            (minibuffer.input_text(), selected)
+        });
     let state = editor.plugin_state::<Apropos>();
-    let Some(input) = input else {
+    let Some((input, selected)) = open else {
         state.latest = None;
+        state.shown = None;
+        if let Some(preview) = state.preview.take() {
+            preview.end(editor, None);
+        }
         return;
     };
+    let location = selected
+        .and_then(|index| state.found.get(index))
+        .map(|symbol| symbol.location.clone());
+    show(editor, location);
+    let state = editor.plugin_state::<Apropos>();
     let query = input.trim();
     if state.asked == query {
         return;
@@ -126,6 +151,27 @@ pub(crate) fn update(editor: &mut Editor) {
     state.latest = Some(request.id);
     state.searching = true;
     state.requests.push(request);
+}
+
+/// Shows `location` in the window, unless it is shown already; with none, what the
+/// window showed before.
+fn show(editor: &mut Editor, location: Option<Location>) {
+    let state = editor.plugin_state::<Apropos>();
+    if state.shown == location {
+        return;
+    }
+    state.shown.clone_from(&location);
+    let Some(mut preview) = state.preview.take() else {
+        return;
+    };
+    match &location {
+        Some(location) => {
+            // A file that cannot be read is said when chosen.
+            let _ = preview.show_at(editor, &location.path, location.offset);
+        }
+        None => preview.restore(editor),
+    }
+    editor.plugin_state::<Apropos>().preview = Some(preview);
 }
 
 pub fn take_symbol_requests(editor: &mut Editor) -> Vec<SymbolRequest> {

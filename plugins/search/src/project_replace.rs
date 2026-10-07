@@ -9,11 +9,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use remacs_core::{CommandResult, Completions, Editor, Keymap, Prompt};
-use remacs_files::FileIndex;
+use remacs_files::{FileIndex, FilePreview};
 
 use crate::preview::{self, Lit};
 use crate::project::{read_lines, searched, unsaved_buffers};
-use crate::project_preview::Preview;
 use crate::query::Query;
 use crate::replace::{next_match, replace_from};
 use crate::scan::{Job, Scan};
@@ -54,7 +53,7 @@ struct Replacing {
     replaced: usize,
     files_saved: usize,
     errors: Vec<String>,
-    preview: Preview,
+    preview: FilePreview,
 }
 
 /// What [`next_file`] found.
@@ -107,7 +106,7 @@ pub fn project_query_replace(editor: &mut Editor) -> CommandResult {
                     replaced: 0,
                     files_saved: 0,
                     errors: Vec::new(),
-                    preview: Preview::begin(editor),
+                    preview: FilePreview::begin(editor),
                 };
                 ask(editor, replacing, &from, &to)
             },

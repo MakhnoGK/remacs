@@ -23,3 +23,8 @@ Status: accepted, 2026-10-05
   name, each file read once; ones given by file only (`WorkspaceLocation`) are left out.
 - The client advertises every symbol kind (1–26); kinds map onto the editor's few, so
   structs, enums and classes all read as `type`.
+- **The window follows the selection** (2026-10-07, user), as in `project-search`: the
+  selected symbol's file is shown, point on it. `C-g` puts back the buffer, point and
+  view and closes the files opened only to be shown; RET goes back first, so `M-,`
+  returns to where the search started. The bookkeeping is the files plugin's
+  `FilePreview`, shared with the project searches.

@@ -4,6 +4,7 @@ mod buffers;
 mod file_index;
 mod find_file;
 mod ignored;
+mod preview;
 mod project;
 mod saving;
 
@@ -16,6 +17,7 @@ use crate::ignored::FilesSettings;
 
 pub use file_index::FileIndex;
 pub use find_file::{directory_candidates, project_files};
+pub use preview::FilePreview;
 pub use project::{abbreviate_home, default_directory, expand_home, project_root, with_slash};
 
 pub struct FilesPlugin;

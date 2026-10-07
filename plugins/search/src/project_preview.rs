@@ -2,12 +2,12 @@
 //! words lit, like Emacs consult's preview; quitting puts the buffer, point and view
 //! back, and the files opened only to be shown are closed.
 
-use std::io;
 use std::ops::Range;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use remacs_core::{Buffer, CommandResult, Editor, Face, Span};
+use remacs_files::FilePreview;
 
 use crate::words::Words;
 
@@ -54,20 +54,11 @@ pub fn go_to(editor: &mut Editor, path: &Path, place: &Place) -> CommandResult {
     Ok(())
 }
 
-/// What the window showed before, and what the preview opened since.
+/// The files shown, and the candidate shown now.
 #[derive(Default)]
 pub struct Preview {
-    origin: Option<Origin>,
-    /// Files that had no buffer before being shown.
-    opened: Vec<PathBuf>,
-    /// The candidate shown.
+    files: FilePreview,
     shown: Option<String>,
-}
-
-struct Origin {
-    buffer: String,
-    point: usize,
-    first_line: usize,
 }
 
 /// Kept on the buffer shown: the words, and the line chosen.
@@ -78,14 +69,9 @@ struct Lit {
 
 impl Preview {
     pub fn begin(editor: &Editor) -> Self {
-        let buffer = editor.window_buffer();
         Self {
-            origin: Some(Origin {
-                buffer: buffer.name().to_owned(),
-                point: buffer.point(),
-                first_line: editor.viewport.first_line,
-            }),
-            ..Self::default()
+            files: FilePreview::begin(editor),
+            shown: None,
         }
     }
 
@@ -104,11 +90,10 @@ impl Preview {
         self.shown = value.map(str::to_owned);
         unlight(editor);
         let Some(place) = value.and_then(Place::parse) else {
-            return self.restore(editor);
+            return self.files.restore(editor);
         };
         let path = root.join(place.file);
-        self.note_opened(editor, &path);
-        if go_to(editor, &path, &place).is_err() {
+        if self.files.visit(editor, &path).is_err() || go_to(editor, &path, &place).is_err() {
             return;
         }
         editor.window_buffer_mut().set_local(Lit {
@@ -117,71 +102,19 @@ impl Preview {
         });
     }
 
-    /// Shows the file at `path` in the window.
-    pub fn visit(&mut self, editor: &mut Editor, path: &Path) -> io::Result<()> {
-        self.note_opened(editor, path);
-        editor.visit_file(path)
-    }
-
-    /// Closes the file at `path` if it was opened to be shown.
-    pub fn close(&mut self, editor: &mut Editor, path: &Path) {
-        if let Some(index) = self.opened.iter().position(|opened| opened == path) {
-            self.opened.swap_remove(index);
-            kill_file_buffer(editor, path);
-        }
-    }
-
-    fn note_opened(&mut self, editor: &Editor, path: &Path) {
-        if !editor
-            .buffers()
-            .iter()
-            .any(|buffer| buffer.path() == Some(path))
-        {
-            self.opened.push(path.to_path_buf());
-        }
-    }
-
     /// Shows what the window showed before, as there is nothing to search for.
     pub fn show_nothing(&mut self, editor: &mut Editor) {
         if self.shown.take().is_some() {
             unlight(editor);
-            self.restore(editor);
+            self.files.restore(editor);
         }
     }
 
     /// Puts back what the window showed unless a line was `chosen`, and closes the files
     /// opened only to be shown.
-    pub fn end(mut self, editor: &mut Editor, chosen: Option<&Path>) {
+    pub fn end(self, editor: &mut Editor, chosen: Option<&Path>) {
         unlight(editor);
-        if chosen.is_none() {
-            self.restore(editor);
-        }
-        for path in self.opened {
-            if Some(path.as_path()) != chosen {
-                kill_file_buffer(editor, &path);
-            }
-        }
-    }
-
-    fn restore(&mut self, editor: &mut Editor) {
-        let Some(origin) = &self.origin else {
-            return;
-        };
-        if editor.switch_to_buffer(&origin.buffer) {
-            editor.window_buffer_mut().set_point(origin.point);
-            editor.viewport.first_line = origin.first_line;
-        }
-    }
-}
-
-fn kill_file_buffer(editor: &mut Editor, path: &Path) {
-    let name = editor
-        .buffers()
-        .iter()
-        .find(|buffer| buffer.path() == Some(path))
-        .map(|buffer| buffer.name().to_owned());
-    if let Some(name) = name {
-        editor.kill_buffer(&name);
+        self.files.end(editor, chosen);
     }
 }
 
