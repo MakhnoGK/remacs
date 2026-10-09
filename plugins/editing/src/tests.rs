@@ -17,6 +17,7 @@ impl Plugin for CodeModePlugin {
         registry.modes.add(Mode {
             name: CODE_MODE,
             extensions: &[],
+            file_names: &[],
             pairs: &[('(', ')'), ('[', ']'), ('{', '}'), ('"', '"'), ('\'', '\'')],
             comment: Some(CommentSyntax {
                 start: "// ",
@@ -30,6 +31,7 @@ impl Plugin for CodeModePlugin {
         registry.modes.add(Mode {
             name: STYLE_MODE,
             extensions: &[],
+            file_names: &[],
             pairs: &[],
             comment: Some(CommentSyntax {
                 start: "/* ",

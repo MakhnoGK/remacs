@@ -7,24 +7,43 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Language, Node, Query, QueryCursor, QueryError, TextProvider, Tree};
 
 /// Capture names, most specific first, and the faces they get; other captures
-/// (`@variable`, `@property`, `@punctuation`…) keep the default color.
+/// (`@variable`, `@property`, `@punctuation`…) keep the default color. Older grammars
+/// use nvim-treesitter's former names (`@conditional`, `@text.title`…) and markup ones.
 const FACES: &[(&str, Face)] = &[
     ("comment.documentation", Face::Docstring),
+    ("comment.doc", Face::Docstring),
     ("comment", Face::Comment),
     ("string", Face::String),
     ("escape", Face::String),
+    ("character", Face::String),
+    ("text.literal", Face::String),
+    ("markup.raw", Face::String),
     ("keyword", Face::Keyword),
+    ("conditional", Face::Keyword),
+    ("repeat", Face::Keyword),
+    ("include", Face::Keyword),
+    ("exception", Face::Keyword),
+    ("storageclass", Face::Keyword),
     ("variable.builtin", Face::Keyword),
+    ("text.title", Face::Keyword),
+    ("markup.heading", Face::Keyword),
     ("type", Face::Type),
     ("constructor", Face::Type),
     ("function.macro", Face::Builtin),
     ("function.builtin", Face::Builtin),
     ("attribute", Face::Builtin),
+    ("preproc", Face::Builtin),
     ("function", Face::Function),
+    ("method", Face::Function),
     ("tag", Face::Function),
     ("constant", Face::Constant),
     ("number", Face::Constant),
+    ("float", Face::Constant),
+    ("boolean", Face::Constant),
     ("label", Face::Constant),
+    ("text.uri", Face::Constant),
+    ("text.reference", Face::Constant),
+    ("markup.link", Face::Constant),
 ];
 
 /// A compiled highlight query and the face of each of its captures.

@@ -6,6 +6,8 @@ pub const FUNDAMENTAL_MODE: &str = "Fundamental";
 pub struct Mode {
     pub name: &'static str,
     pub extensions: &'static [&'static str],
+    /// Whole file names, for files without a telling extension like `Makefile`.
+    pub file_names: &'static [&'static str],
     /// Brackets and quotes typed in pairs, opener first.
     pub pairs: &'static [(char, char)],
     pub comment: Option<CommentSyntax>,
@@ -34,12 +36,19 @@ impl Modes {
     }
 
     pub fn name_for(&self, path: Option<&Path>) -> &'static str {
+        let file_name = path
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str());
         let extension = path
             .and_then(Path::extension)
             .and_then(|extension| extension.to_str());
+        let named = |mode: &&Mode| file_name.is_some_and(|name| mode.file_names.contains(&name));
+        let extended =
+            |mode: &&Mode| extension.is_some_and(|extension| mode.extensions.contains(&extension));
         self.0
             .iter()
-            .find(|mode| extension.is_some_and(|extension| mode.extensions.contains(&extension)))
+            .find(named)
+            .or_else(|| self.0.iter().find(extended))
             .map_or(FUNDAMENTAL_MODE, |mode| mode.name)
     }
 }

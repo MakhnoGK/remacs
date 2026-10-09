@@ -246,6 +246,7 @@ impl Plugin for ModesPlugin {
             registry.modes.add(Mode {
                 name,
                 extensions,
+                file_names: &[],
                 pairs: &[],
                 comment: None,
                 markup_comment: None,
