@@ -40,20 +40,7 @@ pub struct Configuration {
     rename_all_fields = "kebab-case"
 )]
 pub enum Kind {
-    /// `cargo <command> -p <package> [--bin <bin> | --example <example>]`.
-    Cargo {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        package: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        bin: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        example: Option<String>,
-        #[serde(default = "cargo_run", skip_serializing_if = "is_cargo_run")]
-        command: String,
-        /// Given to cargo, before `--` and the program's arguments, e.g. `--release`.
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        cargo_args: Vec<String>,
-    },
+    Cargo(Cargo),
     /// A script of a `package.json`, relative to the project root.
     Npm {
         package_json: String,
@@ -63,9 +50,82 @@ pub enum Kind {
         package_manager: Option<PackageManager>,
     },
     /// A JavaScript or TypeScript file, relative to the project root, run by Node.
-    Node { file: String },
+    Node {
+        file: String,
+    },
     /// A program, relative to the project root or looked up on `PATH`.
-    Executable { program: String },
+    Executable {
+        program: String,
+    },
+}
+
+/// `cargo <command> -p <package> [--lib | --bin <bin> | --test <test> | --example
+/// <example>] [<filter>]`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct Cargo {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub package: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bin: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub example: Option<String>,
+    /// The library's own tests.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub lib: bool,
+    /// An integration test, a file of `tests/`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub test: Option<String>,
+    #[serde(default = "cargo_run", skip_serializing_if = "is_cargo_run")]
+    pub command: String,
+    /// The tests to run, by path: `cargo test` runs those whose path contains it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter: Option<String>,
+    /// Given to cargo, before `--` and the program's arguments, e.g. `--release`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cargo_args: Vec<String>,
+}
+
+pub const CARGO_TEST: &str = "test";
+
+impl Default for Cargo {
+    fn default() -> Self {
+        Self {
+            package: None,
+            bin: None,
+            example: None,
+            lib: false,
+            test: None,
+            command: cargo_run(),
+            filter: None,
+            cargo_args: Vec::new(),
+        }
+    }
+}
+
+impl Cargo {
+    /// The package and target, as cargo's arguments: `-p api --bin api`.
+    pub fn selection(&self) -> Vec<String> {
+        let mut args = Vec::new();
+        for (flag, value) in [
+            ("-p", &self.package),
+            ("--bin", &self.bin),
+            ("--test", &self.test),
+            ("--example", &self.example),
+        ] {
+            if let Some(value) = value {
+                args.extend([flag.to_owned(), value.clone()]);
+            }
+        }
+        if self.lib {
+            args.push("--lib".to_owned());
+        }
+        args
+    }
+
+    pub fn runs_tests(&self) -> bool {
+        self.command == CARGO_TEST
+    }
 }
 
 fn cargo_run() -> String {
@@ -74,6 +134,10 @@ fn cargo_run() -> String {
 
 fn is_cargo_run(command: &str) -> bool {
     command == "run"
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -99,7 +163,7 @@ impl PackageManager {
 impl Kind {
     pub fn icon(&self) -> Icon {
         match self {
-            Kind::Cargo { .. } => Icon::Package,
+            Kind::Cargo(_) => Icon::Package,
             Kind::Npm { .. } => Icon::Script,
             Kind::Node { .. } => Icon::File,
             Kind::Executable { .. } => Icon::Terminal,
@@ -109,7 +173,7 @@ impl Kind {
     /// The group the chooser lists it in.
     pub fn group(&self) -> &'static str {
         match self {
-            Kind::Cargo { .. } => "Cargo",
+            Kind::Cargo(_) => "Cargo",
             Kind::Npm { .. } => "npm scripts",
             Kind::Node { .. } => "Files",
             Kind::Executable { .. } => "Executables",
@@ -119,7 +183,7 @@ impl Kind {
     /// Where its group comes in the chooser.
     pub fn group_rank(&self) -> u8 {
         match self {
-            Kind::Cargo { .. } => 0,
+            Kind::Cargo(_) => 0,
             Kind::Npm { .. } => 1,
             Kind::Node { .. } => 2,
             Kind::Executable { .. } => 3,
@@ -155,7 +219,8 @@ const HEADER: &str = "\
 # One [[configurations]] table each. remacs adds one whenever something is run for the
 # first time; changes apply once the file is saved.
 #
-# kind = \"cargo\": package, bin or example, command (\"run\"), cargo-args
+# kind = \"cargo\": package; bin, example, lib = true or test (a file of tests/);
+#   command (\"run\"; \"test\" runs tests, those whose path contains filter); cargo-args
 # kind = \"npm\": package-json, script, package-manager (npm, pnpm, yarn, bun)
 # kind = \"node\": file (.js or .ts)
 # kind = \"executable\": program
@@ -166,6 +231,9 @@ const HEADER: &str = "\
 /// changes.
 pub struct Project {
     pub configurations: Vec<Configuration>,
+    /// The last one run without saving it, like IntelliJ's temporary configurations;
+    /// kept until remacs quits.
+    pub temporary: Option<Configuration>,
     /// The run file, if configurations are kept.
     path: Option<PathBuf>,
     read_at: Option<SystemTime>,
@@ -179,6 +247,7 @@ impl Project {
     pub fn find(&self, name: &str) -> Option<&Configuration> {
         self.configurations
             .iter()
+            .chain(&self.temporary)
             .find(|configuration| configuration.name == name)
     }
 
@@ -232,30 +301,38 @@ impl Project {
     /// Keeps `configuration` and appends it to the run file, which is created if needed;
     /// what else the file holds stays as it was written.
     fn add(&mut self, root: &Path, configuration: Configuration) -> io::Result<()> {
-        if let Some(path) = &self.path {
+        if self.path.is_some() {
             let table = toml::to_string(&RunFile {
                 configurations: vec![configuration.clone()],
             })
             .map_err(io::Error::other)?;
-            if let Some(directory) = path.parent() {
-                fs::create_dir_all(directory)?;
-            }
-            let exists = path.exists();
-            let mut file = fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(path)?;
-            let header = if exists {
-                String::new()
-            } else {
-                HEADER.replace("{root}", &root.display().to_string())
-            };
-            write!(file, "{header}\n{table}")?;
-            self.read_at = fs::metadata(path)
-                .and_then(|metadata| metadata.modified())
-                .ok();
+            self.append(root, &table)?;
         }
         self.configurations.push(configuration);
+        Ok(())
+    }
+
+    /// Appends `text` to the run file, created with its header if need be.
+    fn append(&mut self, root: &Path, text: &str) -> io::Result<()> {
+        let Some(path) = &self.path else {
+            return Err(io::Error::other("Run configurations are not kept in files"));
+        };
+        if let Some(directory) = path.parent() {
+            fs::create_dir_all(directory)?;
+        }
+        let header = if path.exists() {
+            String::new()
+        } else {
+            HEADER.replace("{root}", &root.display().to_string())
+        };
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)?;
+        write!(file, "{header}\n{text}")?;
+        self.read_at = fs::metadata(path)
+            .and_then(|metadata| metadata.modified())
+            .ok();
         Ok(())
     }
 }
@@ -315,6 +392,7 @@ impl Store {
             .entry(root.to_path_buf())
             .or_insert_with(|| Project {
                 configurations: Vec::new(),
+                temporary: None,
                 path,
                 read_at: None,
             });
@@ -338,6 +416,14 @@ impl Store {
         if let Some(existing) = project.find_kind(&configuration.kind) {
             return Ok(existing.clone());
         }
+        // Saving the temporary one makes it permanent, under its own name.
+        let temporary = project.temporary.take();
+        if temporary
+            .as_ref()
+            .is_some_and(|temporary| temporary.kind != configuration.kind)
+        {
+            project.temporary = temporary;
+        }
         let configuration = Configuration {
             name: project.unique_name(&configuration.name),
             ..configuration
@@ -347,4 +433,41 @@ impl Store {
             .map_err(|error| format!("Could not save the configuration: {error}"))?;
         Ok(configuration)
     }
+
+    /// The configuration of `root` that runs `configuration`'s kind, else `configuration`
+    /// itself as the project's temporary one, in place of the last.
+    pub fn find_or_keep_temporary(
+        &mut self,
+        root: &Path,
+        configuration: Configuration,
+    ) -> Configuration {
+        let (project, _) = self.project(root);
+        if let Some(existing) = project.find_kind(&configuration.kind) {
+            return existing.clone();
+        }
+        project.temporary = None;
+        let configuration = Configuration {
+            name: project.unique_name(&configuration.name),
+            ..configuration
+        };
+        project.temporary = Some(configuration.clone());
+        configuration
+    }
+
+    /// Appends a commented example to the run file of `root`, created if needed, and
+    /// returns the file.
+    pub fn add_template(&mut self, root: &Path) -> io::Result<PathBuf> {
+        let (project, _) = self.project(root);
+        project.append(root, TEMPLATE)?;
+        Ok(project.path.clone().expect("appended to it"))
+    }
 }
+
+/// What "New configuration…" adds: one to uncomment and change.
+const TEMPLATE: &str = "\
+# [[configurations]]
+# name = \"all tests\"
+# kind = \"cargo\"
+# command = \"test\"
+# cargo-args = [\"--workspace\"]
+";

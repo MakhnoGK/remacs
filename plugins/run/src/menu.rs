@@ -129,15 +129,18 @@ pub fn popup(editor: &Editor) -> Option<Popup> {
         .saved
         .as_deref()
         .unwrap_or(&menu.entry.configuration.name);
+    let unsaved = menu.saved.is_none();
+    let temporary = unsaved && menu.entry.temporary;
     let rows = items(editor)
         .into_iter()
         .map(|item| match item {
             Item::Run => Candidate {
                 detail: menu.command_line.clone().map(Into::into),
-                tag: menu.saved.is_none().then_some("new"),
+                tag: (unsaved && !temporary).then_some("new"),
                 ..Candidate::new(format!("Run '{name}'"))
             },
             Item::Debug => Candidate::new(format!("Debug '{name}'")),
+            Item::Edit if temporary => Candidate::new("Save configuration…"),
             Item::Edit => Candidate::new("Edit configuration…"),
         })
         .collect();

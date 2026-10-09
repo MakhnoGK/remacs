@@ -115,13 +115,21 @@ pub fn window_entry_points(editor: &Editor) -> Option<&EntryPoints> {
     editor.window_buffer().local::<EntryPoints>()
 }
 
-/// The entry point on `line`, else the buffer's first, as the one meant there.
+/// The entry point on `line`, else the innermost around it, like the test point is in,
+/// else the buffer's first, as the one meant there.
 pub fn entry_point_for(editor: &Editor, line: usize) -> Option<(PathBuf, EntryPoint)> {
     let known = window_entry_points(editor)?;
     let point = known
         .points
         .iter()
         .find(|point| point.line == line)
+        .or_else(|| {
+            known
+                .points
+                .iter()
+                .filter(|point| (point.line..=point.end_line).contains(&line))
+                .min_by_key(|point| point.end_line - point.line)
+        })
         .or_else(|| known.points.first())?;
     Some((known.root.clone(), point.clone()))
 }

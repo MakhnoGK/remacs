@@ -22,6 +22,7 @@ pub fn discover(root: &Path, files: &[String]) -> Vec<Configuration> {
             let text = fs::read_to_string(&path).unwrap_or_default();
             entry_points(&path, mode, &text, root)
         })
+        .filter(|entry| !entry.temporary)
         .map(|entry| entry.configuration)
         .collect()
 }

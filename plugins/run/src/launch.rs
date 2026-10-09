@@ -58,24 +58,11 @@ pub fn launch(
     settings: &RunSettings,
 ) -> Result<Launch, String> {
     let (program, mut args, own_directory) = match &configuration.kind {
-        Kind::Cargo {
-            package,
-            bin,
-            example,
-            command,
-            cargo_args,
-        } => {
-            let mut args = vec![command.clone()];
-            if let Some(package) = package {
-                args.extend(["-p".to_owned(), package.clone()]);
-            }
-            if let Some(bin) = bin {
-                args.extend(["--bin".to_owned(), bin.clone()]);
-            }
-            if let Some(example) = example {
-                args.extend(["--example".to_owned(), example.clone()]);
-            }
-            args.extend(cargo_args.iter().cloned());
+        Kind::Cargo(cargo) => {
+            let mut args = vec![cargo.command.clone()];
+            args.extend(cargo.selection());
+            args.extend(cargo.cargo_args.iter().cloned());
+            args.extend(cargo.filter.iter().cloned());
             if !configuration.args.is_empty() {
                 args.push("--".to_owned());
             }

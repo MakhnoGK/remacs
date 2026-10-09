@@ -7,7 +7,7 @@ use std::path::Path;
 use remacs_run::{Configuration, Kind, Launch};
 use serde_json::{Map, Value, json};
 
-use crate::prepare::{Plan, Target};
+use crate::prepare::{CargoBuild, Plan, Target};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Adapter {
@@ -85,28 +85,25 @@ pub fn plan(configuration: &Configuration, launch: &Launch) -> Result<(Adapter, 
     };
     let mut cargo_build = None;
     let adapter = match &configuration.kind {
-        Kind::Cargo {
-            package,
-            bin,
-            example,
-            command,
-            cargo_args,
-        } => {
-            if command != "run" {
+        Kind::Cargo(cargo) => {
+            let tests = cargo.runs_tests();
+            if !tests && cargo.command != "run" {
                 return Err(format!(
-                    "cargo {command} cannot be debugged; only cargo run"
+                    "cargo {} cannot be debugged; only cargo run and cargo test",
+                    cargo.command
                 ));
             }
-            let mut args = Vec::new();
-            for (flag, value) in [("-p", package), ("--bin", bin), ("--example", example)] {
-                if let Some(value) = value {
-                    args.extend([flag.to_owned(), value.clone()]);
-                }
-            }
-            args.extend(cargo_args.iter().cloned());
-            cargo_build = Some(args);
+            let mut args = cargo.selection();
+            args.extend(cargo.cargo_args.iter().cloned());
+            cargo_build = Some(CargoBuild { tests, args });
             target.program = String::new();
-            target.args = configuration.args.clone();
+            target.args = cargo
+                .filter
+                .iter()
+                .filter(|_| tests)
+                .chain(&configuration.args)
+                .cloned()
+                .collect();
             Adapter::CodeLldb
         }
         Kind::Executable { .. } => {

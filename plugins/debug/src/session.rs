@@ -9,7 +9,7 @@ use std::rc::Rc;
 use std::sync::mpsc::{self, Sender};
 use std::time::Instant;
 
-use remacs_core::{Editor, Tone};
+use remacs_core::{Candidate, CommandResult, Editor, Prompt, Tone, filter_candidates};
 use remacs_run::{Configuration, Event, Exit, Launch, Program};
 use serde_json::{Value, json};
 
@@ -48,6 +48,8 @@ pub fn debugger(editor: &mut Editor) -> &mut Debugger {
 enum Phase {
     /// Running the commands before launch, or building.
     Preparing(Preparation),
+    /// Waiting for the user to pick one of several test binaries.
+    Choosing,
     /// The adapter is being downloaded or started.
     Starting,
     Debugging,
@@ -223,7 +225,7 @@ fn stop_if_asked(editor: &mut Editor, id: u64) {
     };
     match &session.phase {
         Phase::Preparing(preparation) => preparation.cancel(),
-        Phase::Starting => finish(editor, id, Some(Exit::Signal(libc::SIGTERM))),
+        Phase::Choosing | Phase::Starting => finish(editor, id, Some(Exit::Signal(libc::SIGTERM))),
         Phase::Stopping(_) => {}
         Phase::Debugging => {
             session.phase = Phase::Stopping(Instant::now() + timeout);
@@ -253,20 +255,62 @@ fn prepared(editor: &mut Editor, id: u64) {
     match preparation.try_result() {
         None => {}
         Some(Prepared::Failed(exit)) => finish(editor, id, Some(exit)),
-        Some(Prepared::Ready(target)) => {
-            session.phase = Phase::Starting;
-            let tool = session.adapter.tool();
-            remacs_tools::ensure(editor, tool, move |editor, adapter| match adapter {
-                Ok(adapter) => connect(editor, id, &adapter, target),
-                Err(error) => {
-                    if let Some(session) = find_session(editor, id) {
-                        session.note(&format!("Could not get {tool}: {error}"));
-                    }
-                    finish(editor, id, Some(Exit::NotStarted));
-                }
-            });
+        Some(Prepared::Ready(target)) => start_adapter(editor, id, target),
+        Some(Prepared::Choose(choices)) => {
+            session.phase = Phase::Choosing;
+            session.note("Several test binaries were built: choose one, or stop");
+            if let Err(error) = choose_target(editor, id, choices) {
+                editor.set_message(error.0);
+            }
         }
     }
+}
+
+/// Asks which of the test binaries built to debug.
+fn choose_target(editor: &mut Editor, id: u64, choices: Vec<(String, Target)>) -> CommandResult {
+    let labels: Vec<String> = choices.iter().map(|(label, _)| label.clone()).collect();
+    let prompt = Prompt {
+        label: "Debug tests of".into(),
+        require_match: true,
+        ..Prompt::default()
+    };
+    editor.read(
+        prompt,
+        move |_, input| {
+            let candidates = labels.iter().map(|label| Candidate::new(label.clone()));
+            filter_candidates(input, candidates.collect(), false)
+        },
+        move |editor, answer| {
+            let (_, target) = choices
+                .into_iter()
+                .find(|(label, _)| *label == answer)
+                .ok_or("No such test binary")?;
+            if find_session(editor, id)
+                .is_some_and(|session| matches!(session.phase, Phase::Choosing))
+            {
+                start_adapter(editor, id, target);
+            }
+            Ok(())
+        },
+    )
+}
+
+/// Gets the session's adapter, downloaded if need be, and has it launch `target`.
+fn start_adapter(editor: &mut Editor, id: u64, target: Target) {
+    let Some(session) = find_session(editor, id) else {
+        return;
+    };
+    session.phase = Phase::Starting;
+    let tool = session.adapter.tool();
+    remacs_tools::ensure(editor, tool, move |editor, adapter| match adapter {
+        Ok(adapter) => connect(editor, id, &adapter, target),
+        Err(error) => {
+            if let Some(session) = find_session(editor, id) {
+                session.note(&format!("Could not get {tool}: {error}"));
+            }
+            finish(editor, id, Some(Exit::NotStarted));
+        }
+    });
 }
 
 /// Starts the adapter at `program` and asks it to launch `target`.

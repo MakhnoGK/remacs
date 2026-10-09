@@ -4,7 +4,7 @@
 
 use std::io::{BufRead, BufReader, Read};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -29,14 +29,35 @@ pub struct Target {
 pub struct Plan {
     /// Shell commands, run in turn in the target's directory.
     pub before: Vec<String>,
-    /// Arguments of `cargo build`, whose executable then becomes the target's program.
-    pub cargo_build: Option<Vec<String>>,
+    /// Builds the program to debug, which then becomes the target's.
+    pub cargo_build: Option<CargoBuild>,
     pub target: Target,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CargoBuild {
+    /// Builds test binaries with `cargo test --no-run` rather than with `cargo build`.
+    pub tests: bool,
+    /// The package and target, then cargo's own arguments.
+    pub args: Vec<String>,
 }
 
 pub enum Prepared {
     Ready(Target),
+    /// Several test binaries were built; the user picks one, by its label.
+    Choose(Vec<(String, Target)>),
     Failed(Exit),
+}
+
+/// An executable cargo says it built.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Built {
+    pub executable: String,
+    /// The target and its kind, e.g. `api (lib)`.
+    pub label: String,
+    pub package_dir: PathBuf,
+    /// Built to run the target's tests.
+    pub test: bool,
 }
 
 pub struct Preparation {
@@ -106,7 +127,7 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 fn prepare(plan: Plan, console: &Console, control: &Control) -> Prepared {
-    let mut target = plan.target;
+    let target = plan.target;
     for command_line in &plan.before {
         let mut shell = Command::new("/bin/sh");
         shell.arg("-c").arg(command_line);
@@ -118,30 +139,61 @@ fn prepare(plan: Plan, console: &Console, control: &Control) -> Prepared {
             return Prepared::Failed(exit);
         }
     }
-    if let Some(args) = plan.cargo_build {
-        let mut cargo = Command::new("cargo");
-        cargo
-            .arg("build")
-            .args(&args)
-            .arg("--message-format=json-render-diagnostics");
-        console.say(Event::Started(format!("cargo build {}", args.join(" "))));
-        let mut executable = None;
-        let exit = run(cargo, &target, control, console, |line| {
-            if let Some(built) = built_executable(line) {
-                executable = Some(built);
-            }
-        });
-        if exit != Exit::Code(0) {
-            return Prepared::Failed(exit);
-        }
-        let Some(executable) = executable else {
-            console.say(Event::Output(
-                b"cargo built no executable to debug\n".to_vec(),
-            ));
-            return Prepared::Failed(Exit::NotStarted);
-        };
-        target.program = executable;
+    let Some(build) = plan.cargo_build else {
+        return ready(target, control);
+    };
+    let mut cargo = Command::new("cargo");
+    let command = if build.tests {
+        cargo.args(["test", "--no-run"]);
+        "cargo test --no-run"
+    } else {
+        cargo.arg("build");
+        "cargo build"
+    };
+    cargo
+        .args(&build.args)
+        .arg("--message-format=json-render-diagnostics");
+    console.say(Event::Started(format!(
+        "{command} {}",
+        build.args.join(" ")
+    )));
+    let mut executables = Vec::new();
+    let exit = run(cargo, &target, control, console, |line| {
+        executables.extend(built_executable(line).filter(|built| built.test == build.tests));
+    });
+    if exit != Exit::Code(0) {
+        return Prepared::Failed(exit);
     }
+    let mut choices: Vec<(String, Target)> = executables
+        .into_iter()
+        .map(|built| {
+            let target = Target {
+                program: built.executable,
+                // Where `cargo test` runs them.
+                cwd: if build.tests {
+                    built.package_dir
+                } else {
+                    target.cwd.clone()
+                },
+                ..target.clone()
+            };
+            (built.label, target)
+        })
+        .collect();
+    match choices.len() {
+        0 => {
+            let message = format!("{command} built no executable to debug\n");
+            console.say(Event::Output(message.into_bytes()));
+            Prepared::Failed(Exit::NotStarted)
+        }
+        // `cargo build` names the executable asked for last.
+        _ if !build.tests => ready(choices.pop().expect("one at least").1, control),
+        1 => ready(choices.remove(0).1, control),
+        _ => Prepared::Choose(choices),
+    }
+}
+
+fn ready(target: Target, control: &Control) -> Prepared {
     if control.cancelled.load(Ordering::Relaxed) {
         return Prepared::Failed(Exit::Signal(libc::SIGTERM));
     }
@@ -149,12 +201,24 @@ fn prepare(plan: Plan, console: &Console, control: &Control) -> Prepared {
 }
 
 /// The executable a line of `cargo build --message-format=json` says was built.
-pub fn built_executable(line: &str) -> Option<String> {
+pub fn built_executable(line: &str) -> Option<Built> {
     let message: Value = serde_json::from_str(line).ok()?;
     if message["reason"] != "compiler-artifact" {
         return None;
     }
-    message["executable"].as_str().map(str::to_owned)
+    let target = &message["target"];
+    let name = target["name"].as_str().unwrap_or_default();
+    let kind = target["kind"][0].as_str().unwrap_or_default();
+    let package_dir = Path::new(message["manifest_path"].as_str().unwrap_or_default())
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_default();
+    Some(Built {
+        executable: message["executable"].as_str()?.to_owned(),
+        label: format!("{name} ({kind})"),
+        package_dir,
+        test: message["profile"]["test"].as_bool().unwrap_or(false),
+    })
 }
 
 /// Runs `command` in its own process group in the target's directory: stderr goes to the

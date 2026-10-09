@@ -220,13 +220,12 @@ fn cargo_and_npm_configurations_launch_their_tools() {
     let root = directory("launch");
     let mut api = Configuration::new(
         "api",
-        Kind::Cargo {
+        Kind::Cargo(Cargo {
             package: Some("api".into()),
-            bin: None,
             example: Some("seed".into()),
-            command: "run".into(),
             cargo_args: vec!["--release".into()],
-        },
+            ..Cargo::default()
+        }),
     );
     api.args = vec!["--port".into(), "3000".into()];
     let launched = launch(&api, &root, &settings()).unwrap();
@@ -235,6 +234,22 @@ fn cargo_and_npm_configurations_launch_their_tools() {
         "cargo run -p api --example seed --release -- --port 3000"
     );
     assert_eq!(launched.cwd, root);
+
+    let mut tests = Configuration::new(
+        "api tests",
+        Kind::Cargo(Cargo {
+            package: Some("api".into()),
+            lib: true,
+            command: "test".into(),
+            filter: Some("store::tests::reads".into()),
+            ..Cargo::default()
+        }),
+    );
+    tests.args = vec!["--exact".into()];
+    assert_eq!(
+        launch(&tests, &root, &settings()).unwrap().command_line(),
+        "cargo test -p api --lib store::tests::reads -- --exact"
+    );
 
     write(&root.join("pnpm-lock.yaml"), "");
     write(&root.join("apps/site/package.json"), "{}");
@@ -356,13 +371,11 @@ fn rust_binaries_and_examples_have_their_main_as_entry_point() {
     assert_eq!(names(&points), [(3, "api")]);
     assert_eq!(
         points[0].configuration.kind,
-        Kind::Cargo {
+        Kind::Cargo(Cargo {
             package: Some("api".into()),
             bin: Some("api".into()),
-            example: None,
-            command: "run".into(),
-            cargo_args: Vec::new(),
-        }
+            ..Cargo::default()
+        })
     );
     assert_eq!(points[0].configuration.cwd.as_deref(), Some("."));
     assert_eq!(names(&entry("api/src/bin/tool.rs")), [(3, "tool")]);
@@ -377,6 +390,150 @@ fn rust_binaries_and_examples_have_their_main_as_entry_point() {
     let vendored = entry("vendor/lib/examples/demo.rs");
     assert_eq!(vendored[0].configuration.cwd.as_deref(), Some("vendor/lib"));
     fs::remove_dir_all(root).unwrap();
+}
+
+/// A test entry point's lines, name, filter and arguments.
+type TestRow<'a> = (usize, usize, &'a str, Option<&'a str>, &'a [String]);
+
+fn test_filters(points: &[EntryPoint]) -> Vec<TestRow<'_>> {
+    points
+        .iter()
+        .filter(|point| point.temporary)
+        .map(|point| {
+            let Kind::Cargo(cargo) = &point.configuration.kind else {
+                panic!("not cargo: {:?}", point.configuration);
+            };
+            assert_eq!(cargo.command, "test");
+            (
+                point.line,
+                point.end_line,
+                point.configuration.name.as_str(),
+                cargo.filter.as_deref(),
+                point.configuration.args.as_slice(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn rust_tests_and_modules_holding_them_are_temporary_entry_points() {
+    let root = directory("rust-tests");
+    write(&root.join("Cargo.toml"), "[package]\nname = \"api\"\n");
+    write(&root.join("src/lib.rs"), "");
+    let store = "\
+pub fn read() {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads() {
+        read();
+    }
+
+    /// Writes.
+    #[tokio::test(flavor = \"multi_thread\")]
+    async fn writes() {}
+
+    fn helper() {}
+
+    mod none {
+        fn helper() {}
+    }
+}
+";
+    let entry = |path: &str, text: &str| {
+        let path = root.join(path);
+        write(&path, text);
+        entry_points(&path, "Rust", text, &root)
+    };
+    let points = entry("src/store/mod.rs", store);
+    let exact = ["--exact".to_owned()];
+    assert_eq!(
+        test_filters(&points),
+        [
+            (3, 20, "store::tests", Some("store::tests::"), &[][..]),
+            (
+                7,
+                9,
+                "store::tests::reads",
+                Some("store::tests::reads"),
+                &exact[..]
+            ),
+            (
+                13,
+                13,
+                "store::tests::writes",
+                Some("store::tests::writes"),
+                &exact[..]
+            ),
+        ]
+    );
+    let Kind::Cargo(cargo) = &points[0].configuration.kind else {
+        unreachable!()
+    };
+    assert_eq!(cargo.selection(), ["-p", "api", "--lib"]);
+    assert_eq!(points[0].configuration.cwd.as_deref(), Some("."));
+
+    let integration = entry("tests/http.rs", "#[test]\nfn ok() {}\n");
+    assert_eq!(
+        test_filters(&integration),
+        [(1, 1, "ok", Some("ok"), &exact[..])]
+    );
+    let Kind::Cargo(cargo) = &integration[0].configuration.kind else {
+        unreachable!()
+    };
+    assert_eq!(cargo.selection(), ["-p", "api", "--test", "http"]);
+
+    // A binary's main and its tests.
+    let main = entry("src/main.rs", "fn main() {}\n\n#[test]\nfn starts() {}\n");
+    assert_eq!(names(&main), [(0, "api"), (3, "starts")]);
+    assert!(!main[0].temporary && main[1].temporary);
+    let Kind::Cargo(cargo) = &main[1].configuration.kind else {
+        unreachable!()
+    };
+    assert_eq!(cargo.selection(), ["-p", "api", "--bin", "api"]);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_test_run_is_kept_as_the_temporary_configuration_until_saved() {
+    let home = directory("temporary");
+    let root = home.join("project");
+    let mut store = configuration::Store::default();
+    store.keep_in(home.join("run"), home.join("state/run.json"));
+    let test = |name: &str| {
+        Configuration::new(
+            name,
+            Kind::Cargo(Cargo {
+                command: "test".into(),
+                filter: Some(name.into()),
+                ..Cargo::default()
+            }),
+        )
+    };
+    store.find_or_keep_temporary(&root, test("reads"));
+    let kept = store.find_or_keep_temporary(&root, test("writes"));
+    let project = store.project(&root).0;
+    assert_eq!(project.temporary.as_ref(), Some(&kept));
+    assert!(project.find("writes").is_some() && project.find("reads").is_none());
+    assert!(!project.path().unwrap().exists(), "nothing is saved");
+
+    // Saving it makes it permanent, under its own name.
+    let saved = store.find_or_add(&root, test("writes")).unwrap();
+    assert_eq!(saved.name, "writes");
+    assert!(store.project(&root).0.temporary.is_none());
+    assert_eq!(store.find_or_keep_temporary(&root, test("writes")), saved);
+
+    let path = store.add_template(&root).unwrap();
+    let written = fs::read_to_string(path).unwrap();
+    assert!(
+        written.ends_with("# command = \"test\"\n# cargo-args = [\"--workspace\"]\n"),
+        "{written}"
+    );
+    assert_eq!(store.project(&root).0.configurations.len(), 1);
+    fs::remove_dir_all(home).unwrap();
 }
 
 #[test]
@@ -667,13 +824,14 @@ fn the_chooser_lists_configurations_then_what_the_project_can_run() {
             })
             .unwrap_or_default()
     };
-    wait_until(&mut editor, |editor| listed(editor).len() == 3);
+    wait_until(&mut editor, |editor| listed(editor).len() == 4);
     assert_eq!(
         listed(&editor),
         [
             ("site: dev".into(), Some("New"), true),
             ("site: test".into(), Some("New"), true),
             ("check".into(), None, false),
+            ("New configuration…".into(), None, false),
         ]
     );
     // C-e saves a new one and edits it in the run file.

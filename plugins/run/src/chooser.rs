@@ -7,11 +7,11 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use remacs_core::{
-    Candidate, CommandResult, Completions, Count, Editor, Keymap, Prompt, filter_candidates,
+    Candidate, CommandResult, Completions, Count, Editor, Icon, Keymap, Prompt, filter_candidates,
 };
 use remacs_files::{FileIndex, project_files};
 
-use crate::commands::{edit_configuration, run_configuration, stop_session};
+use crate::commands::{edit_configuration, new_configuration, run_configuration, stop_session};
 use crate::configuration::Configuration;
 use crate::configuration_store;
 use crate::discovery::discover;
@@ -34,6 +34,7 @@ struct Chooser {
 struct Listing {
     root: PathBuf,
     saved: Vec<Configuration>,
+    temporary: Option<Configuration>,
     index: Arc<FileIndex>,
     /// The index's files `entries` were found in.
     files: Option<Arc<Vec<String>>>,
@@ -44,9 +45,20 @@ struct Listing {
 #[derive(Clone)]
 struct Entry {
     configuration: Configuration,
-    /// In the run file, rather than found in the project.
-    saved: bool,
+    origin: Origin,
 }
+
+/// Where a configuration listed comes from, in the order listed within a kind.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Origin {
+    Saved,
+    Temporary,
+    /// Found in the project, with no configuration yet.
+    Found,
+}
+
+/// The candidate value of "New configuration…", apart from the entries' indexes.
+const NEW: &str = "new";
 
 impl Listing {
     fn update(&mut self) {
@@ -62,19 +74,21 @@ impl Listing {
         let found = discover(&self.root, &files)
             .into_iter()
             .filter(|found| !self.saved.iter().any(|saved| saved.kind == found.kind));
-        let saved = self.saved.iter().cloned();
-        let mut entries: Vec<Entry> = saved
-            .map(|configuration| Entry {
+        let entry = |origin| {
+            move |configuration| Entry {
                 configuration,
-                saved: true,
-            })
-            .chain(found.map(|configuration| Entry {
-                configuration,
-                saved: false,
-            }))
+                origin,
+            }
+        };
+        let mut entries: Vec<Entry> = self
+            .saved
+            .iter()
+            .cloned()
+            .map(entry(Origin::Saved))
+            .chain(self.temporary.clone().map(entry(Origin::Temporary)))
+            .chain(found.map(entry(Origin::Found)))
             .collect();
-        // Grouped by kind, saved ones first within each.
-        entries.sort_by_key(|entry| (entry.configuration.kind.group_rank(), !entry.saved));
+        entries.sort_by_key(|entry| (entry.configuration.kind.group_rank(), entry.origin));
         self.entries = entries;
         self.files = Some(files);
     }
@@ -99,6 +113,12 @@ impl Listing {
             .find_plugin_state::<Sessions>()
             .map(|sessions| sessions.settings.clone())
             .unwrap_or_default();
+        let new = Candidate {
+            value: NEW.into(),
+            icon: Some(Icon::Create),
+            detail: Some("an example to fill in, in the run file".into()),
+            ..Candidate::new("New configuration…")
+        };
         self.entries
             .iter()
             .enumerate()
@@ -112,15 +132,20 @@ impl Listing {
                 Candidate {
                     value: index.to_string(),
                     label: configuration.name.clone(),
-                    verb: (!entry.saved).then_some("New"),
+                    verb: match entry.origin {
+                        Origin::Saved => None,
+                        Origin::Temporary => Some("Temporary"),
+                        Origin::Found => Some("New"),
+                    },
                     detail: Some(command_line.into()),
                     tag: running.then_some("running"),
                     group: Some(configuration.kind.group().into()),
                     icon: Some(configuration.kind.icon()),
-                    dim: !entry.saved,
+                    dim: entry.origin != Origin::Saved,
                     ..Candidate::default()
                 }
             })
+            .chain([new])
             .collect()
     }
 }
@@ -135,6 +160,7 @@ pub fn choose_with(editor: &mut Editor, starter: Option<Starter>) -> CommandResu
     let root = window_root(editor).ok_or("Not in a project")?;
     let (project, error) = configuration_store(editor).project(&root);
     let saved = project.configurations.clone();
+    let temporary = project.temporary.clone();
     if let Some(error) = error {
         editor.set_message(error);
     }
@@ -142,6 +168,7 @@ pub fn choose_with(editor: &mut Editor, starter: Option<Starter>) -> CommandResu
     let listing = Rc::new(RefCell::new(Listing {
         root,
         saved,
+        temporary,
         index,
         files: None,
         scanned: false,
@@ -168,33 +195,41 @@ pub fn choose_with(editor: &mut Editor, starter: Option<Starter>) -> CommandResu
         },
         |editor, value| {
             let (root, entry) = take_entry(editor, &value)?;
-            let configuration = if entry.saved {
-                entry.configuration
-            } else {
-                configuration_store(editor).find_or_add(&root, entry.configuration)?
+            let Some(entry) = entry else {
+                return new_configuration(editor, &root);
+            };
+            let configuration = match entry.origin {
+                Origin::Saved | Origin::Temporary => entry.configuration,
+                Origin::Found => {
+                    configuration_store(editor).find_or_add(&root, entry.configuration)?
+                }
             };
             run_configuration(editor, &root, configuration, starter)
         },
     )
 }
 
-fn take_entry(editor: &mut Editor, value: &str) -> Result<(PathBuf, Entry), String> {
-    let index: usize = value.parse().map_err(|_| "No such configuration")?;
+/// The project and the entry chosen; none for "New configuration…".
+fn take_entry(editor: &mut Editor, value: &str) -> Result<(PathBuf, Option<Entry>), String> {
     let listing = editor
         .plugin_state::<Chooser>()
         .listing
         .take()
         .ok_or("No such configuration")?;
     let listing = listing.borrow();
+    if value == NEW {
+        return Ok((listing.root.clone(), None));
+    }
+    let index: usize = value.parse().map_err(|_| "No such configuration")?;
     let entry = listing
         .entries
         .get(index)
         .cloned()
         .ok_or("No such configuration")?;
-    Ok((listing.root.clone(), entry))
+    Ok((listing.root.clone(), Some(entry)))
 }
 
-/// Edits the selected candidate's configuration, saved first if it is new.
+/// Edits the selected candidate's configuration, saved first if it is not yet.
 pub fn edit(editor: &mut Editor) -> CommandResult {
     let value = editor
         .minibuffer()
@@ -202,8 +237,10 @@ pub fn edit(editor: &mut Editor) -> CommandResult {
         .map(|candidate| candidate.value.clone())
         .ok_or("No configuration")?;
     editor.cancel_minibuffer();
-    let (root, entry) = take_entry(editor, &value)?;
-    edit_configuration(editor, &root, entry.configuration)
+    match take_entry(editor, &value)? {
+        (root, Some(entry)) => edit_configuration(editor, &root, entry.configuration),
+        (root, None) => new_configuration(editor, &root),
+    }
 }
 
 /// Asks which of the `running` sessions to stop.

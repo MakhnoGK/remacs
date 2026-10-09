@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use remacs_core::{BreakpointIcon, Editor, GutterIcon, Mode, Plugin, Registry, parse_sequence};
 use remacs_editing::EditingPlugin;
 use remacs_minibuffer::MinibufferPlugin;
-use remacs_run::{Configuration, Kind, Launch, RunPlugin, keep_configurations_in};
+use remacs_run::{Cargo, Configuration, Kind, Launch, RunPlugin, keep_configurations_in};
 use remacs_tools::{ToolsPlugin, keep_tools_in};
 use serde_json::json;
 
@@ -15,7 +15,7 @@ use super::*;
 use crate::adapter::{Adapter, plan};
 use crate::breakpoints::Breakpoints;
 use crate::dap::{encode, read_message};
-use crate::prepare::built_executable;
+use crate::prepare::{Built, CargoBuild, built_executable};
 
 const WAIT: Duration = Duration::from_secs(60);
 
@@ -52,13 +52,11 @@ fn cargo_configurations_are_built_then_debugged_with_codelldb() {
         args: vec!["--port".into(), "3000".into()],
         ..Configuration::new(
             "api",
-            Kind::Cargo {
+            Kind::Cargo(Cargo {
                 package: Some("api".into()),
-                bin: None,
-                example: None,
-                command: "run".into(),
                 cargo_args: vec!["--release".into()],
-            },
+                ..Cargo::default()
+            }),
         )
     };
     let launch = Launch {
@@ -72,14 +70,22 @@ fn cargo_configurations_are_built_then_debugged_with_codelldb() {
     assert_eq!(adapter, Adapter::CodeLldb);
     assert_eq!(
         plan.cargo_build,
-        Some(vec!["-p".into(), "api".into(), "--release".into()])
+        Some(CargoBuild {
+            tests: false,
+            args: vec!["-p".into(), "api".into(), "--release".into()],
+        })
     );
     assert_eq!(plan.target.args, ["--port", "3000"]);
 
-    let line = r#"{"reason":"compiler-artifact","target":{"name":"api"},"executable":"/src/shop/target/debug/api"}"#;
+    let line = r#"{"reason":"compiler-artifact","manifest_path":"/src/shop/api/Cargo.toml","target":{"name":"api","kind":["bin"]},"profile":{"test":false},"executable":"/src/shop/target/debug/api"}"#;
     assert_eq!(
-        built_executable(line).as_deref(),
-        Some("/src/shop/target/debug/api")
+        built_executable(line),
+        Some(Built {
+            executable: "/src/shop/target/debug/api".into(),
+            label: "api (bin)".into(),
+            package_dir: "/src/shop/api".into(),
+            test: false,
+        })
     );
     assert_eq!(built_executable(r#"{"reason":"build-finished"}"#), None);
 
@@ -89,6 +95,53 @@ fn cargo_configurations_are_built_then_debugged_with_codelldb() {
     assert_eq!(arguments["program"], "/src/shop/target/debug/api");
     assert_eq!(arguments["env"]["RUST_LOG"], "debug");
     assert_eq!(arguments["sourceLanguages"], json!(["rust"]));
+}
+
+#[test]
+fn cargo_tests_are_built_without_running_and_debugged_with_their_filter() {
+    let configuration = Configuration {
+        args: vec!["--exact".into()],
+        ..Configuration::new(
+            "reads",
+            Kind::Cargo(Cargo {
+                package: Some("api".into()),
+                lib: true,
+                command: "test".into(),
+                filter: Some("store::tests::reads".into()),
+                ..Cargo::default()
+            }),
+        )
+    };
+    let launch = Launch {
+        program: "cargo".into(),
+        args: vec![],
+        cwd: "/src/shop".into(),
+        env: vec![],
+        before: vec![],
+    };
+    let (_, tests) = plan(&configuration, &launch).unwrap();
+    assert_eq!(
+        tests.cargo_build,
+        Some(CargoBuild {
+            tests: true,
+            args: vec!["-p".into(), "api".into(), "--lib".into()],
+        })
+    );
+    assert_eq!(tests.target.args, ["store::tests::reads", "--exact"]);
+
+    let line = r#"{"reason":"compiler-artifact","manifest_path":"/src/shop/api/Cargo.toml","target":{"name":"store","kind":["test"]},"profile":{"test":true},"executable":"/src/shop/target/debug/deps/store-1a2b"}"#;
+    let built = built_executable(line).unwrap();
+    assert!(built.test);
+    assert_eq!(built.label, "store (test)");
+
+    let bench = Configuration::new(
+        "bench",
+        Kind::Cargo(Cargo {
+            command: "bench".into(),
+            ..Cargo::default()
+        }),
+    );
+    assert!(plan(&bench, &launch).is_err());
 }
 
 #[test]

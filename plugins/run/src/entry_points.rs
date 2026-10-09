@@ -4,7 +4,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::configuration::{Configuration, Kind};
+use crate::configuration::{Cargo, Configuration, Kind};
+use crate::rust_tests::rust_tests;
 
 pub const RUST_MODE: &str = "Rust";
 pub const JAVASCRIPT_MODES: &[&str] = &["JavaScript", "TypeScript"];
@@ -13,8 +14,23 @@ pub const PACKAGE_JSON: &str = "package.json";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EntryPoint {
     pub line: usize,
+    /// The last line of what it runs, e.g. a test function's, which runs from inside it.
+    pub end_line: usize,
     /// Named for a new configuration; the project may already have one of its kind.
     pub configuration: Configuration,
+    /// Run without saving a configuration, as one-off runs of a test are.
+    pub temporary: bool,
+}
+
+impl EntryPoint {
+    fn at(line: usize, configuration: Configuration) -> Self {
+        Self {
+            line,
+            end_line: line,
+            configuration,
+            temporary: false,
+        }
+    }
 }
 
 /// Whether a file in `mode` named `name` can have entry points at all.
@@ -29,7 +45,13 @@ pub fn entry_points(path: &Path, mode: &str, text: &str, root: &Path) -> Vec<Ent
         .and_then(|name| name.to_str())
         .unwrap_or_default();
     if mode == RUST_MODE {
-        rust_main(path, text, root).into_iter().collect()
+        let Some(package) = CargoPackage::of(path, root) else {
+            return Vec::new();
+        };
+        let mut points: Vec<EntryPoint> =
+            rust_main(path, text, root, &package).into_iter().collect();
+        points.extend(rust_tests(path, text, root, &package));
+        points
     } else if JAVASCRIPT_MODES.contains(&mode) {
         script_file(path, name, root).into_iter().collect()
     } else if name == PACKAGE_JSON {
@@ -39,7 +61,7 @@ pub fn entry_points(path: &Path, mode: &str, text: &str, root: &Path) -> Vec<Ent
     }
 }
 
-fn relative(path: &Path, root: &Path) -> String {
+pub(crate) fn relative(path: &Path, root: &Path) -> String {
     let relative = path.strip_prefix(root).unwrap_or(path);
     if relative.as_os_str().is_empty() {
         ".".to_owned()
@@ -48,44 +70,70 @@ fn relative(path: &Path, root: &Path) -> String {
     }
 }
 
+/// The Cargo package a file belongs to.
+pub(crate) struct CargoPackage {
+    pub name: String,
+    pub dir: PathBuf,
+    pub manifest: toml::Table,
+}
+
+impl CargoPackage {
+    /// The package whose `Cargo.toml` is nearest above `path`, up to `root`.
+    fn of(path: &Path, root: &Path) -> Option<Self> {
+        let (dir, manifest) = path
+            .ancestors()
+            .skip(1)
+            .take_while(|ancestor| ancestor.starts_with(root))
+            .find_map(|ancestor| {
+                let manifest: toml::Table = fs::read_to_string(ancestor.join("Cargo.toml"))
+                    .ok()?
+                    .parse()
+                    .ok()?;
+                manifest
+                    .contains_key("package")
+                    .then(|| (ancestor.to_path_buf(), manifest))
+            })?;
+        let name = manifest.get("package")?.get("name")?.as_str()?.to_owned();
+        Some(Self {
+            name,
+            dir,
+            manifest,
+        })
+    }
+
+    /// Where cargo runs for it: its workspace's root, as `cwd` relative to `root`.
+    pub fn cwd(&self, root: &Path) -> String {
+        relative(&workspace_root(&self.dir, root), root)
+    }
+
+    /// The binary or example whose root file is `path`.
+    pub fn main_target(&self, path: &Path) -> Option<Target> {
+        cargo_target(
+            path.strip_prefix(&self.dir).ok()?,
+            &self.manifest,
+            &self.name,
+        )
+    }
+}
+
 /// A binary or an example of a Cargo package, run from its workspace's root.
-fn rust_main(path: &Path, text: &str, root: &Path) -> Option<EntryPoint> {
+fn rust_main(path: &Path, text: &str, root: &Path, package: &CargoPackage) -> Option<EntryPoint> {
     let line = text.lines().position(is_main_line)?;
-    let (package_dir, manifest) = path
-        .ancestors()
-        .skip(1)
-        .take_while(|ancestor| ancestor.starts_with(root))
-        .find_map(|ancestor| {
-            let manifest: toml::Table = fs::read_to_string(ancestor.join("Cargo.toml"))
-                .ok()?
-                .parse()
-                .ok()?;
-            manifest
-                .contains_key("package")
-                .then(|| (ancestor.to_path_buf(), manifest))
-        })?;
-    let package = manifest.get("package")?.get("name")?.as_str()?.to_owned();
-    let target = cargo_target(path.strip_prefix(&package_dir).ok()?, &manifest, &package)?;
-    let (name, bin, example) = match target {
+    let (name, bin, example) = match package.main_target(path)? {
         Target::Bin(bin) => (bin.clone(), Some(bin), None),
         Target::Example(example) => (example.clone(), None, Some(example)),
     };
-    let workspace = workspace_root(&package_dir, root);
     let mut configuration = Configuration::new(
         name,
-        Kind::Cargo {
-            package: Some(package),
+        Kind::Cargo(Cargo {
+            package: Some(package.name.clone()),
             bin,
             example,
-            command: "run".to_owned(),
-            cargo_args: Vec::new(),
-        },
+            ..Cargo::default()
+        }),
     );
-    configuration.cwd = Some(relative(&workspace, root));
-    Some(EntryPoint {
-        line,
-        configuration,
-    })
+    configuration.cwd = Some(package.cwd(root));
+    Some(EntryPoint::at(line, configuration))
 }
 
 /// `fn main(` at the start of a line, maybe `pub` or `async`.
@@ -96,7 +144,7 @@ fn is_main_line(line: &str) -> bool {
         .is_some_and(|rest| rest.trim_start().starts_with('('))
 }
 
-enum Target {
+pub(crate) enum Target {
     Bin(String),
     Example(String),
 }
@@ -171,15 +219,15 @@ fn script_file(path: &Path, name: &str, root: &Path) -> Option<EntryPoint> {
     if left_out {
         return None;
     }
-    Some(EntryPoint {
-        line: 0,
-        configuration: Configuration::new(
+    Some(EntryPoint::at(
+        0,
+        Configuration::new(
             name,
             Kind::Node {
                 file: relative(path, root),
             },
         ),
-    })
+    ))
 }
 
 /// Each script of a `package.json`, at the line that names it.
@@ -208,9 +256,9 @@ fn package_scripts(path: &Path, text: &str, root: &Path) -> Vec<EntryPoint> {
                         .strip_prefix(&key)
                         .is_some_and(|rest| rest.trim_start().starts_with(':'))
                 })?;
-            Some(EntryPoint {
+            Some(EntryPoint::at(
                 line,
-                configuration: Configuration::new(
+                Configuration::new(
                     script_name(path, root, script),
                     Kind::Npm {
                         package_json: package_json.clone(),
@@ -218,7 +266,7 @@ fn package_scripts(path: &Path, text: &str, root: &Path) -> Vec<EntryPoint> {
                         package_manager: None,
                     },
                 ),
-            })
+            ))
         })
         .collect()
 }

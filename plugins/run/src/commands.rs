@@ -57,16 +57,30 @@ pub fn run_at_point_with(editor: &mut Editor, starter: Option<Starter>) -> Comma
     run_entry_point(editor, &root, entry, starter)
 }
 
-/// Runs `entry`'s configuration, saved first if the project has none of its kind, and
-/// makes it the project's chosen one.
+/// Runs `entry`'s configuration, saved first if the project has none of its kind (kept
+/// as the temporary one for a test), and makes it the project's chosen one.
 pub fn run_entry_point(
     editor: &mut Editor,
     root: &Path,
     entry: EntryPoint,
     starter: Option<Starter>,
 ) -> CommandResult {
-    let configuration = configuration_store(editor).find_or_add(root, entry.configuration)?;
+    let store = configuration_store(editor);
+    let configuration = if entry.temporary {
+        store.find_or_keep_temporary(root, entry.configuration)
+    } else {
+        store.find_or_add(root, entry.configuration)?
+    };
     run_configuration(editor, root, configuration, starter)
+}
+
+/// Adds an example configuration to the project's run file and visits it there.
+pub fn new_configuration(editor: &mut Editor, root: &Path) -> CommandResult {
+    let path = configuration_store(editor).add_template(root)?;
+    editor.visit_file(&path)?;
+    let last_line = editor.window_buffer().text().line_count().saturating_sub(1);
+    editor.set_point_at(last_line, 0);
+    Ok(())
 }
 
 /// Makes `configuration` the project's chosen one and runs it.

@@ -15,6 +15,8 @@ remacs-text.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml = { workspace = true, features = ["display"] }
+tree-sitter.workspace = true
+tree-sitter-rust.workspace = true
 
 [dev-dependencies]
 remacs-editing.workspace = true
