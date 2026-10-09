@@ -11,7 +11,7 @@ use remacs_actions::{Action, Request as ActionRequest};
 use remacs_completion::Request;
 use remacs_core::{Editor, Notifier};
 use remacs_diagnostics::{self as diagnostics, Diagnostic, Severity};
-use remacs_format::Failure;
+use remacs_format::{Failure, Request as FormatRequest};
 use remacs_text::Snapshot;
 use serde_json::json;
 
@@ -609,13 +609,8 @@ fn send_requests(editor: &mut Editor) {
     let hovers = remacs_documentation::take_requests(editor);
     let definitions = remacs_xref::take_requests(editor);
     let actions = remacs_actions::take_requests(editor);
-    // The last backend: what the others left is the language server's to format.
-    let formats = remacs_format::take_requests(editor, |_| true);
+    send_formats(editor);
     let Some(documents) = editor.window_buffer().local::<Documents>() else {
-        for request in formats {
-            let missing = Failure::Unsupported("No formatter for this buffer".into());
-            remacs_format::deliver(editor, request.id, Err(missing));
-        }
         for request in hovers {
             remacs_documentation::deliver(editor, request.id, None);
         }
@@ -638,14 +633,6 @@ fn send_requests(editor: &mut Editor) {
     }
     for request in definitions {
         first.ask(Question::Definition, request.id, request.offset);
-    }
-    for request in formats {
-        first.client.send(Outgoing::Format {
-            uri: first.uri.clone(),
-            id: request.id,
-            text: first.sent_text(),
-            range: request.range,
-        });
     }
     let mut listed = None;
     let mut chosen = Vec::new();
@@ -680,6 +667,40 @@ fn send_requests(editor: &mut Editor) {
         if let Err(error) = result {
             remacs_actions::failed(editor, id, &error.0);
         }
+    }
+}
+
+/// Format requests held back while their server loads the project: rust-analyzer then
+/// formats without the crate's edition, so rustfmt sorts and wraps in an older style.
+#[derive(Default)]
+struct HeldFormats(Vec<FormatRequest>);
+
+/// Sends each format request, held back or new, to the first server of the buffer
+/// visiting its file once that server has loaded the project.
+fn send_formats(editor: &mut Editor) {
+    let mut requests = mem::take(&mut editor.plugin_state::<HeldFormats>().0);
+    let held = requests.len();
+    // The last backend: what the others left is the language server's to format.
+    requests.extend(remacs_format::take_requests(editor, |_| true));
+    for (index, request) in requests.into_iter().enumerate() {
+        let Some((client, uri, text)) = first_server(editor, &request.path) else {
+            let missing = Failure::Unsupported("No formatter for this buffer".into());
+            remacs_format::deliver(editor, request.id, Err(missing));
+            continue;
+        };
+        if !client.is_settled() {
+            if index >= held {
+                editor.set_message("Waiting for the language server to load the project…");
+            }
+            editor.plugin_state::<HeldFormats>().0.push(request);
+            continue;
+        }
+        client.send(Outgoing::Format {
+            uri,
+            id: request.id,
+            text,
+            range: request.range,
+        });
     }
 }
 

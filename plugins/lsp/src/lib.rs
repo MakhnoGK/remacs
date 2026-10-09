@@ -40,6 +40,9 @@ pub struct LanguageServer {
     /// The server reports diagnostics only when asked (`textDocument/diagnostic`). Servers
     /// that also publish them unasked are not asked, which would only duplicate them.
     pub pull_diagnostics: bool,
+    /// The server says when it is loading the project (`experimental/serverStatus`), and
+    /// is taken as loading from its start until it first does.
+    pub reports_loading: bool,
     /// Runs the project's own copy from `node_modules/.bin` when it has one, as npx does,
     /// so its version matches the project's.
     pub node_modules: bool,

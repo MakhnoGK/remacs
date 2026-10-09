@@ -732,7 +732,9 @@ fn format(file: &Path) -> String {
         buffer.contents(0..buffer.text().len())
     };
     refresh_until(&mut editor, "formatting", |editor| {
-        assert_eq!(editor.echo(), None, "{}", file.display());
+        let echo = editor.echo();
+        let waiting = echo.as_ref().is_none_or(|echo| echo.starts_with("Waiting"));
+        assert!(waiting, "{}: {echo:?}", file.display());
         contents(editor) != source
     });
     contents(&editor)
@@ -754,6 +756,26 @@ fn language_servers_format_files() {
     assert_eq!(
         format(&rust.join("src/main.rs")),
         "fn main() {\n    let x = 1;\n    println!(\"{x}\");\n}\n"
+    );
+    // Formatted before rust-analyzer loads the project, rustfmt would miss the crate's
+    // edition and sort imports in the 2015 style.
+    let configured = project(
+        "rustfmt-toml",
+        &[
+            (
+                "Cargo.toml",
+                "[package]\nname = \"demo\"\nedition = \"2024\"\n",
+            ),
+            ("rustfmt.toml", "hard_tabs = true\n"),
+            (
+                "src/main.rs",
+                "use a::b::C;\nuse a::D;\nfn main(){let x=1;}\n",
+            ),
+        ],
+    );
+    assert_eq!(
+        format(&configured.join("src/main.rs")),
+        "use a::D;\nuse a::b::C;\nfn main() {\n\tlet x = 1;\n}\n"
     );
     let c = project("c-format", &[("main.c", "int main(void){return 0;}\n")]);
     assert_eq!(format(&c.join("main.c")), "int main(void) { return 0; }\n");

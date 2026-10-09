@@ -417,7 +417,7 @@ impl Client {
         let (agreed, negotiated) = mpsc::channel();
         let inbox = SharedInbox::default();
         let pull_generation = Arc::new(AtomicU64::new(0));
-        let settled = Arc::new(AtomicBool::new(true));
+        let settled = Arc::new(AtomicBool::new(!server.reports_loading));
         let writer = Writer {
             server: server.name,
             stdin: BufWriter::new(stdin),
