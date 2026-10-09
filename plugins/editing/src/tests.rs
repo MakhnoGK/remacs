@@ -119,14 +119,80 @@ fn motion_steps_over_multibyte_characters() {
 }
 
 #[test]
-fn word_motion_skips_punctuation() {
+fn word_motion_stops_between_letters_and_other_characters() {
     let mut editor = editor_with("fn  main() -> жук");
     press(&mut editor, "M-f M-f");
-    assert_eq!(editor.buffer().point(), 8);
+    assert_eq!(editor.buffer().point(), 4);
+    press(&mut editor, "M-f M-f");
+    assert_eq!(editor.buffer().point(), "fn  main() -> ".len());
     press(&mut editor, "M-f");
     assert_eq!(editor.buffer().point(), "fn  main() -> жук".len());
     press(&mut editor, "M-b M-b");
-    assert_eq!(editor.buffer().point(), 4);
+    assert_eq!(editor.buffer().point(), "fn  main".len());
+}
+
+#[test]
+fn backward_kill_word_takes_one_run_at_a_time() {
+    let mut editor = editor_with("тако1ую_ф22разу");
+    press(&mut editor, "C-e M-DEL");
+    assert_eq!(contents(&editor), "тако1ую_");
+    press(&mut editor, "M-DEL");
+    assert_eq!(contents(&editor), "тако1ую");
+    press(&mut editor, "M-DEL");
+    assert_eq!(contents(&editor), "");
+}
+
+#[test]
+fn expand_region_selects_inside_then_with_each_pair_out() {
+    let text = r#"f(a, ["b(c", d])"#;
+    let mut editor = code_editor_with(text);
+    let point = text.find("(c").unwrap();
+    editor.buffer_mut().set_point(point);
+    let mut expand = || {
+        press(&mut editor, "M-<up>");
+        editor.buffer().region().map(|region| &text[region])
+    };
+    assert_eq!(expand(), Some("b(c"));
+    assert_eq!(expand(), Some(r#""b(c""#));
+    assert_eq!(expand(), Some(r#""b(c", d"#));
+    assert_eq!(expand(), Some(r#"["b(c", d]"#));
+    assert_eq!(expand(), Some(r#"a, ["b(c", d]"#));
+    assert_eq!(expand(), Some(r#"(a, ["b(c", d])"#));
+    assert_eq!(expand(), Some(r#"(a, ["b(c", d])"#));
+}
+
+#[test]
+fn contract_region_goes_back_to_point() {
+    let text = "f(a, [b])";
+    let mut editor = code_editor_with(text);
+    let point = text.find('b').unwrap();
+    editor.buffer_mut().set_point(point);
+    press(&mut editor, "C-= C-= C-= C--");
+    assert_eq!(
+        editor.buffer().region().map(|region| &text[region]),
+        Some("[b]")
+    );
+    press(&mut editor, "M-<down> M-<down>");
+    assert_eq!(editor.buffer().region(), None);
+    assert_eq!(editor.buffer().point(), point);
+    press(&mut editor, "C--");
+    assert_eq!(editor.buffer().point(), point);
+}
+
+#[test]
+fn contract_region_forgets_expansions_after_other_commands() {
+    let mut editor = code_editor_with("(a b)");
+    press(&mut editor, "C-f C-= C-f");
+    assert_eq!(editor.buffer().region(), Some(1..5));
+    press(&mut editor, "C--");
+    assert_eq!(editor.buffer().region(), Some(1..5));
+}
+
+#[test]
+fn expand_region_skips_a_pair_point_only_touches() {
+    let mut editor = code_editor_with("{x (y)}");
+    press(&mut editor, "C-f C-f C-f C-=");
+    assert_eq!(editor.buffer().region(), Some(1..6));
 }
 
 #[test]
@@ -238,7 +304,7 @@ fn delete_takes_an_empty_pair_whole() {
 #[test]
 fn an_opener_wraps_the_region_and_keeps_it() {
     let mut editor = code_editor_with("let x = a + b;");
-    press(&mut editor, "M-f M-f M-f M-b C-SPC C-e C-b");
+    press(&mut editor, "M-f M-f M-f M-f C-SPC C-e C-b");
     type_text(&mut editor, "(");
     assert_eq!(contents(&editor), "let x = (a + b);");
     type_text(&mut editor, "[");
@@ -414,7 +480,7 @@ fn paging_moves_point_into_view() {
 #[test]
 fn region_is_killed_and_yanked_back() {
     let mut editor = editor_with("hello brave world");
-    press(&mut editor, "M-f C-SPC M-f");
+    press(&mut editor, "M-f C-SPC M-f M-f");
     assert_eq!(editor.buffer().region(), Some(5..11));
     press(&mut editor, "C-w");
     assert_eq!(contents(&editor), "hello world");
@@ -432,7 +498,7 @@ fn consecutive_kills_yank_as_one() {
     assert_eq!(contents(&editor), "two\nthree");
     press(&mut editor, "C-y");
     assert_eq!(contents(&editor), "one\ntwo\nthree");
-    press(&mut editor, "M-> M-DEL M-DEL");
+    press(&mut editor, "M-> M-DEL M-DEL M-DEL");
     assert_eq!(editor.kill_ring.newest(), Some("two\nthree"));
 }
 

@@ -3,6 +3,7 @@
 
 mod comment;
 mod editing;
+mod expand;
 mod indent;
 mod killing;
 mod motion;
@@ -16,8 +17,8 @@ pub struct EditingPlugin;
 const COMMANDS: &[Command] = &[
     Command::new("forward-char", "Move point one character forward", motion::forward_char),
     Command::new("backward-char", "Move point one character backward", motion::backward_char),
-    Command::new("forward-word", "Move point to the end of the next word", motion::forward_word),
-    Command::new("backward-word", "Move point to the start of the previous word", motion::backward_word),
+    Command::new("forward-word", "Move point over the next run of letters and digits or of other characters", motion::forward_word),
+    Command::new("backward-word", "Move point back over the previous run of letters and digits or of other characters", motion::backward_word),
     Command::new("next-line", "Move to the next line, keeping the column", motion::next_line),
     Command::new("previous-line", "Move to the previous line, keeping the column", motion::previous_line),
     Command::new("move-beginning-of-line", "Move to the beginning of the line", motion::move_beginning_of_line),
@@ -44,8 +45,10 @@ const COMMANDS: &[Command] = &[
     Command::new("kill-region", "Kill the text between point and mark", killing::kill_region),
     Command::new("kill-ring-save", "Save the region as if killed, without deleting it", killing::kill_ring_save),
     Command::new("kill-line", "Kill the rest of the line", killing::kill_line),
-    Command::new("kill-word", "Kill up to the end of the next word", killing::kill_word),
-    Command::new("backward-kill-word", "Kill back to the start of the previous word", killing::backward_kill_word),
+    Command::new("kill-word", "Kill the next run of letters and digits or of other characters", killing::kill_word),
+    Command::new("backward-kill-word", "Kill the previous run of letters and digits or of other characters", killing::backward_kill_word),
+    Command::new(expand::EXPAND_REGION, "Select inside the enclosing brackets or quotes, then with them, then the next pair out", expand::expand_region),
+    Command::new(expand::CONTRACT_REGION, "Go back to the selection the last expand-region grew from", expand::contract_region),
     Command::new(killing::YANK, "Insert the last killed text", killing::yank),
     Command::new(killing::YANK_POP, "Replace the yanked text with an earlier kill", killing::yank_pop),
 ];
@@ -103,6 +106,10 @@ const BINDINGS: &[(&str, &str)] = &[
     ("C-k", "kill-line"),
     ("M-d", "kill-word"),
     ("M-DEL", "backward-kill-word"),
+    ("C-=", expand::EXPAND_REGION),
+    ("M-<up>", expand::EXPAND_REGION),
+    ("C--", expand::CONTRACT_REGION),
+    ("M-<down>", expand::CONTRACT_REGION),
     ("C-y", killing::YANK),
     ("s-v", killing::YANK),
     ("M-y", killing::YANK_POP),

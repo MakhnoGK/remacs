@@ -5,8 +5,25 @@ use remacs_core::{Buffer, Editor, SyntaxContext};
 /// An opener pairs only before these, the end of a line or a closer, so typing in front
 /// of a word does not leave a stray closer.
 const PAIR_BEFORE: &str = ";:.,=> \t\r\n";
-/// Bounds the balance check on long lines.
+/// Bounds the balance check on long lines and the search for pairs around the region.
 const MAX_SCAN: usize = 64 << 10;
+/// `<` is also less-than and `>` ends arrows, so angle brackets never balance reliably.
+const UNBALANCED_OPENERS: &[char] = &['<'];
+
+/// A pair of brackets or quotes found in the text.
+pub(crate) struct Pair {
+    pub outer: Range<usize>,
+    pub inner: Range<usize>,
+}
+
+impl Pair {
+    fn new(opener_at: usize, opener: char, closer_at: usize, closer: char) -> Self {
+        Self {
+            outer: opener_at..closer_at + closer.len_utf8(),
+            inner: opener_at + opener.len_utf8()..closer_at,
+        }
+    }
+}
 
 /// The current buffer's bracket and quote pairs; none in Fundamental mode.
 pub fn mode_pairs(editor: &Editor) -> &'static [(char, char)] {
@@ -98,6 +115,58 @@ pub fn empty_pair_around(buffer: &Buffer, pairs: &[(char, char)]) -> Option<Rang
     pairs
         .contains(&(before, after))
         .then(|| point - before.len_utf8()..point + after.len_utf8())
+}
+
+/// The pairs on the lines within `MAX_SCAN` of `selected`. Quotes pair within a line and
+/// skipping escapes; brackets inside them do not count.
+pub(crate) fn pairs_near(
+    buffer: &Buffer,
+    pairs: &[(char, char)],
+    selected: &Range<usize>,
+) -> Vec<Pair> {
+    let text = buffer.text();
+    let first_line = text.line_of(selected.start.saturating_sub(MAX_SCAN));
+    let last_line = text.line_of((selected.end + MAX_SCAN).min(text.len()));
+    let start = text.line_start(first_line).unwrap_or(0);
+    let end = text
+        .line_range(last_line)
+        .map_or(text.len(), |line| line.end);
+    let window = String::from_utf8_lossy(&text.bytes_in(start..end)).into_owned();
+
+    let mut found = Vec::new();
+    let mut open_brackets: Vec<(usize, char, char)> = Vec::new();
+    let mut open_quote: Option<(usize, char)> = None;
+    let mut escaped = false;
+    for (index, character) in window.char_indices() {
+        let offset = start + index;
+        if character == '\n' {
+            (open_quote, escaped) = (None, false);
+        } else if let Some((quote_at, quote)) = open_quote {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == quote {
+                found.push(Pair::new(quote_at, quote, offset, quote));
+                open_quote = None;
+            }
+        } else if pairs.contains(&(character, character)) {
+            open_quote = Some((offset, character));
+        } else if let Some(&(opener, closer)) = pairs
+            .iter()
+            .find(|(opener, _)| *opener == character && !UNBALANCED_OPENERS.contains(opener))
+        {
+            open_brackets.push((offset, opener, closer));
+        } else if let Some(index) = open_brackets
+            .iter()
+            .rposition(|&(_, _, closer)| closer == character)
+        {
+            let (opener_at, opener, closer) = open_brackets[index];
+            open_brackets.truncate(index);
+            found.push(Pair::new(opener_at, opener, offset, closer));
+        }
+    }
+    found
 }
 
 /// Encloses the region in the pair and keeps it marked, so it can be wrapped again.

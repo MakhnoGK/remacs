@@ -108,29 +108,30 @@ pub(crate) fn line_end(buffer: &Buffer) -> usize {
         .map_or(buffer.text().len(), |range| range.end)
 }
 
-/// End of the word at or after `offset`, like Emacs `forward-word`.
+/// End of the run after `offset`: alphanumerics, or everything else up to the next one.
 pub(crate) fn word_end(buffer: &Buffer, mut offset: usize) -> usize {
-    let mut in_word = false;
-    while let Some(character) = buffer.char_after(offset) {
-        let is_word = character.is_alphanumeric();
-        if in_word && !is_word {
-            break;
-        }
-        in_word |= is_word;
+    let Some(first) = buffer.char_after(offset) else {
+        return offset;
+    };
+    while buffer
+        .char_after(offset)
+        .is_some_and(|character| character.is_alphanumeric() == first.is_alphanumeric())
+    {
         offset = buffer.text().next_char_boundary(offset);
     }
     offset
 }
 
-/// Start of the word at or before `offset`, like Emacs `backward-word`.
+/// Start of the run before `offset`: alphanumerics, or everything else back to the
+/// previous one.
 pub(crate) fn word_start(buffer: &Buffer, mut offset: usize) -> usize {
-    let mut in_word = false;
-    while let Some(character) = buffer.char_before(offset) {
-        let is_word = character.is_alphanumeric();
-        if in_word && !is_word {
-            break;
-        }
-        in_word |= is_word;
+    let Some(last) = buffer.char_before(offset) else {
+        return offset;
+    };
+    while buffer
+        .char_before(offset)
+        .is_some_and(|character| character.is_alphanumeric() == last.is_alphanumeric())
+    {
         offset = buffer.text().previous_char_boundary(offset);
     }
     offset
