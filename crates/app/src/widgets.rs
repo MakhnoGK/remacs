@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use gpui::{
-    BoxShadow, Div, FontFeatures, HighlightStyle, Hsla, IntoElement, ParentElement, Rgba, Styled, Svg, canvas,
-    div, linear_color_stop, linear_gradient, point, prelude::FluentBuilder, px, rgb, rgba, svg,
+    BoxShadow, Div, FontFeatures, HighlightStyle, Hsla, IntoElement, ParentElement, Rgba, Styled,
+    Svg, canvas, div, linear_color_stop, linear_gradient, point, prelude::FluentBuilder, px, rgb,
+    rgba, svg,
 };
 use remacs_core::{FileState, Icon, LineCounts, ListItem, Mark, Tone};
 use remacs_theme::{color, font, glass};
