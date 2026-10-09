@@ -108,6 +108,16 @@ pub(crate) fn highlight(buffer: &Buffer, range: Range<usize>) -> Vec<Span> {
     }
 }
 
+/// The buffer's tree, while it matches the text.
+pub(crate) fn current_tree(buffer: &Buffer) -> Option<&Tree> {
+    let syntax = buffer.local::<BufferSyntax>()?;
+    let tree = syntax.tree.as_ref()?;
+    syntax
+        .snapshot
+        .is_same(&buffer.text().snapshot())
+        .then_some(tree)
+}
+
 /// The string, comment or embedded markup the character before `offset` belongs to, read
 /// from the tree; `None` until the buffer's tree matches its text.
 pub(crate) fn context_at(buffer: &Buffer, offset: usize) -> Option<SyntaxContext> {

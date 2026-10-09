@@ -23,6 +23,8 @@ pub enum Face {
     /// Matches of a search, like Emacs `lazy-highlight`; the one chosen, like `isearch`.
     SearchMatch,
     SearchCurrent,
+    /// A bracket or tag at point and the one it pairs with, like Emacs `show-paren-match`.
+    MatchingPair,
     /// Text a program printed, styled by its ANSI escape codes.
     Console(ConsoleStyle),
     /// Followed by a key or a click, like a `file:line` in a program's output.

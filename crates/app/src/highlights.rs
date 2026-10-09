@@ -51,6 +51,11 @@ pub fn face_style(face: Face) -> HighlightStyle {
             color: Some(hsla(color::BG_MAIN)),
             ..Default::default()
         },
+        Face::MatchingPair => HighlightStyle {
+            background_color: Some(rgba(color::ACCENT << 8 | 0x40).into()),
+            color: Some(hsla(color::ACCENT_ON_SELECTION)),
+            ..Default::default()
+        },
         Face::Console(style) => console_style(style),
         Face::Link => HighlightStyle {
             color: Some(hsla(color::LINK)),

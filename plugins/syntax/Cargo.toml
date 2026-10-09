@@ -9,11 +9,13 @@ publish.workspace = true
 [dependencies]
 remacs-core.workspace = true
 remacs-text.workspace = true
+serde.workspace = true
 streaming-iterator.workspace = true
 tree-sitter.workspace = true
 tree-sitter-language.workspace = true
 
 [dev-dependencies]
+tree-sitter-html.workspace = true
 tree-sitter-javascript.workspace = true
 tree-sitter-rust.workspace = true
 

@@ -17,6 +17,11 @@ const GRAMMARS: &[Grammar] = &[
         language: tree_sitter_javascript::LANGUAGE,
         highlights: &[tree_sitter_javascript::HIGHLIGHT_QUERY],
     },
+    Grammar {
+        mode: "HTML",
+        language: tree_sitter_html::LANGUAGE,
+        highlights: &[tree_sitter_html::HIGHLIGHTS_QUERY],
+    },
 ];
 static SYNTAX: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS);
 
@@ -155,4 +160,78 @@ fn code_outside_buffers_is_highlighted_by_mode() {
     assert!(faces.contains(&("fn", Face::Keyword)));
     assert!(faces.contains(&("usize", Face::Type)));
     assert_eq!(editor.highlight_code("Python", code), []);
+}
+
+/// What is highlighted as a matching pair with point at the first `|` of `marked`, each
+/// part with its offset.
+fn matching_pairs(mode: &'static str, marked: &str) -> Vec<(usize, String)> {
+    let point = marked.find('|').unwrap();
+    let mut editor = Editor::new(&[&SYNTAX]);
+    let text = marked.replacen('|', "", 1);
+    editor.add_buffer(Buffer::new("x", Text::from(text.as_str()), mode));
+    editor.window_buffer_mut().set_point(point);
+    for _ in 0..500 {
+        editor.refresh();
+        if buffer_syntax::is_parsed(editor.window_buffer()) {
+            let buffer = editor.window_buffer();
+            return editor
+                .decorations(0..buffer.text().len())
+                .concat()
+                .into_iter()
+                .filter(|span| span.face == Face::MatchingPair)
+                .map(|span| (span.range.start, buffer.contents(span.range)))
+                .collect();
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+    panic!("never parsed");
+}
+
+#[test]
+fn brackets_beside_point_are_highlighted_with_their_partners() {
+    let pairs = |marked| matching_pairs("Rust", marked);
+    let brackets = |offsets: [usize; 2], text: [&str; 2]| {
+        vec![(offsets[0], text[0].into()), (offsets[1], text[1].into())]
+    };
+    assert_eq!(pairs("fn f|() {}"), brackets([4, 5], ["(", ")"]));
+    assert_eq!(pairs("fn f()| {}"), brackets([4, 5], ["(", ")"]));
+    assert_eq!(pairs("fn f() {| g([1]) }"), brackets([7, 16], ["{", "}"]));
+    assert_eq!(pairs("fn f() { g(|[1]) }"), brackets([11, 13], ["[", "]"]));
+    assert_eq!(pairs("fn f() { g([1]|) }"), brackets([10, 14], ["(", ")"]));
+    assert_eq!(pairs("fn f() { g([1]|); }"), brackets([10, 14], ["(", ")"]));
+    assert_eq!(pairs("fn f() { g([1])|; }"), brackets([10, 14], ["(", ")"]));
+    assert_eq!(
+        pairs("fn f(x: Vec|<u8>) {}"),
+        brackets([11, 14], ["<", ">"])
+    );
+    assert_eq!(pairs("let s = \"(|\";"), []);
+    assert_eq!(pairs("fn f() { x|y }"), []);
+    assert_eq!(pairs("fn f() { a <| b }"), []);
+}
+
+#[test]
+fn tags_at_point_are_highlighted_with_their_partners() {
+    let html = |marked| matching_pairs("HTML", marked);
+    let names =
+        |starts: [usize; 2], name: &str| vec![(starts[0], name.into()), (starts[1], name.into())];
+    assert_eq!(html("<di|v><p>x</p></div>"), names([1, 15], "div"));
+    assert_eq!(html("<div><p>x</p></div|>"), names([1, 15], "div"));
+    assert_eq!(html("|<div><p>x</p></div>"), names([1, 15], "div"));
+    assert_eq!(html("<div><p>x</p></div>|"), names([1, 15], "div"));
+    assert_eq!(html("<div>|<p>x</p></div>"), names([6, 11], "p"));
+    assert_eq!(html("<div id|=\"a\">x</div>"), []);
+
+    let jsx = |marked| matching_pairs("JavaScript", marked);
+    assert_eq!(
+        jsx("const a = <Lis|t.Item>x</List.Item>;"),
+        names([11, 24], "List.Item")
+    );
+    assert_eq!(
+        jsx("const a = <|>x</>;"),
+        vec![(10, "<>".into()), (13, "</>".into())]
+    );
+    assert_eq!(
+        jsx("const a = <div onClick={() => f(|)}>x</div>;"),
+        vec![(31, "(".into()), (32, ")".into())]
+    );
 }

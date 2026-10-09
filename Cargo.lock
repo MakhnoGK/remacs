@@ -4169,8 +4169,10 @@ version = "0.1.0"
 dependencies = [
  "remacs-core",
  "remacs-text",
+ "serde",
  "streaming-iterator",
  "tree-sitter",
+ "tree-sitter-html",
  "tree-sitter-javascript",
  "tree-sitter-language",
  "tree-sitter-rust",
