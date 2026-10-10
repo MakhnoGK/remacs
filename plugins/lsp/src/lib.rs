@@ -11,6 +11,7 @@ mod file_rename;
 mod hover;
 mod markdown;
 mod position;
+mod restart;
 mod settings;
 mod snippet;
 mod symbol_rename;
@@ -21,7 +22,7 @@ mod workspace_edit;
 
 use std::rc::Rc;
 
-use remacs_core::{Plugin, Registry};
+use remacs_core::{Command, Plugin, Registry};
 
 /// How to run a language server and which major modes it serves.
 pub struct LanguageServer {
@@ -82,5 +83,10 @@ impl Plugin for LspPlugin {
         registry
             .settings_hooks
             .push(Rc::new(move |editor| settings::read(editor, servers)));
+        registry.commands.add(Command::new(
+            "lsp-restart",
+            "Stop a language server and start it again where it is wanted",
+            restart::restart_server,
+        ));
     }
 }

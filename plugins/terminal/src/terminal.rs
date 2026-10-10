@@ -196,7 +196,7 @@ fn login_shell() -> Option<String> {
 
 /// `program` as a path: as given when it has a slash, else found on `PATH` or where
 /// shells usually are.
-fn find_program(program: &str) -> Option<PathBuf> {
+pub fn find_program(program: &str) -> Option<PathBuf> {
     if program.contains('/') {
         let path = expand_home(program);
         return path.is_file().then_some(path);

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::mem;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -373,6 +373,17 @@ impl Clients {
             .map(|((_, root), client)| (root.as_path(), client))
     }
 
+    /// Each server started so far, with the project roots it runs for; none for one that
+    /// exited or could not start.
+    pub(crate) fn started(&self) -> BTreeMap<&'static str, Vec<&Path>> {
+        let mut started: BTreeMap<_, Vec<_>> =
+            self.failed.iter().map(|&name| (name, Vec::new())).collect();
+        for (name, root) in self.running.keys() {
+            started.entry(*name).or_default().push(root.as_path());
+        }
+        started
+    }
+
     /// Whether `server` is known not to serve `path`: it is turned off, it could not start,
     /// or the file's project lacks what it requires.
     fn passes_over(&self, server: &LanguageServer, path: &Path) -> bool {
@@ -436,6 +447,33 @@ pub(crate) fn restart(editor: &mut Editor, name: &'static str) {
     let clients = editor.plugin_state::<Clients>();
     clients.running.retain(|(server, _), _| *server != name);
     clients.failed.remove(name);
+    detach(editor, name);
+}
+
+/// Servers that exited by themselves are not started again, and the editor says why.
+fn report_exits(editor: &mut Editor) {
+    let clients = editor.plugin_state::<Clients>();
+    let mut exited = Vec::new();
+    clients
+        .running
+        .retain(|&(name, _), client| match client.take_exit() {
+            Some(reason) => {
+                exited.push((name, reason));
+                false
+            }
+            None => true,
+        });
+    for (name, _) in &exited {
+        clients.failed.insert(name);
+    }
+    for (name, reason) in exited {
+        detach(editor, name);
+        editor.set_message(format!("{name} {reason}"));
+    }
+}
+
+/// Closes server `name`'s files in every buffer and drops its diagnostics.
+fn detach(editor: &mut Editor, name: &'static str) {
     for buffer in editor.buffers_mut() {
         let Some(documents) = buffer.local_mut::<Documents>() else {
             continue;
@@ -452,6 +490,21 @@ pub(crate) fn restart(editor: &mut Editor, name: &'static str) {
         }
         diagnostics::clear(buffer, name);
     }
+}
+
+/// The servers attached to the window buffer.
+pub(crate) fn window_servers(editor: &Editor) -> Vec<&'static str> {
+    editor
+        .window_buffer()
+        .local::<Documents>()
+        .map(|documents| {
+            documents
+                .list
+                .iter()
+                .map(|document| document.server.name)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// The server that answers questions about `path`'s buffer, the file's URI and the text
@@ -475,6 +528,7 @@ pub(crate) fn first_server(editor: &Editor, path: &Path) -> Option<(Rc<Client>, 
 /// diagnostics on, then sends what the plugins ask, including what the answers made them
 /// ask. Runs after every command and whenever a server published or answered something.
 pub(crate) fn sync(editor: &mut Editor, servers: &'static [LanguageServer]) {
+    report_exits(editor);
     hand_over_answers(editor);
     // After the answers, so that a file a definition opened is attached at once.
     for index in 0..editor.buffers().len() {

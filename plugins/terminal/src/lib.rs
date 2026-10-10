@@ -23,6 +23,7 @@ use crate::settings::TerminalSettings;
 use crate::terminals::{PANE, all, close, find_mut, is_shown, rename_buffers, terminals};
 use crate::view::{CLOSE, LIST, MAXIMIZE, NEW, TerminalScreens};
 
+pub use crate::terminal::find_program;
 pub use crate::terminals::Terminals;
 
 pub struct TerminalPlugin;

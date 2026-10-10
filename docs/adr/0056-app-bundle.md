@@ -36,6 +36,13 @@ Status: accepted, 2026-10-10 (icon: board AppIcon, direction A "Parens and curso
   directory rather than `/`. `environment.toml`: `from-login-shell = "auto"` (unless
   started from a terminal, i.e. `TERM` is set) | `"always"` | `"never"`; `timeout`, past
   which the environment stays as it is and the echo area says why.
+- **`shell` in `environment.toml`** (added 2026-10-10): a path or a name in place of the
+  account's login shell, for a terminal that runs another one. The account's zsh put a
+  pnpm `tsc` 5 ahead of Homebrew's `tsc` 7 on `PATH`, where the user's fish does not, so
+  TypeScript had no server in the app. `SHELL` is then set to it, so terminals run it
+  too. A language server that exits is now reported in the echo area with the last
+  lines of its stderr, and not started again until `lsp-restart` (no key; it offers the
+  window buffer's servers first), its `lsp.toml` settings change, or remacs starts again.
 - **Opened from Finder**: "Open With", a file or folder dropped on the Dock icon, or
   `open -a`. `CFBundleDocumentTypes` lists any file (`public.text`, `public.data`) and
   folders, both at rank Alternate, so remacs is offered but never made the default.

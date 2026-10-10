@@ -11,6 +11,7 @@ use std::thread;
 use std::time::Duration;
 
 use remacs_config::Section;
+use remacs_terminal::find_program;
 use serde::Deserialize;
 
 /// Printed before the environment, so that whatever the shell's startup files print is
@@ -34,6 +35,9 @@ const FALLBACK_SHELL: &str = "/bin/zsh";
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct EnvironmentSettings {
     pub from_login_shell: FromLoginShell,
+    /// The shell whose environment is taken, a path or a name, in place of the account's
+    /// login shell, e.g. when terminals run another one.
+    pub shell: String,
     /// Milliseconds the shell may take to start.
     pub timeout: u64,
 }
@@ -42,6 +46,7 @@ impl Default for EnvironmentSettings {
     fn default() -> Self {
         Self {
             from_login_shell: FromLoginShell::Auto,
+            shell: String::new(),
             timeout: 5000,
         }
     }
@@ -53,6 +58,9 @@ impl Section for EnvironmentSettings {
     fn check(&self) -> Result<(), String> {
         if self.timeout == 0 {
             return Err("timeout is 0".to_owned());
+        }
+        if !self.shell.is_empty() && find_program(&self.shell).is_none() {
+            return Err(format!("shell {:?} is not found", self.shell));
         }
         Ok(())
     }
@@ -83,13 +91,22 @@ pub fn import(settings: &EnvironmentSettings) -> Result<(), String> {
     {
         let _ = env::set_current_dir(home);
     }
-    let shell = env::var("SHELL").unwrap_or_else(|_| FALLBACK_SHELL.to_owned());
+    let configured = Some(settings.shell.as_str())
+        .filter(|shell| !shell.is_empty())
+        .and_then(find_program)
+        .map(|path| path.to_string_lossy().into_owned());
+    let shell = configured
+        .clone()
+        .or_else(|| env::var("SHELL").ok())
+        .unwrap_or_else(|| FALLBACK_SHELL.to_owned());
     let variables = run_shell(&shell, Duration::from_millis(settings.timeout))?;
-    for (name, value) in variables
+    let variables = variables
         .split('\0')
         .filter_map(|variable| variable.split_once('='))
         .filter(|(name, _)| !name.is_empty() && !SKIPPED.contains(name))
-    {
+        // The shell inherits `SHELL`; the configured one is what terminals should run.
+        .chain(configured.as_deref().map(|shell| ("SHELL", shell)));
+    for (name, value) in variables {
         // SAFETY: called from `main` before the app or any plugin starts a thread; the
         // reader above has sent what it read and touches no environment.
         unsafe { env::set_var(name, value) };

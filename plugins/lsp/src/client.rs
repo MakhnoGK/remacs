@@ -1,10 +1,10 @@
 use std::cell::Cell;
-use std::collections::HashMap;
-use std::io::{self, BufReader, BufWriter};
+use std::collections::{HashMap, VecDeque};
+use std::io::{self, BufRead, BufReader, BufWriter};
 use std::iter;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
-use std::process::{ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -350,12 +350,42 @@ struct Inbox {
     renamed: Vec<Renamed>,
     found: Vec<Found>,
     symbol_renamed: Vec<SymbolRenamed>,
+    /// Why the server exited, once it has.
+    exit: Option<String>,
 }
 
 type SharedInbox = Arc<Mutex<Inbox>>;
 
 fn lock(inbox: &SharedInbox) -> MutexGuard<'_, Inbox> {
     inbox.lock().expect("no thread panics holding the inbox")
+}
+
+/// Lines of a server's stderr kept to say why it exited.
+const KEPT_ERROR_LINES: usize = 3;
+
+/// The last non-empty lines of `stderr`, read to its end.
+fn last_lines(stderr: ChildStderr) -> Vec<String> {
+    let mut kept = VecDeque::with_capacity(KEPT_ERROR_LINES);
+    for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if kept.len() == KEPT_ERROR_LINES {
+            kept.pop_front();
+        }
+        kept.push_back(line.to_owned());
+    }
+    kept.into()
+}
+
+/// What the server last wrote to stderr, else how it ended.
+fn exit_reason(status: io::Result<ExitStatus>, errors: &[String]) -> String {
+    match status {
+        _ if !errors.is_empty() => format!("exited: {}", errors.join(" ")),
+        Ok(status) => format!("exited ({status})"),
+        Err(error) => format!("exited: {error}"),
+    }
 }
 
 /// How the server wants positions and changes and what it offers, agreed on in
@@ -409,10 +439,15 @@ impl Client {
             .current_dir(root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .spawn()?;
         let stdin = child.stdin.take().expect("stdin is piped");
         let stdout = child.stdout.take().expect("stdout is piped");
+        let stderr = child.stderr.take().expect("stderr is piped");
+        // Drained all along, so that a talkative server never blocks on a full pipe.
+        let last_errors = thread::Builder::new()
+            .name(format!("{} errors", server.name))
+            .spawn(move || last_lines(stderr))?;
         let (outgoing, queued) = mpsc::channel();
         let (agreed, negotiated) = mpsc::channel();
         let inbox = SharedInbox::default();
@@ -448,11 +483,15 @@ impl Client {
             notifier: Arc::clone(&notifier),
             settled: Arc::clone(&settled),
         };
+        let (exit_inbox, exit_notifier) = (Arc::clone(&inbox), Arc::clone(&notifier));
         thread::Builder::new()
             .name(format!("{} reader", server.name))
             .spawn(move || {
                 reader.read_all(stdout);
-                let _ = child.wait();
+                let status = child.wait();
+                let errors = last_errors.join().unwrap_or_default();
+                lock(&exit_inbox).exit = Some(exit_reason(status, &errors));
+                exit_notifier();
             })?;
         Ok(Self {
             outgoing,
@@ -486,6 +525,11 @@ impl Client {
 
     pub fn take_published(&self, path: &Path) -> Option<Published> {
         lock(&self.inbox).published.remove(path)
+    }
+
+    /// Why the server exited, the first time it is asked after it has.
+    pub fn take_exit(&self) -> Option<String> {
+        lock(&self.inbox).exit.take()
     }
 
     pub fn take_answers(&self) -> Vec<Answer> {
@@ -1322,5 +1366,44 @@ impl Reader {
         };
         lock(&self.inbox).published.insert(path, published);
         (self.notifier)();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+
+    #[test]
+    fn a_server_that_exits_at_once_says_why() {
+        // Like TypeScript 5's tsc, which has no `--lsp`.
+        let server = LanguageServer {
+            name: "tsc",
+            command: "sh",
+            args: &[
+                "-c",
+                "echo \"error TS5023: Unknown compiler option '--lsp'.\" >&2; exit 1",
+            ],
+            languages: &[],
+            root_markers: &[],
+            initialization_options: None,
+            configuration: None,
+            pull_diagnostics: false,
+            reports_loading: false,
+            node_modules: false,
+            required_files: &[],
+        };
+        let (sender, exited) = mpsc::channel();
+        let notifier: Notifier = Arc::new(move || {
+            let _ = sender.send(());
+        });
+        let client = Client::start(&server, None, Path::new("/"), notifier).unwrap();
+        exited.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(
+            client.take_exit().as_deref(),
+            Some("exited: error TS5023: Unknown compiler option '--lsp'.")
+        );
+        assert_eq!(client.take_exit(), None);
     }
 }
