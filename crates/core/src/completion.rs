@@ -1,6 +1,13 @@
 use std::borrow::Cow;
+use std::cell::RefCell;
+use std::cmp::Reverse;
+use std::num::NonZero;
 use std::ops::Range;
 use std::rc::Rc;
+use std::thread;
+
+use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
+use nucleo_matcher::{Config, Matcher, Utf32Str};
 
 use crate::minibuffer::ListItem;
 use crate::outline::CommitChain;
@@ -193,38 +200,115 @@ impl Selection {
     }
 }
 
+/// A query matched the way fzf does: every space-separated term matches its characters in
+/// order, `'term` as written, `^term` at the start, `term$` at the end, and `!term` must
+/// not match. A term ignores case unless it has an uppercase letter.
+pub struct FuzzyQuery {
+    pattern: Pattern,
+    config: Config,
+}
+
+#[derive(Default)]
+struct Scratch {
+    matcher: Matcher,
+    chars: Vec<char>,
+    indices: Vec<u32>,
+}
+
+thread_local! {
+    /// A matcher allocates ~135 KB up front, so one is kept and reused.
+    static SCRATCH: RefCell<Scratch> = RefCell::default();
+}
+
+impl FuzzyQuery {
+    pub fn new(query: &str) -> Self {
+        Self::with_config(query, Config::DEFAULT)
+    }
+
+    /// Rewards matches right after a `/`, for queries over file paths.
+    pub fn for_paths(query: &str) -> Self {
+        Self::with_config(query, Config::DEFAULT.match_paths())
+    }
+
+    fn with_config(query: &str, config: Config) -> Self {
+        Self {
+            pattern: Pattern::parse(query, CaseMatching::Smart, Normalization::Smart),
+            config,
+        }
+    }
+
+    /// Everything matches an empty query, with the same score.
+    pub fn is_empty(&self) -> bool {
+        self.pattern.atoms.is_empty()
+    }
+
+    /// How well `text` matches, higher being better; none when it does not.
+    pub fn score(&self, text: &str) -> Option<u32> {
+        SCRATCH.with_borrow_mut(|Scratch { matcher, chars, .. }| {
+            matcher.config.clone_from(&self.config);
+            self.pattern.score(Utf32Str::new(text, chars), matcher)
+        })
+    }
+
+    /// The score, and the byte ranges of `text` that matched.
+    pub fn score_and_ranges(&self, text: &str) -> Option<(u32, Vec<Range<usize>>)> {
+        SCRATCH.with_borrow_mut(|scratch| {
+            let Scratch {
+                matcher,
+                chars,
+                indices,
+            } = scratch;
+            matcher.config.clone_from(&self.config);
+            indices.clear();
+            let score = self
+                .pattern
+                .indices(Utf32Str::new(text, chars), matcher, indices)?;
+            indices.sort_unstable();
+            indices.dedup();
+            Some((score, byte_ranges(text, indices)))
+        })
+    }
+}
+
+/// Byte ranges of the chars of `text` at the sorted `char_indices`.
+fn byte_ranges(text: &str, char_indices: &[u32]) -> Vec<Range<usize>> {
+    let mut wanted = char_indices.iter().peekable();
+    let ranges = text
+        .char_indices()
+        .zip(0u32..)
+        .filter_map(|((start, character), index)| {
+            wanted
+                .next_if_eq(&&index)
+                .map(|_| start..start + character.len_utf8())
+        })
+        .collect();
+    merge(ranges)
+}
+
 pub struct Match<T> {
     pub item: T,
     pub ranges: Vec<Range<usize>>,
-    /// Prefix matches first, then shorter labels.
-    rank: (bool, usize),
+    /// Higher scores first, then shorter labels.
+    rank: (Reverse<u32>, usize),
 }
 
-/// Items whose label contains every space-separated term of `query`, in source order.
-/// A term ignores ASCII case unless it has an uppercase letter.
+/// Items whose label matches `query` as [`FuzzyQuery`] does, in source order.
 pub fn filter<T>(
     query: &str,
     items: impl IntoIterator<Item = T>,
     label: impl Fn(&T) -> &str,
 ) -> Vec<Match<T>> {
-    let terms: Vec<&str> = query.split_whitespace().collect();
+    let query = FuzzyQuery::new(query);
     items
         .into_iter()
         .filter_map(|item| {
             let text = label(&item);
-            let mut ranges = Vec::with_capacity(terms.len());
-            for term in &terms {
-                let start = find(text, term)?;
-                ranges.push(start..start + term.len());
-            }
-            let rank = match ranges.first() {
-                Some(first) => (first.start != 0, text.len()),
-                None => (false, 0),
-            };
+            let (score, ranges) = query.score_and_ranges(text)?;
+            let length = if query.is_empty() { 0 } else { text.len() };
             Some(Match {
-                ranges: merge(ranges),
+                ranges,
                 item,
-                rank,
+                rank: (Reverse(score), length),
             })
         })
         .collect()
@@ -233,6 +317,45 @@ pub fn filter<T>(
 /// Orders matches best first; ties keep source order.
 pub fn rank<T>(matches: &mut [Match<T>]) {
     matches.sort_by_key(|matched| matched.rank);
+}
+
+/// Lists shorter than this are matched on the calling thread.
+const PARALLEL_MIN_ITEMS: usize = 8192;
+
+/// `matched` of each item and its index, keeping those that match in order; a long list
+/// is split across threads, so that a prompt over 100 000 paths keeps up with typing.
+pub fn filter_map_parallel<T: Sync, R: Send>(
+    items: &[T],
+    matched: impl Fn(usize, &T) -> Option<R> + Sync,
+) -> Vec<R> {
+    let threads = thread::available_parallelism().map_or(1, NonZero::get);
+    if items.len() < PARALLEL_MIN_ITEMS || threads == 1 {
+        return (0..)
+            .zip(items)
+            .filter_map(|(index, item)| matched(index, item))
+            .collect();
+    }
+    let chunk_size = items.len().div_ceil(threads);
+    let matched = &matched;
+    thread::scope(|scope| {
+        let workers: Vec<_> = items
+            .chunks(chunk_size)
+            .enumerate()
+            .map(|(chunk, items)| {
+                scope.spawn(move || {
+                    let first = chunk * chunk_size;
+                    (first..)
+                        .zip(items)
+                        .filter_map(|(index, item)| matched(index, item))
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .flat_map(|worker| worker.join().expect("matching does not panic"))
+            .collect()
+    })
 }
 
 /// Keeps the candidates whose label matches `query` and highlights the matches;
@@ -305,7 +428,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn matches_all_terms_with_smart_case_and_ranks_prefixes_first() {
+    fn matches_all_terms_with_smart_case_and_ranks_word_starts_first() {
         let names = [
             "desktop-save",
             "save-some-buffers",
@@ -330,6 +453,38 @@ mod tests {
         assert_eq!(matches.len(), 2);
         assert_eq!(matches[0].ranges, [0..4, 10..13]);
         assert!(filter("Save", names, |name| name).len() == 1);
+    }
+
+    #[test]
+    fn matches_characters_in_order_across_a_path_with_fzf_terms() {
+        let files = [
+            "plugins/files/src/find_file.rs",
+            "plugins/files/src/lib.rs",
+            "crates/core/src/find.rs",
+        ];
+        let paths = |query: &str| {
+            let query = FuzzyQuery::for_paths(query);
+            files
+                .iter()
+                .filter(|file| query.score(file).is_some())
+                .copied()
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(paths("plufifi"), ["plugins/files/src/find_file.rs"]);
+        assert_eq!(paths("find !core"), ["plugins/files/src/find_file.rs"]);
+        assert_eq!(paths("^crates"), ["crates/core/src/find.rs"]);
+        assert_eq!(paths("lib.rs$"), ["plugins/files/src/lib.rs"]);
+        assert_eq!(
+            paths("'src/f"),
+            ["plugins/files/src/find_file.rs", "crates/core/src/find.rs"]
+        );
+
+        let (_, ranges) = FuzzyQuery::new("fifi")
+            .score_and_ranges("find_file")
+            .unwrap();
+        assert_eq!(ranges, [0..2, 5..7]);
+        let (_, ranges) = FuzzyQuery::new("жx").score_and_ranges("ажbx").unwrap();
+        assert_eq!(ranges, [2..4, 5..6]);
     }
 
     #[test]

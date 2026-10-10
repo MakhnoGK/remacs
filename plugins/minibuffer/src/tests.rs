@@ -55,7 +55,7 @@ fn minibuffer_input_is_edited_like_a_buffer() {
     assert_eq!(editor.echo().as_deref(), Some("No match"));
     press(&mut editor, "DEL DEL C-a C-d");
     assert_eq!(editor.minibuffer().unwrap().input_text(), "ndo-");
-    press(&mut editor, "C-n TAB");
+    press(&mut editor, "TAB");
     assert_eq!(editor.minibuffer().unwrap().input_text(), "undo-redo");
     press(&mut editor, "C-g");
     assert!(editor.minibuffer().is_none());

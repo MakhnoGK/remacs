@@ -109,24 +109,31 @@ fn buffer_names(editor: &Editor) -> Vec<&str> {
 }
 
 #[test]
-fn find_file_matches_project_files_by_name() {
+fn find_file_matches_project_paths_fuzzily() {
     let project = Project::new("find-file");
     let mut editor = editor_visiting(&project.path("Cargo.toml"));
     open_find_file(&mut editor);
     type_text(&mut editor, "mark");
     assert_eq!(
         labels(&editor),
-        ["marks.md docs/", "marker.rs src/", "mark_ring.rs src/"]
+        ["docs/marks.md ", "src/marker.rs ", "src/mark_ring.rs "]
     );
     press(&mut editor, "C-n RET");
     assert_eq!(editor.window_buffer().name(), "marker.rs");
 
     press(&mut editor, "C-x C-f");
-    type_text(&mut editor, "src/mark");
+    type_text(&mut editor, "smaring");
+    assert_eq!(labels(&editor), ["src/mark_ring.rs "]);
+    assert_eq!(
+        editor.minibuffer().unwrap().candidates()[0].matches,
+        [0..1, 4..6, 9..13]
+    );
+
+    press(&mut editor, "C-a C-k");
+    type_text(&mut editor, ".rs$ ^src");
     let minibuffer = editor.minibuffer().unwrap();
     assert_eq!(minibuffer.total(), 2);
     assert_eq!(minibuffer.candidates()[0].tag, Some("open"));
-    assert_eq!(minibuffer.candidates()[0].matches.first(), Some(&(0..8)));
 }
 
 #[test]

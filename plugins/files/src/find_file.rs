@@ -1,3 +1,4 @@
+use std::cmp::Reverse;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -5,20 +6,23 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use remacs_core::{
-    Buffer, Candidate, CommandResult, Completions, Count, Editor, Icon, Prompt, filter, rank,
+    Buffer, Candidate, CommandResult, Completions, Count, Editor, FuzzyQuery, Icon, Prompt, filter,
+    filter_map_parallel, rank,
 };
 
 use crate::file_index::{FileIndex, FileIndexes};
-use crate::project::{
-    abbreviate_home, default_directory, expand_home, project_root, relative_directory, with_slash,
-};
+use crate::project::{abbreviate_home, default_directory, expand_home, project_root, with_slash};
 
 pub const FILE_CATEGORY: &str = "file";
 /// Matches turned into rows; the counter still reports all of them.
 const MAX_CANDIDATES: usize = 500;
 
-/// Opens a file of the current project, matched by name (or by path once the input has
-/// a `/`); input starting with `/` or `~` browses the file system instead.
+/// Best first: the higher score, then the file name matching too, as fzf's
+/// `--scheme=path` ranks, then the shorter path, then the index's order.
+type FileRank = (Reverse<u32>, bool, usize, usize);
+
+/// Opens a file of the current project, matched fzf-style over its whole relative path;
+/// input starting with `/` or `~` browses the file system instead.
 pub fn find_file(editor: &mut Editor) -> CommandResult {
     let root = project_root(&default_directory(editor));
     let index = project_files(editor, &root);
@@ -78,37 +82,34 @@ fn read_file_name(
 
 fn project_candidates(editor: &Editor, root: &Path, files: &[String], input: &str) -> Completions {
     let visited: HashSet<&Path> = editor.buffers().iter().filter_map(Buffer::path).collect();
-    let by_path = input.contains('/');
-    let mut matches = filter(input, files, |file| {
-        if by_path {
-            file.as_str()
-        } else {
-            file_name(file)
+    let query = FuzzyQuery::for_paths(input);
+    let mut matches = filter_map_parallel(files, |index, file| -> Option<FileRank> {
+        let score = query.score(file)?;
+        if query.is_empty() {
+            return Some((Reverse(0), false, 0, index));
         }
+        let name_missed = query.score(file_name(file)).is_none();
+        Some((Reverse(score), name_missed, file.len(), index))
     });
-    rank(&mut matches);
     let total = matches.len();
+    if total > MAX_CANDIDATES {
+        matches.select_nth_unstable(MAX_CANDIDATES);
+        matches.truncate(MAX_CANDIDATES);
+    }
+    matches.sort_unstable();
     let candidates = matches
         .into_iter()
-        .take(MAX_CANDIDATES)
-        .map(|matched| {
-            let path = root.join(matched.item);
-            let (label, annotation) = if by_path {
-                (matched.item.clone(), String::new())
-            } else {
-                let directory = path.parent().unwrap_or(root);
-                (
-                    file_name(matched.item).to_owned(),
-                    relative_directory(root, directory),
-                )
-            };
+        .map(|(.., index)| {
+            let file = &files[index];
+            let path = root.join(file);
             Candidate {
-                label,
-                matches: matched.ranges,
-                annotation,
+                matches: query
+                    .score_and_ranges(file)
+                    .map(|(_, ranges)| ranges)
+                    .unwrap_or_default(),
                 icon: Some(Icon::File),
                 tag: visited.contains(path.as_path()).then_some("open"),
-                ..Candidate::new(matched.item.as_str())
+                ..Candidate::new(file.clone())
             }
         })
         .collect();
