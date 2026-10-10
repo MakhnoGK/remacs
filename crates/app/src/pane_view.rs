@@ -1,31 +1,91 @@
-//! A plugin's pane under the text, e.g. a debugger's frames, variables and watches: a
-//! toolbar, then columns of rows.
+//! The pane under the text, e.g. a debugger's frames, variables and watches, or a
+//! terminal: a toolbar with the switch between panes, then columns of rows or a screen.
 
-use gpui::{Context, Div, FontWeight, ParentElement, Styled, div, prelude::*, px, rgb, rgba};
-use remacs_core::{Pane, PaneButton, PaneColumn, PaneRow, Tone};
+use std::rc::Rc;
+
+use gpui::{
+    AnyElement, Bounds, Context, Div, FontWeight, ParentElement, Pixels, Size, Styled, div, point,
+    prelude::*, px, rgb, rgba, size,
+};
+use remacs_core::{Editor, Pane, PaneBody, PaneButton, PaneColumn, PaneRow, Tone};
 use remacs_theme::{color, font, glass};
 
 use crate::editor_view::EditorView;
 use crate::table_view::clickable;
-use crate::widgets::{kbd, key_caps, tone_color};
+use crate::tabs_view::render_tabs;
+use crate::widgets::{kbd, key_caps, segment, segmented, tone_color};
 
 /// Where the pane's bottom is over the window's, clear of the status pill.
 pub const PANE_BOTTOM: f32 = 56.0;
 /// Between the text and the pane.
 pub const PANE_GAP: f32 = 8.0;
+const PANE_SIDE: f32 = 16.0;
 const TOOLBAR_HEIGHT: f32 = 44.0;
 const COLUMN_HEADER_HEIGHT: f32 = 30.0;
 const ROW_HEIGHT: f32 = 22.0;
 const INDENT: f32 = 14.0;
+/// Around a screen in the pane, inside its border.
+const SCREEN_SIDE: f32 = 14.0;
+const SCREEN_TOP: f32 = 4.0;
+const SCREEN_BOTTOM: f32 = 8.0;
+/// Of the buttons, state and subtitle on the toolbar's right, for the chips' room.
+const TOOLBAR_RIGHT: f32 = 520.0;
+const SWITCH_WIDTH: f32 = 170.0;
 
-pub fn render_pane(pane: Pane, cx: &mut Context<EditorView>) -> Div {
+/// What the pane's frame shows besides the pane itself.
+pub struct PaneChrome {
+    /// The panes to switch between and their counts, empty when there is one.
+    pub switch: Vec<(&'static str, Option<usize>)>,
+    pub shown: &'static str,
+    /// The pane has the keys.
+    pub focused: bool,
+    pub window_width: Pixels,
+}
+
+/// Where a screen in a pane `height` tall is drawn in a window of `window`.
+pub fn screen_bounds(window: Size<Pixels>, height: f32) -> Bounds<Pixels> {
+    let top =
+        window.height - px(PANE_BOTTOM + height) + px(1.0 + TOOLBAR_HEIGHT + 1.0 + SCREEN_TOP);
+    let left = px(PANE_SIDE + 1.0 + SCREEN_SIDE);
+    Bounds {
+        origin: point(left, top),
+        size: size(
+            window.width - left * 2.0,
+            px(height - 2.0 - TOOLBAR_HEIGHT - 1.0 - SCREEN_TOP - SCREEN_BOTTOM),
+        ),
+    }
+}
+
+/// `screen` is the screen of a pane whose body is one, drawn by the caller.
+pub fn render_pane(
+    pane: Pane,
+    chrome: PaneChrome,
+    screen: Option<AnyElement>,
+    cx: &mut Context<EditorView>,
+) -> Div {
     let rows_fit = ((pane.height - TOOLBAR_HEIGHT - COLUMN_HEADER_HEIGHT) / ROW_HEIGHT)
         .floor()
         .max(1.0) as usize;
+    let focused = chrome.focused;
+    let toolbar = render_toolbar(&pane, &chrome, cx);
+    let body = match pane.body {
+        PaneBody::Columns(columns) => div().flex().flex_1().min_h_0().children(
+            columns
+                .into_iter()
+                .map(|column| render_column(column, rows_fit, cx)),
+        ),
+        PaneBody::Screen(_) => div()
+            .flex_1()
+            .min_h_0()
+            .pt(px(SCREEN_TOP))
+            .px(px(SCREEN_SIDE))
+            .pb(px(SCREEN_BOTTOM))
+            .children(screen),
+    };
     div()
         .absolute()
-        .left(px(16.0))
-        .right(px(16.0))
+        .left(px(PANE_SIDE))
+        .right(px(PANE_SIDE))
         .bottom(px(PANE_BOTTOM))
         .h(px(pane.height))
         .flex()
@@ -33,79 +93,127 @@ pub fn render_pane(pane: Pane, cx: &mut Context<EditorView>) -> Div {
         .rounded(px(12.0))
         .bg(rgba(0xffffff0a))
         .border_1()
-        .border_color(rgba(0xffffff1f))
+        .border_color(rgba(if focused {
+            color::ACCENT << 8 | 0x80
+        } else {
+            0xffffff1f
+        }))
+        .when(focused, |pane| {
+            pane.shadow(vec![gpui::BoxShadow {
+                color: rgba(color::ACCENT << 8 | 0x14).into(),
+                offset: point(px(0.0), px(0.0)),
+                blur_radius: px(0.0),
+                spread_radius: px(3.0),
+            }])
+        })
         .overflow_hidden()
         .font_family(font::UI)
         .text_size(px(font::STATUS_SIZE))
-        .child(render_toolbar(
-            pane.title,
-            pane.subtitle,
-            pane.state,
-            pane.buttons,
-            cx,
-        ))
-        .child(
-            div().flex().flex_1().min_h_0().children(
-                pane.columns
-                    .into_iter()
-                    .map(|column| render_column(column, rows_fit, cx)),
-            ),
-        )
+        .child(toolbar)
+        .child(body)
 }
 
-fn render_toolbar(
-    title: String,
-    subtitle: String,
-    (state, tone): (String, Tone),
-    buttons: Vec<PaneButton>,
-    cx: &mut Context<EditorView>,
-) -> Div {
-    let state_color = tone_color(tone, color::FG_DIM);
-    div()
+/// The switch, then a terminal's chips and on the right where it is and how it goes,
+/// or a debugger's title and state; the buttons last.
+fn render_toolbar(pane: &Pane, chrome: &PaneChrome, cx: &mut Context<EditorView>) -> Div {
+    let switch = (!chrome.switch.is_empty()).then(|| render_switch(chrome, cx));
+    let state = render_state(pane.state.clone());
+    let subtitle = div()
+        .font_family(font::mono())
+        .text_color(rgb(color::FG_DIM))
+        .child(pane.subtitle.clone());
+    let toolbar = div()
         .flex()
         .flex_none()
         .items_center()
         .gap(px(6.0))
         .h(px(TOOLBAR_HEIGHT))
-        .pl(px(14.0))
+        .pl(px(10.0))
         .pr(px(10.0))
         .border_b_1()
         .border_color(rgba(0xffffff12))
         .whitespace_nowrap()
-        .child(
-            div()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_size(px(font::UI_SIZE))
-                .text_color(rgb(color::FG_MAIN))
-                .child(title),
-        )
-        .child(
-            div()
-                .font_family(font::mono())
-                .text_color(rgb(color::FG_DIM))
-                .child(subtitle),
-        )
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(6.0))
-                .h(px(20.0))
-                .px(px(8.0))
-                .ml(px(4.0))
-                .rounded(px(6.0))
-                .bg(rgba((state_color << 8) | 0x29))
-                .font_family(font::mono())
-                .text_size(px(font::SMALL_SIZE))
-                .text_color(rgb(state_color))
-                .child(div().size(px(7.0)).rounded_full().bg(rgb(state_color)))
-                .child(state),
-        )
-        .child(div().flex_1())
-        .children(buttons.into_iter().map(|button| render_button(button, cx)))
+        .children(switch.map(|switch| switch.mr(px(4.0))));
+    let toolbar = match pane.tabs.as_ref() {
+        Some(tabs) => {
+            let switch = if chrome.switch.is_empty() {
+                0.0
+            } else {
+                SWITCH_WIDTH
+            };
+            let room = f32::from(chrome.window_width) - 2.0 * PANE_SIDE - switch - TOOLBAR_RIGHT;
+            toolbar
+                .child(render_tabs(tabs.clone(), room, cx))
+                .child(div().flex_1())
+                .child(subtitle)
+                .child(state)
+                .child(separator())
+        }
+        None => toolbar
+            .when(chrome.switch.is_empty(), |toolbar| toolbar.pl(px(14.0)))
+            .child(
+                div()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_size(px(font::UI_SIZE))
+                    .text_color(rgb(color::FG_MAIN))
+                    .child(pane.title.clone()),
+            )
+            .child(subtitle)
+            .child(state)
+            .child(div().flex_1()),
+    };
+    toolbar.children(
+        pane.buttons
+            .iter()
+            .map(|button| render_button(button.clone(), cx)),
+    )
 }
 
-fn render_button(button: PaneButton, cx: &mut Context<EditorView>) -> Div {
+fn render_switch(chrome: &PaneChrome, cx: &mut Context<EditorView>) -> Div {
+    segmented().children(chrome.switch.iter().map(|&(name, count)| {
+        let label = match count {
+            Some(count) if name != chrome.shown => format!("{name} {count}"),
+            _ => name.to_owned(),
+        };
+        let action: remacs_core::Action = Rc::new(move |editor: &mut Editor| {
+            editor.select_pane(name);
+            Ok(())
+        });
+        clickable(
+            segment(&label, name == chrome.shown).cursor_pointer(),
+            action,
+            cx,
+        )
+    }))
+}
+
+fn render_state((state, tone): (String, Tone)) -> Div {
+    let state_color = tone_color(tone, color::FG_DIM);
+    div()
+        .flex()
+        .items_center()
+        .gap(px(6.0))
+        .h(px(20.0))
+        .px(px(8.0))
+        .ml(px(4.0))
+        .rounded(px(6.0))
+        .bg(rgba((state_color << 8) | 0x29))
+        .font_family(font::mono())
+        .text_size(px(font::SMALL_SIZE))
+        .text_color(rgb(state_color))
+        .child(div().size(px(7.0)).rounded_full().bg(rgb(state_color)))
+        .child(state)
+}
+
+fn separator() -> Div {
+    div()
+        .w(px(1.0))
+        .h(px(18.0))
+        .mx(px(4.0))
+        .bg(rgba(0xffffff1a))
+}
+
+pub fn render_button(button: PaneButton, cx: &mut Context<EditorView>) -> Div {
     let element = div()
         .flex()
         .items_center()

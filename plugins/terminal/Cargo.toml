@@ -1,0 +1,24 @@
+[package]
+name = "remacs-terminal"
+description = "Built-in plugin: terminals running a shell, in a buffer or in the pane under the text"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+alacritty_terminal.workspace = true
+libc.workspace = true
+remacs-config.workspace = true
+remacs-core.workspace = true
+remacs-files.workspace = true
+remacs-text.workspace = true
+remacs-theme.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+remacs-editing.workspace = true
+remacs-minibuffer.workspace = true
+
+[lints]
+workspace = true

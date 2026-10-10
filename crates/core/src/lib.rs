@@ -20,6 +20,7 @@ mod outline;
 mod pane;
 mod plugin;
 mod popup;
+mod screen;
 mod status;
 mod syntax;
 mod table;
@@ -53,10 +54,17 @@ pub use outline::{
     ConflictSide, ConflictView, DiffRow, Fact, FactValue, GraphEdge, GraphNode, GraphRow, History,
     Outline, OutlineProvider, OutlineRow, RefChip, RefKind, Scroll, ToolbarButton,
 };
-pub use pane::{Pane, PaneButton, PaneColumn, PaneProvider, PaneRow};
+pub use pane::{
+    Pane, PaneBody, PaneButton, PaneColumn, PaneProvider, PaneRow, PaneSource, Tab, TabState, Tabs,
+};
 pub use plugin::{Hook, MinorKeymap, Plugin, Registry};
 pub use popup::{Code, CodeHighlighter, DocBlock, Documentation, Note, Popup, PopupProvider};
 pub use remacs_config::{Section, Settings};
+pub use screen::{
+    CellFace, CellHighlight, CellRun, CursorShape, KeySink, RowMark, Screen, ScreenBanner,
+    ScreenCursor, ScreenMode, ScreenMouse, ScreenNotice, ScreenProvider, ScreenRow, ScreenSearch,
+    ScreenSize, ScreenSource,
+};
 pub use status::{StatusItem, StatusProvider, StatusSegment, Tone};
 pub use syntax::{SyntaxContext, SyntaxProbe};
 pub use table::{

@@ -10,7 +10,7 @@ mod saving;
 
 use std::rc::Rc;
 
-use remacs_core::{Command, Editor, Plugin, Registry};
+use remacs_core::{Command, CommandResult, Editor, Plugin, Registry};
 
 use crate::file_index::FileIndexes;
 use crate::ignored::FilesSettings;
@@ -27,6 +27,7 @@ const COMMANDS: &[Command] = &[
     Command::new("find-file", "Visit a file of the project, or any file by path", find_file::find_file),
     Command::new("switch-to-buffer", "Show another buffer in the window", buffers::switch_to_buffer),
     Command::new("kill-buffer", "Kill a buffer, asking first if it is modified", buffers::kill_buffer),
+    Command::new("other-window", "Move the keys between the window buffer and the pane under it", other_window),
     Command::new("save-buffer", "Save current buffer in its visited file", saving::save_buffer),
     Command::new("write-file", "Write current buffer into a new file and visit it", saving::write_file),
     Command::new("save-some-buffers", "Offer to save each modified buffer", saving::save_some_buffers),
@@ -38,6 +39,7 @@ const BINDINGS: &[(&str, &str)] = &[
     ("s-o", "find-file"),
     ("C-x b", "switch-to-buffer"),
     ("C-x k", "kill-buffer"),
+    ("C-x o", "other-window"),
     ("C-x C-s", "save-buffer"),
     ("s-s", "save-buffer"),
     ("C-x C-w", "write-file"),
@@ -57,6 +59,13 @@ impl Plugin for FilesPlugin {
         }
         registry.settings_hooks.push(Rc::new(read_settings));
     }
+}
+
+fn other_window(editor: &mut Editor) -> CommandResult {
+    editor.shown_pane().ok_or("No pane is shown")?;
+    let focused = editor.pane_focused();
+    editor.focus_pane(!focused);
+    Ok(())
 }
 
 /// Indexes scan again once `files.toml` changes what they leave out.

@@ -7,8 +7,9 @@ use crate::gutter::{GutterProvider, LineExtraProvider, TextControlsProvider};
 use crate::keymap::Keymap;
 use crate::mode::Modes;
 use crate::outline::OutlineProvider;
-use crate::pane::PaneProvider;
+use crate::pane::PaneSource;
 use crate::popup::{CodeHighlighter, PopupProvider};
+use crate::screen::{KeySink, ScreenProvider};
 use crate::status::StatusProvider;
 use crate::syntax::SyntaxProbe;
 use crate::table::TableProvider;
@@ -62,8 +63,12 @@ pub struct Registry {
     pub gutter_click: Option<&'static str>,
     /// Bands behind lines of buffers drawn as text, and notes after them.
     pub line_extras: Vec<LineExtraProvider>,
-    /// Panels under the window buffer; the first that has one shows it.
-    pub panes: Vec<PaneProvider>,
+    /// Panels under the window buffer, sharing one slot.
+    pub panes: Vec<PaneSource>,
+    /// Draw buffers as screens; the first that knows the buffer does.
+    pub screens: Vec<ScreenProvider>,
+    /// Take keys before the keymaps, in order, while no prefix or prompt is pending.
+    pub key_sinks: Vec<KeySink>,
     /// Controls of buffers drawn as text; the first that knows the buffer has them.
     pub text_controls: Vec<TextControlsProvider>,
     /// For each file, the first that controls it.

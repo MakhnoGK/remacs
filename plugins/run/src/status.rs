@@ -104,5 +104,6 @@ pub fn controls(editor: &Editor) -> Option<TextControls> {
             },
         ],
         hints: CONSOLE_HINTS,
+        ..TextControls::default()
     })
 }

@@ -622,6 +622,8 @@ fn stopped(editor: &mut Editor, address: Address, body: &Value) {
         debugger.view.previous = shown;
     }
     debugger.current = Some(address);
+    // A stop takes the pane slot from whatever had it, e.g. a terminal.
+    editor.select_pane(crate::pane::NAME);
     let arguments = json!({ "threadId": thread, "startFrame": 0, "levels": 64 });
     request(
         editor,

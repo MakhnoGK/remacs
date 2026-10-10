@@ -32,9 +32,11 @@ remacs-rename = { path = "plugins/rename" }
 remacs-run = { path = "plugins/run" }
 remacs-search = { path = "plugins/search" }
 remacs-syntax = { path = "plugins/syntax" }
+remacs-terminal = { path = "plugins/terminal" }
 remacs-tools = { path = "plugins/tools" }
 remacs-xref = { path = "plugins/xref" }
 
+alacritty_terminal = { version = "0.26", default-features = false }
 # Without `font-kit` gpui falls back to a no-op text system on macOS.
 futures = "0.3"
 gpui = { version = "0.2.2", default-features = false, features = ["font-kit"] }

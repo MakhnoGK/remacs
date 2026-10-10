@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use remacs_core::{BreakpointIcon, Editor, GutterIcon, Mode, Plugin, Registry, parse_sequence};
+use remacs_core::{
+    BreakpointIcon, Editor, GutterIcon, Mode, Pane, PaneBody, Plugin, Registry, parse_sequence,
+};
 use remacs_editing::EditingPlugin;
 use remacs_minibuffer::MinibufferPlugin;
 use remacs_run::{Cargo, Configuration, Kind, Launch, RunPlugin, keep_configurations_in};
@@ -344,10 +346,14 @@ fn status(editor: &Editor) -> String {
 
 /// The rows of the pane's `column`, as `name = value`, or the name alone.
 fn pane_rows(editor: &Editor, column: usize) -> Vec<String> {
-    let Some(pane) = editor.pane() else {
+    let Some(Pane {
+        body: PaneBody::Columns(columns),
+        ..
+    }) = editor.pane()
+    else {
         return Vec::new();
     };
-    pane.columns[column]
+    columns[column]
         .rows
         .iter()
         .map(|row| match &row.value {

@@ -8,8 +8,9 @@ use serde_json::{Value, json};
 
 use crate::session::{Address, Link, debugger, find_link, request, show_frame};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Column {
+    #[default]
     Frames,
     Variables,
     Watches,
@@ -26,8 +27,8 @@ impl Column {
 /// How the paused program is looked at, kept from one stop to the next.
 #[derive(Default)]
 pub struct View {
-    /// The column that has the keys; none while the text has them.
-    pub focus: Option<Column>,
+    /// The column that has the keys while the pane has them.
+    pub focus: Column,
     /// The selected row of each column.
     pub selected: [usize; 3],
     /// Paths of the variables, scopes and watches open, e.g. `Local/self/items`.

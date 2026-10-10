@@ -6,8 +6,8 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use remacs_core::{
-    Command, CommandResult, Completions, Editor, LineExtra, Pane, PaneButton, PaneColumn, PaneRow,
-    Prompt, Tone,
+    Command, CommandResult, Completions, Editor, LineExtra, Pane, PaneBody, PaneButton, PaneColumn,
+    PaneRow, Prompt, Tone,
 };
 
 use crate::edit::location;
@@ -20,7 +20,6 @@ use crate::session::{Address, Debugger, Link, Session, debugger, find_link};
 pub const FOCUS_FRAMES: &str = "debug-focus-frames";
 pub const FOCUS_VARIABLES: &str = "debug-focus-variables";
 pub const FOCUS_WATCHES: &str = "debug-focus-watches";
-pub const OTHER_WINDOW: &str = "debug-other-window";
 pub const ADD_WATCH: &str = "debug-add-watch";
 const NEXT: &str = "debug-pane-next";
 const PREVIOUS: &str = "debug-pane-previous";
@@ -30,12 +29,14 @@ const EDIT: &str = "debug-pane-edit";
 const DELETE: &str = "debug-pane-delete";
 const LEAVE: &str = "debug-pane-leave";
 
+/// In the switch between panes.
+pub const NAME: &str = "Debug";
+
 #[rustfmt::skip]
 pub const COMMANDS: &[Command] = &[
     Command::new(FOCUS_FRAMES, "Move the keys to the debug pane's threads and frames", focus_frames),
     Command::new(FOCUS_VARIABLES, "Move the keys to the debug pane's variables", focus_variables),
     Command::new(FOCUS_WATCHES, "Move the keys to the debug pane's watches", focus_watches),
-    Command::new(OTHER_WINDOW, "Move the keys between the text and the debug pane", other_window),
     Command::new(ADD_WATCH, "Watch an expression, evaluated at every stop", add_watch),
     Command::new(NEXT, "Select the next row of the debug pane", next),
     Command::new(PREVIOUS, "Select the previous row of the debug pane", previous),
@@ -120,6 +121,10 @@ pub fn shown(editor: &Editor) -> Option<(&Session, Address)> {
     Some((session, address))
 }
 
+pub fn is_shown(editor: &Editor) -> bool {
+    shown(editor).is_some()
+}
+
 fn shown_link(editor: &Editor) -> Option<(&Session, &Link, Address)> {
     let (session, address) = shown(editor)?;
     Some((session, session.link(address.link)?, address))
@@ -158,7 +163,7 @@ pub fn pane(editor: &Editor) -> Option<Pane> {
         .iter()
         .map(|&column| {
             let rows = rows(column, link, view);
-            let focused = view.focus == Some(column);
+            let focused = has_keys(editor) && view.focus == column;
             let selected = view.selected[column.index()].min(rows.len().saturating_sub(1));
             let (title, keys, width, empty, hints) = match column {
                 Column::Frames => (
@@ -201,12 +206,14 @@ pub fn pane(editor: &Editor) -> Option<Pane> {
         .collect();
     let subtitle = session.adapter().to_owned();
     Some(Pane {
+        count: None,
         height: debugger.settings.pane_height,
         title: session.name.clone(),
         subtitle,
         state,
+        tabs: None,
         buttons,
-        columns,
+        body: PaneBody::Columns(columns),
         hints: if paused { PAUSED_HINTS } else { RUNNING_HINTS },
     })
 }
@@ -379,22 +386,27 @@ fn watch_rows(link: &Link, view: &View) -> Vec<(PaneRow, Target)> {
 fn selected_target(editor: &Editor) -> Option<(Column, Target, Address)> {
     let (_, link, address) = shown_link(editor)?;
     let view = &editor.find_plugin_state::<Debugger>()?.view;
-    let column = view.focus?;
+    let column = has_keys(editor).then_some(view.focus)?;
     let rows = rows(column, link, view);
     let index = view.selected[column.index()].min(rows.len().checked_sub(1)?);
     Some((column, rows.into_iter().nth(index)?.1, address))
 }
 
 fn select(editor: &mut Editor, column: Column, index: usize) {
-    let view = &mut debugger(editor).view;
-    view.focus = Some(column);
-    view.selected[column.index()] = index;
+    debugger(editor).view.selected[column.index()] = index;
+    give_keys(editor, column);
 }
 
 fn focus(editor: &mut Editor, column: Column) -> CommandResult {
     shown(editor).ok_or("Nothing is being debugged")?;
-    debugger(editor).view.focus = Some(column);
+    give_keys(editor, column);
     Ok(())
+}
+
+fn give_keys(editor: &mut Editor, column: Column) {
+    debugger(editor).view.focus = column;
+    editor.select_pane(NAME);
+    editor.focus_pane(true);
 }
 
 fn focus_frames(editor: &mut Editor) -> CommandResult {
@@ -409,25 +421,14 @@ fn focus_watches(editor: &mut Editor) -> CommandResult {
     focus(editor, Column::Watches)
 }
 
-fn other_window(editor: &mut Editor) -> CommandResult {
-    if debugger(editor).view.focus.take().is_some() {
-        return Ok(());
-    }
-    focus(editor, Column::Frames)
-}
-
 fn leave(editor: &mut Editor) -> CommandResult {
-    debugger(editor).view.focus = None;
+    editor.focus_pane(false);
     Ok(())
 }
 
-/// The pane is shown and one of its columns has the keys, unless a prompt has them.
+/// The pane is shown and has the keys, unless a prompt has them.
 pub fn has_keys(editor: &Editor) -> bool {
-    editor.minibuffer().is_none()
-        && editor
-            .find_plugin_state::<Debugger>()
-            .is_some_and(|debugger| debugger.view.focus.is_some())
-        && shown(editor).is_some()
+    editor.pane_has_keys(NAME)
 }
 
 fn step(editor: &mut Editor, forward: bool) -> CommandResult {
@@ -436,7 +437,7 @@ fn step(editor: &mut Editor, forward: bool) -> CommandResult {
         .find_plugin_state::<Debugger>()
         .ok_or("No pane")?
         .view;
-    let column = view.focus.ok_or("No column has the keys")?;
+    let column = view.focus;
     let count = rows(column, link, view).len();
     let selected = &mut debugger(editor).view.selected[column.index()];
     *selected = if forward {

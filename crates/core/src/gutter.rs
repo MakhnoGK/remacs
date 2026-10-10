@@ -3,6 +3,7 @@ use std::rc::Rc;
 
 use crate::editor::Editor;
 use crate::outline::ToolbarButton;
+use crate::pane::{PaneButton, Tabs};
 use crate::status::Tone;
 
 /// Marks of one line are drawn in this order, the later over the earlier.
@@ -54,11 +55,15 @@ pub struct LineExtra {
 /// Extras of `lines` of the window buffer, all plugins' together.
 pub type LineExtraProvider = Rc<dyn Fn(&Editor, Range<usize>) -> Vec<LineExtra>>;
 
-/// Controls of a buffer drawn as text, like an Emacs header line: buttons in the title
-/// bar and keys under the text, e.g. a process's Stop and Rerun.
+/// Controls of a buffer drawn as text or as a screen, like an Emacs header line: buttons
+/// in the title bar and keys under the text, e.g. a process's Stop and Rerun.
 #[derive(Default)]
 pub struct TextControls {
     pub toolbar: Vec<ToolbarButton>,
+    /// Labelled with their keys, after the toolbar.
+    pub buttons: Vec<PaneButton>,
+    /// On the left of the title bar, e.g. one per terminal.
+    pub tabs: Option<Tabs>,
     pub hints: &'static [(&'static str, &'static str)],
 }
 

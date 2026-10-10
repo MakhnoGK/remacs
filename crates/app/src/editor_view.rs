@@ -7,17 +7,17 @@ use std::time::Instant;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
-    AnyElement, App, ClipboardItem, Context, DispatchPhase, Div, FocusHandle, IntoElement,
+    AnyElement, App, Bounds, ClipboardItem, Context, DispatchPhase, Div, FocusHandle, IntoElement,
     KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels,
-    Point, Render, ScrollDelta, ScrollHandle, ScrollWheelEvent, StyledText, Subscription, Task,
-    Window, canvas, div, font, prelude::*, px, rgb, rgba, svg,
+    Point, Render, ScrollDelta, ScrollHandle, ScrollWheelEvent, Size, StyledText, Subscription,
+    Task, Window, canvas, div, font, point, prelude::*, px, rgb, rgba, size, svg,
 };
 
 use crate::assets::{EXECUTION_POINT_ICON, LOGPOINT_ICON};
 use remacs_core::{
     Action, BreakpointIcon, ChangedLines, Code, DocBlock, Editor, GutterIcon, GutterMark, Icon,
-    LineChange, LineExtra, MouseSelection, Outline, Popup, Preview, PreviewBody, Scroll,
-    StatusSegment,
+    LineChange, LineExtra, MouseSelection, Outline, PaneBody, PaneButton, Popup, Preview,
+    PreviewBody, ScreenMouse, Scroll, StatusSegment, Tabs,
 };
 use remacs_theme::font::CodeFont;
 use remacs_theme::{color, font, glass};
@@ -32,14 +32,18 @@ use crate::outline_view::{
     COMMIT_HEIGHT, OutlineScrolled, fits_history, fitting_commits, fitting_rows, max_outline_lines,
     render_outline, render_toolbar, row_height,
 };
-use crate::pane_view::{PANE_BOTTOM, PANE_GAP, render_pane};
+use crate::pane_view::{
+    PANE_BOTTOM, PANE_GAP, PaneChrome, render_button, render_pane, screen_bounds,
+};
 use crate::popup_view::{DocumentationScroll, DocumentationView, Placement, render_popup};
 use crate::preview_view::render_preview;
+use crate::screen_view::{Cell as ScreenCell, cell_at, render_screen, screen_size};
 use crate::settings::{CursorHeight, MouseSettings, ReadSettings, ScrollSettings, report};
 use crate::smooth_scroll::SmoothScroll;
 use crate::table_view::{
     LIST_BOTTOM, ROW_PITCH, ROWS_TOP, TableCursor, fits_preview, render_hints, render_table,
 };
+use crate::tabs_view::render_tabs;
 use crate::widgets::{
     Edge, SCROLL_FADE_SIZE, Scrolled, code_font_features, cursor_text_style, edge_fade, hsla, icon,
     modified_dot, pill, pill_separator, tone_color,
@@ -48,6 +52,11 @@ use crate::widgets::{
 /// Minified files can hold megabytes on one line; lay out only what can be on screen.
 const MAX_RENDERED_LINE_BYTES: usize = 2048;
 const TITLE_BAR_HEIGHT: f32 = 44.0;
+/// Around the window buffer's screen: its sides, and under it, over the hints and pill.
+const SCREEN_SIDE: f32 = 24.0;
+const SCREEN_BOTTOM: f32 = 64.0;
+/// Where chips in the title bar start, after the window's buttons.
+const HEADER_TABS_LEFT: f32 = 92.0;
 /// Over the status pill; point stays above it.
 const FOOTER_FADE_HEIGHT: f32 = 56.0;
 const TEXT_TOP: f32 = 64.0;
@@ -113,7 +122,39 @@ pub struct EditorView {
     showing_rows: bool,
     /// The refresh plugins asked for after a delay, and when it is due.
     refresh_timer: Option<(Instant, Task<()>)>,
+    /// The window buffer was last drawn as a screen.
+    showing_screen: bool,
+    /// Whether each screen was last drawn with room for marks, by buffer, so it is sized
+    /// for it before it is asked for.
+    screen_gutters: HashMap<String, bool>,
+    /// The screen the mouse was pressed on, while it is held.
+    screen_press: Option<ScreenArea>,
+    /// Rows a screen was scrolled by the wheel, short of a whole one.
+    screen_scroll: f32,
+    /// The row of a screen whose command mark the mouse is over.
+    hovered_mark: Option<usize>,
     _activation: Subscription,
+}
+
+/// Where a screen's cells are drawn, to map the mouse to them.
+#[derive(Clone)]
+struct ScreenArea {
+    buffer: String,
+    origin: Point<Pixels>,
+    cell: ScreenCell,
+    gutter: bool,
+}
+
+/// Where the window buffer's screen is drawn, clear of the title bar and the pill.
+fn full_screen_bounds(window: Size<Pixels>) -> Bounds<Pixels> {
+    let origin = point(px(SCREEN_SIDE), px(TITLE_BAR_HEIGHT));
+    Bounds {
+        origin,
+        size: size(
+            window.width - px(2.0 * SCREEN_SIDE),
+            window.height - origin.y - px(SCREEN_BOTTOM),
+        ),
+    }
 }
 
 /// Measured from the code font.
@@ -181,6 +222,11 @@ impl EditorView {
             code_faces: HashMap::new(),
             showing_rows: false,
             refresh_timer: None,
+            showing_screen: false,
+            screen_gutters: HashMap::new(),
+            screen_press: None,
+            screen_scroll: 0.0,
+            hovered_mark: None,
             _activation: activation,
         };
         view.receive_clipboard(cx);
@@ -256,6 +302,10 @@ impl EditorView {
 
     fn refresh(&mut self, cx: &mut Context<Self>) {
         self.editor.refresh();
+        // A program may have copied, e.g. a terminal's through OSC 52.
+        if let Some(copied) = self.editor.kill_ring.take_export() {
+            cx.write_to_clipboard(ClipboardItem::new_string(copied));
+        }
         self.schedule_refresh(cx);
         cx.notify();
     }
@@ -418,6 +468,10 @@ impl EditorView {
             self.release_mouse();
             return;
         }
+        if self.screen_press.is_some() {
+            self.drag_screen(event.position, cx);
+            return;
+        }
         self.drag_position = event.position;
         if self.drag_selection() != 0 && self.drag_scroll.is_none() {
             let interval = self.mouse.drag_scroll_interval();
@@ -437,6 +491,10 @@ impl EditorView {
     fn release_mouse(&mut self) {
         self.mouse_selection = None;
         self.drag_scroll = None;
+        if let Some(area) = self.screen_press.take() {
+            self.editor
+                .screen_mouse(&area.buffer, 0, 0, ScreenMouse::Release);
+        }
     }
 
     /// Scrolls a line toward the mouse held past the text's top or bottom, extending the
@@ -494,9 +552,149 @@ impl EditorView {
         text.offset_at_char_column(line, column)
     }
 
+    /// The buffer named `name` drawn as a screen in `bounds`, taking the mouse over it.
+    fn render_screen_in(
+        &mut self,
+        name: &str,
+        bounds: Bounds<Pixels>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let metrics = self.metrics(window);
+        let cell = ScreenCell {
+            width: metrics.char_width,
+            height: px(font::code().line_height),
+            glyph: metrics.glyph_height,
+        };
+        let mut gutter = self.screen_gutters.get(name).copied().unwrap_or(false);
+        let fit = |gutter| screen_size(bounds.size.width, bounds.size.height, cell, gutter);
+        let mut screen = self.editor.screen(name, fit(gutter))?;
+        if screen.gutter != gutter {
+            gutter = screen.gutter;
+            self.screen_gutters.insert(name.to_owned(), gutter);
+            screen = self.editor.screen(name, fit(gutter))?;
+        }
+        let fade = if screen.above {
+            f32::from(cell.height)
+        } else {
+            0.0
+        };
+        let area = ScreenArea {
+            buffer: name.to_owned(),
+            origin: bounds.origin,
+            cell,
+            gutter,
+        };
+        let scrolled = name.to_owned();
+        let element = render_screen(screen, cell, fade, self.hovered_mark, cx)
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |view, event: &MouseDownEvent, window, cx| {
+                    cx.stop_propagation();
+                    window.focus(&view.focus_handle);
+                    view.press_screen(area.clone(), event, cx);
+                }),
+            )
+            .on_scroll_wheel(cx.listener(move |view, event: &ScrollWheelEvent, _, cx| {
+                cx.stop_propagation();
+                view.scroll_screen(&scrolled, event, cx);
+            }));
+        Some(element.into_any_element())
+    }
+
+    fn press_screen(&mut self, area: ScreenArea, event: &MouseDownEvent, cx: &mut Context<Self>) {
+        let (row, column) = cell_at(
+            event.position.x - area.origin.x,
+            event.position.y - area.origin.y,
+            area.cell,
+            area.gutter,
+        );
+        let mouse = ScreenMouse::Press {
+            clicks: event.click_count,
+            extend: event.modifiers.shift,
+        };
+        self.editor.screen_mouse(&area.buffer, row, column, mouse);
+        self.screen_press = Some(area);
+        self.after_input(cx);
+    }
+
+    /// Passes the mouse dragged from a screen to it, its cells clamped to the screen.
+    fn drag_screen(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        let Some(area) = self.screen_press.clone() else {
+            return;
+        };
+        let (row, column) = cell_at(
+            (position.x - area.origin.x).max(px(0.0)),
+            (position.y - area.origin.y).max(px(0.0)),
+            area.cell,
+            area.gutter,
+        );
+        self.editor
+            .screen_mouse(&area.buffer, row, column, ScreenMouse::Drag);
+        cx.notify();
+    }
+
+    fn scroll_screen(&mut self, name: &str, event: &ScrollWheelEvent, cx: &mut Context<Self>) {
+        let row_height = px(font::code().line_height);
+        let rows = self.screen_scroll - event.delta.pixel_delta(row_height).y / row_height;
+        let whole = rows.trunc();
+        self.screen_scroll = rows - whole;
+        if whole != 0.0 {
+            self.editor.scroll_screen(name, whole as isize);
+        }
+        cx.notify();
+    }
+
+    pub fn hover_command_mark(&mut self, row: Option<usize>, cx: &mut Context<Self>) {
+        if row.is_some() || self.hovered_mark.is_some() {
+            self.hovered_mark = row;
+            cx.notify();
+        }
+    }
+
+    /// Chips on the left of the title bar and buttons on its right, for a screen.
+    fn render_header_controls(
+        &self,
+        tabs: Option<Tabs>,
+        buttons: Vec<PaneButton>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        if tabs.is_none() && buttons.is_empty() {
+            return None;
+        }
+        let room = f32::from(window.viewport_size().width) / 2.0 - HEADER_TABS_LEFT - 120.0;
+        let controls = div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .right_0()
+            .h(px(TITLE_BAR_HEIGHT))
+            .children(tabs.map(|tabs| {
+                render_tabs(tabs, room, cx)
+                    .absolute()
+                    .top(px(9.0))
+                    .left(px(HEADER_TABS_LEFT))
+            }))
+            .child(
+                div()
+                    .absolute()
+                    .top(px(8.0))
+                    .right(px(14.0))
+                    .flex()
+                    .gap(px(6.0))
+                    .font_family(font::UI)
+                    .text_size(px(font::STATUS_SIZE))
+                    .children(buttons.into_iter().map(|button| render_button(button, cx))),
+            );
+        Some(controls.into_any_element())
+    }
+
     /// Follows the mouse anywhere, even outside the window, while a selection is dragged.
     fn render_drag_listeners(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        self.mouse_selection.as_ref()?;
+        if self.mouse_selection.is_none() && self.screen_press.is_none() {
+            return None;
+        }
         let view = cx.entity().downgrade();
         let paint = move |_, _, window: &mut Window, _: &mut App| {
             let moved = view.clone();
@@ -1225,7 +1423,7 @@ impl EditorView {
     fn render_status(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let buffer = self.editor.window_buffer();
         let position = format!("{}:{}", buffer.point_line() + 1, buffer.point_column() + 1);
-        let segments = self
+        let mut segments = self
             .editor
             .status_segments()
             .into_iter()
@@ -1236,6 +1434,10 @@ impl EditorView {
                 ]
             })
             .collect::<Vec<_>>();
+        if self.showing_screen {
+            // A screen shows neither position nor mode after the segments.
+            segments.pop();
+        }
 
         pill()
             .right(px(16.0))
@@ -1245,8 +1447,8 @@ impl EditorView {
                     .child(pill_separator())
             })
             .children(segments)
-            // The selected row is the position.
-            .when(!self.showing_rows, |status| {
+            // The selected row is the position; a screen has none.
+            .when(!self.showing_rows && !self.showing_screen, |status| {
                 status
                     .child(
                         div()
@@ -1262,13 +1464,15 @@ impl EditorView {
                     )
                     .child(pill_separator())
             })
-            .child(
-                div()
-                    .pl(px(8.0))
-                    .pr(px(10.0))
-                    .font_family(font::UI)
-                    .child(buffer.mode()),
-            )
+            .when(!self.showing_screen, |status| {
+                status.child(
+                    div()
+                        .pl(px(8.0))
+                        .pr(px(10.0))
+                        .font_family(font::UI)
+                        .child(buffer.mode()),
+                )
+            })
     }
 }
 
@@ -1284,11 +1488,16 @@ impl Render for EditorView {
             / px(ROW_PITCH))
         .floor()
         .max(1.0) as usize;
+        let window_name = self.editor.window_buffer().name().to_owned();
+        self.showing_screen = self.editor.is_screen(&window_name);
         // One row more than fits is partly scrolled in; another tells whether there are
         // rows below.
-        let table = self.editor.table(first_line..first_line + table_rows + 2);
+        let table = (!self.showing_screen)
+            .then(|| self.editor.table(first_line..first_line + table_rows + 2))
+            .flatten();
         let outline = match table {
             Some(_) => None,
+            None if self.showing_screen => None,
             None => {
                 let lines = max_outline_lines(window.viewport_size().height);
                 self.render_outline(lines, window, cx)
@@ -1298,6 +1507,29 @@ impl Render for EditorView {
         let mut toolbar = None;
         let mut pane = None;
         let (body, hints, popups) = match (table, outline) {
+            _ if self.showing_screen => {
+                let controls = self.editor.text_controls().unwrap_or_default();
+                toolbar = self.render_header_controls(controls.tabs, controls.buttons, window, cx);
+                let bounds = full_screen_bounds(window.viewport_size());
+                let body = self
+                    .render_screen_in(&window_name, bounds, window, cx)
+                    .map_or_else(
+                        || div().into_any_element(),
+                        |screen| {
+                            div()
+                                .absolute()
+                                .left(bounds.origin.x)
+                                .top(bounds.origin.y)
+                                .w(bounds.size.width)
+                                .h(bounds.size.height)
+                                .child(screen)
+                                .into_any_element()
+                        },
+                    );
+                let hints = (!controls.hints.is_empty())
+                    .then(|| render_hints(controls.hints).into_any_element());
+                (body, hints, Vec::new())
+            }
             (None, Some((body, hints, outline_toolbar))) => {
                 toolbar = outline_toolbar;
                 (body, Some(hints), Vec::new())
@@ -1351,7 +1583,20 @@ impl Render for EditorView {
                     .map_or(controls.hints, |pane| pane.hints);
                 let hints = (!hints.is_empty()).then(|| render_hints(hints).into_any_element());
                 pane = shown_pane.map(|shown| {
-                    render_pane(shown, cx)
+                    let screen = match &shown.body {
+                        PaneBody::Screen(name) => {
+                            let bounds = screen_bounds(window.viewport_size(), shown.height);
+                            self.render_screen_in(name, bounds, window, cx)
+                        }
+                        PaneBody::Columns(_) => None,
+                    };
+                    let chrome = PaneChrome {
+                        switch: self.editor.pane_switch(),
+                        shown: self.editor.shown_pane().unwrap_or_default(),
+                        focused: self.editor.pane_focused(),
+                        window_width: window.viewport_size().width,
+                    };
+                    render_pane(shown, chrome, screen, cx)
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .into_any_element()
                 });

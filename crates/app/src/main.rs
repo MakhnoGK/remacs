@@ -11,9 +11,11 @@ mod outline_view;
 mod pane_view;
 mod popup_view;
 mod preview_view;
+mod screen_view;
 mod settings;
 mod smooth_scroll;
 mod table_view;
+mod tabs_view;
 mod widgets;
 
 use std::path::PathBuf;
@@ -43,6 +45,7 @@ use remacs_rename::RenamePlugin;
 use remacs_run::{RunPlugin, keep_configurations_in};
 use remacs_search::SearchPlugin;
 use remacs_syntax::SyntaxPlugin;
+use remacs_terminal::TerminalPlugin;
 use remacs_tools::{ToolsPlugin, keep_tools_in};
 use remacs_xref::XrefPlugin;
 
@@ -63,6 +66,7 @@ const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
     // Before the run plugin, which then shows in the same pass what the debugger did.
     &DebugPlugin,
     &RunPlugin,
+    &TerminalPlugin,
     &ToolsPlugin,
     // Before their backends, so that what they ask after a command is sent in the same pass.
     &CompletionPlugin,

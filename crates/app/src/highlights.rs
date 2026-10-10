@@ -87,7 +87,7 @@ fn console_style(style: ConsoleStyle) -> HighlightStyle {
 
 /// `0xRRGGBB` of an indexed color as xterm defines the 256: the theme's 16, a 6×6×6
 /// cube, then 24 grays.
-fn console_color(color: ConsoleColor) -> u32 {
+pub fn console_color(color: ConsoleColor) -> u32 {
     const CUBE_LEVELS: [u32; 6] = [0, 95, 135, 175, 215, 255];
     match color {
         ConsoleColor::Rgb(rgb) => rgb,

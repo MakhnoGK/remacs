@@ -21,7 +21,9 @@ use std::path::Path;
 use std::rc::Rc;
 
 use remacs_config::state_dir;
-use remacs_core::{Command, CommandResult, Editor, Keymap, MinorKeymap, Plugin, Registry};
+use remacs_core::{
+    Command, CommandResult, Editor, Keymap, MinorKeymap, PaneSource, Plugin, Registry,
+};
 use remacs_run::{DEBUG_AT_POINT, Starter};
 
 use crate::marks::TOGGLE_BREAKPOINT;
@@ -64,7 +66,6 @@ const BINDINGS: &[(&str, &str)] = &[
     ("C-c f", pane::FOCUS_FRAMES),
     ("C-c v", pane::FOCUS_VARIABLES),
     ("C-c w", pane::FOCUS_WATCHES),
-    ("C-x o", pane::OTHER_WINDOW),
     ("M-<f8>", evaluate::EVALUATE),
 ];
 
@@ -98,7 +99,11 @@ impl Plugin for DebugPlugin {
             .push(Rc::new(marks::follow_edits));
         registry.gutters.push(Rc::new(marks::gutter_marks));
         registry.gutter_click.get_or_insert(TOGGLE_BREAKPOINT);
-        registry.panes.push(Rc::new(pane::pane));
+        registry.panes.push(PaneSource {
+            name: pane::NAME,
+            shown: pane::is_shown,
+            describe: Rc::new(pane::pane),
+        });
         registry.line_extras.push(Rc::new(pane::line_extras));
     }
 }

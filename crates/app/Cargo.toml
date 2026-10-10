@@ -38,6 +38,7 @@ remacs-rename.workspace = true
 remacs-run.workspace = true
 remacs-search.workspace = true
 remacs-syntax.workspace = true
+remacs-terminal.workspace = true
 remacs-theme.workspace = true
 remacs-tools.workspace = true
 remacs-xref.workspace = true

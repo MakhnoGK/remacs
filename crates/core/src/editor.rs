@@ -28,6 +28,7 @@ use crate::outline::Outline;
 use crate::pane::Pane;
 use crate::plugin::{Plugin, Registry};
 use crate::popup::Popup;
+use crate::screen::{Screen, ScreenMouse, ScreenSize};
 use crate::status::StatusSegment;
 use crate::syntax::SyntaxContext;
 use crate::table::{Action, Table};
@@ -72,6 +73,10 @@ pub struct Editor {
     refresh_at: Option<Instant>,
     /// Files moved since [`Editor::take_moved_files`], from and to.
     moved_files: Vec<(PathBuf, PathBuf)>,
+    /// The pane last chosen in the switch between panes.
+    selected_pane: Option<&'static str>,
+    /// The shown pane has the keys, not the window buffer.
+    pane_focused: bool,
 }
 
 impl Editor {
@@ -109,6 +114,8 @@ impl Editor {
             notifier: Arc::new(RwLock::new(Arc::new(|| {}))),
             refresh_at: None,
             moved_files: Vec::new(),
+            selected_pane: None,
+            pane_focused: false,
         }
     }
 
@@ -257,6 +264,13 @@ impl Editor {
         self.select_buffer(index);
     }
 
+    /// Adds `buffer` under a unique name without showing it, as the least recent one;
+    /// returns the name.
+    pub fn add_buffer_noselect(&mut self, buffer: Buffer) -> String {
+        let index = self.push_buffer(buffer);
+        self.buffers[index].name().to_owned()
+    }
+
     pub fn switch_to_buffer(&mut self, name: &str) -> bool {
         self.buffer_index(name)
             .inspect(|&index| self.select_buffer(index))
@@ -327,6 +341,14 @@ impl Editor {
         {
             self.next_prompt_choice(index);
             return;
+        }
+        if self.pending_keys.is_empty() && self.minibuffer.is_none() {
+            for sink in self.registry.key_sinks.clone() {
+                if sink(self, key) {
+                    self.last_key = Some(key);
+                    return;
+                }
+            }
         }
         self.pending_keys.push(key);
         self.last_key = Some(key);
@@ -722,9 +744,124 @@ impl Editor {
             .collect()
     }
 
-    /// The panel under the window buffer, if a plugin has one to show.
+    /// The pane shown under the window buffer: the one last selected while it has
+    /// something to show, else the first that has.
+    pub fn shown_pane(&self) -> Option<&'static str> {
+        let mut shown = self
+            .registry
+            .panes
+            .iter()
+            .filter(|source| (source.shown)(self))
+            .map(|source| source.name);
+        let first = shown.next();
+        match self.selected_pane {
+            Some(selected) if first == Some(selected) || shown.any(|name| name == selected) => {
+                Some(selected)
+            }
+            _ => first,
+        }
+    }
+
+    /// The shown pane, described.
     pub fn pane(&self) -> Option<Pane> {
-        self.registry.panes.iter().find_map(|provide| provide(self))
+        let name = self.shown_pane()?;
+        let source = self
+            .registry
+            .panes
+            .iter()
+            .find(|source| source.name == name)?;
+        (source.describe)(self)
+    }
+
+    /// The panes with something to show, in order, and their counts, for the switch
+    /// between them; none while only one has.
+    pub fn pane_switch(&self) -> Vec<(&'static str, Option<usize>)> {
+        let shown: Vec<_> = self
+            .registry
+            .panes
+            .iter()
+            .filter(|source| (source.shown)(self))
+            .collect();
+        if shown.len() < 2 {
+            return Vec::new();
+        }
+        shown
+            .into_iter()
+            .map(|source| {
+                let count = (source.describe)(self).and_then(|pane| pane.count);
+                (source.name, count)
+            })
+            .collect()
+    }
+
+    /// Shows the pane named `name` whenever it has something to show.
+    pub fn select_pane(&mut self, name: &'static str) {
+        self.selected_pane = Some(name);
+    }
+
+    /// Gives the keys to the shown pane, or back to the window buffer.
+    pub fn focus_pane(&mut self, focused: bool) {
+        self.pane_focused = focused;
+    }
+
+    /// Whether the shown pane has the keys, unless a prompt has them.
+    pub fn pane_focused(&self) -> bool {
+        self.pane_focused && self.minibuffer.is_none() && self.shown_pane().is_some()
+    }
+
+    /// Whether the pane named `name` is shown and has the keys.
+    pub fn pane_has_keys(&self, name: &str) -> bool {
+        self.pane_focused() && self.shown_pane() == Some(name)
+    }
+
+    /// The buffer named `name` as a screen of `size`, if a plugin draws it as one.
+    pub fn screen(&self, name: &str, size: ScreenSize) -> Option<Screen> {
+        let buffer = self.buffers.iter().find(|buffer| buffer.name() == name)?;
+        self.registry
+            .screens
+            .iter()
+            .find_map(|source| source.screen(self, buffer, size))
+    }
+
+    /// Whether the buffer named `name` is drawn as a screen.
+    pub fn is_screen(&self, name: &str) -> bool {
+        self.buffers
+            .iter()
+            .find(|buffer| buffer.name() == name)
+            .is_some_and(|buffer| {
+                self.registry
+                    .screens
+                    .iter()
+                    .any(|source| source.draws(buffer))
+            })
+    }
+
+    /// Scrolls the screen of the buffer named `name` by `rows`.
+    pub fn scroll_screen(&mut self, name: &str, rows: isize) {
+        for source in self.registry.screens.clone() {
+            source.scroll(self, name, rows);
+        }
+        self.after_command();
+    }
+
+    /// Passes the mouse over a screen's cell to the plugins that draw screens.
+    pub fn screen_mouse(&mut self, name: &str, row: usize, column: usize, mouse: ScreenMouse) {
+        self.message = None;
+        for source in self.registry.screens.clone() {
+            source.mouse(self, name, row, column, mouse);
+        }
+        self.after_command();
+    }
+
+    /// Renames the buffer named `name`, as `name<2>` if the new name is taken.
+    pub fn rename_buffer(&mut self, name: &str, new_name: &str) -> Option<String> {
+        let index = self.buffer_index(name)?;
+        if name == new_name {
+            return Some(new_name.to_owned());
+        }
+        let unique = self.unique_name(new_name);
+        self.buffers[index].set_name(unique.clone());
+        Some(unique)
     }
 
     /// What a click beside a line without a gutter mark runs, if anything.
@@ -820,6 +957,10 @@ impl Editor {
     fn run_post_command_hooks(&mut self) {
         for hook in self.registry.post_command_hooks.clone() {
             hook(self);
+        }
+        // A pane shown later must not find the keys already given to it.
+        if self.shown_pane().is_none() {
+            self.pane_focused = false;
         }
     }
 
