@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::ops::Range;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
@@ -15,9 +16,9 @@ use gpui::{
 
 use crate::assets::{EXECUTION_POINT_ICON, LOGPOINT_ICON};
 use remacs_core::{
-    Action, BreakpointIcon, ChangedLines, Code, DocBlock, Editor, GutterIcon, GutterMark, Icon,
-    LineChange, LineExtra, MouseSelection, Outline, PaneBody, PaneButton, Popup, Preview,
-    PreviewBody, ScreenMouse, Scroll, StatusSegment, Tabs,
+    Action, BreakpointIcon, ChangedLines, Code, CommandError, DocBlock, Editor, GutterIcon,
+    GutterMark, Icon, LineChange, LineExtra, MouseSelection, Outline, PaneBody, PaneButton, Popup,
+    Preview, PreviewBody, ScreenMouse, Scroll, StatusSegment, Tabs,
 };
 use remacs_theme::font::CodeFont;
 use remacs_theme::{color, font, glass};
@@ -28,6 +29,7 @@ use crate::display_line::{DisplayLine, display_width, slice_line};
 use crate::highlights::{Highlights, combine, face_style, region_style};
 use crate::key_input::to_key;
 use crate::minibuffer_view::{is_problem_list, render_minibuffer, render_scrim};
+use crate::opening::open;
 use crate::outline_view::{
     COMMIT_HEIGHT, OutlineScrolled, fits_history, fitting_commits, fitting_rows, max_outline_lines,
     render_outline, render_toolbar, row_height,
@@ -1258,6 +1260,15 @@ impl EditorView {
 
     pub fn run_command(&mut self, name: &str, cx: &mut Context<Self>) {
         self.editor.run_command(name);
+        self.after_input(cx);
+    }
+
+    /// Opens what Finder or the Dock hand over, the last one shown.
+    pub fn open_paths(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+        for path in paths {
+            let action: Action = Rc::new(move |editor| open(editor, &path).map_err(CommandError));
+            self.editor.run_action(&action);
+        }
         self.after_input(cx);
     }
 

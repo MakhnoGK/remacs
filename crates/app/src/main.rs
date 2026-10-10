@@ -4,9 +4,11 @@ mod conflict_view;
 mod dialog_view;
 mod display_line;
 mod editor_view;
+mod environment;
 mod highlights;
 mod key_input;
 mod minibuffer_view;
+mod opening;
 mod outline_view;
 mod pane_view;
 mod popup_view;
@@ -21,6 +23,8 @@ mod widgets;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use futures::StreamExt;
+use futures::channel::mpsc;
 use gpui::{
     App, Application, Bounds, TitlebarOptions, WindowBackgroundAppearance, WindowBounds,
     WindowOptions, point, prelude::*, px, size,
@@ -31,7 +35,7 @@ use remacs_config::{cache_dir, home, state_dir};
 use remacs_core::{Editor, Plugin};
 use remacs_debug::{DebugPlugin, keep_breakpoints_in};
 use remacs_diagnostics::DiagnosticsPlugin;
-use remacs_dired::{DiredPlugin, list_directory};
+use remacs_dired::DiredPlugin;
 use remacs_documentation::DocumentationPlugin;
 use remacs_editing::EditingPlugin;
 use remacs_files::FilesPlugin;
@@ -51,6 +55,8 @@ use remacs_xref::XrefPlugin;
 
 use assets::Assets;
 use editor_view::EditorView;
+use environment::EnvironmentSettings;
+use opening::{file_paths, open};
 use settings::{ReadSettings, read_settings, report, watch_settings};
 
 const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
@@ -84,8 +90,17 @@ fn main() -> ExitCode {
     let ReadSettings {
         settings,
         ui,
-        errors,
+        mut errors,
     } = read_settings();
+    let environment =
+        settings
+            .section::<EnvironmentSettings>()
+            .unwrap_or_else(|(error, defaults)| {
+                errors.push(error);
+                defaults
+            });
+    // Before the plugins, which start programs that look for others on `PATH`.
+    let imported = environment::import(&environment);
 
     let mut editor = Editor::new(BUILTIN_PLUGINS);
     editor.set_settings(settings);
@@ -97,38 +112,42 @@ fn main() -> ExitCode {
         keep_breakpoints_in(&mut editor, &home);
     }
 
-    if let Some(path) = std::env::args_os().nth(1).map(PathBuf::from) {
-        let opened = if path.is_dir() {
-            list_directory(&mut editor, &path).map_err(|error| error.0)
-        } else {
-            editor.visit_file(&path).map_err(|error| error.to_string())
-        };
-        if let Err(error) = opened {
-            eprintln!("remacs: {}: {error}", path.display());
-            return ExitCode::FAILURE;
-        }
+    if let Some(path) = std::env::args_os().nth(1).map(PathBuf::from)
+        && let Err(error) = open(&mut editor, &path)
+    {
+        eprintln!("remacs: {}: {error}", path.display());
+        return ExitCode::FAILURE;
     }
     report(&errors, &mut editor);
+    if let Err(error) = imported {
+        eprintln!("remacs: {error}");
+        editor.set_message(format!("Not the login shell's environment: {error}"));
+    }
 
     let (cursor_height, mouse, scroll, window_blur) =
         (ui.cursor.height, ui.mouse, ui.scroll, ui.glass.blur);
-    Application::new()
-        .with_assets(Assets)
-        .run(move |cx: &mut App| {
-            cx.on_window_closed(|cx| cx.quit()).detach();
-            let bounds = Bounds::centered(None, size(px(1440.0), px(900.0)), cx);
-            let options = WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                titlebar: Some(TitlebarOptions {
-                    title: None,
-                    appears_transparent: true,
-                    traffic_light_position: Some(point(px(18.0), px(16.0))),
-                }),
-                // Blurred by the radius in the settings, not by the system's fixed material.
-                window_background: WindowBackgroundAppearance::Transparent,
-                ..Default::default()
-            };
-            cx.open_window(options, |window, cx| {
+    // Finder's and the Dock's, which may come before the window is open.
+    let (opened, mut to_open) = mpsc::unbounded();
+    let app = Application::new().with_assets(Assets);
+    app.on_open_urls(move |urls| {
+        let _ = opened.unbounded_send(file_paths(&urls));
+    });
+    app.run(move |cx: &mut App| {
+        cx.on_window_closed(|cx| cx.quit()).detach();
+        let bounds = Bounds::centered(None, size(px(1440.0), px(900.0)), cx);
+        let options = WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            titlebar: Some(TitlebarOptions {
+                title: None,
+                appears_transparent: true,
+                traffic_light_position: Some(point(px(18.0), px(16.0))),
+            }),
+            // Blurred by the radius in the settings, not by the system's fixed material.
+            window_background: WindowBackgroundAppearance::Transparent,
+            ..Default::default()
+        };
+        let window = cx
+            .open_window(options, |window, cx| {
                 let view = cx.new(|cx| {
                     EditorView::new(
                         editor,
@@ -145,7 +164,18 @@ fn main() -> ExitCode {
                 view
             })
             .expect("failed to open window");
-            cx.activate(true);
-        });
+        cx.spawn(async move |cx| {
+            while let Some(paths) = to_open.next().await {
+                if window
+                    .update(cx, |view, _, cx| view.open_paths(paths, cx))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
+        cx.activate(true);
+    });
     ExitCode::SUCCESS
 }

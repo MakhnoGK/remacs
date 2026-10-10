@@ -27,11 +27,22 @@ Status: accepted, 2026-10-10 (icon: board AppIcon, direction A "Parens and curso
   `xcodebuild -downloadComponent MetalToolchain`); the `runtime-shaders` feature
   compiles them at startup instead, for a Mac without it.
 
+- **The login shell's environment.** Started from Finder or the Dock, the app has
+  launchd's `PATH` (`/usr/bin:/bin:/usr/sbin:/sbin`), so language servers, `cargo` and
+  `git` are not found. Before the plugins start, remacs runs `$SHELL -l -i` once and takes
+  what `env -0` prints between two markers (read up to the end marker, not to the end of
+  output, which a daemon started by the startup files may hold open), leaving out what
+  the shell or a terminal sets (`SHLVL`, `PWD`, `TERM`…), and starts in the home
+  directory rather than `/`. `environment.toml`: `from-login-shell = "auto"` (unless
+  started from a terminal, i.e. `TERM` is set) | `"always"` | `"never"`; `timeout`, past
+  which the environment stays as it is and the echo area says why.
+- **Opened from Finder**: "Open With", a file or folder dropped on the Dock icon, or
+  `open -a`. `CFBundleDocumentTypes` lists any file (`public.text`, `public.data`) and
+  folders, both at rank Alternate, so remacs is offered but never made the default.
+  gpui's `on_open_urls` hands the `file://` URLs over a channel to the window, which may
+  not be open yet; each opens in it as on the command line, a folder in dired.
+
 ## Later
 
-- Started from Finder or the Dock, the app has launchd's short `PATH`: take the login
-  shell's environment once at startup (`$SHELL -l -i -c env`), as VS Code and Zed do.
-- Files and folders opened from Finder or dropped on the Dock icon (`on_open_urls`,
-  `CFBundleDocumentTypes`).
 - A self-signed identity instead of ad hoc, if macOS asks for folder access again after
   every install.
