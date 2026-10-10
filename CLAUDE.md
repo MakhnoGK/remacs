@@ -24,5 +24,8 @@ Emacs-inspired IDE from scratch in Rust + gpui. Everything is a plugin.
 
 - Commits: Conventional Commits, subject line only.
 - After every completed action, re-index the repo with Cerebrium `code_index`.
+- The installed app (`~/Applications/Remacs.app`, `remacs` on the command line) is a
+  snapshot: update it only when asked, with `cargo xtask install`; `cargo xtask rollback`
+  goes back (ADR 0056).
 
 ADRs live in `docs/adr/`.

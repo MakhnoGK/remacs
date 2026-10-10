@@ -11,8 +11,9 @@ name = "remacs"
 path = "src/main.rs"
 
 [features]
-default = ["runtime-shaders"]
-# Compiles Metal shaders at startup; disable for release builds once Xcode's Metal Toolchain is installed.
+default = []
+# Compiles Metal shaders at startup, for building without Xcode's Metal Toolchain
+# (`xcodebuild -downloadComponent MetalToolchain`).
 runtime-shaders = ["gpui/runtime_shaders"]
 
 [dependencies]
