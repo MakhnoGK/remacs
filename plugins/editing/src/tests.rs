@@ -132,6 +132,49 @@ fn word_motion_stops_between_letters_and_other_characters() {
 }
 
 #[test]
+fn paragraph_motion_stops_at_the_blank_lines_between_paragraphs() {
+    let text = "one\ntwo\n\n  \t\nthree\n\nfour";
+    let mut editor = editor_with(text);
+    press(&mut editor, "C-f M-}");
+    assert_eq!(editor.buffer().point(), "one\ntwo\n".len());
+    press(&mut editor, "M-}");
+    assert_eq!(editor.buffer().point(), "one\ntwo\n\n  \t\nthree\n".len());
+    press(&mut editor, "M-}");
+    assert_eq!(editor.buffer().point(), text.len());
+    press(&mut editor, "M-}");
+    assert_eq!(editor.echo().as_deref(), Some("End of buffer"));
+
+    press(&mut editor, "M-{");
+    assert_eq!(editor.buffer().point(), "one\ntwo\n\n  \t\nthree\n".len());
+    press(&mut editor, "M-{");
+    assert_eq!(editor.buffer().point(), "one\ntwo\n\n".len());
+    press(&mut editor, "M-{");
+    assert_eq!(editor.buffer().point(), 0);
+}
+
+#[test]
+fn paragraph_motion_extends_the_region() {
+    let mut editor = editor_with("one\ntwo\n\nthree");
+    press(&mut editor, "C-SPC M-}");
+    assert_eq!(editor.buffer().region(), Some(0.."one\ntwo\n".len()));
+}
+
+#[test]
+fn a_paragraph_is_selected_or_killed() {
+    let mut editor = editor_with("one\n\ntwo\nthree\n\nfour");
+    press(&mut editor, "C-n C-n C-f M-h");
+    assert_eq!(
+        editor.buffer().region(),
+        Some("one\n".len().."one\n\ntwo\nthree\n".len())
+    );
+    assert_eq!(editor.buffer().point(), "one\n".len());
+
+    press(&mut editor, "C-g C-n C-f");
+    editor.run_command("kill-paragraph");
+    assert_eq!(contents(&editor), "one\n\nt\nfour");
+}
+
+#[test]
 fn backward_kill_word_takes_one_run_at_a_time() {
     let mut editor = editor_with("тако1ую_ф22разу");
     press(&mut editor, "C-e M-DEL");

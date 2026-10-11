@@ -39,6 +39,26 @@ pub fn backward_word(editor: &mut Editor) -> CommandResult {
     Ok(())
 }
 
+/// Moves to the blank line after the paragraph, like Emacs `forward-paragraph`.
+pub fn forward_paragraph(editor: &mut Editor) -> CommandResult {
+    let buffer = editor.buffer_mut();
+    if buffer.point() == buffer.text().len() {
+        return Err("End of buffer".into());
+    }
+    buffer.set_point(paragraph_end(buffer, buffer.point_line()));
+    Ok(())
+}
+
+/// Moves to the blank line before the paragraph, like Emacs `backward-paragraph`.
+pub fn backward_paragraph(editor: &mut Editor) -> CommandResult {
+    let buffer = editor.buffer_mut();
+    if buffer.point() == 0 {
+        return Err("Beginning of buffer".into());
+    }
+    buffer.set_point(paragraph_start(buffer, buffer.point_line()));
+    Ok(())
+}
+
 pub fn next_line(editor: &mut Editor) -> CommandResult {
     let buffer = editor.buffer_mut();
     let next = buffer.point_line() + 1;
@@ -135,6 +155,51 @@ pub(crate) fn word_start(buffer: &Buffer, mut offset: usize) -> usize {
         offset = buffer.text().previous_char_boundary(offset);
     }
     offset
+}
+
+/// The start of the first blank line after the paragraph at or after `line`, or the end
+/// of the buffer.
+pub(crate) fn paragraph_end(buffer: &Buffer, mut line: usize) -> usize {
+    let line_count = buffer.text().line_count();
+    while line < line_count && is_blank_line(buffer, line) {
+        line += 1;
+    }
+    while line < line_count && !is_blank_line(buffer, line) {
+        line += 1;
+    }
+    buffer
+        .text()
+        .line_start(line)
+        .unwrap_or(buffer.text().len())
+}
+
+/// The start of the last blank line before the paragraph at or before `line`, or the
+/// beginning of the buffer.
+pub(crate) fn paragraph_start(buffer: &Buffer, line: usize) -> usize {
+    let mut lines = (0..=line)
+        .rev()
+        .skip_while(|&line| is_blank_line(buffer, line));
+    lines
+        .find(|&line| is_blank_line(buffer, line))
+        .and_then(|line| buffer.text().line_start(line))
+        .unwrap_or(0)
+}
+
+/// Whether the line holds only whitespace.
+fn is_blank_line(buffer: &Buffer, line: usize) -> bool {
+    let Some(range) = buffer.text().line_range(line) else {
+        return true;
+    };
+    let mut offset = range.start;
+    while offset < range.end {
+        match buffer.char_after(offset) {
+            Some(character) if character.is_whitespace() => {
+                offset = buffer.text().next_char_boundary(offset);
+            }
+            _ => return false,
+        }
+    }
+    true
 }
 
 fn scroll_page(editor: &mut Editor, direction: isize) -> bool {

@@ -1,7 +1,7 @@
 use remacs_core::{Candidate, CommandResult, Editor, Prompt, filter_candidates};
 
 use crate::editing::writable_buffer;
-use crate::motion::{line_end, word_end, word_start};
+use crate::motion::{line_end, paragraph_end, paragraph_start, word_end, word_start};
 
 pub const SET_MARK_COMMAND: &str = "set-mark-command";
 pub const YANK: &str = "yank";
@@ -86,6 +86,34 @@ pub fn backward_kill_word(editor: &mut Editor) -> CommandResult {
     let buffer = writable_buffer(editor)?;
     let (start, point) = (word_start(buffer, buffer.point()), buffer.point());
     editor.kill(start..point);
+    Ok(())
+}
+
+/// Kills to the end of the paragraph, like Emacs `kill-paragraph`.
+pub fn kill_paragraph(editor: &mut Editor) -> CommandResult {
+    let buffer = writable_buffer(editor)?;
+    let (point, end) = (buffer.point(), paragraph_end(buffer, buffer.point_line()));
+    if end == point {
+        return Err("End of buffer".into());
+    }
+    editor.kill(point..end);
+    Ok(())
+}
+
+/// Selects the paragraph at point, or the next one from a blank line, point before it
+/// and mark after it, like Emacs `mark-paragraph`.
+pub fn mark_paragraph(editor: &mut Editor) -> CommandResult {
+    let buffer = editor.buffer_mut();
+    let end = paragraph_end(buffer, buffer.point_line());
+    let end_line = buffer.text().line_of(end);
+    let last_line = if end == buffer.text().len() {
+        end_line
+    } else {
+        end_line.saturating_sub(1)
+    };
+    buffer.set_mark(end);
+    buffer.set_point(paragraph_start(buffer, last_line));
+    buffer.activate_mark();
     Ok(())
 }
 
