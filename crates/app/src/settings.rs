@@ -29,6 +29,10 @@ const HINTS_SIDE_ROOMS: RangeInclusive<f32> = 0.0..=800.0;
 /// Milliseconds.
 const PREFIX_KEYS_DELAYS: RangeInclusive<u64> = 0..=5000;
 const PREFIX_KEYS_COLUMNS: RangeInclusive<usize> = 1..=8;
+/// Pixels.
+const DOCUMENTATION_MAX_WIDTHS: RangeInclusive<f32> = 240.0..=2000.0;
+/// Pixels.
+const DOCUMENTATION_MAX_HEIGHTS: RangeInclusive<f32> = 120.0..=2000.0;
 /// Changes this close together are read once, e.g. an editor's save done in steps.
 const SETTLE_TIME: Duration = Duration::from_millis(100);
 
@@ -116,6 +120,7 @@ pub struct UiSettings {
     pub echo: EchoSettings,
     pub hints: HintsSettings,
     pub prefix_keys: PrefixKeysSettings,
+    pub documentation: DocumentationSettings,
 }
 
 impl UiSettings {
@@ -194,6 +199,17 @@ impl Section for UiSettings {
             "prefix-keys.columns",
             prefix_keys.columns,
             &PREFIX_KEYS_COLUMNS,
+        )?;
+        let documentation = &self.documentation;
+        check_range(
+            "documentation.max-width",
+            documentation.max_width,
+            &DOCUMENTATION_MAX_WIDTHS,
+        )?;
+        check_range(
+            "documentation.max-height",
+            documentation.max_height,
+            &DOCUMENTATION_MAX_HEIGHTS,
         )
     }
 }
@@ -418,6 +434,26 @@ impl Default for PrefixKeysSettings {
     }
 }
 
+/// The documentation of a symbol, alone or beside completions: it grows with its code up
+/// to `max_width`, wrapping the code past it, and scrolls past `max_height`.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct DocumentationSettings {
+    /// Pixels.
+    pub max_width: f32,
+    /// Pixels.
+    pub max_height: f32,
+}
+
+impl Default for DocumentationSettings {
+    fn default() -> Self {
+        Self {
+            max_width: 760.0,
+            max_height: 480.0,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -440,9 +476,17 @@ mod tests {
              [cursor]\nheight = \"font\"\n[mouse]\ndrag-scroll-interval = 60\n\
              [scroll]\nanimation-duration = 0\n[glass]\nopacity = 0.5\nblur = 0\n\
              [echo]\nlines = 6\nhistory = 50\n[hints]\nshow = false\nside-room = 200\n\
-             [prefix-keys]\nshow = false\ndelay = 0\ncolumns = 3\n",
+             [prefix-keys]\nshow = false\ndelay = 0\ncolumns = 3\n\
+             [documentation]\nmax-width = 900\nmax-height = 300\n",
         )
         .unwrap();
+        assert_eq!(
+            settings.documentation,
+            DocumentationSettings {
+                max_width: 900.0,
+                max_height: 300.0
+            }
+        );
         assert_eq!(
             settings.bottom(),
             BottomSettings {
@@ -489,5 +533,7 @@ mod tests {
         assert!(parse("[echo]\nlines = 1\n").is_err());
         assert!(parse("[hints]\nside-room = -1\n").is_err());
         assert!(parse("[prefix-keys]\ncolumns = 0\n").is_err());
+        assert!(parse("[documentation]\nmax-width = 100\n").is_err());
+        assert!(parse("[documentation]\nmax-height = 5000\n").is_err());
     }
 }

@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::mem;
 use std::ops::Range;
@@ -18,10 +19,10 @@ use gpui::{
 
 use crate::assets::{EXECUTION_POINT_ICON, LOGPOINT_ICON};
 use remacs_core::{
-    Action, BreakpointIcon, ChangedLines, Code, CommandError, DocBlock, Editor, GutterIcon,
-    GutterMark, Icon, Key, LineChange, LineExtra, MouseSelection, Outline, PaneBody, PaneButton,
-    Popup, Preview, PreviewBody, ScreenButton, ScreenMouse, ScreenPointer, ScreenSize, Scroll,
-    StatusSegment, Tabs, describe_sequence,
+    Action, BreakpointIcon, ChangedLines, Code, CommandError, Editor, GutterIcon, GutterMark, Icon,
+    Key, LineChange, LineExtra, MouseSelection, Outline, PaneBody, PaneButton, Preview,
+    ScreenButton, ScreenMouse, ScreenPointer, ScreenSize, Scroll, StatusSegment, Tabs,
+    describe_sequence,
 };
 use remacs_echo::VIEW_MESSAGES;
 use remacs_theme::font::CodeFont;
@@ -32,7 +33,6 @@ use crate::bottom_row::{
     render_message_echo, render_prefix_echo, render_prefix_keys, render_row,
 };
 use crate::changes_view::render_changes;
-use crate::conflict_view::codes as conflict_codes;
 use crate::display_line::{DisplayLine, display_width, slice_line};
 use crate::highlights::{Highlights, combine, face_style, region_style};
 use crate::key_input::{to_key, to_modifiers};
@@ -49,7 +49,8 @@ use crate::popup_view::{DocumentationScroll, DocumentationView, Placement, rende
 use crate::preview_view::render_preview;
 use crate::screen_view::{Cell as ScreenCell, cell_at, render_screen, screen_size};
 use crate::settings::{
-    BottomSettings, CursorHeight, MouseSettings, ReadSettings, ScrollSettings, UiSettings, report,
+    BottomSettings, CursorHeight, DocumentationSettings, MouseSettings, ReadSettings,
+    ScrollSettings, UiSettings, report,
 };
 use crate::smooth_scroll::SmoothScroll;
 use crate::table_view::{
@@ -128,10 +129,12 @@ pub struct EditorView {
     /// Some drawn line goes on past the right edge, so the text can scroll further right.
     more_on_right: bool,
     documentation_scroll: DocumentationScroll,
+    documentation: DocumentationSettings,
     /// How far the minibuffer input is scrolled sideways.
     input_scroll: ScrollHandle,
-    /// Faces of code shown in popups, by mode and text.
-    code_faces: HashMap<&'static str, HashMap<String, Highlights>>,
+    /// Faces of code shown in popups and side panels, by mode and text, parsed when first
+    /// drawn.
+    code_faces: RefCell<HashMap<&'static str, HashMap<String, Highlights>>>,
     /// The window buffer was last drawn as rows, a table's or an outline's, so input maps
     /// to rows, not text.
     showing_rows: bool,
@@ -219,8 +222,10 @@ struct Metrics {
     /// Ascent and descent.
     glyph_height: Pixels,
     digit_width: Pixels,
-    /// Of code quoted in notes.
-    note_code_width: Pixels,
+    /// Of signatures in documentation.
+    mono_width: Pixels,
+    /// Of code blocks in documentation and code quoted in notes.
+    small_mono_width: Pixels,
 }
 
 impl EditorView {
@@ -272,8 +277,9 @@ impl EditorView {
             scrolled_sideways: false,
             more_on_right: false,
             documentation_scroll: DocumentationScroll::default(),
+            documentation: ui.documentation,
             input_scroll: ScrollHandle::new(),
-            code_faces: HashMap::new(),
+            code_faces: RefCell::default(),
             showing_rows: false,
             refresh_timer: None,
             showing_screen: false,
@@ -304,6 +310,7 @@ impl EditorView {
         self.mouse = read.ui.mouse;
         self.scroll = read.ui.scroll;
         self.window_blur = read.ui.glass.blur;
+        self.documentation = read.ui.documentation;
         self.bottom = read.ui.bottom();
         self.editor
             .message_log_mut()
@@ -920,7 +927,8 @@ impl EditorView {
             glyph_height: text_system.ascent(font_id, size)
                 + text_system.descent(font_id, size).abs(),
             digit_width: advance(code_font.line_number_size(), '0'),
-            note_code_width: advance(font::STATUS_SIZE, 'm'),
+            mono_width: advance(font::MONO_SIZE, 'm'),
+            small_mono_width: advance(font::STATUS_SIZE, 'm'),
         };
         self.metrics = Some((code_font, metrics));
         metrics
@@ -1164,12 +1172,14 @@ impl EditorView {
         let line_height = px(font::code().line_height);
         let popups = self.editor.popups();
         self.documentation_scroll.update(&popups);
-        self.highlight_code_in(&popups);
         let code_faces = |code: &Code| self.faces_of(code);
         let view = DocumentationView {
             code_faces: &code_faces,
             scroll: &self.documentation_scroll.handle,
-            note_code_width: metrics.note_code_width,
+            mono_width: metrics.mono_width,
+            small_mono_width: metrics.small_mono_width,
+            max_width: px(self.documentation.max_width),
+            max_height: px(self.documentation.max_height),
         };
         popups
             .iter()
@@ -1205,55 +1215,31 @@ impl EditorView {
             .collect()
     }
 
-    /// Faces for the code in the popups' documentation.
-    fn highlight_code_in(&mut self, popups: &[Popup]) {
-        let codes = popups
-            .iter()
-            .filter_map(|popup| popup.documentation.as_ref())
-            .flat_map(|documentation| {
-                let blocks = documentation.blocks.iter().filter_map(|block| match block {
-                    DocBlock::Code(code) => Some(code),
-                    _ => None,
-                });
-                documentation.signature.iter().chain(blocks)
-            });
-        for code in codes {
-            self.highlight_code(code);
-        }
-    }
-
-    /// Parses `code` for [`Self::faces_of`] unless it already was.
-    fn highlight_code(&mut self, code: &Code) {
+    /// Parses `code` the first time it is asked for; documentation's code is parsed as it
+    /// was wrapped to fit, which only the drawing knows.
+    fn faces_of(&self, code: &Code) -> Highlights {
         let Some(mode) = code.mode else {
-            return;
+            return Highlights::default();
         };
-        let known = self.code_faces.entry(mode).or_default();
-        if known.contains_key(&code.text) {
-            return;
+        let mut code_faces = self.code_faces.borrow_mut();
+        let known = code_faces.entry(mode).or_default();
+        if let Some(faces) = known.get(&code.text) {
+            return faces.clone();
         }
         if known.len() >= MAX_HIGHLIGHTED_SNIPPETS {
             known.clear();
         }
-        let faces = self
+        let faces: Highlights = self
             .editor
             .highlight_code(mode, &code.text)
             .into_iter()
             .map(|span| (span.range, face_style(span.face)))
             .collect();
-        known.insert(code.text.clone(), faces);
-    }
-
-    fn faces_of(&self, code: &Code) -> Highlights {
-        code.mode
-            .and_then(|mode| self.code_faces.get(mode)?.get(&code.text))
-            .cloned()
-            .unwrap_or_default()
+        known.insert(code.text.clone(), faces.clone());
+        faces
     }
 
     fn render_preview(&mut self, preview: Preview) -> Div {
-        if let PreviewBody::Code(code) = &preview.body {
-            self.highlight_code(code);
-        }
         render_preview(preview, &|code| self.faces_of(code))
     }
 
@@ -1557,9 +1543,6 @@ impl EditorView {
             };
             scrolled.history_shift = COMMIT_HEIGHT * self.history_fraction;
             history.commits.truncate(fitting + 1);
-        }
-        for code in outline.conflict.iter().flat_map(conflict_codes) {
-            self.highlight_code(&code);
         }
         let hints = outline.hints;
         let toolbar = std::mem::take(&mut outline.toolbar);

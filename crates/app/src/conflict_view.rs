@@ -27,21 +27,6 @@ const SIDE_LINE_ALPHA: u32 = 0x14;
 const CURRENT_BORDER: u32 = 0x2fafff59;
 const SIDE_HEADER_TEXT: u32 = 0xc0c0c0;
 
-/// The snippets of code in the view, each highlighted on its own: the lines between the
-/// conflicts and each side of them.
-pub fn codes(view: &ConflictView) -> Vec<Code> {
-    let code = |lines: &[String]| Code::new(lines.join("\n"), view.mode);
-    view.regions
-        .iter()
-        .flat_map(|region| match region {
-            ConflictRegion::Text { lines, .. } => vec![code(lines)],
-            ConflictRegion::Conflict(block) => {
-                vec![code(&block.ours.lines), code(&block.theirs.lines)]
-            }
-        })
-        .collect()
-}
-
 /// A file's conflicts beside the pane: a header with the file and how far it is, then
 /// its lines with each conflict's sides between them.
 pub fn render_conflict(

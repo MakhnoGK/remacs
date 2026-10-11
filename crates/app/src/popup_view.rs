@@ -1,18 +1,23 @@
+use std::hash::{DefaultHasher, Hash, Hasher};
+
 use gpui::{
-    AnyElement, Div, HighlightStyle, IntoElement, ParentElement, Pixels, Point, ScrollHandle,
-    Stateful, StyledText, div, prelude::*, px, rgb, rgba,
+    AnyElement, Div, ElementId, HighlightStyle, IntoElement, ParentElement, Pixels, Point,
+    ScrollHandle, Stateful, StyledText, div, prelude::*, px, rgb, rgba,
 };
 use remacs_core::{Candidate, Code, DocBlock, Documentation, Note, Popup, SymbolKind};
 use remacs_theme::{color, font, glass};
 
+use crate::code_wrap::wrap_code;
 use crate::highlights::Highlights;
 use crate::minibuffer_view::{matches_in, secondary_color};
 use crate::widgets::{glass_surface, hsla, icon, kbd, shadow};
 
 const LIST_WIDTH: f32 = 440.0;
+/// Of documentation beside the list, which grows wider with its code.
 const DOCUMENTATION_WIDTH: f32 = 360.0;
-const DOCUMENTATION_BODY_MAX_HEIGHT: f32 = 280.0;
+const DOCUMENTATION_PADDING_X: f32 = 14.0;
 const BODY_LINE_HEIGHT: f32 = 20.0;
+const CODE_BLOCK_PADDING_X: f32 = 8.0;
 const ROW_HEIGHT: f32 = 28.0;
 const ROW_GAP: f32 = 2.0;
 const LIST_PADDING: f32 = 6.0;
@@ -27,8 +32,10 @@ const PANEL_GAP: f32 = 8.0;
 const WINDOW_MARGIN: f32 = 8.0;
 /// From the list's edge to its labels, which line up with the completed word.
 const LABEL_INSET: f32 = 1.0 + LIST_PADDING + ROW_PADDING + BADGE_SIZE + BADGE_GAP;
+/// Of documentation alone, which grows wider with its code.
 const HOVER_WIDTH: f32 = 520.0;
 const HOVER_PADDING: f32 = 16.0;
+const HOVER_SIGNATURE_PADDING_X: f32 = 12.0;
 /// From the documentation's edge to its text, which lines up with the symbol.
 const HOVER_INSET: f32 = 1.0 + HOVER_PADDING;
 /// Room below the line that is enough for documentation, which is otherwise put where
@@ -46,6 +53,25 @@ const NOTE_LINE_HEIGHT: f32 = 20.0;
 /// Of code quoted in a note.
 const CHIP_PADDING: f32 = 5.0;
 const CHIP_RADIUS: f32 = 4.0;
+
+/// Horizontal room around a documentation panel's code: the panel's padding and border,
+/// and those of the signature's box and of a code block's.
+struct CodeInsets {
+    panel: f32,
+    signature: f32,
+    block: f32,
+}
+
+const HOVER_INSETS: CodeInsets = CodeInsets {
+    panel: 2.0 * (1.0 + HOVER_PADDING),
+    signature: 2.0 * (1.0 + HOVER_SIGNATURE_PADDING_X),
+    block: 2.0 * CODE_BLOCK_PADDING_X,
+};
+const DOCUMENTATION_INSETS: CodeInsets = CodeInsets {
+    panel: 2.0 * (1.0 + DOCUMENTATION_PADDING_X),
+    signature: 0.0,
+    block: 2.0 * CODE_BLOCK_PADDING_X,
+};
 
 /// Where a popup goes: `anchor_left` is where the anchor is drawn, `top`/`bottom` the
 /// line's; nothing goes above `area_top`, e.g. the title bar.
@@ -87,12 +113,17 @@ impl Placement {
 }
 
 /// What popups take from the view: faces for documentation's code, the scroll position of
-/// its body, which the mouse wheel and the plugin's page keys move, and how wide a
-/// character of code quoted in notes is.
+/// its body, which the mouse wheel and the plugin's page keys move, how wide a character of
+/// code is, and how large documentation grows before its code wraps and it scrolls.
 pub struct DocumentationView<'a> {
     pub code_faces: &'a dyn Fn(&Code) -> Highlights,
     pub scroll: &'a ScrollHandle,
-    pub note_code_width: Pixels,
+    /// Of signatures.
+    pub mono_width: Pixels,
+    /// Of code blocks in documentation and code quoted in notes.
+    pub small_mono_width: Pixels,
+    pub max_width: Pixels,
+    pub max_height: Pixels,
 }
 
 /// Keeps the shown documentation's scroll position between frames: new documentation
@@ -154,7 +185,7 @@ pub fn render_popup(popup: &Popup, placement: Placement, view: &DocumentationVie
             render_hover(documentation, popup.hints, &placement, view)
         }
         None if popup.rows.is_empty() => {
-            render_notes(&popup.notes, &placement, view.note_code_width)
+            render_notes(&popup.notes, &placement, view.small_mono_width)
         }
         _ => render_list_popup(popup, &placement, view),
     }
@@ -321,10 +352,33 @@ fn render_hover(
     let (below, above) = (placement.room_below(), placement.room_above());
     let fits_below = below >= px(HOVER_ENOUGH_ROOM) || below >= above;
     let room = if fits_below { below } else { above };
+    let max_width = view
+        .max_width
+        .min(placement.window_width - px(2.0 * WINDOW_MARGIN));
+    let (width, documentation) = fit(
+        documentation,
+        &HOVER_INSETS,
+        px(HOVER_WIDTH),
+        max_width,
+        view,
+    );
     let has_header = !documentation.container.is_empty() || !documentation.kind.is_empty();
+    let signature = documentation.signature.as_ref().map(|signature| {
+        code_box("documentation-signature", 0, signature, view)
+            .flex_none()
+            .px(px(HOVER_SIGNATURE_PADDING_X))
+            .py(px(8.0))
+            .rounded(px(8.0))
+            .bg(rgba(glass::FIELD))
+            .border_1()
+            .border_color(rgba(0xffffff0f))
+            .text_size(px(font::MONO_SIZE))
+            .line_height(px(font::LINE_HEIGHT))
+            .into_any_element()
+    });
     let panel = panel()
-        .w(px(HOVER_WIDTH))
-        .max_h(room)
+        .w(width)
+        .max_h(room.min(view.max_height))
         .overflow_hidden()
         .pt(px(14.0))
         .px(px(HOVER_PADDING))
@@ -348,33 +402,15 @@ fn render_hover(
                     .child(div().flex_none().child(documentation.kind.clone())),
             )
         })
-        .when_some(documentation.signature.as_ref(), |panel, signature| {
-            panel.child(
-                div()
-                    .flex_none()
-                    .px(px(12.0))
-                    .py(px(8.0))
-                    .rounded(px(8.0))
-                    .bg(rgba(glass::FIELD))
-                    .border_1()
-                    .border_color(rgba(0xffffff0f))
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .font_family(font::mono())
-                    .text_size(px(font::MONO_SIZE))
-                    .line_height(px(font::LINE_HEIGHT))
-                    .child(render_code(signature, view)),
-            )
-        })
-        .when(!documentation.blocks.is_empty(), |panel| {
-            panel.child(render_body(&documentation.blocks, 10.0, view))
+        .when(!documentation.is_empty(), |panel| {
+            panel.child(render_body(signature, &documentation.blocks, 10.0, view))
         })
         .when(!hints.is_empty(), |panel| {
             panel.child(render_hints(hints).gap(px(18.0)).pt(px(10.0)))
         });
     let container = div()
         .absolute()
-        .left(placement.left(HOVER_INSET, HOVER_WIDTH))
+        .left(placement.left(HOVER_INSET, width.into()))
         .flex()
         .flex_col()
         .font_family(font::UI)
@@ -396,22 +432,33 @@ fn render_list_popup(popup: &Popup, placement: &Placement, view: &DocumentationV
     } else {
         placement.room_above()
     };
-    let documentation = popup
-        .documentation
-        .as_ref()
-        .map(|documentation| render_documentation(documentation, popup.hints, room, view));
-    let documentation_right = list_left + px(LIST_WIDTH + PANEL_GAP + DOCUMENTATION_WIDTH)
-        <= placement.window_width - px(WINDOW_MARGIN);
+    let list_right = list_left + px(LIST_WIDTH + PANEL_GAP);
+    let room_right = placement.window_width - px(WINDOW_MARGIN) - list_right;
+    let room_left = list_left - px(PANEL_GAP + WINDOW_MARGIN);
+    let max_width = view
+        .max_width
+        .min(room_right.max(room_left).max(px(DOCUMENTATION_WIDTH)));
+    let documentation = popup.documentation.as_ref().map(|documentation| {
+        let (width, documentation) = fit(
+            documentation,
+            &DOCUMENTATION_INSETS,
+            px(DOCUMENTATION_WIDTH),
+            max_width,
+            view,
+        );
+        let panel = render_documentation(&documentation, popup.hints, room, view).w(width);
+        (width, panel.into_any_element())
+    });
     let (left, children) = match documentation {
-        Some(documentation) if !documentation_right => (
-            list_left - px(DOCUMENTATION_WIDTH + PANEL_GAP),
+        Some((width, documentation)) if width > room_right => (
+            list_left - width - px(PANEL_GAP),
             vec![documentation, render_list(popup)],
         ),
         documentation => (
             list_left,
             [render_list(popup)]
                 .into_iter()
-                .chain(documentation)
+                .chain(documentation.map(|(_, panel)| panel))
                 .collect(),
         ),
     };
@@ -530,17 +577,23 @@ fn render_documentation(
     hints: &'static [(&'static str, &'static str)],
     room: Pixels,
     view: &DocumentationView,
-) -> AnyElement {
+) -> Div {
     let title = [documentation.container.as_str(), &documentation.kind]
         .into_iter()
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
         .join(" · ");
+    let signature = documentation.signature.as_ref().map(|signature| {
+        code_box("documentation-signature", 0, signature, view)
+            .flex_none()
+            .text_size(px(font::MONO_SIZE))
+            .line_height(px(BODY_LINE_HEIGHT))
+            .into_any_element()
+    });
     panel()
-        .w(px(DOCUMENTATION_WIDTH))
-        .max_h(room)
+        .max_h(room.min(view.max_height))
         .overflow_hidden()
-        .px(px(14.0))
+        .px(px(DOCUMENTATION_PADDING_X))
         .py(px(12.0))
         .gap(px(8.0))
         .when(!title.is_empty(), |panel| {
@@ -552,34 +605,86 @@ fn render_documentation(
                     .child(title),
             )
         })
-        .when_some(documentation.signature.as_ref(), |panel, signature| {
-            panel.child(
-                div()
-                    .flex_none()
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .font_family(font::mono())
-                    .text_size(px(font::MONO_SIZE))
-                    .line_height(px(BODY_LINE_HEIGHT))
-                    .child(render_code(signature, view)),
-            )
-        })
-        .when(!documentation.blocks.is_empty(), |panel| {
-            panel.child(
-                render_body(&documentation.blocks, 8.0, view)
-                    .max_h(px(DOCUMENTATION_BODY_MAX_HEIGHT)),
-            )
+        .when(!documentation.is_empty(), |panel| {
+            panel.child(render_body(signature, &documentation.blocks, 8.0, view))
         })
         .when(!hints.is_empty(), |panel| panel.child(render_hints(hints)))
-        .into_any_element()
 }
 
-/// Gives way first when the panel is short of room, so the hints stay in view, and
-/// scrolls. A heading stays close to the block it introduces.
-fn render_body(blocks: &[DocBlock], gap: f32, view: &DocumentationView) -> Stateful<Div> {
-    let mut sections = Vec::new();
-    let mut blocks = blocks.iter().peekable();
-    while let Some(block) = blocks.next() {
+/// The documentation with its code wrapped to fit `max_width`, and how wide it is drawn:
+/// as wide as its widest code, from `min_width` up to `max_width`.
+fn fit(
+    documentation: &Documentation,
+    insets: &CodeInsets,
+    min_width: Pixels,
+    max_width: Pixels,
+    view: &DocumentationView,
+) -> (Pixels, Documentation) {
+    let mut widest = px(0.0);
+    let mut fit_code = |code: &Code, inset: f32, char_width: Pixels| {
+        let room = max_width - px(insets.panel + inset);
+        let text = wrap_code(&code.text, (room / char_width).floor().max(1.0) as usize);
+        let longest = text.lines().map(|line| line.chars().count()).max();
+        let width = char_width * longest.unwrap_or(0) as f32 + px(insets.panel + inset);
+        widest = widest.max(width.ceil());
+        Code::new(text, code.mode)
+    };
+    let signature = documentation
+        .signature
+        .as_ref()
+        .map(|code| fit_code(code, insets.signature, view.mono_width));
+    let blocks = documentation
+        .blocks
+        .iter()
+        .map(|block| match block {
+            DocBlock::Code(code) => {
+                DocBlock::Code(fit_code(code, insets.block, view.small_mono_width))
+            }
+            block => block.clone(),
+        })
+        .collect();
+    let fitted = Documentation {
+        container: documentation.container.clone(),
+        kind: documentation.kind.clone(),
+        signature,
+        blocks,
+    };
+    (widest.max(min_width).min(max_width), fitted)
+}
+
+/// Code as it was wrapped; a line still longer than the box scrolls sideways. `index` tells
+/// boxes of the same code apart, which keep where they were scrolled to.
+fn code_box(
+    name: &'static str,
+    index: usize,
+    code: &Code,
+    view: &DocumentationView,
+) -> Stateful<Div> {
+    let mut hasher = DefaultHasher::new();
+    (index, &code.text).hash(&mut hasher);
+    let mut code_box = div()
+        .id(ElementId::from((name, hasher.finish())))
+        .flex()
+        .overflow_x_scroll();
+    // So a vertical wheel over code scrolls the documentation, not the code sideways.
+    code_box.style().restrict_scroll_to_axis = Some(true);
+    code_box
+        .whitespace_nowrap()
+        .font_family(font::mono())
+        .child(div().flex_none().child(render_code(code, view)))
+}
+
+/// The signature and the blocks; gives way first when the panel is short of room, so the
+/// hints stay in view, and scrolls. A heading stays close to the block it introduces.
+fn render_body(
+    signature: Option<AnyElement>,
+    blocks: &[DocBlock],
+    gap: f32,
+    view: &DocumentationView,
+) -> Stateful<Div> {
+    let mut sections: Vec<AnyElement> = signature.into_iter().collect();
+    let mut blocks = blocks.iter().enumerate().peekable();
+    while let Some((index, block)) = blocks.next() {
         let section = match block {
             DocBlock::Heading(heading) => div()
                 .flex()
@@ -589,11 +694,11 @@ fn render_body(blocks: &[DocBlock], gap: f32, view: &DocumentationView) -> State
                 .child(render_heading(heading))
                 .children(
                     blocks
-                        .next_if(|next| !matches!(next, DocBlock::Heading(_)))
-                        .map(|next| render_block(next, view)),
+                        .next_if(|(_, next)| !matches!(next, DocBlock::Heading(_)))
+                        .map(|(index, next)| render_block(index, next, view)),
                 )
                 .into_any_element(),
-            block => render_block(block, view),
+            block => render_block(index, block, view),
         };
         sections.push(section);
     }
@@ -623,7 +728,7 @@ fn render_heading(heading: &str) -> impl IntoElement {
         .child(StyledText::new(text).with_highlights(code))
 }
 
-fn render_block(block: &DocBlock, view: &DocumentationView) -> AnyElement {
+fn render_block(index: usize, block: &DocBlock, view: &DocumentationView) -> AnyElement {
     match block {
         DocBlock::Heading(heading) => render_heading(heading).into_any_element(),
         DocBlock::Text(text) => {
@@ -636,19 +741,15 @@ fn render_block(block: &DocBlock, view: &DocumentationView) -> AnyElement {
                 .child(StyledText::new(text).with_highlights(code))
                 .into_any_element()
         }
-        DocBlock::Code(code) => div()
+        DocBlock::Code(code) => code_box("documentation-code", index, code, view)
             .flex_none()
-            .px(px(8.0))
+            .px(px(CODE_BLOCK_PADDING_X))
             .py(px(6.0))
             .rounded(px(6.0))
             .bg(rgba(glass::FIELD))
-            .overflow_hidden()
-            .whitespace_nowrap()
-            .font_family(font::mono())
             .text_size(px(font::STATUS_SIZE))
             .line_height(px(18.0))
             .text_color(rgb(color::FG_ALT))
-            .child(render_code(code, view))
             .into_any_element(),
     }
 }
