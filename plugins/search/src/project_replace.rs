@@ -409,16 +409,15 @@ fn finish(editor: &mut Editor) {
         return;
     };
     state.preview.end(editor, None);
-    let message = match state.errors.first() {
-        Some(error) => format!("Could not replace in {error}"),
-        None if state.taken.is_empty() => "No matches in the project".to_owned(),
-        None => format!(
+    match state.errors.first() {
+        Some(error) => editor.set_error(format!("Could not replace in {error}")),
+        None if state.taken.is_empty() => editor.set_message("No matches in the project"),
+        None => editor.set_done(format!(
             "Replaced {} in {}",
             plural(state.replaced, "occurrence"),
             plural(state.files_saved, "file")
-        ),
-    };
-    editor.set_message(message);
+        )),
+    }
 }
 
 fn active(editor: &mut Editor) -> Option<&mut Replacing> {

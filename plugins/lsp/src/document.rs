@@ -468,7 +468,7 @@ fn report_exits(editor: &mut Editor) {
     }
     for (name, reason) in exited {
         detach(editor, name);
-        editor.set_message(format!("{name} {reason}"));
+        editor.set_error(format!("{name} {reason}"));
     }
 }
 
@@ -621,7 +621,7 @@ fn hand_over(editor: &mut Editor, index: usize, client: &Client, answer: Answer)
             let result = match result {
                 Ok(()) => json!({ "applied": true }),
                 Err(error) => {
-                    editor.set_message(error.0.clone());
+                    editor.set_error(error.0.clone());
                     json!({ "applied": false, "failureReason": error.0 })
                 }
             };
@@ -844,7 +844,7 @@ fn open(
     {
         Ok(client) => client?,
         Err(message) => {
-            editor.set_message(message);
+            editor.set_error(message);
             return None;
         }
     };

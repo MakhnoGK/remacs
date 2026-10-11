@@ -22,6 +22,13 @@ const SCROLL_ANIMATION_DURATIONS: RangeInclusive<u64> = 0..=1000;
 const GLASS_OPACITIES: RangeInclusive<f32> = 0.0..=1.0;
 /// Pixels; the window server blurs no more than 64.
 const GLASS_BLURS: RangeInclusive<u32> = 0..=64;
+const ECHO_LINES: RangeInclusive<usize> = 3..=40;
+const ECHO_HISTORIES: RangeInclusive<usize> = 10..=100_000;
+/// Pixels.
+const HINTS_SIDE_ROOMS: RangeInclusive<f32> = 0.0..=800.0;
+/// Milliseconds.
+const PREFIX_KEYS_DELAYS: RangeInclusive<u64> = 0..=5000;
+const PREFIX_KEYS_COLUMNS: RangeInclusive<usize> = 1..=8;
 /// Changes this close together are read once, e.g. an editor's save done in steps.
 const SETTLE_TIME: Duration = Duration::from_millis(100);
 
@@ -61,7 +68,7 @@ pub fn report(errors: &[SettingsError], editor: &mut Editor) {
         eprintln!("remacs: {error}");
     }
     if let Some(error) = errors.first() {
-        editor.set_message(error.to_string());
+        editor.set_error(error.to_string());
     }
 }
 
@@ -99,13 +106,26 @@ pub fn watch_settings(view: WeakEntity<EditorView>, cx: &mut App) {
 
 /// `ui.toml`.
 #[derive(Debug, Default, Deserialize, PartialEq)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct UiSettings {
     pub font: FontSettings,
     pub cursor: CursorSettings,
     pub mouse: MouseSettings,
     pub scroll: ScrollSettings,
     pub glass: GlassSettings,
+    pub echo: EchoSettings,
+    pub hints: HintsSettings,
+    pub prefix_keys: PrefixKeysSettings,
+}
+
+impl UiSettings {
+    pub fn bottom(&self) -> BottomSettings {
+        BottomSettings {
+            echo: self.echo,
+            hints: self.hints,
+            prefix_keys: self.prefix_keys,
+        }
+    }
 }
 
 impl Section for UiSettings {
@@ -165,8 +185,32 @@ impl Section for UiSettings {
                 GLASS_BLURS.end()
             ));
         }
-        Ok(())
+        check_range("echo.lines", self.echo.lines, &ECHO_LINES)?;
+        check_range("echo.history", self.echo.history, &ECHO_HISTORIES)?;
+        check_range("hints.side-room", self.hints.side_room, &HINTS_SIDE_ROOMS)?;
+        let prefix_keys = &self.prefix_keys;
+        check_range("prefix-keys.delay", prefix_keys.delay, &PREFIX_KEYS_DELAYS)?;
+        check_range(
+            "prefix-keys.columns",
+            prefix_keys.columns,
+            &PREFIX_KEYS_COLUMNS,
+        )
     }
+}
+
+fn check_range<T: PartialOrd + std::fmt::Display>(
+    name: &str,
+    value: T,
+    range: &RangeInclusive<T>,
+) -> Result<(), String> {
+    if range.contains(&value) {
+        return Ok(());
+    }
+    Err(format!(
+        "{name} {value} is outside {}..={}",
+        range.start(),
+        range.end()
+    ))
 }
 
 /// The font of code.
@@ -302,6 +346,78 @@ impl Default for GlassSettings {
     }
 }
 
+/// What the row along the bottom of the window shows, from three sections.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BottomSettings {
+    pub echo: EchoSettings,
+    pub hints: HintsSettings,
+    pub prefix_keys: PrefixKeysSettings,
+}
+
+/// The echo area's messages.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub struct EchoSettings {
+    /// Of a message opened whole from its pill; more scroll.
+    pub lines: usize,
+    /// Messages kept in `*Messages*`.
+    pub history: usize,
+}
+
+impl Default for EchoSettings {
+    fn default() -> Self {
+        Self {
+            lines: 12,
+            history: 1000,
+        }
+    }
+}
+
+/// The keys of the view, under it.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct HintsSettings {
+    pub show: bool,
+    /// Pixels kept on each side of the keys for the echo area and the status; keys that
+    /// do not fit between go under a `+N` chip.
+    pub side_room: f32,
+}
+
+impl Default for HintsSettings {
+    fn default() -> Self {
+        Self {
+            show: true,
+            side_room: 280.0,
+        }
+    }
+}
+
+/// The keys that may follow a prefix typed, listed after a pause, like Emacs `which-key`.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub struct PrefixKeysSettings {
+    pub show: bool,
+    /// Milliseconds after the prefix.
+    pub delay: u64,
+    pub columns: usize,
+}
+
+impl PrefixKeysSettings {
+    pub fn delay(&self) -> Duration {
+        Duration::from_millis(self.delay)
+    }
+}
+
+impl Default for PrefixKeysSettings {
+    fn default() -> Self {
+        Self {
+            show: true,
+            delay: 600,
+            columns: 4,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -322,9 +438,29 @@ mod tests {
             "[font]\nfamily = \"Menlo\"\nsize = 15\nline-height = 1.5\nstrokes = \"thin\"\n\
              ligatures = false\n\
              [cursor]\nheight = \"font\"\n[mouse]\ndrag-scroll-interval = 60\n\
-             [scroll]\nanimation-duration = 0\n[glass]\nopacity = 0.5\nblur = 0\n",
+             [scroll]\nanimation-duration = 0\n[glass]\nopacity = 0.5\nblur = 0\n\
+             [echo]\nlines = 6\nhistory = 50\n[hints]\nshow = false\nside-room = 200\n\
+             [prefix-keys]\nshow = false\ndelay = 0\ncolumns = 3\n",
         )
         .unwrap();
+        assert_eq!(
+            settings.bottom(),
+            BottomSettings {
+                echo: EchoSettings {
+                    lines: 6,
+                    history: 50
+                },
+                hints: HintsSettings {
+                    show: false,
+                    side_room: 200.0
+                },
+                prefix_keys: PrefixKeysSettings {
+                    show: false,
+                    delay: 0,
+                    columns: 3
+                },
+            }
+        );
         assert_eq!(
             settings.glass,
             GlassSettings {
@@ -350,5 +486,8 @@ mod tests {
         assert!(parse("[scroll]\nanimation-duration = 5000\n").is_err());
         assert!(parse("[glass]\nopacity = 1.5\n").is_err());
         assert!(parse("[glass]\nblur = 65\n").is_err());
+        assert!(parse("[echo]\nlines = 1\n").is_err());
+        assert!(parse("[hints]\nside-room = -1\n").is_err());
+        assert!(parse("[prefix-keys]\ncolumns = 0\n").is_err());
     }
 }

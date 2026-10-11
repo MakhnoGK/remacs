@@ -88,7 +88,7 @@ pub fn open(editor: &mut Editor) -> CommandResult {
         .find_kind(&entry.configuration.kind)
         .map(|configuration| configuration.name.clone());
     if let Some(error) = error {
-        editor.set_message(error);
+        editor.set_error(error);
     }
     let settings = sessions(editor).settings.clone();
     let command_line = launch(&entry.configuration, &root, &settings)

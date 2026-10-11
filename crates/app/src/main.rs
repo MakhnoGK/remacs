@@ -1,4 +1,5 @@
 mod assets;
+mod bottom_row;
 mod changes_view;
 mod conflict_view;
 mod dialog_view;
@@ -37,6 +38,7 @@ use remacs_debug::{DebugPlugin, keep_breakpoints_in};
 use remacs_diagnostics::DiagnosticsPlugin;
 use remacs_dired::DiredPlugin;
 use remacs_documentation::DocumentationPlugin;
+use remacs_echo::EchoPlugin;
 use remacs_editing::EditingPlugin;
 use remacs_files::FilesPlugin;
 use remacs_format::FormatPlugin;
@@ -84,6 +86,8 @@ const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
     // Format backends, asked in order; language servers format what the others leave.
     &PrettierPlugin::new(PRETTIER_MODES),
     &LspPlugin::new(SERVERS),
+    // Last, so that *Messages* shows what the others said in the same pass.
+    &EchoPlugin,
 ];
 
 fn main() -> ExitCode {
@@ -121,11 +125,9 @@ fn main() -> ExitCode {
     report(&errors, &mut editor);
     if let Err(error) = imported {
         eprintln!("remacs: {error}");
-        editor.set_message(format!("Not the login shell's environment: {error}"));
+        editor.set_error(format!("Not the login shell's environment: {error}"));
     }
 
-    let (cursor_height, mouse, scroll, window_blur) =
-        (ui.cursor.height, ui.mouse, ui.scroll, ui.glass.blur);
     // Finder's and the Dock's, which may come before the window is open.
     let (opened, mut to_open) = mpsc::unbounded();
     let app = Application::new().with_assets(Assets);
@@ -148,17 +150,7 @@ fn main() -> ExitCode {
         };
         let window = cx
             .open_window(options, |window, cx| {
-                let view = cx.new(|cx| {
-                    EditorView::new(
-                        editor,
-                        cursor_height,
-                        mouse,
-                        scroll,
-                        window_blur,
-                        window,
-                        cx,
-                    )
-                });
+                let view = cx.new(|cx| EditorView::new(editor, &ui, window, cx));
                 window.focus(view.read(cx).focus_handle());
                 watch_settings(view.downgrade(), cx);
                 view

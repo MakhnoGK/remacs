@@ -216,7 +216,7 @@ pub fn deliver(editor: &mut Editor, id: u64, formatted: Formatted) {
         Ok(edits) => edits,
         Err(Failure::Unsupported(_)) if after_save => return,
         Err(Failure::Unsupported(message) | Failure::Failed(message)) => {
-            return editor.set_message(message);
+            return editor.set_error(message);
         }
     };
     let Some(buffer) = editor
@@ -248,7 +248,7 @@ pub fn deliver(editor: &mut Editor, id: u64, formatted: Formatted) {
             let saves = buffer.text().saves();
             buffer.set_local(SeenSaves(saves));
         }
-        Err(error) => editor.set_message(format!("Formatted, not saved: {error}")),
+        Err(error) => editor.set_error(format!("Formatted, not saved: {error}")),
     }
 }
 

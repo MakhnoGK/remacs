@@ -3933,6 +3933,7 @@ dependencies = [
  "remacs-diagnostics",
  "remacs-dired",
  "remacs-documentation",
+ "remacs-echo",
  "remacs-editing",
  "remacs-files",
  "remacs-format",
@@ -3975,6 +3976,7 @@ dependencies = [
 name = "remacs-core"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "nucleo-matcher",
  "remacs-config",
  "remacs-text",
@@ -4027,6 +4029,15 @@ dependencies = [
 
 [[package]]
 name = "remacs-documentation"
+version = "0.1.0"
+dependencies = [
+ "remacs-core",
+ "remacs-editing",
+ "remacs-text",
+]
+
+[[package]]
+name = "remacs-echo"
 version = "0.1.0"
 dependencies = [
  "remacs-core",

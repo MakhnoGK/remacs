@@ -308,6 +308,6 @@ fn exited(editor: &mut Editor, id: u64, name: &str, exit: Exit) {
         (false, Exit::NotStarted) => {}
     }
     if rerun && let Err(error) = start(editor, id) {
-        editor.set_message(error.0);
+        editor.set_error(error.0);
     }
 }

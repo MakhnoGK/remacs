@@ -207,7 +207,7 @@ fn finish(editor: &mut Editor) {
     } else {
         "occurrences"
     };
-    editor.set_message(format!("Replaced {replaced} {noun}"));
+    editor.set_done(format!("Replaced {replaced} {noun}"));
 }
 
 fn replacing(buffer: &Buffer) -> Result<&Replacing, &'static str> {

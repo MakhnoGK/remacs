@@ -278,7 +278,7 @@ fn start(editor: &mut Editor, transfer: Transfer, answer: &str) -> CommandResult
         moves,
         move |editor, edits| match references::update(editor, edits) {
             Ok(updated) => run(editor, job, updated),
-            Err(error) => editor.set_message(error),
+            Err(error) => editor.set_error(error),
         },
     )?;
     Ok(())

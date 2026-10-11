@@ -386,7 +386,7 @@ pub fn set_value(
         arguments,
         |editor, address, result| match result {
             Ok(_) => load_frame(editor, address),
-            Err(error) => editor.set_message(format!("Could not set it: {error}")),
+            Err(error) => editor.set_error(format!("Could not set it: {error}")),
         },
     );
 }

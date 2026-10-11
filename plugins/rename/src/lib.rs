@@ -109,7 +109,7 @@ pub fn deliver_name(editor: &mut Editor, id: u64, name: Result<String, String>) 
     };
     let name = match name {
         Ok(name) => name,
-        Err(error) => return editor.set_message(error),
+        Err(error) => return editor.set_error(error),
     };
     let buffer = editor.window_buffer();
     let moved = buffer.path() != Some(awaited.path.as_path()) || buffer.point() != awaited.offset;
@@ -118,7 +118,7 @@ pub fn deliver_name(editor: &mut Editor, id: u64, name: Result<String, String>) 
     }
     let result = read_new_name(editor, awaited, name);
     if let Err(error) = result {
-        editor.set_message(error.0);
+        editor.set_error(error.0);
     }
 }
 
@@ -186,11 +186,10 @@ pub fn deliver_changes(editor: &mut Editor, id: u64, changes: Result<Vec<FileCha
             })
             .sum()
     });
-    let message = match changes.and_then(|changes| editor.change_files(changes)) {
-        Ok(changed) => renamed_message(&from, &to, places, &changed),
-        Err(error) => format!("Could not rename {from}: {error}"),
-    };
-    editor.set_message(message);
+    match changes.and_then(|changes| editor.change_files(changes)) {
+        Ok(changed) => editor.set_done(renamed_message(&from, &to, places, &changed)),
+        Err(error) => editor.set_error(format!("Could not rename {from}: {error}")),
+    }
 }
 
 fn take_awaited(editor: &mut Editor, id: u64, renaming: bool) -> Option<Awaited> {

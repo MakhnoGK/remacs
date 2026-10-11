@@ -184,7 +184,7 @@ fn collect_answers(editor: &mut Editor) {
             let done = collected.unanswered.is_empty();
             let edits = match renamed.edit {
                 Some(edit) => file_edits(editor, edit, renamed.encoding).unwrap_or_else(|error| {
-                    editor.set_message(format!("References cannot be updated: {error}"));
+                    editor.set_error(format!("References cannot be updated: {error}"));
                     Vec::new()
                 }),
                 None => Vec::new(),

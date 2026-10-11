@@ -91,7 +91,7 @@ pub fn deliver(editor: &mut Editor, id: u64, mut locations: Vec<Location>) {
         _ => choose(editor, locations),
     };
     if let Err(error) = result {
-        editor.set_message(error.0);
+        editor.set_error(error.0);
     }
 }
 

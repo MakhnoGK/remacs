@@ -162,7 +162,7 @@ pub fn choose_with(editor: &mut Editor, starter: Option<Starter>) -> CommandResu
     let saved = project.configurations.clone();
     let temporary = project.temporary.clone();
     if let Some(error) = error {
-        editor.set_message(error);
+        editor.set_error(error);
     }
     let index = project_files(editor, &root);
     let listing = Rc::new(RefCell::new(Listing {

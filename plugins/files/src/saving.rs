@@ -122,7 +122,7 @@ fn save(editor: &mut Editor, name: &str) -> CommandResult {
         .ok_or_else(|| format!("No buffer named {name}"))?;
     buffer.save()?;
     let path = buffer.path().map(|path| path.display().to_string());
-    editor.set_message(format!("Wrote {}", path.unwrap_or_default()));
+    editor.set_done(format!("Wrote {}", path.unwrap_or_default()));
     Ok(())
 }
 

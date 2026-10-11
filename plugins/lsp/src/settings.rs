@@ -86,7 +86,7 @@ pub(crate) fn read(editor: &mut Editor, servers: &'static [LanguageServer]) {
         .find(|name| !servers.iter().any(|server| server.name == name.as_str()))
     {
         let known: Vec<_> = servers.iter().map(|server| server.name).collect();
-        editor.set_message(format!(
+        editor.set_error(format!(
             "lsp.toml: no server named `{unknown}`; there are {}",
             known.join(", ")
         ));

@@ -139,7 +139,7 @@ pub fn pick_up_listings(editor: &mut Editor) {
         }
     }
     if let Some(failure) = failure {
-        editor.set_message(failure);
+        editor.set_error(failure);
     }
 }
 

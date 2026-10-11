@@ -65,6 +65,25 @@ impl Keymap {
             .unwrap_or(Binding::Unbound)
     }
 
+    /// The keys that may follow `prefix`, each with what the sequence then is.
+    pub fn continuations<'a>(
+        &'a self,
+        prefix: &'a [Key],
+    ) -> impl Iterator<Item = (Key, Binding)> + 'a {
+        let next = move |keys: &Vec<Key>| {
+            (keys.len() == prefix.len() + 1 && keys.starts_with(prefix)).then(|| keys[prefix.len()])
+        };
+        let commands = self
+            .commands
+            .iter()
+            .filter_map(move |(keys, &command)| Some((next(keys)?, Binding::Command(command))));
+        let prefixes = self
+            .prefixes
+            .iter()
+            .filter_map(move |keys| Some((next(keys)?, Binding::Prefix)));
+        commands.chain(prefixes)
+    }
+
     pub fn sequences_for<'a>(&'a self, command: &'a str) -> impl Iterator<Item = &'a [Key]> {
         self.commands
             .iter()

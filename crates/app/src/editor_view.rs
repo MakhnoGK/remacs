@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::mem;
 use std::ops::Range;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -17,12 +18,17 @@ use gpui::{
 use crate::assets::{EXECUTION_POINT_ICON, LOGPOINT_ICON};
 use remacs_core::{
     Action, BreakpointIcon, ChangedLines, Code, CommandError, DocBlock, Editor, GutterIcon,
-    GutterMark, Icon, LineChange, LineExtra, MouseSelection, Outline, PaneBody, PaneButton, Popup,
-    Preview, PreviewBody, ScreenMouse, Scroll, StatusSegment, Tabs,
+    GutterMark, Icon, Key, LineChange, LineExtra, MouseSelection, Outline, PaneBody, PaneButton,
+    Popup, Preview, PreviewBody, ScreenMouse, Scroll, StatusSegment, Tabs, describe_sequence,
 };
+use remacs_echo::VIEW_MESSAGES;
 use remacs_theme::font::CodeFont;
 use remacs_theme::{color, font, glass};
 
+use crate::bottom_row::{
+    CardKeys, Hints, echo_room, fit_hints, render_hints, render_hints_list, render_message_card,
+    render_message_echo, render_prefix_echo, render_prefix_keys, render_row,
+};
 use crate::changes_view::render_changes;
 use crate::conflict_view::codes as conflict_codes;
 use crate::display_line::{DisplayLine, display_width, slice_line};
@@ -40,10 +46,12 @@ use crate::pane_view::{
 use crate::popup_view::{DocumentationScroll, DocumentationView, Placement, render_popup};
 use crate::preview_view::render_preview;
 use crate::screen_view::{Cell as ScreenCell, cell_at, render_screen, screen_size};
-use crate::settings::{CursorHeight, MouseSettings, ReadSettings, ScrollSettings, report};
+use crate::settings::{
+    BottomSettings, CursorHeight, MouseSettings, ReadSettings, ScrollSettings, UiSettings, report,
+};
 use crate::smooth_scroll::SmoothScroll;
 use crate::table_view::{
-    LIST_BOTTOM, ROW_PITCH, ROWS_TOP, TableCursor, fits_preview, render_hints, render_table,
+    LIST_BOTTOM, ROW_PITCH, ROWS_TOP, TableCursor, fits_preview, render_table,
 };
 use crate::tabs_view::render_tabs;
 use crate::widgets::{
@@ -80,6 +88,9 @@ const CHANGE_TICK_WIDTH: f32 = 9.0;
 const CHANGE_TICK_HEIGHT: f32 = 3.0;
 /// Per mode; one popup shows a handful.
 const MAX_HIGHLIGHTED_SNIPPETS: usize = 64;
+/// While a message is open whole: Emacs's copy and quit keys.
+const COPY_MESSAGE_KEY: &str = "M-w";
+const CLOSE_KEY: &str = "C-g";
 
 pub struct EditorView {
     editor: Editor,
@@ -135,6 +146,14 @@ pub struct EditorView {
     screen_scroll: f32,
     /// The row of a screen whose command mark the mouse is over.
     hovered_mark: Option<usize>,
+    bottom: BottomSettings,
+    /// The echo area's message is shown whole above it, until the next key or click.
+    message_open: bool,
+    /// The view's keys that do not fit under it are listed, until the next key or click.
+    hints_open: bool,
+    /// Since when a prefix has been pending, and the timer that then lists its keys.
+    prefix_since: Option<Instant>,
+    prefix_timer: Option<Task<()>>,
     _activation: Subscription,
 }
 
@@ -173,13 +192,12 @@ struct Metrics {
 impl EditorView {
     pub fn new(
         mut editor: Editor,
-        cursor_height: CursorHeight,
-        mouse: MouseSettings,
-        scroll: ScrollSettings,
-        window_blur: u32,
+        ui: &UiSettings,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let bottom = ui.bottom();
+        editor.message_log_mut().set_limit(bottom.echo.history);
         let (notify, mut notifications) = mpsc::unbounded();
         editor.set_notifier(Arc::new(move || {
             let _ = notify.unbounded_send(());
@@ -203,14 +221,14 @@ impl EditorView {
         let mut view = Self {
             editor,
             focus_handle: cx.focus_handle(),
-            cursor_height,
-            mouse,
+            cursor_height: ui.cursor.height,
+            mouse: ui.mouse,
             mouse_selection: None,
             drag_position: Point::default(),
             drag_scroll: None,
             metrics: None,
-            scroll,
-            window_blur,
+            scroll: ui.scroll,
+            window_blur: ui.glass.blur,
             applied_window_blur: None,
             vertical: SmoothScroll::default(),
             sideways: SmoothScroll::default(),
@@ -229,6 +247,11 @@ impl EditorView {
             screen_press: None,
             screen_scroll: 0.0,
             hovered_mark: None,
+            bottom,
+            message_open: false,
+            hints_open: false,
+            prefix_since: None,
+            prefix_timer: None,
             _activation: activation,
         };
         view.receive_clipboard(cx);
@@ -247,6 +270,10 @@ impl EditorView {
         self.mouse = read.ui.mouse;
         self.scroll = read.ui.scroll;
         self.window_blur = read.ui.glass.blur;
+        self.bottom = read.ui.bottom();
+        self.editor
+            .message_log_mut()
+            .set_limit(self.bottom.echo.history);
         self.editor.set_settings(read.settings);
         report(&read.errors, &mut self.editor);
         cx.notify();
@@ -286,8 +313,60 @@ impl EditorView {
         let Some(key) = to_key(&event.keystroke) else {
             return;
         };
+        self.hints_open = false;
+        // Any key closes the message opened whole; its own keys go no further.
+        if mem::take(&mut self.message_open) {
+            if Key::parse(COPY_MESSAGE_KEY) == Some(key)
+                && let Some(message) = self.editor.message()
+            {
+                let text = message.text.clone();
+                self.editor.kill_ring.push(text);
+                self.editor.set_done("Copied");
+                return self.after_input(cx);
+            }
+            if Key::parse(CLOSE_KEY) == Some(key) {
+                return cx.notify();
+            }
+        }
         self.editor.handle_key(key);
         self.after_input(cx);
+    }
+
+    /// Opens the echo area's message whole above it, or closes it.
+    pub fn toggle_message_open(&mut self, cx: &mut Context<Self>) {
+        self.message_open = !self.message_open && self.editor.message().is_some();
+        self.hints_open = false;
+        cx.notify();
+    }
+
+    /// Lists the view's keys that do not fit under it, or stops.
+    pub fn toggle_hints_open(&mut self, cx: &mut Context<Self>) {
+        self.hints_open = !self.hints_open;
+        self.message_open = false;
+        cx.notify();
+    }
+
+    /// Lists the keys after a prefix once it has been pending for a while.
+    fn track_prefix(&mut self, cx: &mut Context<Self>) {
+        if self.editor.pending_keys().is_empty() {
+            self.prefix_since = None;
+            self.prefix_timer = None;
+            return;
+        }
+        if self.prefix_since.is_some() || !self.bottom.prefix_keys.show {
+            return;
+        }
+        self.prefix_since = Some(Instant::now());
+        let delay = self.bottom.prefix_keys.delay();
+        self.prefix_timer = Some(cx.spawn(async move |view, cx| {
+            cx.background_executor().timer(delay).await;
+            let _ = view.update(cx, |_, cx| cx.notify());
+        }));
+    }
+
+    fn prefix_keys_due(&self) -> bool {
+        self.prefix_since
+            .is_some_and(|since| since.elapsed() >= self.bottom.prefix_keys.delay())
     }
 
     fn after_input(&mut self, cx: &mut Context<Self>) {
@@ -298,6 +377,7 @@ impl EditorView {
             cx.quit();
         }
         self.scrolled_sideways = false;
+        self.track_prefix(cx);
         self.schedule_refresh(cx);
         cx.notify();
     }
@@ -443,6 +523,9 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) {
         window.focus(&self.focus_handle);
+        if mem::take(&mut self.message_open) | mem::take(&mut self.hints_open) {
+            cx.notify();
+        }
         // An open prompt is modal: clicks choose candidates or do nothing. Rows handle
         // their own clicks.
         let Some(metrics) = self
@@ -1313,7 +1396,7 @@ impl EditorView {
         outline_lines: usize,
         window: &Window,
         cx: &mut Context<Self>,
-    ) -> Option<(AnyElement, AnyElement, Option<AnyElement>)> {
+    ) -> Option<(AnyElement, Hints, Option<AnyElement>)> {
         let height = window.viewport_size().height;
         let mut outline = self.editor.outline(
             self.editor.viewport.first_line..self.editor.viewport.first_line + outline_lines,
@@ -1379,7 +1462,7 @@ impl EditorView {
         for code in outline.conflict.iter().flat_map(conflict_codes) {
             self.highlight_code(&code);
         }
-        let hints = render_hints(outline.hints).into_any_element();
+        let hints = outline.hints;
         let toolbar = std::mem::take(&mut outline.toolbar);
         let toolbar = (!toolbar.is_empty()).then(|| render_toolbar(toolbar, cx).into_any_element());
         let faces = |code: &Code| self.faces_of(code);
@@ -1431,6 +1514,81 @@ impl EditorView {
             }))
     }
 
+    /// The row along the bottom, and what opens from it over the view: the message whole,
+    /// the keys that do not fit, the keys after a prefix.
+    fn render_bottom_row(
+        &mut self,
+        hints: Hints,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> (AnyElement, Vec<AnyElement>) {
+        let settings = self.bottom;
+        let fitted = fit_hints(hints, settings.hints.show, settings.hints.side_room, window);
+        let key_for = |editor: &Editor, command: &str| {
+            editor
+                .keymap()
+                .sequences_for(command)
+                .min_by_key(|keys| keys.len())
+                .map(describe_sequence)
+        };
+        let whole_key = key_for(&self.editor, VIEW_MESSAGES);
+        let pending = self.editor.pending_keys();
+        let echo = if !pending.is_empty() {
+            Some(render_prefix_echo(pending))
+        } else {
+            self.editor.message().map(|message| {
+                let room = echo_room(&fitted, window);
+                render_message_echo(
+                    message,
+                    room,
+                    self.message_open,
+                    whole_key.as_deref(),
+                    window,
+                    cx,
+                )
+            })
+        };
+        let listed = self.hints_open || self.editor.key_hints_listed();
+        let hints_pill = render_hints(&fitted, listed, cx);
+        let row = render_row(echo, hints_pill, self.render_status(cx).into_any_element());
+
+        let mut popups = Vec::new();
+        if self.message_open
+            && let Some(message) = self.editor.message()
+        {
+            let keys = CardKeys {
+                all_messages: whole_key.as_deref(),
+                copy: COPY_MESSAGE_KEY,
+                close: CLOSE_KEY,
+            };
+            popups.push(
+                render_message_card(message, settings.echo.lines, keys, window).into_any_element(),
+            );
+        }
+        if listed {
+            // Under text the keys are a shown pane's, when there is one.
+            let mode = self.editor.window_buffer().mode();
+            let title = match self.editor.shown_pane() {
+                Some(pane) if !self.showing_rows && !self.showing_screen => pane,
+                _ => mode,
+            };
+            popups.extend(render_hints_list(&fitted, title).map(IntoElement::into_any_element));
+        }
+        if self.prefix_keys_due() && !self.editor.pending_keys().is_empty() {
+            popups.push(
+                render_prefix_keys(
+                    self.editor.pending_keys(),
+                    self.editor.prefix_continuations(),
+                    settings.prefix_keys.columns,
+                    CLOSE_KEY,
+                    window,
+                )
+                .into_any_element(),
+            );
+        }
+        (row.into_any_element(), popups)
+    }
+
     fn render_status(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let buffer = self.editor.window_buffer();
         let position = format!("{}:{}", buffer.point_line() + 1, buffer.point_column() + 1);
@@ -1451,12 +1609,7 @@ impl EditorView {
         }
 
         pill()
-            .right(px(16.0))
-            .when_some(self.editor.echo(), |status, echo| {
-                status
-                    .child(div().px(px(8.0)).text_color(rgb(color::FG_ALT)).child(echo))
-                    .child(pill_separator())
-            })
+            .flex_none()
             .children(segments)
             // The selected row is the position; a screen has none.
             .when(!self.showing_rows && !self.showing_screen, |status| {
@@ -1537,13 +1690,11 @@ impl Render for EditorView {
                                 .into_any_element()
                         },
                     );
-                let hints = (!controls.hints.is_empty())
-                    .then(|| render_hints(controls.hints).into_any_element());
-                (body, hints, Vec::new())
+                (body, controls.hints, Vec::new())
             }
             (None, Some((body, hints, outline_toolbar))) => {
                 toolbar = outline_toolbar;
-                (body, Some(hints), Vec::new())
+                (body, hints, Vec::new())
             }
             (Some(mut table), _) => {
                 self.editor.viewport.set_height(table_rows);
@@ -1568,7 +1719,7 @@ impl Render for EditorView {
                         .map(|line| self.region_columns(line))
                         .collect(),
                 };
-                let hints = render_hints(table.hints).into_any_element();
+                let hints = table.hints;
                 let fits = fits_preview(window.viewport_size().width);
                 let side = match (table.changes.take(), table.preview.take()) {
                     _ if !fits => None,
@@ -1577,7 +1728,7 @@ impl Render for EditorView {
                 };
                 let body = render_table(table, first_line, scrolled, top.fract(), cursor, side, cx)
                     .into_any_element();
-                (body, Some(hints), Vec::new())
+                (body, hints, Vec::new())
             }
             (None, None) => {
                 let shown_pane = self.editor.pane();
@@ -1592,7 +1743,6 @@ impl Render for EditorView {
                 let hints = shown_pane
                     .as_ref()
                     .map_or(controls.hints, |pane| pane.hints);
-                let hints = (!hints.is_empty()).then(|| render_hints(hints).into_any_element());
                 pane = shown_pane.map(|shown| {
                     let screen = match &shown.body {
                         PaneBody::Screen(name) => {
@@ -1622,13 +1772,13 @@ impl Render for EditorView {
         if minibuffer.is_some() && self.input_scroll.bounds().size.width == px(0.0) {
             window.request_animation_frame();
         }
-        // The pill stays lit above the scrim while the list it opened is shown.
-        let status = self.render_status(cx).into_any_element();
-        let (status_below_scrim, status_above_scrim) =
+        let (row, row_popups) = self.render_bottom_row(hints, window, cx);
+        // The status pill stays lit above the scrim while the list it opened is shown.
+        let (row_below_scrim, row_above_scrim) =
             if self.editor.minibuffer().is_some_and(is_problem_list) {
-                (None, Some(status))
+                (None, Some(row))
             } else {
-                (Some(status), None)
+                (Some(row), None)
             };
         let modal = self
             .editor
@@ -1650,12 +1800,12 @@ impl Render for EditorView {
             .line_height(px(font::LINE_HEIGHT))
             .child(body)
             .children(pane)
-            .children(hints)
-            .children(status_below_scrim)
+            .children(row_below_scrim)
             .when(minibuffer.is_some(), |root| root.child(render_scrim(modal)))
             .child(self.render_header().children(toolbar))
             .children(popups)
-            .children(status_above_scrim)
+            .children(row_popups)
+            .children(row_above_scrim)
             .children(minibuffer)
             .children(self.render_drag_listeners(cx))
     }

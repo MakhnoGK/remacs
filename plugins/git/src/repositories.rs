@@ -88,12 +88,15 @@ pub fn track(editor: &mut Editor) {
                     repository.snapshot = Some(*snapshot);
                     repository.generation += 1;
                 }
-                Update::Failed(message) | Update::Done(message) => said = Some(message),
+                Update::Failed(message) => said = Some((message, true)),
+                Update::Done(message) => said = Some((message, false)),
             }
         }
     }
-    if let Some(message) = said {
-        editor.set_message(message);
+    match said {
+        Some((message, true)) => editor.set_error(message),
+        Some((message, false)) => editor.set_done(message),
+        None => {}
     }
 }
 

@@ -31,6 +31,6 @@ pub fn apply(editor: &mut Editor, id: u64, changes: Vec<FileEdits>) -> CommandRe
 /// Tells the user that the action chosen from list `id` could not be carried out.
 pub fn failed(editor: &mut Editor, id: u64, message: &str) {
     if state(editor).awaited == Some(Awaited::Apply(id)) {
-        editor.set_message(format!("Code action failed: {message}"));
+        editor.set_error(format!("Code action failed: {message}"));
     }
 }

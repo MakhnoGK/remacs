@@ -431,7 +431,7 @@ fn copy_key(editor: &mut Editor, id: u64, key: Key, kept: bool) -> bool {
     match outcome {
         Outcome::Copy(text) => {
             editor.kill_ring.push(text);
-            editor.set_message("Copied");
+            editor.set_done("Copied");
             true
         }
         Outcome::Handled | Outcome::Leave => true,

@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 remacs-config.workspace = true
 remacs-text.workspace = true
+libc.workspace = true
 nucleo-matcher.workspace = true
 serde.workspace = true
 serde_json.workspace = true

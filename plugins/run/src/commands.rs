@@ -34,7 +34,7 @@ pub fn run_with(editor: &mut Editor, starter: Option<Starter>) -> CommandResult 
         .and_then(|name| store.read(&root)?.find(name))
         .cloned();
     if let Some(error) = error {
-        editor.set_message(error);
+        editor.set_error(error);
     }
     if let Some(configuration) = chosen {
         return sessions::run(editor, &root, configuration, starter);
@@ -91,7 +91,7 @@ pub fn run_configuration(
     starter: Option<Starter>,
 ) -> CommandResult {
     if let Err(error) = configuration_store(editor).select(root, &configuration.name) {
-        editor.set_message(format!("Could not keep the chosen configuration: {error}"));
+        editor.set_error(format!("Could not keep the chosen configuration: {error}"));
     }
     sessions::run(editor, root, configuration, starter)
 }

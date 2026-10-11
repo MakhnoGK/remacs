@@ -7,7 +7,7 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, PoisonError, RwLock};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use remacs_config::{Section, Settings, project_cache_dir};
 use remacs_text::Text;
@@ -16,6 +16,7 @@ use crate::buffer::{Buffer, FileEdits};
 use crate::command::{CommandResult, Commands};
 use crate::completion::Completions;
 use crate::decoration::Span;
+use crate::echo::{EchoMessage, MessageKind, MessageLog};
 use crate::gutter::{GutterMark, LineExtra, TextControls};
 use crate::history::History;
 use crate::key::{Key, describe_sequence};
@@ -64,7 +65,11 @@ pub struct Editor {
     command_count: u64,
     amalgamated_inserts: usize,
     history: History,
-    message: Option<String>,
+    /// The echo area's message, until the next key.
+    message: Option<EchoMessage>,
+    messages: MessageLog,
+    /// The view lists all its keys, not only those that fit, until the next key.
+    key_hints_listed: bool,
     quit_requested: bool,
     plugin_states: HashMap<TypeId, Box<dyn Any>>,
     settings: Settings,
@@ -107,6 +112,8 @@ impl Editor {
             amalgamated_inserts: 0,
             history: History::default(),
             message: None,
+            messages: MessageLog::default(),
+            key_hints_listed: false,
             quit_requested: false,
             plugin_states: HashMap::new(),
             settings: Settings::default(),
@@ -310,7 +317,7 @@ impl Editor {
     }
 
     pub fn handle_key(&mut self, key: Key) {
-        self.message = None;
+        self.clear_echo();
         if Key::parse(ABORT_KEY) == Some(key) && self.abort() {
             // Hooks see a prompt closed by quitting, e.g. to undo what it previewed.
             self.after_command();
@@ -379,7 +386,7 @@ impl Editor {
 
     pub fn run_command(&mut self, name: &str) {
         let Some(command) = self.registry.commands.get(name) else {
-            self.set_message(format!("Unknown command: {name}"));
+            self.set_error(format!("Unknown command: {name}"));
             return;
         };
         let (name, run) = (command.name, command.run);
@@ -387,7 +394,7 @@ impl Editor {
         self.this_command = Some(name);
         self.this_command_killed = false;
         if let Err(error) = run(self) {
-            self.set_message(error.0);
+            self.set_error(error.0);
         }
         self.last_command = self.this_command;
         self.last_command_killed = self.this_command_killed;
@@ -458,7 +465,7 @@ impl Editor {
         }
         let answer = if yes { "y" } else { "n" };
         if let Err(error) = self.finish_minibuffer(answer.to_owned()) {
-            self.set_message(error.0);
+            self.set_error(error.0);
         }
         self.after_command();
     }
@@ -514,7 +521,7 @@ impl Editor {
             minibuffer.select(index);
         }
         if let Err(error) = self.exit_minibuffer(false) {
-            self.set_message(error.0);
+            self.set_error(error.0);
         }
         self.after_command();
     }
@@ -551,7 +558,7 @@ impl Editor {
     /// after each answer.
     pub fn keep_history_in(&mut self, path: PathBuf) {
         if let Err(error) = self.history.keep_in(path) {
-            self.set_message(error);
+            self.set_error(error);
         }
     }
 
@@ -600,17 +607,84 @@ impl Editor {
         self.command_count
     }
 
-    /// The echo area: a command's message, or a prefix typed so far (`C-x-`).
+    /// The echo area as text: the message, or the prefix typed so far (`C-x-`).
     pub fn echo(&self) -> Option<String> {
         if self.pending_keys.is_empty() {
-            self.message.clone()
+            self.message.as_ref().map(|message| message.text.clone())
         } else {
             Some(format!("{}-", describe_sequence(&self.pending_keys)))
         }
     }
 
-    pub fn set_message(&mut self, message: impl Into<String>) {
-        self.message = Some(message.into());
+    /// The echo area's message, shown until the next key.
+    pub fn message(&self) -> Option<&EchoMessage> {
+        self.message.as_ref()
+    }
+
+    /// The keys of a prefix typed so far, e.g. `C-x`; empty when none is.
+    pub fn pending_keys(&self) -> &[Key] {
+        &self.pending_keys
+    }
+
+    /// What each key typed after the pending prefix would do, highest keymap first, like
+    /// the list Emacs `which-key` shows.
+    pub fn prefix_continuations(&self) -> Vec<(Key, Binding)> {
+        let mut seen = HashMap::new();
+        for keymap in self.active_keymaps() {
+            for (key, binding) in keymap.continuations(&self.pending_keys) {
+                seen.entry(key).or_insert(binding);
+            }
+        }
+        seen.into_iter().collect()
+    }
+
+    pub fn set_message(&mut self, text: impl Into<String>) {
+        self.show_message(text.into(), MessageKind::Info);
+    }
+
+    /// A message saying something asked for was done, e.g. a file written.
+    pub fn set_done(&mut self, text: impl Into<String>) {
+        self.show_message(text.into(), MessageKind::Done);
+    }
+
+    pub fn set_error(&mut self, text: impl Into<String>) {
+        self.show_message(text.into(), MessageKind::Error);
+    }
+
+    /// Every message shown, for `*Messages*`.
+    pub fn message_log(&self) -> &MessageLog {
+        &self.messages
+    }
+
+    pub fn message_log_mut(&mut self) -> &mut MessageLog {
+        &mut self.messages
+    }
+
+    /// Lists all the view's keys, not only those that fit under it, until the next key.
+    pub fn list_key_hints(&mut self) {
+        self.key_hints_listed = true;
+    }
+
+    pub fn key_hints_listed(&self) -> bool {
+        self.key_hints_listed
+    }
+
+    fn show_message(&mut self, text: String, kind: MessageKind) {
+        let message = EchoMessage {
+            text,
+            kind,
+            command: self.this_command,
+            at: SystemTime::now(),
+            repeats: 0,
+        };
+        self.messages.add(&message);
+        self.message = Some(message);
+    }
+
+    /// What the echo area showed for the last key is gone with the next one.
+    fn clear_echo(&mut self) {
+        self.message = None;
+        self.key_hints_listed = false;
     }
 
     pub fn request_quit(&mut self) {
@@ -629,7 +703,7 @@ impl Editor {
         let (keymap, errors) = keys.apply(&self.default_keymap, &self.registry.commands);
         self.registry.keymap = keymap;
         if let Some(error) = errors.into_iter().next() {
-            self.set_message(error);
+            self.set_error(error);
         }
         for hook in self.registry.settings_hooks.clone() {
             hook(self);
@@ -643,7 +717,7 @@ impl Editor {
         self.settings
             .section::<T>()
             .unwrap_or_else(|(error, defaults)| {
-                self.set_message(error.to_string());
+                self.set_error(error.to_string());
                 defaults
             })
     }
@@ -698,9 +772,9 @@ impl Editor {
 
     /// Runs a table control's action as if it were a command.
     pub fn run_action(&mut self, action: &Action) {
-        self.message = None;
+        self.clear_echo();
         if let Err(error) = action(self) {
-            self.set_message(error.0);
+            self.set_error(error.0);
         }
         self.after_command();
     }
@@ -846,7 +920,7 @@ impl Editor {
 
     /// Passes the mouse over a screen's cell to the plugins that draw screens.
     pub fn screen_mouse(&mut self, name: &str, row: usize, column: usize, mouse: ScreenMouse) {
-        self.message = None;
+        self.clear_echo();
         for source in self.registry.screens.clone() {
             source.mouse(self, name, row, column, mouse);
         }
@@ -1034,7 +1108,7 @@ impl Editor {
             && !prompt.private
             && let Err(error) = self.history.add(prompt.category, answer.clone())
         {
-            self.set_message(error);
+            self.set_error(error);
         }
         (minibuffer.on_answer)(self, answer)
     }
@@ -1194,6 +1268,35 @@ mod tests {
         editor.set_notifier(Arc::new(move || flag.store(true, Ordering::Relaxed)));
         early();
         assert!(called.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn lists_what_the_keys_after_a_prefix_do() {
+        struct Bindings;
+        impl Plugin for Bindings {
+            fn register(&self, registry: &mut Registry) {
+                registry
+                    .commands
+                    .add(crate::Command::new("one", "", |_| Ok(())));
+                for keys in ["C-x a", "C-x r b", "C-y"] {
+                    registry.keymap.bind(keys, "one");
+                }
+            }
+        }
+        let mut editor = Editor::new(&[&Bindings]);
+        editor.handle_key(Key::parse("C-x").unwrap());
+        let mut listed: Vec<_> = editor
+            .prefix_continuations()
+            .into_iter()
+            .map(|(key, binding)| match binding {
+                Binding::Command(command) => format!("{key} {command}"),
+                Binding::Prefix => format!("{key} …"),
+                Binding::Unbound => format!("{key} unbound"),
+            })
+            .collect();
+        listed.sort();
+        assert_eq!(listed, ["a one", "r …"]);
+        assert_eq!(editor.echo().as_deref(), Some("C-x-"));
     }
 
     #[test]

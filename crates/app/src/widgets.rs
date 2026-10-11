@@ -450,8 +450,6 @@ pub fn modified_dot() -> impl IntoElement {
 /// A translucent floating bar over the bottom of the window, like the status pill.
 pub fn pill() -> Div {
     div()
-        .absolute()
-        .bottom(px(14.0))
         .flex()
         .items_center()
         .gap(px(2.0))

@@ -29,7 +29,7 @@ pub(crate) fn restart_server(editor: &mut Editor) -> CommandResult {
             .find(|name| *name == answer)
             .ok_or("No such language server")?;
         document::restart(editor, name);
-        editor.set_message(format!("Restarted {name}"));
+        editor.set_done(format!("Restarted {name}"));
         Ok(())
     })
 }

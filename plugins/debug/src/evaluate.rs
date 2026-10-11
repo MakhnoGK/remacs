@@ -61,7 +61,11 @@ fn evaluate(editor: &mut Editor) -> CommandResult {
                     let color = if result.is_ok() { "" } else { "\x1b[31m" };
                     session.print(&format!("{color}{}\x1b[0m\n", shown.trim_end()));
                     let first = shown.lines().next().unwrap_or_default().to_owned();
-                    editor.set_message(first);
+                    if result.is_ok() {
+                        editor.set_message(first);
+                    } else {
+                        editor.set_error(first);
+                    }
                 },
             );
             Ok(())

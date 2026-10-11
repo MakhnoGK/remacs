@@ -260,7 +260,7 @@ fn prepared(editor: &mut Editor, id: u64) {
             session.phase = Phase::Choosing;
             session.note("Several test binaries were built: choose one, or stop");
             if let Err(error) = choose_target(editor, id, choices) {
-                editor.set_message(error.0);
+                editor.set_error(error.0);
             }
         }
     }

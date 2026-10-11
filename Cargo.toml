@@ -20,6 +20,7 @@ remacs-diagnostics = { path = "plugins/diagnostics" }
 remacs-debug = { path = "plugins/debug" }
 remacs-dired = { path = "plugins/dired" }
 remacs-documentation = { path = "plugins/documentation" }
+remacs-echo = { path = "plugins/echo" }
 remacs-editing = { path = "plugins/editing" }
 remacs-files = { path = "plugins/files" }
 remacs-format = { path = "plugins/format" }

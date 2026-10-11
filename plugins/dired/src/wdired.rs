@@ -479,7 +479,7 @@ fn replace(editor: &mut Editor, from: &str, to: &str) -> CommandResult {
     let count = edits.len();
     buffer.add_undo_boundary();
     buffer.apply_edits(edits);
-    editor.set_message(format!("Replaced {count} {}", plural(count, "occurrence")));
+    editor.set_done(format!("Replaced {count} {}", plural(count, "occurrence")));
     Ok(())
 }
 
@@ -498,7 +498,7 @@ fn keep_lines(editor: &mut Editor) {
             listing.editing = editing;
         }
     }
-    editor.set_message(problem);
+    editor.set_error(problem);
 }
 
 fn line_problem(buffer: &Buffer) -> Option<&'static str> {

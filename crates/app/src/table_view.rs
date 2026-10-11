@@ -13,8 +13,8 @@ use crate::editor_view::EditorView;
 use crate::highlights::{combine, region_style};
 use crate::preview_view::PREVIEW_WIDTH;
 use crate::widgets::{
-    Scrolled, cursor_style, fade_scrolled, icon, kbd, key_caps, mark_badge, modified_dot, pill,
-    scrolled_by, segment, segmented, shadow, state_letter,
+    Scrolled, cursor_style, fade_scrolled, icon, kbd, mark_badge, modified_dot, scrolled_by,
+    segment, segmented, shadow, state_letter,
 };
 
 const LIST_TOP: f32 = 52.0;
@@ -115,32 +115,6 @@ pub fn render_table(
 /// Whether a window this wide has room for a preview beside the rows.
 pub fn fits_preview(window_width: Pixels) -> bool {
     window_width >= px(MIN_LIST_WIDTH + PREVIEW_GAP + PREVIEW_WIDTH + 2.0 * LIST_SIDE)
-}
-
-/// Keys and what they do, centered under the rows.
-pub fn render_hints(hints: &'static [(&'static str, &'static str)]) -> impl IntoElement {
-    div()
-        .absolute()
-        .bottom_0()
-        .left_0()
-        .right_0()
-        .flex()
-        .justify_center()
-        .child(
-            pill()
-                .relative()
-                .font_family(font::UI)
-                .children(hints.iter().map(|&(keys, label)| {
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(6.0))
-                        .h(px(24.0))
-                        .px(px(8.0))
-                        .children(key_caps(keys))
-                        .child(label)
-                })),
-        )
 }
 
 fn render_bar(
