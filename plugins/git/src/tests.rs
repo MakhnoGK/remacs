@@ -570,6 +570,35 @@ fn hunks_and_files_are_staged_unstaged_and_discarded() {
 }
 
 #[test]
+fn every_diff_is_shown_or_hidden_at_once() {
+    let repository = Repository::new("toggle-all");
+    commit(&repository, "a.rs", "a\n", "Add a");
+    commit(&repository, "b.rs", "b\n", "Add b");
+    repository.write("a.rs", "a2\n");
+    repository.write("b.rs", "b2\n");
+    repository.git(&["add", "b.rs"]);
+    let mut editor = status_buffer(&repository);
+    wait_until(&mut editor, "both changes", |editor| {
+        rows(editor).len() == 4
+    });
+    let hunks = |editor: &Editor| {
+        rows(editor)
+            .iter()
+            .filter(|row| row.starts_with("@@"))
+            .count()
+    };
+
+    press(&mut editor, "S-TAB");
+    wait_until(&mut editor, "both diffs", |editor| hunks(editor) == 2);
+    assert!(rows(&editor).contains(&"+a2".to_owned()));
+    assert!(rows(&editor).contains(&"+b2".to_owned()));
+
+    press(&mut editor, "S-TAB");
+    assert_eq!(hunks(&editor), 0);
+    assert_eq!(rows(&editor).len(), 4);
+}
+
+#[test]
 fn visiting_a_diff_line_opens_the_file_there() {
     let repository = Repository::new("visit");
     let lines: String = (1..=10).map(|line| format!("line {line}\n")).collect();

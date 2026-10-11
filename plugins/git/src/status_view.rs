@@ -195,6 +195,34 @@ impl StatusView {
         self.drawn = None;
     }
 
+    /// Whether the diff of a file in the buffer is shown.
+    pub fn any_file_open(&self) -> bool {
+        self.open
+            .iter()
+            .any(|(section, path)| self.lines.contains(&Line::File(*section, path.clone())))
+    }
+
+    /// Unfolds the sections with diffs and shows the diff of each of their files.
+    pub fn open_all(&mut self, snapshot: &Snapshot) {
+        for section in Section::FILES
+            .into_iter()
+            .filter(|section| section.has_diffs())
+        {
+            self.folded.remove(&section);
+            self.open.extend(
+                section_files(snapshot, section)
+                    .into_iter()
+                    .map(|file| (section, file.path)),
+            );
+        }
+        self.drawn = None;
+    }
+
+    pub fn close_all(&mut self) {
+        self.open.clear();
+        self.drawn = None;
+    }
+
     pub fn line(&self, index: usize) -> Option<&Line> {
         self.lines.get(index)
     }

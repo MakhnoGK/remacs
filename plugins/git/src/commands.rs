@@ -80,6 +80,35 @@ pub fn toggle(editor: &mut Editor) -> CommandResult {
     Ok(())
 }
 
+/// Hides every file's diff when one is shown, else shows them all, like Emacs
+/// `magit-section-cycle-global`.
+pub fn toggle_all(editor: &mut Editor) -> CommandResult {
+    let any_open = status_view(editor)?.any_file_open();
+    if any_open {
+        collapse_all(editor)
+    } else {
+        expand_all(editor)
+    }
+}
+
+pub fn expand_all(editor: &mut Editor) -> CommandResult {
+    let (_, snapshot) = shown_status(editor)?;
+    status_view(editor)?.open_all(&snapshot);
+    Ok(())
+}
+
+pub fn collapse_all(editor: &mut Editor) -> CommandResult {
+    status_view(editor)?.close_all();
+    Ok(())
+}
+
+fn status_view(editor: &mut Editor) -> Result<&mut StatusView, &'static str> {
+    editor
+        .window_buffer_mut()
+        .local_mut::<StatusView>()
+        .ok_or(NOT_A_STATUS_BUFFER)
+}
+
 /// Unfolds the stash to show its files and their diffs, or folds it.
 fn toggle_stash(editor: &mut Editor, index: usize) -> CommandResult {
     let (root, snapshot) = shown_status(editor)?;

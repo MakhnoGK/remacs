@@ -42,6 +42,9 @@ pub struct GitPlugin;
 const COMMANDS: &[Command] = &[
     Command::new("git-status", "Show the status of the Git working tree", commands::status),
     Command::new(TOGGLE, "Fold or unfold the section at point, or show the file's diff", commands::toggle),
+    Command::new("git-toggle-all", "Hide every file's diff when one is shown, else show them all", commands::toggle_all),
+    Command::new("git-expand-all", "Show the diff of every changed file", commands::expand_all),
+    Command::new("git-collapse-all", "Hide the diff of every file", commands::collapse_all),
     Command::new("git-stage", "Stage the section, file or hunk at point", commands::stage),
     Command::new("git-unstage", "Unstage the section, file or hunk at point", commands::unstage),
     Command::new("git-discard", "Throw away the unstaged change at point, after asking", commands::discard),
@@ -101,6 +104,8 @@ const BINDINGS: &[(&str, &str)] = &[("C-x g", "git-status")];
 #[rustfmt::skip]
 const MENU_ITEMS: &[MenuItem] = &[
     MenuItem::new("Git", "status", "Status", "git-status"),
+    MenuItem::new("Git", "status", "Expand All Changes", "git-expand-all").enabled_when(status_shown),
+    MenuItem::new("Git", "status", "Collapse All Changes", "git-collapse-all").enabled_when(status_shown),
     MenuItem::new("Git", "changes", "Commit…", "git-commit").enabled_when(status_shown),
     MenuItem::new("Git", "changes", "Stash…", "git-stash").enabled_when(status_shown),
     MenuItem::new("Git", "branches", "Switch Branch…", "git-branch").enabled_when(status_shown),
@@ -117,6 +122,7 @@ fn status_shown(editor: &Editor) -> bool {
 
 const STATUS_BINDINGS: &[(&str, &str)] = &[
     ("TAB", TOGGLE),
+    ("S-TAB", "git-toggle-all"),
     ("s", "git-stage"),
     ("u", "git-unstage"),
     ("k", "git-discard"),
