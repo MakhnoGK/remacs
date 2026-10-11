@@ -15,6 +15,7 @@ use remacs_theme::{cursor, glass};
 use serde::Deserialize;
 
 use crate::editor_view::EditorView;
+use crate::transition::{Side, Transition};
 
 const FONT_SIZES: RangeInclusive<f32> = 6.0..=72.0;
 const LINE_HEIGHTS: RangeInclusive<f32> = 1.0..=3.0;
@@ -39,6 +40,10 @@ const PREFIX_KEYS_COLUMNS: RangeInclusive<usize> = 1..=8;
 const DOCUMENTATION_MAX_WIDTHS: RangeInclusive<f32> = 240.0..=2000.0;
 /// Pixels.
 const DOCUMENTATION_MAX_HEIGHTS: RangeInclusive<f32> = 120.0..=2000.0;
+/// Milliseconds; past 100 a surface would feel slow to come.
+const TRANSITION_DURATIONS: RangeInclusive<u64> = 0..=100;
+/// Pixels.
+const TRANSITION_SLIDES: RangeInclusive<f32> = 0.0..=32.0;
 /// Changes this close together are read once, e.g. an editor's save done in steps.
 const SETTLE_TIME: Duration = Duration::from_millis(100);
 
@@ -134,6 +139,7 @@ pub struct UiSettings {
     pub hints: HintsSettings,
     pub prefix_keys: PrefixKeysSettings,
     pub documentation: DocumentationSettings,
+    pub transitions: TransitionsSettings,
 }
 
 impl UiSettings {
@@ -225,7 +231,22 @@ impl Section for UiSettings {
             "documentation.max-height",
             documentation.max_height,
             &DOCUMENTATION_MAX_HEIGHTS,
-        )
+        )?;
+        let transitions = &self.transitions;
+        for (kind, duration, slide) in [
+            ("pane", transitions.pane_duration, transitions.pane_slide),
+            (
+                "prompt",
+                transitions.prompt_duration,
+                transitions.prompt_slide,
+            ),
+            ("popup", transitions.popup_duration, transitions.popup_slide),
+        ] {
+            let name = |setting| format!("transitions.{kind}-{setting}");
+            check_range(&name("duration"), duration, &TRANSITION_DURATIONS)?;
+            check_range(&name("slide"), slide, &TRANSITION_SLIDES)?;
+        }
+        Ok(())
     }
 }
 
@@ -552,6 +573,57 @@ impl Default for DocumentationSettings {
     }
 }
 
+/// How the pane under the text, prompts and the popups by the text come and go.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct TransitionsSettings {
+    /// Milliseconds; 0 shows and hides it at once.
+    pub pane_duration: u64,
+    /// Pixels it rises by as it comes.
+    pub pane_slide: f32,
+    pub prompt_duration: u64,
+    /// Pixels it comes down by, or up by from the status pill.
+    pub prompt_slide: f32,
+    pub popup_duration: u64,
+    /// Pixels it comes down by.
+    pub popup_slide: f32,
+}
+
+impl TransitionsSettings {
+    pub fn pane(&self) -> Transition {
+        transition(self.pane_duration, self.pane_slide, Side::Below)
+    }
+
+    pub fn prompt(&self) -> Transition {
+        transition(self.prompt_duration, self.prompt_slide, Side::Above)
+    }
+
+    pub fn popup(&self) -> Transition {
+        transition(self.popup_duration, self.popup_slide, Side::Above)
+    }
+}
+
+fn transition(duration: u64, slide: f32, from: Side) -> Transition {
+    Transition {
+        duration: Duration::from_millis(duration),
+        slide,
+        from,
+    }
+}
+
+impl Default for TransitionsSettings {
+    fn default() -> Self {
+        Self {
+            pane_duration: 90,
+            pane_slide: 16.0,
+            prompt_duration: 80,
+            prompt_slide: 8.0,
+            popup_duration: 60,
+            popup_slide: 0.0,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -576,9 +648,21 @@ mod tests {
              [scroll]\nanimation-duration = 0\n[glass]\nopacity = 0.5\nblur = 0\n\
              [echo]\nlines = 6\nhistory = 50\n[hints]\nshow = false\nside-room = 200\n\
              [prefix-keys]\nshow = false\ndelay = 0\ncolumns = 3\n\
-             [documentation]\nmax-width = 900\nmax-height = 300\n",
+             [documentation]\nmax-width = 900\nmax-height = 300\n\
+             [transitions]\npane-duration = 0\npane-slide = 0\nprompt-duration = 100\n\
+             prompt-slide = 12\npopup-duration = 40\npopup-slide = 4\n",
         )
         .unwrap();
+        assert_eq!(settings.transitions.pane().duration, Duration::ZERO);
+        assert_eq!(
+            settings.transitions.prompt(),
+            Transition {
+                duration: Duration::from_millis(100),
+                slide: 12.0,
+                from: Side::Above
+            }
+        );
+        assert_eq!(settings.transitions.popup().slide, 4.0);
         assert_eq!(
             settings.documentation,
             DocumentationSettings {
@@ -666,5 +750,8 @@ mod tests {
         assert!(parse("[prefix-keys]\ncolumns = 0\n").is_err());
         assert!(parse("[documentation]\nmax-width = 100\n").is_err());
         assert!(parse("[documentation]\nmax-height = 5000\n").is_err());
+        assert!(parse("[transitions]\npane-duration = 101\n").is_err());
+        assert!(parse("[transitions]\npopup-slide = -1\n").is_err());
+        assert!(parse("[transitions]\nduration = 50\n").is_err());
     }
 }

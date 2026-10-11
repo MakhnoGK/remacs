@@ -145,8 +145,8 @@ struct DocumentationKey {
 }
 
 impl DocumentationScroll {
-    pub fn update(&mut self, popups: &[Popup]) {
-        let shown = popups.iter().find_map(|popup| {
+    pub fn update<'a>(&mut self, popups: impl IntoIterator<Item = &'a Popup>) {
+        let shown = popups.into_iter().find_map(|popup| {
             let documentation = popup.documentation.as_ref()?;
             let key = DocumentationKey {
                 anchor: popup.anchor,

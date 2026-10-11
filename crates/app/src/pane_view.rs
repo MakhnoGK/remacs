@@ -60,8 +60,8 @@ pub fn screen_bounds(window: Size<Pixels>, height: f32) -> Bounds<Pixels> {
 
 /// `screen` is the screen of a pane whose body is one, drawn by the caller.
 pub fn render_pane(
-    pane: Pane,
-    chrome: PaneChrome,
+    pane: &Pane,
+    chrome: &PaneChrome,
     screen: Option<AnyElement>,
     cx: &mut Context<EditorView>,
 ) -> Div {
@@ -69,11 +69,11 @@ pub fn render_pane(
         .floor()
         .max(1.0) as usize;
     let focused = chrome.focused;
-    let toolbar = render_toolbar(&pane, &chrome, cx);
-    let body = match pane.body {
+    let toolbar = render_toolbar(pane, chrome, cx);
+    let body = match &pane.body {
         PaneBody::Columns(columns) => div().flex().flex_1().min_h_0().children(
             columns
-                .into_iter()
+                .iter()
                 .map(|column| render_column(column, rows_fit, cx)),
         ),
         PaneBody::Screen(_) => div()
@@ -238,15 +238,15 @@ pub fn render_button(button: PaneButton, cx: &mut Context<EditorView>) -> Div {
     }
 }
 
-fn render_column(column: PaneColumn, rows_fit: usize, cx: &mut Context<EditorView>) -> Div {
-    let PaneColumn {
+fn render_column(column: &PaneColumn, rows_fit: usize, cx: &mut Context<EditorView>) -> Div {
+    let &PaneColumn {
         title,
         keys,
         width,
-        rows,
+        ref rows,
         selected,
         focused,
-        empty,
+        ref empty,
         hints,
     } = column;
     let header = div()
@@ -291,11 +291,11 @@ fn render_column(column: PaneColumn, rows_fit: usize, cx: &mut Context<EditorVie
                 .border_color(rgba(0xffffff1f))
                 .line_height(px(18.0))
                 .text_color(rgb(color::FG_FAINT))
-                .child(empty),
+                .child(empty.clone()),
         )
     } else {
         div().flex().flex_col().children(
-            rows.into_iter()
+            rows.iter()
                 .enumerate()
                 .skip(first)
                 .take(rows_fit)
@@ -317,18 +317,18 @@ fn render_column(column: PaneColumn, rows_fit: usize, cx: &mut Context<EditorVie
         .child(body)
 }
 
-fn render_row(row: PaneRow, selected: bool, cx: &mut Context<EditorView>) -> Div {
-    let PaneRow {
+fn render_row(row: &PaneRow, selected: bool, cx: &mut Context<EditorView>) -> Div {
+    let &PaneRow {
         depth,
         open,
-        name,
-        kind,
-        value,
-        detail,
-        tag,
+        ref name,
+        ref kind,
+        ref value,
+        ref detail,
+        ref tag,
         tone,
         current,
-        action,
+        ref action,
     } = row;
     let name_color = match tone {
         Tone::Faint => color::FG_PLACEHOLDER,
@@ -368,32 +368,41 @@ fn render_row(row: PaneRow, selected: bool, cx: &mut Context<EditorView>) -> Div
                 }))
                 .child(expander),
         )
-        .child(div().flex_none().text_color(rgb(name_color)).child(name))
+        .child(
+            div()
+                .flex_none()
+                .text_color(rgb(name_color))
+                .child(name.clone()),
+        )
         .when(!kind.is_empty(), |row| {
             row.child(
                 div()
                     .flex_none()
                     .text_color(rgb(color::FG_FAINT))
-                    .child(kind),
+                    .child(kind.clone()),
             )
         })
-        .children(value.map(|value| {
-            let value_color = value_color(&value);
+        .children(value.as_ref().map(|value| {
             div()
                 .flex()
                 .min_w_0()
                 .gap(px(6.0))
                 .child(div().text_color(rgb(color::FG_FAINT)).child("="))
-                .child(div().truncate().text_color(rgb(value_color)).child(value))
+                .child(
+                    div()
+                        .truncate()
+                        .text_color(rgb(value_color(value)))
+                        .child(value.clone()),
+                )
         }))
-        .children(tag.map(|(tag, tone)| {
+        .children(tag.as_ref().map(|(tag, tone)| {
             div()
                 .flex_none()
                 .px(px(6.0))
                 .rounded(px(4.0))
                 .text_size(px(font::SMALL_SIZE))
-                .text_color(rgb(tone_color(tone, color::FG_DIM)))
-                .child(tag)
+                .text_color(rgb(tone_color(*tone, color::FG_DIM)))
+                .child(tag.clone())
         }))
         .when(!detail.is_empty(), |row| {
             row.child(
@@ -407,11 +416,11 @@ fn render_row(row: PaneRow, selected: bool, cx: &mut Context<EditorView>) -> Div
                     } else {
                         color::FG_FAINT
                     }))
-                    .child(detail),
+                    .child(detail.clone()),
             )
         });
     match action {
-        Some(action) => clickable(element.cursor_pointer(), action, cx),
+        Some(action) => clickable(element.cursor_pointer(), action.clone(), cx),
         None => element,
     }
 }

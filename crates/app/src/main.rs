@@ -22,6 +22,7 @@ mod settings;
 mod smooth_scroll;
 mod table_view;
 mod tabs_view;
+mod transition;
 mod widgets;
 
 use std::path::PathBuf;

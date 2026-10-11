@@ -51,6 +51,8 @@ pub struct Editor {
     /// Most recently selected first; the first one is shown in the window.
     buffers: Vec<Buffer>,
     minibuffer: Option<Minibuffer>,
+    /// The prompt last closed, until the view takes it to draw it going away.
+    closed_minibuffer: Option<Minibuffer>,
     pub viewport: Viewport,
     pub kill_ring: KillRing,
     registry: Registry,
@@ -100,6 +102,7 @@ impl Editor {
         Self {
             buffers: vec![scratch],
             minibuffer: None,
+            closed_minibuffer: None,
             viewport: Viewport::default(),
             kill_ring: KillRing::default(),
             default_keymap: registry.keymap.clone(),
@@ -519,7 +522,17 @@ impl Editor {
 
     /// Closes the prompt without answering it.
     pub fn cancel_minibuffer(&mut self) -> bool {
-        self.minibuffer.take().is_some()
+        let Some(minibuffer) = self.minibuffer.take() else {
+            return false;
+        };
+        self.closed_minibuffer = Some(minibuffer);
+        true
+    }
+
+    /// The prompt closed since the last call, if none is open now, for the view to draw as
+    /// it goes away; it no longer takes input.
+    pub fn take_closed_minibuffer(&mut self) -> Option<Minibuffer> {
+        self.closed_minibuffer.take()
     }
 
     /// Answers the prompt with the candidate at `index`, as a mouse click does.
@@ -1054,11 +1067,16 @@ impl Editor {
     }
 
     pub fn popups(&self) -> Vec<Popup> {
+        self.popup_slots().flatten().collect()
+    }
+
+    /// Each plugin's popup, if it has one open, in the same place every time, so a popup
+    /// is known as the same one from one frame to the next.
+    pub fn popup_slots(&self) -> impl Iterator<Item = Option<Popup>> + '_ {
         self.registry
             .popup_providers
             .iter()
-            .filter_map(|describe| describe(self))
-            .collect()
+            .map(|describe| describe(self))
     }
 
     /// Faces for `code` written in `mode`, sorted and non-overlapping; none when no
@@ -1140,12 +1158,14 @@ impl Editor {
             return Err("Command attempted to use minibuffer while in minibuffer".into());
         }
         self.minibuffer = Some(minibuffer);
+        // Another prompt in its place does not go away.
+        self.closed_minibuffer = None;
         self.refresh_minibuffer();
         Ok(())
     }
 
     fn finish_minibuffer(&mut self, answer: String) -> CommandResult {
-        let minibuffer = self.minibuffer.take().ok_or("Not in the minibuffer")?;
+        let mut minibuffer = self.minibuffer.take().ok_or("Not in the minibuffer")?;
         let prompt = minibuffer.prompt();
         if !prompt.category.is_empty()
             && !prompt.private
@@ -1153,7 +1173,10 @@ impl Editor {
         {
             self.set_error(error);
         }
-        (minibuffer.on_answer)(self, answer)
+        let on_answer = mem::replace(&mut minibuffer.on_answer, Box::new(|_, _| Ok(())));
+        // Before the answer, which may open another prompt.
+        self.closed_minibuffer = Some(minibuffer);
+        on_answer(self, answer)
     }
 
     fn after_command(&mut self) {
@@ -1272,6 +1295,48 @@ mod tests {
         assert!(editor.kill_buffer(SCRATCH_BUFFER));
         assert!(editor.kill_buffer("a<2>") && editor.kill_buffer("a"));
         assert_eq!(names(&editor), [SCRATCH_BUFFER]);
+    }
+
+    #[test]
+    fn a_closed_prompt_is_handed_over_unless_another_takes_its_place() {
+        let mut editor = Editor::new(&[]);
+        let prompt = |label: &str| Prompt {
+            label: label.to_owned(),
+            ..Prompt::default()
+        };
+        let label = |minibuffer: Option<Minibuffer>| minibuffer.map(|m| m.prompt().label.clone());
+        let none = |_: &Editor, _: &str| Completions::default();
+        editor
+            .read(prompt("cancelled"), none, |_, _| Ok(()))
+            .unwrap();
+        assert!(editor.take_closed_minibuffer().is_none(), "still open");
+        editor.cancel_minibuffer();
+        assert_eq!(
+            label(editor.take_closed_minibuffer()).as_deref(),
+            Some("cancelled")
+        );
+        assert!(editor.take_closed_minibuffer().is_none(), "taken once");
+
+        editor
+            .read(prompt("answered"), none, |_, _| Ok(()))
+            .unwrap();
+        editor.exit_minibuffer(true).unwrap();
+        assert_eq!(
+            label(editor.take_closed_minibuffer()).as_deref(),
+            Some("answered")
+        );
+
+        editor
+            .read(prompt("first"), none, move |editor, _| {
+                editor.read(prompt("second"), none, |_, _| Ok(()))
+            })
+            .unwrap();
+        editor.exit_minibuffer(true).unwrap();
+        assert!(
+            editor.take_closed_minibuffer().is_none(),
+            "the second took its place"
+        );
+        assert_eq!(editor.minibuffer().unwrap().prompt().label, "second");
     }
 
     #[test]

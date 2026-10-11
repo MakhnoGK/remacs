@@ -20,9 +20,9 @@ use gpui::{
 use crate::assets::{EXECUTION_POINT_ICON, LOGPOINT_ICON};
 use remacs_core::{
     Action, BreakpointIcon, ChangedLines, Code, CommandError, Editor, GutterIcon, GutterMark, Icon,
-    Key, LineChange, LineExtra, MouseSelection, Outline, PaneBody, PaneButton, Preview,
-    ScreenButton, ScreenMouse, ScreenPointer, ScreenSize, Scroll, StatusSegment, Tabs,
-    describe_sequence,
+    Key, LineChange, LineExtra, Minibuffer, MouseSelection, Outline, Pane, PaneBody, PaneButton,
+    Popup, Preview, ScreenButton, ScreenMouse, ScreenPointer, ScreenSize, Scroll, StatusSegment,
+    Tabs, describe_sequence,
 };
 use remacs_echo::VIEW_MESSAGES;
 use remacs_theme::font::CodeFont;
@@ -52,13 +52,14 @@ use crate::preview_view::render_preview;
 use crate::screen_view::{Cell as ScreenCell, cell_at, render_screen, screen_size};
 use crate::settings::{
     BottomSettings, CursorHeight, DocumentationSettings, GlassSettings, MouseSettings,
-    ReadSettings, ScrollSettings, UiSettings, report,
+    ReadSettings, ScrollSettings, TransitionsSettings, UiSettings, report,
 };
 use crate::smooth_scroll::SmoothScroll;
 use crate::table_view::{
     LIST_BOTTOM, ROW_PITCH, ROWS_TOP, TableCursor, fits_preview, render_table,
 };
 use crate::tabs_view::render_tabs;
+use crate::transition::{Retained, Side};
 use crate::widgets::{
     Edge, SCROLL_FADE_SIZE, Scrolled, block_cursor, code_font_features, cursor_text_style,
     edge_fade, hsla, icon, modified_dot, over, pill, pill_separator, tone_color,
@@ -154,6 +155,13 @@ pub struct EditorView {
     /// The row of a screen whose command mark the mouse is over.
     hovered_mark: Option<usize>,
     bottom: BottomSettings,
+    transitions: TransitionsSettings,
+    /// The pane under the text and its frame, kept to be drawn as it goes.
+    pane: Retained<(Pane, PaneChrome)>,
+    /// Each plugin's popup by the text, in the order of `Editor::popup_slots`.
+    popups: Vec<Retained<Popup>>,
+    /// The prompt as it comes and goes; the editor hands it over once closed.
+    prompt: Retained<Minibuffer>,
     /// The echo area's message is shown whole above it, until the next key or click.
     message_open: bool,
     /// The view's keys that do not fit under it are listed, until the next key or click.
@@ -163,6 +171,14 @@ pub struct EditorView {
     prefix_timer: Option<Task<()>>,
     window_handle: AnyWindowHandle,
     _activation: Subscription,
+}
+
+/// A prompt as drawn, over the scrim that dims the editor behind it.
+struct PromptSurface {
+    surface: AnyElement,
+    scrim: AnyElement,
+    /// Opened from the status pill, which stays lit above the scrim.
+    problem_list: bool,
 }
 
 /// Where a screen's cells are drawn, to map the mouse to them.
@@ -291,6 +307,10 @@ impl EditorView {
             screen_scroll: 0.0,
             hovered_mark: None,
             bottom,
+            transitions: ui.transitions,
+            pane: Retained::default(),
+            popups: Vec::new(),
+            prompt: Retained::default(),
             message_open: false,
             hints_open: false,
             prefix_since: None,
@@ -323,6 +343,7 @@ impl EditorView {
         self.glass = read.ui.glass;
         self.documentation = read.ui.documentation;
         self.bottom = read.ui.bottom();
+        self.transitions = read.ui.transitions;
         self.editor
             .message_log_mut()
             .set_limit(self.bottom.echo.history);
@@ -1195,8 +1216,14 @@ impl EditorView {
     ) -> Vec<AnyElement> {
         let window_size = window.viewport_size();
         let line_height = px(font::code().line_height);
-        let popups = self.editor.popups();
-        self.documentation_scroll.update(&popups);
+        let transition = self.transitions.popup();
+        let slots: Vec<Option<Popup>> = self.editor.popup_slots().collect();
+        self.documentation_scroll.update(slots.iter().flatten());
+        self.popups.resize_with(slots.len(), Retained::default);
+        let now = Instant::now();
+        for (retained, popup) in self.popups.iter_mut().zip(slots) {
+            retained.update(popup, now, transition.duration);
+        }
         let code_faces = |code: &Code| self.faces_of(code);
         let view = DocumentationView {
             code_faces: &code_faces,
@@ -1206,9 +1233,11 @@ impl EditorView {
             max_width: px(self.documentation.max_width),
             max_height: px(self.documentation.max_height),
         };
-        popups
+        self.popups
             .iter()
-            .filter_map(|popup| {
+            .filter_map(|retained| retained.shown(transition))
+            .filter_map(|shown| {
+                let popup = shown.content;
                 let line = self.editor.window_buffer().text().line_of(popup.anchor);
                 let row = line as f32 - self.vertical.shown();
                 if row < 0.0 {
@@ -1235,9 +1264,64 @@ impl EditorView {
                     window_width: window_size.width,
                     window_height: window_size.height,
                 };
-                Some(render_popup(popup, placement, &view))
+                Some(shown.look.apply(render_popup(popup, placement, &view)))
             })
             .collect()
+    }
+
+    /// The pane under the text as it comes, is, or goes; `current` is the one shown now.
+    fn render_pane(
+        &mut self,
+        current: Option<(Pane, PaneChrome)>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let transition = self.transitions.pane();
+        self.pane
+            .update(current, Instant::now(), transition.duration);
+        let (pane, _) = self.pane.shown(transition)?.content;
+        // A screen is sized to one place a frame: the window's, if it is drawn there too.
+        let screen = match &pane.body {
+            PaneBody::Screen(name)
+                if !(self.showing_screen && self.editor.window_buffer().name() == name) =>
+            {
+                Some((name.clone(), pane.height))
+            }
+            _ => None,
+        };
+        let screen = screen.and_then(|(name, height)| {
+            let bounds = screen_bounds(window.viewport_size(), height);
+            let under = over(PANE_TINT, glass::window_tint());
+            self.render_screen_in(&name, bounds, under, window, cx)
+        });
+        let shown = self.pane.shown(transition)?;
+        let (pane, chrome) = shown.content;
+        let element = render_pane(pane, chrome, screen, cx)
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
+        Some(shown.look.apply(element))
+    }
+
+    /// The prompt and the scrim behind it as they come, are, or go.
+    fn render_prompt(&mut self, cx: &mut Context<Self>) -> Option<PromptSurface> {
+        let transition = self.transitions.prompt();
+        let closed = self.editor.take_closed_minibuffer();
+        let open = self.editor.minibuffer().is_some();
+        self.prompt
+            .update_owned(open, closed, Instant::now(), transition.duration);
+        let minibuffer = self.editor.minibuffer().or(self.prompt.leaving())?;
+        let problem_list = is_problem_list(minibuffer);
+        let side = if problem_list {
+            Side::Below
+        } else {
+            Side::Above
+        };
+        let look = self.prompt.look(transition.coming_from(side))?;
+        let scrim = render_scrim(minibuffer.dialog().is_some());
+        Some(PromptSurface {
+            surface: look.apply(render_minibuffer(minibuffer, &self.input_scroll, cx)),
+            scrim: look.in_place().apply(scrim),
+            problem_list,
+        })
     }
 
     /// Parses `code` the first time it is asked for; documentation's code is parsed as it
@@ -1778,6 +1862,7 @@ impl Render for EditorView {
         self.showing_rows = table.is_some() || outline.is_some();
         let mut toolbar = None;
         let mut pane = None;
+        let mut text_shown = false;
         let (body, hints, popups) = match (table, outline) {
             _ if self.showing_screen => {
                 let controls = self.editor.text_controls().unwrap_or_default();
@@ -1858,47 +1943,43 @@ impl Render for EditorView {
                     .as_ref()
                     .map_or(controls.hints, |pane| pane.hints);
                 pane = shown_pane.map(|shown| {
-                    let screen = match &shown.body {
-                        PaneBody::Screen(name) => {
-                            let bounds = screen_bounds(window.viewport_size(), shown.height);
-                            let under = over(PANE_TINT, glass::window_tint());
-                            self.render_screen_in(name, bounds, under, window, cx)
-                        }
-                        PaneBody::Columns(_) => None,
-                    };
                     let chrome = PaneChrome {
                         switch: self.editor.pane_switch(),
                         shown: self.editor.shown_pane().unwrap_or_default(),
                         focused: self.editor.pane_focused(),
                         window_width: window.viewport_size().width,
                     };
-                    render_pane(shown, chrome, screen, cx)
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .into_any_element()
+                    (shown, chrome)
                 });
+                text_shown = true;
                 (body, hints, popups)
             }
         };
-        let minibuffer = self
-            .editor
-            .minibuffer()
-            .map(|minibuffer| render_minibuffer(minibuffer, &self.input_scroll, cx));
+        // Popups belong to the text; drawn again, they come anew.
+        if !text_shown {
+            self.popups.clear();
+        }
+        let pane = self.render_pane(pane, window, cx);
+        let prompt = self.render_prompt(cx);
         // gpui scrolls the input to the cursor only once it has laid it out.
-        if minibuffer.is_some() && self.input_scroll.bounds().size.width == px(0.0) {
+        if self.editor.minibuffer().is_some() && self.input_scroll.bounds().size.width == px(0.0) {
             window.request_animation_frame();
         }
         let (row, row_popups) = self.render_bottom_row(hints, window, cx);
         // The status pill stays lit above the scrim while the list it opened is shown.
-        let (row_below_scrim, row_above_scrim) =
-            if self.editor.minibuffer().is_some_and(is_problem_list) {
-                (None, Some(row))
-            } else {
-                (Some(row), None)
-            };
-        let modal = self
-            .editor
-            .minibuffer()
-            .is_some_and(|minibuffer| minibuffer.dialog().is_some());
+        let (row_below_scrim, row_above_scrim) = match &prompt {
+            Some(prompt) if prompt.problem_list => (None, Some(row)),
+            _ => (Some(row), None),
+        };
+        let (scrim, prompt) = prompt.map_or((None, None), |prompt| {
+            (Some(prompt.scrim), Some(prompt.surface))
+        });
+        if self.pane.is_changing()
+            || self.prompt.is_changing()
+            || self.popups.iter().any(Retained::is_changing)
+        {
+            window.request_animation_frame();
+        }
 
         div()
             .track_focus(&self.focus_handle)
@@ -1917,12 +1998,12 @@ impl Render for EditorView {
             .child(body)
             .children(pane)
             .children(row_below_scrim)
-            .when(minibuffer.is_some(), |root| root.child(render_scrim(modal)))
+            .children(scrim)
             .child(self.render_header().children(toolbar))
             .children(popups)
             .children(row_popups)
             .children(row_above_scrim)
-            .children(minibuffer)
+            .children(prompt)
             .children(self.render_drag_listeners(cx))
     }
 }

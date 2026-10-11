@@ -839,6 +839,8 @@ pub struct Window {
     pub(crate) rendered_entity_stack: Vec<EntityId>,
     pub(crate) element_offset_stack: Vec<Point<Pixels>>,
     pub(crate) element_opacity: f32,
+    /// Elements drawn now take no hitboxes and no mouse listeners.
+    inert: bool,
     pub(crate) content_mask_stack: Vec<ContentMask<Pixels>>,
     pub(crate) requested_autoscroll: Option<Bounds<Pixels>>,
     pub(crate) image_cache_stack: Vec<AnyImageCache>,
@@ -1224,6 +1226,7 @@ impl Window {
             element_offset_stack: Vec::new(),
             content_mask_stack: Vec::new(),
             element_opacity: 1.0,
+            inert: false,
             requested_autoscroll: None,
             rendered_frame: Frame::new(DispatchTree::new(cx.keymap.clone(), cx.actions.clone())),
             next_frame: Frame::new(DispatchTree::new(cx.keymap.clone(), cx.actions.clone())),
@@ -2455,6 +2458,16 @@ impl Window {
         result
     }
 
+    /// Prepaints or paints elements in `f` without hitboxes or mouse listeners, so the mouse
+    /// reaches what is under them, e.g. a surface fading out.
+    pub(crate) fn with_inert<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
+        self.invalidator.debug_assert_paint_or_prepaint();
+        let previous = mem::replace(&mut self.inert, true);
+        let result = f(self);
+        self.inert = previous;
+        result
+    }
+
     /// Perform prepaint on child elements in a "retryable" manner, so that any side effects
     /// of prepaints can be discarded before prepainting again. This is used to support autoscroll
     /// where we need to prepaint children to detect the autoscroll bounds, then adjust the
@@ -2835,7 +2848,8 @@ impl Window {
         }
     }
 
-    /// Blur what has been painted under `bounds` so far, clipped to its corners.
+    /// Blur what has been painted under `bounds` so far, clipped to its corners. A translucent
+    /// element blurs and saturates as much less, none at all when it is invisible.
     ///
     /// This method should only be called as part of the paint phase of element drawing.
     pub fn paint_backdrop_filter(
@@ -2846,15 +2860,19 @@ impl Window {
     ) {
         self.invalidator.debug_assert_paint();
 
+        let opacity = self.element_opacity();
+        if opacity <= 0.0 {
+            return;
+        }
         let scale_factor = self.scale_factor();
         let content_mask = self.content_mask();
         self.next_frame.scene.insert_primitive(BackdropBlur {
             order: 0,
-            blur_radius: filter.blur_radius.scale(scale_factor),
+            blur_radius: (filter.blur_radius * opacity).scale(scale_factor),
             bounds: bounds.scale(scale_factor),
             corner_radii: corner_radii.scale(scale_factor),
             content_mask: content_mask.scale(scale_factor),
-            saturation: filter.saturation,
+            saturation: 1.0 + (filter.saturation - 1.0) * opacity,
         });
     }
 
@@ -2868,11 +2886,12 @@ impl Window {
 
         let scale_factor = self.scale_factor();
         let content_mask = self.content_mask();
+        let opacity = self.element_opacity();
         self.next_frame.scene.insert_primitive(Fade {
             order: 0,
             bounds: bounds.scale(scale_factor),
             content_mask: content_mask.scale(scale_factor),
-            amount,
+            amount: amount.opacity(opacity),
             color,
         });
     }
@@ -3366,7 +3385,10 @@ impl Window {
             content_mask,
             behavior,
         };
-        self.next_frame.hitboxes.push(hitbox.clone());
+        // Never hit, so it is never hovered and blocks nothing under it.
+        if !self.inert {
+            self.next_frame.hitboxes.push(hitbox.clone());
+        }
         hitbox
     }
 
@@ -3475,6 +3497,9 @@ impl Window {
         mut handler: impl FnMut(&Event, DispatchPhase, &mut Window, &mut App) + 'static,
     ) {
         self.invalidator.debug_assert_paint();
+        if self.inert {
+            return;
+        }
 
         self.next_frame.mouse_listeners.push(Some(Box::new(
             move |event: &dyn Any, phase: DispatchPhase, window: &mut Window, cx: &mut App| {
