@@ -40,8 +40,8 @@ const PREFIX_KEYS_COLUMNS: RangeInclusive<usize> = 1..=8;
 const DOCUMENTATION_MAX_WIDTHS: RangeInclusive<f32> = 240.0..=2000.0;
 /// Pixels.
 const DOCUMENTATION_MAX_HEIGHTS: RangeInclusive<f32> = 120.0..=2000.0;
-/// Milliseconds; past 100 a surface would feel slow to come.
-const TRANSITION_DURATIONS: RangeInclusive<u64> = 0..=100;
+/// Milliseconds; past 250 a surface keeps one waiting to see it.
+const TRANSITION_DURATIONS: RangeInclusive<u64> = 0..=250;
 /// Pixels.
 const TRANSITION_SLIDES: RangeInclusive<f32> = 0.0..=32.0;
 /// Changes this close together are read once, e.g. an editor's save done in steps.
@@ -573,7 +573,8 @@ impl Default for DocumentationSettings {
     }
 }
 
-/// How the pane under the text, prompts and the popups by the text come and go.
+/// How the pane under the text, prompts and popups come and go: those by the text, and
+/// the cards over the bottom row, like the keys after a prefix.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct TransitionsSettings {
@@ -585,7 +586,7 @@ pub struct TransitionsSettings {
     /// Pixels it comes down by, or up by from the status pill.
     pub prompt_slide: f32,
     pub popup_duration: u64,
-    /// Pixels it comes down by.
+    /// Pixels it comes down by, or up by from the bottom row.
     pub popup_slide: f32,
 }
 
@@ -614,12 +615,12 @@ fn transition(duration: u64, slide: f32, from: Side) -> Transition {
 impl Default for TransitionsSettings {
     fn default() -> Self {
         Self {
-            pane_duration: 90,
+            pane_duration: 120,
             pane_slide: 16.0,
-            prompt_duration: 80,
+            prompt_duration: 110,
             prompt_slide: 8.0,
-            popup_duration: 60,
-            popup_slide: 0.0,
+            popup_duration: 100,
+            popup_slide: 4.0,
         }
     }
 }
@@ -750,7 +751,7 @@ mod tests {
         assert!(parse("[prefix-keys]\ncolumns = 0\n").is_err());
         assert!(parse("[documentation]\nmax-width = 100\n").is_err());
         assert!(parse("[documentation]\nmax-height = 5000\n").is_err());
-        assert!(parse("[transitions]\npane-duration = 101\n").is_err());
+        assert!(parse("[transitions]\npane-duration = 251\n").is_err());
         assert!(parse("[transitions]\npopup-slide = -1\n").is_err());
         assert!(parse("[transitions]\nduration = 50\n").is_err());
     }

@@ -162,12 +162,13 @@ pub struct Look {
 }
 
 impl Look {
-    /// Eased, so a surface arrives quickly and settles, and leaves the other way round.
+    /// Eased, so a surface arrives quickly and settles, and leaves the other way round. It
+    /// fades more evenly than it moves: eased as much, a fade looks done in a third of
+    /// the time.
     pub fn new(visibility: f32, transition: Transition, leaving: bool) -> Self {
-        let eased = ease_out(visibility);
-        let distance = transition.slide * (1.0 - eased);
+        let distance = transition.slide * (1.0 - ease_out_cubic(visibility));
         Self {
-            opacity: eased,
+            opacity: ease_out_quad(visibility),
             offset: match transition.from {
                 Side::Above => -distance,
                 Side::Below => distance,
@@ -201,8 +202,11 @@ impl Look {
     }
 }
 
-/// Fast at first, settling gently: a cubic ease-out.
-fn ease_out(progress: f32) -> f32 {
+fn ease_out_quad(progress: f32) -> f32 {
+    1.0 - (1.0 - progress).powi(2)
+}
+
+fn ease_out_cubic(progress: f32) -> f32 {
     1.0 - (1.0 - progress).powi(3)
 }
 
@@ -308,6 +312,7 @@ mod tests {
         assert_eq!((above.offset, above.leaving), (-10.0, true));
         assert_eq!(above.in_place().offset, 0.0);
         let halfway = Look::new(0.5, SLIDE, false);
-        assert!(halfway.opacity > 0.5, "eased out: {}", halfway.opacity);
+        assert_eq!(halfway.opacity, 0.75, "eased out, evenly enough to be seen");
+        assert_eq!(halfway.offset, 1.25, "moved further than faded");
     }
 }

@@ -19,18 +19,19 @@ use gpui::{
 
 use crate::assets::{EXECUTION_POINT_ICON, LOGPOINT_ICON};
 use remacs_core::{
-    Action, BreakpointIcon, ChangedLines, Code, CommandError, Editor, GutterIcon, GutterMark, Icon,
-    Key, LineChange, LineExtra, Minibuffer, MouseSelection, Outline, Pane, PaneBody, PaneButton,
-    Popup, Preview, ScreenButton, ScreenMouse, ScreenPointer, ScreenSize, Scroll, StatusSegment,
-    Tabs, describe_sequence,
+    Action, BreakpointIcon, ChangedLines, Code, CommandError, EchoMessage, Editor, GutterIcon,
+    GutterMark, Icon, Key, LineChange, LineExtra, Minibuffer, MouseSelection, Outline, Pane,
+    PaneBody, PaneButton, Popup, Preview, ScreenButton, ScreenMouse, ScreenPointer, ScreenSize,
+    Scroll, StatusSegment, Tabs, describe_sequence,
 };
 use remacs_echo::VIEW_MESSAGES;
 use remacs_theme::font::CodeFont;
 use remacs_theme::{color, font, glass};
 
 use crate::bottom_row::{
-    CardKeys, Hints, echo_room, fit_hints, render_hints, render_hints_list, render_message_card,
-    render_message_echo, render_prefix_echo, render_prefix_keys, render_row,
+    CardKeys, FittedHints, Hints, PrefixKeys, echo_room, fit_hints, render_hints,
+    render_hints_list, render_message_card, render_message_echo, render_prefix_echo,
+    render_prefix_keys, render_row,
 };
 use crate::changes_view::render_changes;
 use crate::display_line::{DisplayLine, display_width, slice_line};
@@ -156,12 +157,7 @@ pub struct EditorView {
     hovered_mark: Option<usize>,
     bottom: BottomSettings,
     transitions: TransitionsSettings,
-    /// The pane under the text and its frame, kept to be drawn as it goes.
-    pane: Retained<(Pane, PaneChrome)>,
-    /// Each plugin's popup by the text, in the order of `Editor::popup_slots`.
-    popups: Vec<Retained<Popup>>,
-    /// The prompt as it comes and goes; the editor hands it over once closed.
-    prompt: Retained<Minibuffer>,
+    surfaces: Surfaces,
     /// The echo area's message is shown whole above it, until the next key or click.
     message_open: bool,
     /// The view's keys that do not fit under it are listed, until the next key or click.
@@ -171,6 +167,40 @@ pub struct EditorView {
     prefix_timer: Option<Task<()>>,
     window_handle: AnyWindowHandle,
     _activation: Subscription,
+}
+
+/// What comes and goes over the editor, each kept to be drawn as it goes.
+#[derive(Default)]
+struct Surfaces {
+    /// The pane under the text and its frame.
+    pane: Retained<(Pane, PaneChrome)>,
+    /// Each plugin's popup by the text, in the order of `Editor::popup_slots`.
+    popups: Vec<Retained<Popup>>,
+    /// The editor hands it over once closed.
+    prompt: Retained<Minibuffer>,
+    /// Over the bottom row: the echo area's message whole, the keys that do not fit, the
+    /// keys after a prefix.
+    message: Retained<OpenMessage>,
+    keys: Retained<(FittedHints, &'static str)>,
+    prefix_keys: Retained<PrefixKeys>,
+}
+
+impl Surfaces {
+    /// Some surface is on its way in or out, so another frame is due.
+    fn are_changing(&self) -> bool {
+        self.pane.is_changing()
+            || self.popups.iter().any(Retained::is_changing)
+            || self.prompt.is_changing()
+            || self.message.is_changing()
+            || self.keys.is_changing()
+            || self.prefix_keys.is_changing()
+    }
+}
+
+/// The echo area's message opened whole, and the key that lists them all.
+struct OpenMessage {
+    message: EchoMessage,
+    all_messages: Option<String>,
 }
 
 /// A prompt as drawn, over the scrim that dims the editor behind it.
@@ -308,9 +338,7 @@ impl EditorView {
             hovered_mark: None,
             bottom,
             transitions: ui.transitions,
-            pane: Retained::default(),
-            popups: Vec::new(),
-            prompt: Retained::default(),
+            surfaces: Surfaces::default(),
             message_open: false,
             hints_open: false,
             prefix_since: None,
@@ -1219,9 +1247,10 @@ impl EditorView {
         let transition = self.transitions.popup();
         let slots: Vec<Option<Popup>> = self.editor.popup_slots().collect();
         self.documentation_scroll.update(slots.iter().flatten());
-        self.popups.resize_with(slots.len(), Retained::default);
+        let popups = &mut self.surfaces.popups;
+        popups.resize_with(slots.len(), Retained::default);
         let now = Instant::now();
-        for (retained, popup) in self.popups.iter_mut().zip(slots) {
+        for (retained, popup) in popups.iter_mut().zip(slots) {
             retained.update(popup, now, transition.duration);
         }
         let code_faces = |code: &Code| self.faces_of(code);
@@ -1233,7 +1262,8 @@ impl EditorView {
             max_width: px(self.documentation.max_width),
             max_height: px(self.documentation.max_height),
         };
-        self.popups
+        self.surfaces
+            .popups
             .iter()
             .filter_map(|retained| retained.shown(transition))
             .filter_map(|shown| {
@@ -1277,9 +1307,10 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let transition = self.transitions.pane();
-        self.pane
+        self.surfaces
+            .pane
             .update(current, Instant::now(), transition.duration);
-        let (pane, _) = self.pane.shown(transition)?.content;
+        let (pane, _) = self.surfaces.pane.shown(transition)?.content;
         // A screen is sized to one place a frame: the window's, if it is drawn there too.
         let screen = match &pane.body {
             PaneBody::Screen(name)
@@ -1294,7 +1325,7 @@ impl EditorView {
             let under = over(PANE_TINT, glass::window_tint());
             self.render_screen_in(&name, bounds, under, window, cx)
         });
-        let shown = self.pane.shown(transition)?;
+        let shown = self.surfaces.pane.shown(transition)?;
         let (pane, chrome) = shown.content;
         let element = render_pane(pane, chrome, screen, cx)
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
@@ -1306,16 +1337,16 @@ impl EditorView {
         let transition = self.transitions.prompt();
         let closed = self.editor.take_closed_minibuffer();
         let open = self.editor.minibuffer().is_some();
-        self.prompt
-            .update_owned(open, closed, Instant::now(), transition.duration);
-        let minibuffer = self.editor.minibuffer().or(self.prompt.leaving())?;
+        let retained = &mut self.surfaces.prompt;
+        retained.update_owned(open, closed, Instant::now(), transition.duration);
+        let minibuffer = self.editor.minibuffer().or(retained.leaving())?;
         let problem_list = is_problem_list(minibuffer);
         let side = if problem_list {
             Side::Below
         } else {
             Side::Above
         };
-        let look = self.prompt.look(transition.coming_from(side))?;
+        let look = retained.look(transition.coming_from(side))?;
         let scrim = render_scrim(minibuffer.dialog().is_some());
         Some(PromptSurface {
             surface: look.apply(render_minibuffer(minibuffer, &self.input_scroll, cx)),
@@ -1743,41 +1774,67 @@ impl EditorView {
         let hints_pill = render_hints(&fitted, listed, cx);
         let row = render_row(echo, hints_pill, self.render_status(cx).into_any_element());
 
-        let mut popups = Vec::new();
-        if self.message_open
-            && let Some(message) = self.editor.message()
-        {
+        let message = self
+            .editor
+            .message()
+            .filter(|_| self.message_open)
+            .map(|message| OpenMessage {
+                message: message.clone(),
+                all_messages: whole_key,
+            });
+        let keys = (listed && !fitted.listed().is_empty()).then(|| {
+            // Under text the keys are a shown pane's, when there is one.
+            let title = match self.editor.shown_pane() {
+                Some(pane) if !self.showing_rows && !self.showing_screen => pane,
+                _ => self.editor.window_buffer().mode(),
+            };
+            (fitted, title)
+        });
+        let prefix_keys = (self.prefix_keys_due() && !pending.is_empty())
+            .then(|| PrefixKeys::new(pending, self.editor.prefix_continuations()));
+        (
+            row.into_any_element(),
+            self.render_cards(message, keys, prefix_keys, window),
+        )
+    }
+
+    /// Over the bottom row, rising from it, as they come, are, or go.
+    fn render_cards(
+        &mut self,
+        message: Option<OpenMessage>,
+        keys: Option<(FittedHints, &'static str)>,
+        prefix_keys: Option<PrefixKeys>,
+        window: &Window,
+    ) -> Vec<AnyElement> {
+        let transition = self.transitions.popup().coming_from(Side::Below);
+        let (now, duration) = (Instant::now(), transition.duration);
+        let surfaces = &mut self.surfaces;
+        surfaces.message.update(message, now, duration);
+        surfaces.keys.update(keys, now, duration);
+        surfaces.prefix_keys.update(prefix_keys, now, duration);
+        let settings = self.bottom;
+        let message = surfaces.message.shown(transition).map(|shown| {
+            let card = shown.content;
             let keys = CardKeys {
-                all_messages: whole_key.as_deref(),
+                all_messages: card.all_messages.as_deref(),
                 copy: COPY_MESSAGE_KEY,
                 close: CLOSE_KEY,
             };
-            popups.push(
-                render_message_card(message, settings.echo.lines, keys, window).into_any_element(),
-            );
-        }
-        if listed {
-            // Under text the keys are a shown pane's, when there is one.
-            let mode = self.editor.window_buffer().mode();
-            let title = match self.editor.shown_pane() {
-                Some(pane) if !self.showing_rows && !self.showing_screen => pane,
-                _ => mode,
-            };
-            popups.extend(render_hints_list(&fitted, title).map(IntoElement::into_any_element));
-        }
-        if self.prefix_keys_due() && !self.editor.pending_keys().is_empty() {
-            popups.push(
-                render_prefix_keys(
-                    self.editor.pending_keys(),
-                    self.editor.prefix_continuations(),
-                    settings.prefix_keys.columns,
-                    CLOSE_KEY,
-                    window,
-                )
-                .into_any_element(),
-            );
-        }
-        (row.into_any_element(), popups)
+            let lines = settings.echo.lines;
+            shown
+                .look
+                .apply(render_message_card(&card.message, lines, keys, window))
+        });
+        let keys = surfaces.keys.shown(transition).and_then(|shown| {
+            let (fitted, title) = shown.content;
+            render_hints_list(fitted, title).map(|list| shown.look.apply(list))
+        });
+        let prefix_keys = surfaces.prefix_keys.shown(transition).map(|shown| {
+            let columns = settings.prefix_keys.columns;
+            let card = render_prefix_keys(shown.content, columns, CLOSE_KEY, window);
+            shown.look.apply(card)
+        });
+        message.into_iter().chain(keys).chain(prefix_keys).collect()
     }
 
     fn render_status(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1957,7 +2014,7 @@ impl Render for EditorView {
         };
         // Popups belong to the text; drawn again, they come anew.
         if !text_shown {
-            self.popups.clear();
+            self.surfaces.popups.clear();
         }
         let pane = self.render_pane(pane, window, cx);
         let prompt = self.render_prompt(cx);
@@ -1974,10 +2031,7 @@ impl Render for EditorView {
         let (scrim, prompt) = prompt.map_or((None, None), |prompt| {
             (Some(prompt.scrim), Some(prompt.surface))
         });
-        if self.pane.is_changing()
-            || self.prompt.is_changing()
-            || self.popups.iter().any(Retained::is_changing)
-        {
+        if self.surfaces.are_changing() {
             window.request_animation_frame();
         }
 

@@ -43,6 +43,7 @@ const MIN_PREFIX_ROWS: usize = 3;
 const DIVIDER: u32 = 0xffffff12;
 
 /// The view's keys and how many of them fit under it.
+#[derive(Clone, Copy)]
 pub struct FittedHints {
     pub hints: Hints,
     pub shown: usize,
@@ -53,6 +54,33 @@ pub struct FittedHints {
 impl FittedHints {
     fn hidden(&self) -> Hints {
         &self.hints[self.shown..]
+    }
+
+    /// Those a list over the row shows: the ones that did not fit, or all when none
+    /// show.
+    pub fn listed(&self) -> Hints {
+        if self.width == px(0.0) {
+            self.hints
+        } else {
+            self.hidden()
+        }
+    }
+}
+
+/// The keys that may follow a prefix typed, in the order they are listed.
+pub struct PrefixKeys {
+    pub pending: Vec<Key>,
+    pub continuations: Vec<(Key, Binding)>,
+}
+
+impl PrefixKeys {
+    pub fn new(pending: &[Key], mut continuations: Vec<(Key, Binding)>) -> Self {
+        continuations
+            .sort_by_key(|(key, _)| (key.modifiers != Default::default(), key.to_string()));
+        Self {
+            pending: pending.to_vec(),
+            continuations,
+        }
     }
 }
 
@@ -260,11 +288,7 @@ pub fn render_hints(
 
 /// The keys that did not fit, or all of them when none show, over the row.
 pub fn render_hints_list(fitted: &FittedHints, title: &str) -> Option<impl IntoElement> {
-    let listed = if fitted.width == px(0.0) {
-        fitted.hints
-    } else {
-        fitted.hidden()
-    };
+    let listed = fitted.listed();
     if listed.is_empty() {
         return None;
     }
@@ -392,13 +416,15 @@ pub fn render_message_card(
 
 /// What each key after the prefix typed does, in `columns` filled top to bottom.
 pub fn render_prefix_keys(
-    pending: &[Key],
-    mut continuations: Vec<(Key, Binding)>,
+    keys: &PrefixKeys,
     columns: usize,
     cancel_key: &str,
     window: &Window,
 ) -> impl IntoElement {
-    continuations.sort_by_key(|(key, _)| (key.modifiers != Default::default(), key.to_string()));
+    let PrefixKeys {
+        pending,
+        continuations,
+    } = keys;
     let max_rows = ((window.viewport_size().height - px(PREFIX_TOP_ROOM)) / px(PREFIX_ROW_HEIGHT))
         .floor()
         .max(MIN_PREFIX_ROWS as f32) as usize;
@@ -406,9 +432,9 @@ pub fn render_prefix_keys(
     let capacity = columns * max_rows;
     let more = count.saturating_sub(capacity);
     let mut entries: Vec<AnyElement> = continuations
-        .into_iter()
+        .iter()
         .take(if more > 0 { capacity - 1 } else { capacity })
-        .map(|(key, binding)| {
+        .map(|&(key, binding)| {
             let label = match binding {
                 Binding::Command(command) => div().text_color(rgb(color::FG_BODY)).child(command),
                 _ => {

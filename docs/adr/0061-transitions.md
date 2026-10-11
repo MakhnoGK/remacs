@@ -6,18 +6,24 @@ Status: accepted, 2026-10-11 (issue #24)
 
 - **Surfaces fade, and may slide, in and out**: the pane under the text (terminal,
   debugger), prompts (the minibuffer, menus from the toolbar, dialogs, the problem list)
-  with their scrim, and the popups by the text (completions, documentation, problems).
-  The pane rises from below, prompts and popups come down from above, the problem list
-  rises from the status pill. Panes switched or one prompt answered by the next do not
-  transition: the surface stays, its content changes.
+  with their scrim, and popups: those by the text (completions, documentation, problems)
+  and the cards over the bottom row (ADR 0058: the keys after a prefix, the keys that do
+  not fit, a message whole). The pane rises from below, prompts and popups by the text
+  come down from above, the problem list and the cards rise from the bottom row. Panes
+  switched or one prompt answered by the next do not transition: the surface stays, its
+  content changes.
 - **Settings**, in `ui.toml` `[transitions]`: `pane-`, `prompt-` and `popup-duration`
-  (milliseconds, 0 to 100, 0 off) and `-slide` (pixels, 0 to 32, 0 only fades). Defaults
-  90/16, 80/8, 60/0.
+  (milliseconds, 0 to 250, 0 off) and `-slide` (pixels, 0 to 32, 0 only fades). Defaults
+  120/16, 110/8, 100/4: at first 60–90 ms, a fade eased like the slide looked done in a
+  third of the time and went unseen (user, 2026-10-11).
+- **The fade is eased more evenly than the slide** (quadratic, cubic): three quarters
+  opaque halfway through, rather than seven eighths.
 - **Only drawing transitions, never input**: a surface coming in takes keys and clicks at
   once; one going out is drawn inert (`gpui::inert`), so the mouse reaches what is under
   it, and keys go where they would without it. Nothing waits for a frame.
-- **A surface going out is drawn from its last description** (`transition::Retained`):
-  panes and popups are described anew each frame and the view keeps the last one; the
+- **A surface going out is drawn from its last description** (`transition::Retained`,
+  all of them in `editor_view::Surfaces`, which asks for frames while any changes):
+  panes, popups and cards are described anew each frame and the view keeps the last one; the
   core hands over a closed prompt (`Editor::take_closed_minibuffer`), dropped once it has
   faded or another prompt opened. Popups are told apart by their plugin
   (`Editor::popup_slots`).
@@ -34,5 +40,4 @@ Status: accepted, 2026-10-11 (issue #24)
 - Popups vanish at once when the window stops showing text; they belong to it.
 - While a pane slides in, its screen maps the mouse as if it rested, at most `pane-slide`
   pixels off for `pane-duration`.
-- The echo area's whole message, the key lists above the bottom row and the prefix keys
-  (ADR 0058) do not transition yet.
+- An opened message is copied each frame it is shown, to be drawn as it goes.
