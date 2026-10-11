@@ -1,2 +1,5 @@
 /target
+# Left by tools that open the vendored gpui as a project of its own.
+/vendor/gpui/target
+/vendor/gpui/Cargo.lock
 .DS_Store
