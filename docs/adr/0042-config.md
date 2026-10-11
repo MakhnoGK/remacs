@@ -24,6 +24,7 @@ Status: accepted, 2026-10-06 (issue #2)
   family = "Monaco"
   size = 13
   line-height = 1.7   # times size, rounded to whole pixels
+  weight = "regular"  # thin … black, or 100 to 900; bold is as much heavier
   strokes = "thick"   # thick | thin
 
   [cursor]

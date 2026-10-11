@@ -62,6 +62,29 @@ pub fn text_strokes() -> TextStrokes {
     }
 }
 
+static FAMILY_WEIGHT: RwLock<Option<(SharedString, FontWeight)>> = RwLock::new(None);
+
+/// Draws `family` at `weight` where text asks for the normal one, and other weights of it
+/// as much heavier or lighter; the family's nearest face is used. `None` draws every
+/// family as asked. Applies to text shaped from now on; refresh the windows after it.
+pub fn set_family_weight(family_weight: Option<(SharedString, FontWeight)>) {
+    *FAMILY_WEIGHT.write() = family_weight;
+}
+
+/// `font` as [`set_family_weight`] has it drawn, if that differs.
+fn reweighted(font: &Font) -> Option<Font> {
+    let family_weight = FAMILY_WEIGHT.read();
+    let (family, weight) = family_weight.as_ref()?;
+    if font.family != *family || *weight == FontWeight::NORMAL {
+        return None;
+    }
+    let shifted = font.weight.0 + weight.0 - FontWeight::NORMAL.0;
+    Some(Font {
+        weight: FontWeight(shifted.clamp(FontWeight::THIN.0, FontWeight::BLACK.0)),
+        ..font.clone()
+    })
+}
+
 /// An opaque identifier for a specific font.
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
 #[repr(C)]
@@ -144,6 +167,8 @@ impl TextSystem {
             }
         }
 
+        let reweighted = reweighted(font);
+        let font = reweighted.as_ref().unwrap_or(font);
         let font_id = self
             .font_ids_by_font
             .read()

@@ -4,7 +4,9 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use futures::channel::mpsc;
-use gpui::{App, TextStrokes, WeakEntity, set_text_strokes};
+use gpui::{
+    App, FontWeight, SharedString, TextStrokes, WeakEntity, set_family_weight, set_text_strokes,
+};
 use remacs_config::{Section, Settings, SettingsError, config_dir, home, watch};
 use remacs_core::Editor;
 use remacs_theme::font::{self, CodeFont};
@@ -15,6 +17,7 @@ use crate::editor_view::EditorView;
 
 const FONT_SIZES: RangeInclusive<f32> = 6.0..=72.0;
 const LINE_HEIGHTS: RangeInclusive<f32> = 1.0..=3.0;
+const FONT_WEIGHTS: RangeInclusive<f32> = 100.0..=900.0;
 /// Pixels; past half a narrow font's character the block is a pill.
 const CURSOR_RADII: RangeInclusive<f32> = 0.0..=4.0;
 /// Milliseconds.
@@ -58,7 +61,12 @@ pub fn read_settings() -> ReadSettings {
             errors.push(error);
             defaults
         });
-    font::set_code(ui.font.code_font());
+    let code_font = ui.font.code_font();
+    set_family_weight(Some((
+        SharedString::from(Arc::clone(&code_font.family)),
+        FontWeight(code_font.weight),
+    )));
+    font::set_code(code_font);
     set_text_strokes(ui.font.strokes.into());
     glass::set_window_opacity(ui.glass.opacity);
     cursor::set_radius(ui.cursor.radius);
@@ -160,6 +168,7 @@ impl Section for UiSettings {
                 LINE_HEIGHTS.end()
             ));
         }
+        check_range("font.weight", font.weight.value(), &FONT_WEIGHTS)?;
         check_range("cursor.radius", self.cursor.radius, &CURSOR_RADII)?;
         let interval = self.mouse.drag_scroll_interval;
         if !DRAG_SCROLL_INTERVALS.contains(&interval) {
@@ -241,6 +250,7 @@ pub struct FontSettings {
     pub size: f32,
     /// Times the size.
     pub line_height: f32,
+    pub weight: Weight,
     pub strokes: Strokes,
     pub ligatures: bool,
 }
@@ -252,8 +262,57 @@ impl FontSettings {
             size: self.size,
             // Whole pixels keep rows from blurring at their edges.
             line_height: (self.size * self.line_height).round(),
+            weight: self.weight.value(),
             ligatures: self.ligatures,
         }
+    }
+}
+
+/// A font's weight by name, or by number from 100 to 900.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum Weight {
+    Named(WeightName),
+    Number(f32),
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum WeightName {
+    Thin,
+    ExtraLight,
+    Light,
+    Regular,
+    Medium,
+    Semibold,
+    Bold,
+    ExtraBold,
+    Black,
+}
+
+impl Weight {
+    pub fn value(self) -> f32 {
+        let name = match self {
+            Weight::Number(weight) => return weight,
+            Weight::Named(name) => name,
+        };
+        match name {
+            WeightName::Thin => 100.0,
+            WeightName::ExtraLight => 200.0,
+            WeightName::Light => 300.0,
+            WeightName::Regular => 400.0,
+            WeightName::Medium => 500.0,
+            WeightName::Semibold => 600.0,
+            WeightName::Bold => 700.0,
+            WeightName::ExtraBold => 800.0,
+            WeightName::Black => 900.0,
+        }
+    }
+}
+
+impl Default for Weight {
+    fn default() -> Self {
+        Weight::Named(WeightName::Regular)
     }
 }
 
@@ -264,6 +323,7 @@ impl Default for FontSettings {
             family: code_font.family.to_string(),
             size: code_font.size,
             line_height: 1.7,
+            weight: Weight::default(),
             strokes: Strokes::default(),
             ligatures: code_font.ligatures,
         }
@@ -486,7 +546,8 @@ mod tests {
     #[test]
     fn reads_every_setting() {
         let settings = parse(
-            "[font]\nfamily = \"Menlo\"\nsize = 15\nline-height = 1.5\nstrokes = \"thin\"\n\
+            "[font]\nfamily = \"Menlo\"\nsize = 15\nline-height = 1.5\nweight = \"light\"\n\
+             strokes = \"thin\"\n\
              ligatures = false\n\
              [cursor]\nheight = \"font\"\nradius = 2.5\n[mouse]\ndrag-scroll-interval = 60\n\
              [scroll]\nanimation-duration = 0\n[glass]\nopacity = 0.5\nblur = 0\n\
@@ -531,6 +592,7 @@ mod tests {
         assert_eq!(settings.scroll.animation_duration, 0);
         assert_eq!(settings.font.family, "Menlo");
         assert_eq!(settings.font.code_font().line_height, 23.0);
+        assert_eq!(settings.font.code_font().weight, 300.0);
         assert_eq!(settings.font.strokes, Strokes::Thin);
         assert!(!settings.font.code_font().ligatures);
         assert_eq!(settings.cursor.height, CursorHeight::Font);
@@ -541,6 +603,20 @@ mod tests {
     fn rejects_sizes_out_of_range_and_unknown_values() {
         assert!(parse("[font]\nsize = 2\n").is_err());
         assert!(parse("[font]\nline-height = 0.5\n").is_err());
+        assert!(parse("[font]\nweight = 950\n").is_err());
+        assert!(parse("[font]\nweight = \"heavy\"\n").is_err());
+        assert_eq!(
+            parse("[font]\nweight = 550\n").unwrap().font.weight.value(),
+            550.0
+        );
+        assert_eq!(
+            parse("[font]\nweight = \"extra-bold\"\n")
+                .unwrap()
+                .font
+                .weight
+                .value(),
+            800.0
+        );
         assert!(parse("[cursor]\nheight = \"half\"\n").is_err());
         assert!(parse("[cursor]\nradius = 5\n").is_err());
         assert!(parse("[mouse]\ndrag-scroll-interval = 0\n").is_err());

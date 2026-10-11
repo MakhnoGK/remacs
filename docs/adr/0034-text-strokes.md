@@ -17,8 +17,9 @@ Status: accepted, 2026-10-04 (issue #11)
 
 ## Consequences
 
-- Changes to the vendored gpui: `text_system.rs` (the setting, and `thick` in
-  `RenderGlyphParams`), `window.rs` (sets it when painting a glyph),
+- Changes to the vendored gpui: `text_system.rs` (the setting, `thick` in
+  `RenderGlyphParams`, and `set_family_weight`, which shifts the code font's weights by
+  `font.weight` when its font is resolved, issue #23), `window.rs` (sets it when painting a glyph),
   `platform/mac/text_system.rs` (rasterization), `taffy.rs` (two float literals typed, as
   a path dependency's warnings are no longer capped), `elements/text.rs` (a truncated
   text is measured again at another width, ADR 0058), `app.rs` and

@@ -216,6 +216,8 @@ pub mod font {
         pub size: f32,
         /// In pixels.
         pub line_height: f32,
+        /// Of its normal text, 100 to 900; bold text is as much heavier.
+        pub weight: f32,
         /// Whether the font may join characters into one glyph, e.g. `=>` into an arrow.
         pub ligatures: bool,
     }
@@ -232,6 +234,7 @@ pub mod font {
                 family: Arc::from("Monaco"),
                 size: 13.0,
                 line_height: 22.0,
+                weight: 400.0,
                 ligatures: true,
             }
         }
