@@ -1287,7 +1287,7 @@ impl EditorView {
                     .font_weight(gpui::FontWeight::MEDIUM)
                     .child(buffer.name().to_owned()),
             )
-            .child(div().text_color(rgb(color::FG_DIM)).child("— remacs"))
+            .child(div().text_color(rgb(color::FG_DIM)).child("— Remacs"))
     }
 
     /// The gutter's mark slots for `lines`, mapped by line, when some plugin may mark the
@@ -1749,7 +1749,7 @@ impl EditorView {
 
 impl Render for EditorView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        window.set_window_title(&format!("{} — remacs", self.editor.window_buffer().name()));
+        window.set_window_title(&format!("{} — Remacs", self.editor.window_buffer().name()));
         if self.applied_glass != Some(self.glass) {
             window.set_background_appearance(self.glass.window_background());
             window.set_background_blur_radius(self.glass.window_blur());
