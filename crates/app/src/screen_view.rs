@@ -2,7 +2,8 @@
 //! font, the cursor, the marks of commands in a gutter, and what is over the rows.
 
 use gpui::{
-    Context, Div, FontWeight, Hsla, ParentElement, Pixels, Styled, div, prelude::*, px, rgb, rgba,
+    Context, Div, FontWeight, Hsla, ParentElement, Pixels, Point, Styled, div, prelude::*, px, rgb,
+    rgba,
 };
 use remacs_core::{
     CellFace, CellHighlight, CellRun, CursorShape, RowMark, Screen, ScreenBanner, ScreenCursor,
@@ -45,12 +46,14 @@ pub fn cell_at(x: Pixels, y: Pixels, cell: Cell, gutter: bool) -> (usize, usize)
     (row, column)
 }
 
-/// The screen filling its parent; `fade` dissolves its top into the glass, as scrolled
-/// text does. `hovered` is the row whose mark the mouse is over.
+/// The screen filling its parent, its cells `inset` from the edges. With more scrolled
+/// past above, its top, inset included, dissolves into `under`, what it is drawn on, as
+/// scrolled text does. `hovered` is the row whose mark the mouse is over.
 pub fn render_screen(
     screen: Screen,
     cell: Cell,
-    fade: f32,
+    inset: Point<Pixels>,
+    under: Hsla,
     hovered: Option<usize>,
     cx: &mut Context<EditorView>,
 ) -> Div {
@@ -62,13 +65,24 @@ pub fn render_screen(
         mode: _,
         search,
         gutter,
-        above: _,
+        above,
         flash,
+        pointing,
     } = screen;
-    let root = div().relative().size_full().overflow_hidden();
+    let root = div()
+        .relative()
+        .size_full()
+        .overflow_hidden()
+        .when(pointing, |root| root.cursor_pointer());
     if let Some(notice) = notice {
         return root.child(render_notice(notice));
     }
+    let padded = div()
+        .absolute()
+        .top(inset.y)
+        .bottom(inset.y)
+        .left(inset.x)
+        .right(inset.x);
     let left = if gutter { px(MARKS_GUTTER) } else { px(0.0) };
     let cells = div()
         .absolute()
@@ -86,27 +100,27 @@ pub fn render_screen(
                 .flat_map(|(row, line)| render_row(row, line, cell)),
         )
         .children(cursor.map(|cursor| render_cursor(cursor, &rows, cell)));
-    let glass = rgba(glass::window_tint()).into();
-    root.when(gutter, |root| {
-        root.children(render_marks(&rows, cell, hovered, cx))
-    })
-    .child(cells)
-    .when(fade > 0.0, |root| {
-        root.child(edge_fade(Edge::Top, fade, glass))
-    })
-    .children(banner.map(render_banner))
-    .children(search.map(render_search))
-    .when(flash, |root| {
-        root.child(
-            div()
-                .absolute()
-                .inset_0()
-                .rounded(px(10.0))
-                .bg(rgba(0xffffff0f))
-                .border_1()
-                .border_color(rgba(color::WARNING << 8 | 0x66)),
-        )
-    })
+    let padded = padded
+        .when(gutter, |padded| {
+            padded.children(render_marks(&rows, cell, hovered, cx))
+        })
+        .child(cells);
+    let fade = f32::from(inset.y + cell.height);
+    root.child(padded)
+        .when(above, |root| root.child(edge_fade(Edge::Top, fade, under)))
+        .children(banner.map(render_banner))
+        .children(search.map(render_search))
+        .when(flash, |root| {
+            root.child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .rounded(px(10.0))
+                    .bg(rgba(0xffffff0f))
+                    .border_1()
+                    .border_color(rgba(color::WARNING << 8 | 0x66)),
+            )
+        })
 }
 
 fn render_row(row: usize, line: &ScreenRow, cell: Cell) -> Vec<Div> {

@@ -7,7 +7,10 @@ mod commands;
 mod copy;
 mod grid;
 mod history;
+mod integration;
 mod keys;
+mod links;
+mod mouse;
 mod scan;
 mod session;
 mod settings;
@@ -20,7 +23,7 @@ use std::rc::Rc;
 use remacs_core::{Command, Editor, Keymap, MinorKeymap, PaneSource, Plugin, Registry};
 
 use crate::settings::TerminalSettings;
-use crate::terminals::{PANE, all, close, find_mut, is_shown, rename_buffers, terminals};
+use crate::terminals::{PANE, all, close, find_mut, is_shown, keyed, rename_buffers, terminals};
 use crate::view::{CLOSE, LIST, MAXIMIZE, NEW, TerminalScreens};
 
 pub use crate::terminal::find_program;
@@ -152,9 +155,13 @@ fn read_settings(editor: &mut Editor) {
 fn update(editor: &mut Editor) {
     let close_on_exit = terminals(editor).settings.close_on_exit;
     let ids: Vec<u64> = all(editor).iter().map(|terminal| terminal.id).collect();
+    let with_keys = keyed(editor);
     for id in ids {
         let shown = is_shown(editor, id);
-        let Some(pumped) = find_mut(editor, id).map(|terminal| terminal.pump(shown)) else {
+        let Some(pumped) = find_mut(editor, id).map(|terminal| {
+            terminal.report_focus(with_keys == Some(id));
+            terminal.pump(shown)
+        }) else {
             continue;
         };
         if let Some(text) = pumped.clipboard {

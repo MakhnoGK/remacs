@@ -6,13 +6,7 @@ pub fn to_key(keystroke: &Keystroke) -> Option<Key> {
     if let Some(character) = typed_char(keystroke) {
         return Some(Key::new(Modifiers::default(), KeyCode::Char(character)));
     }
-    let pressed = &keystroke.modifiers;
-    let modifiers = Modifiers {
-        control: pressed.control,
-        meta: pressed.alt,
-        shift: pressed.shift,
-        super_key: pressed.platform,
-    };
+    let modifiers = to_modifiers(&keystroke.modifiers);
     let code = match keystroke.key.as_str() {
         "enter" => KeyCode::Return,
         "tab" => KeyCode::Tab,
@@ -34,6 +28,16 @@ pub fn to_key(keystroke: &Keystroke) -> Option<Key> {
         },
     };
     Some(Key::new(modifiers, code))
+}
+
+/// Option as Meta, Command as Super.
+pub fn to_modifiers(pressed: &gpui::Modifiers) -> Modifiers {
+    Modifiers {
+        control: pressed.control,
+        meta: pressed.alt,
+        shift: pressed.shift,
+        super_key: pressed.platform,
+    }
 }
 
 /// `8` for gpui's `f8`.

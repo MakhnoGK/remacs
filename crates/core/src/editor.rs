@@ -29,7 +29,7 @@ use crate::outline::Outline;
 use crate::pane::Pane;
 use crate::plugin::{Plugin, Registry};
 use crate::popup::Popup;
-use crate::screen::{Screen, ScreenMouse, ScreenSize};
+use crate::screen::{Screen, ScreenMouse, ScreenPadding, ScreenPointer, ScreenSize};
 use crate::status::StatusSegment;
 use crate::syntax::SyntaxContext;
 use crate::table::{Action, Table};
@@ -910,21 +910,34 @@ impl Editor {
             })
     }
 
-    /// Scrolls the screen of the buffer named `name` by `rows`.
-    pub fn scroll_screen(&mut self, name: &str, rows: isize) {
-        for source in self.registry.screens.clone() {
-            source.scroll(self, name, rows);
-        }
-        self.after_command();
+    /// Room around the cells of the buffer named `name`, drawn as a screen.
+    pub fn screen_padding(&self, name: &str) -> ScreenPadding {
+        let Some(buffer) = self.buffers.iter().find(|buffer| buffer.name() == name) else {
+            return ScreenPadding::default();
+        };
+        self.registry
+            .screens
+            .iter()
+            .find(|source| source.draws(buffer))
+            .map(|source| source.padding(self))
+            .unwrap_or_default()
     }
 
-    /// Passes the mouse over a screen's cell to the plugins that draw screens.
-    pub fn screen_mouse(&mut self, name: &str, row: usize, column: usize, mouse: ScreenMouse) {
-        self.clear_echo();
-        for source in self.registry.screens.clone() {
-            source.mouse(self, name, row, column, mouse);
+    /// Passes the mouse over a screen's cell to the plugins that draw screens; true when
+    /// the screen changed with it. A move changes nothing else.
+    pub fn screen_mouse(&mut self, name: &str, pointer: ScreenPointer) -> bool {
+        let moved = matches!(pointer.mouse, ScreenMouse::Move | ScreenMouse::Leave);
+        if matches!(pointer.mouse, ScreenMouse::Press { .. }) {
+            self.clear_echo();
         }
-        self.after_command();
+        let mut changed = false;
+        for source in self.registry.screens.clone() {
+            changed |= source.mouse(self, name, pointer);
+        }
+        if !moved {
+            self.after_command();
+        }
+        changed
     }
 
     /// Renames the buffer named `name`, as `name<2>` if the new name is taken.

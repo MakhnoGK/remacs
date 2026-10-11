@@ -11,7 +11,6 @@ mod console;
 mod discovery;
 mod entry_points;
 mod launch;
-mod links;
 mod menu;
 mod process;
 mod rust_tests;

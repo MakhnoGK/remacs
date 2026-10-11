@@ -8,7 +8,7 @@ use remacs_core::{Buffer, ConsoleColor, ConsoleStyle, Face, Span};
 use remacs_text::Text;
 
 use crate::ansi::{Parser, Segment};
-use crate::links::{Link, Target, links_in};
+use remacs_files::links::{Link, Target, links_in};
 
 /// The mode of console buffers, shown in the status pill.
 pub const CONSOLE_MODE: &str = "Run";
@@ -242,18 +242,4 @@ pub fn next_link(buffer: &Buffer, offset: usize, forward: bool) -> Option<usize>
             .flat_map(|line| starts(line).rev())
             .find(|&start| start < offset)
     }
-}
-
-/// The file a link names, looked for in the console's directories.
-pub fn resolve(buffer: &Buffer, path: &str) -> Option<PathBuf> {
-    let path = remacs_files::expand_home(path);
-    if path.is_absolute() {
-        return path.exists().then_some(path);
-    }
-    let console = buffer.local::<Console>()?;
-    console
-        .directories
-        .iter()
-        .map(|directory| directory.join(&path))
-        .find(|candidate| candidate.exists())
 }

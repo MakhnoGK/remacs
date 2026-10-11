@@ -3,7 +3,7 @@ use std::rc::Rc;
 use crate::buffer::Buffer;
 use crate::decoration::ConsoleColor;
 use crate::editor::Editor;
-use crate::key::Key;
+use crate::key::{Key, Modifiers};
 use crate::status::Tone;
 
 /// A buffer drawn as a terminal's screen instead of as text: rows of cells in the code
@@ -27,6 +27,8 @@ pub struct Screen {
     pub above: bool,
     /// The program just rang the bell.
     pub flash: bool,
+    /// The mouse is over a link a click follows: the pointer is a hand.
+    pub pointing: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -137,16 +139,51 @@ pub struct ScreenSize {
     pub rows: usize,
 }
 
+/// Pixels between a screen's edges and its cells, on each side.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ScreenPadding {
+    pub horizontal: f32,
+    pub vertical: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScreenButton {
+    Left,
+    Middle,
+    Right,
+}
+
 /// What the mouse did over a screen's cell.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScreenMouse {
-    /// Pressed `clicks` times in a row, with shift held or not.
+    /// Pressed `clicks` times in a row.
     Press {
+        button: ScreenButton,
         clicks: usize,
-        extend: bool,
     },
+    /// Moved with the button pressed on the screen held.
     Drag,
-    Release,
+    Release {
+        button: ScreenButton,
+    },
+    /// Moved with no button held.
+    Move,
+    /// Left the screen; the cell is none in particular.
+    Leave,
+    /// The wheel turned by whole rows, up for negative ones.
+    Wheel {
+        rows: isize,
+    },
+}
+
+/// The mouse over the cell at `row` and `column` of a screen as last drawn, the cell
+/// clamped to the screen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ScreenPointer {
+    pub row: usize,
+    pub column: usize,
+    pub modifiers: Modifiers,
+    pub mouse: ScreenMouse,
 }
 
 /// Draws buffers as screens and takes the mouse over them.
@@ -156,17 +193,12 @@ pub trait ScreenSource {
     /// `buffer` as a screen of `size`, if this plugin draws it as one; the plugin fits
     /// what it shows to the size.
     fn screen(&self, editor: &Editor, buffer: &Buffer, size: ScreenSize) -> Option<Screen>;
-    /// Scrolls the buffer named `buffer` by `rows`, up for negative ones.
-    fn scroll(&self, editor: &mut Editor, buffer: &str, rows: isize);
-    /// The mouse over the cell at `row` and `column` of the screen as last drawn.
-    fn mouse(
-        &self,
-        editor: &mut Editor,
-        buffer: &str,
-        row: usize,
-        column: usize,
-        mouse: ScreenMouse,
-    );
+    /// Room around the cells of the screens this plugin draws.
+    fn padding(&self, _editor: &Editor) -> ScreenPadding {
+        ScreenPadding::default()
+    }
+    /// The mouse over the buffer named `buffer`; true when the screen changed with it.
+    fn mouse(&self, editor: &mut Editor, buffer: &str, pointer: ScreenPointer) -> bool;
 }
 
 pub type ScreenProvider = Rc<dyn ScreenSource>;

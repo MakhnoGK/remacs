@@ -9,17 +9,19 @@ use std::time::Instant;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
-    AnyElement, App, Bounds, ClipboardItem, Context, DispatchPhase, Div, FocusHandle, IntoElement,
-    KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels,
-    Point, Render, ScrollDelta, ScrollHandle, ScrollWheelEvent, Size, StyledText, Subscription,
-    Task, Window, canvas, div, font, point, prelude::*, px, rgb, rgba, size, svg,
+    AnyElement, App, Bounds, ClipboardItem, Context, DispatchPhase, Div, FocusHandle, Hsla,
+    IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
+    ParentElement, Pixels, Point, Render, ScrollDelta, ScrollHandle, ScrollWheelEvent,
+    SharedString, Size, StyledText, Subscription, Task, Window, canvas, div, font, point,
+    prelude::*, px, rgb, rgba, size, svg,
 };
 
 use crate::assets::{EXECUTION_POINT_ICON, LOGPOINT_ICON};
 use remacs_core::{
     Action, BreakpointIcon, ChangedLines, Code, CommandError, DocBlock, Editor, GutterIcon,
     GutterMark, Icon, Key, LineChange, LineExtra, MouseSelection, Outline, PaneBody, PaneButton,
-    Popup, Preview, PreviewBody, ScreenMouse, Scroll, StatusSegment, Tabs, describe_sequence,
+    Popup, Preview, PreviewBody, ScreenButton, ScreenMouse, ScreenPointer, ScreenSize, Scroll,
+    StatusSegment, Tabs, describe_sequence,
 };
 use remacs_echo::VIEW_MESSAGES;
 use remacs_theme::font::CodeFont;
@@ -33,7 +35,7 @@ use crate::changes_view::render_changes;
 use crate::conflict_view::codes as conflict_codes;
 use crate::display_line::{DisplayLine, display_width, slice_line};
 use crate::highlights::{Highlights, combine, face_style, region_style};
-use crate::key_input::to_key;
+use crate::key_input::{to_key, to_modifiers};
 use crate::minibuffer_view::{is_problem_list, render_minibuffer, render_scrim};
 use crate::opening::open;
 use crate::outline_view::{
@@ -41,7 +43,7 @@ use crate::outline_view::{
     render_outline, render_toolbar, row_height,
 };
 use crate::pane_view::{
-    PANE_BOTTOM, PANE_GAP, PaneChrome, render_button, render_pane, screen_bounds,
+    PANE_BOTTOM, PANE_GAP, PANE_TINT, PaneChrome, render_button, render_pane, screen_bounds,
 };
 use crate::popup_view::{DocumentationScroll, DocumentationView, Placement, render_popup};
 use crate::preview_view::render_preview;
@@ -56,7 +58,7 @@ use crate::table_view::{
 use crate::tabs_view::render_tabs;
 use crate::widgets::{
     Edge, SCROLL_FADE_SIZE, Scrolled, code_font_features, cursor_text_style, edge_fade, hsla, icon,
-    modified_dot, pill, pill_separator, tone_color,
+    modified_dot, over, pill, pill_separator, tone_color,
 };
 
 /// Minified files can hold megabytes on one line; lay out only what can be on screen.
@@ -140,8 +142,8 @@ pub struct EditorView {
     /// Whether each screen was last drawn with room for marks, by buffer, so it is sized
     /// for it before it is asked for.
     screen_gutters: HashMap<String, bool>,
-    /// The screen the mouse was pressed on, while it is held.
-    screen_press: Option<ScreenArea>,
+    /// The screen the mouse was pressed on and the button, while it is held.
+    screen_press: Option<(ScreenArea, MouseButton)>,
     /// Rows a screen was scrolled by the wheel, short of a whole one.
     screen_scroll: f32,
     /// The row of a screen whose command mark the mouse is over.
@@ -164,6 +166,38 @@ struct ScreenArea {
     origin: Point<Pixels>,
     cell: ScreenCell,
     gutter: bool,
+    size: ScreenSize,
+}
+
+impl ScreenArea {
+    /// The mouse at `position`, over the cell under it or the nearest one.
+    fn pointer(
+        &self,
+        position: Point<Pixels>,
+        modifiers: &gpui::Modifiers,
+        mouse: ScreenMouse,
+    ) -> ScreenPointer {
+        let (row, column) = cell_at(
+            (position.x - self.origin.x).max(px(0.0)),
+            (position.y - self.origin.y).max(px(0.0)),
+            self.cell,
+            self.gutter,
+        );
+        ScreenPointer {
+            row: row.min(self.size.rows.saturating_sub(1)),
+            column: column.min(self.size.columns.saturating_sub(1)),
+            modifiers: to_modifiers(modifiers),
+            mouse,
+        }
+    }
+}
+
+fn screen_button(button: MouseButton) -> ScreenButton {
+    match button {
+        MouseButton::Right => ScreenButton::Right,
+        MouseButton::Middle => ScreenButton::Middle,
+        _ => ScreenButton::Left,
+    }
 }
 
 /// Where the window buffer's screen is drawn, clear of the title bar and the pill.
@@ -549,12 +583,23 @@ impl EditorView {
     }
 
     fn on_mouse_move(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
-        if event.pressed_button != Some(MouseButton::Left) {
-            self.release_mouse();
+        if let Some((area, button)) = self.screen_press.clone() {
+            let mouse = if event.pressed_button == Some(button) {
+                ScreenMouse::Drag
+            } else {
+                // Let go outside the window.
+                self.screen_press = None;
+                ScreenMouse::Release {
+                    button: screen_button(button),
+                }
+            };
+            let pointer = area.pointer(event.position, &event.modifiers, mouse);
+            self.editor.screen_mouse(&area.buffer, pointer);
+            cx.notify();
             return;
         }
-        if self.screen_press.is_some() {
-            self.drag_screen(event.position, cx);
+        if event.pressed_button != Some(MouseButton::Left) {
+            self.release_mouse();
             return;
         }
         self.drag_position = event.position;
@@ -573,13 +618,29 @@ impl EditorView {
         cx.notify();
     }
 
+    fn on_mouse_up(&mut self, event: &MouseUpEvent, cx: &mut Context<Self>) {
+        match self.screen_press.take() {
+            Some((area, button)) if button == event.button => {
+                let mouse = ScreenMouse::Release {
+                    button: screen_button(button),
+                };
+                let pointer = area.pointer(event.position, &event.modifiers, mouse);
+                self.editor.screen_mouse(&area.buffer, pointer);
+            }
+            pressed => {
+                self.screen_press = pressed;
+                if event.button != MouseButton::Left {
+                    return;
+                }
+                self.release_mouse();
+            }
+        }
+        cx.notify();
+    }
+
     fn release_mouse(&mut self) {
         self.mouse_selection = None;
         self.drag_scroll = None;
-        if let Some(area) = self.screen_press.take() {
-            self.editor
-                .screen_mouse(&area.buffer, 0, 0, ScreenMouse::Release);
-        }
     }
 
     /// Scrolls a line toward the mouse held past the text's top or bottom, extending the
@@ -637,11 +698,13 @@ impl EditorView {
         text.offset_at_char_column(line, column)
     }
 
-    /// The buffer named `name` drawn as a screen in `bounds`, taking the mouse over it.
+    /// The buffer named `name` drawn as a screen in `bounds` over `under`, taking the mouse
+    /// over it.
     fn render_screen_in(
         &mut self,
         name: &str,
         bounds: Bounds<Pixels>,
+        under: Hsla,
         window: &Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
@@ -651,35 +714,65 @@ impl EditorView {
             height: px(font::code().line_height),
             glyph: metrics.glyph_height,
         };
+        let padding = self.editor.screen_padding(name);
+        let inset = point(px(padding.horizontal), px(padding.vertical));
+        let room = size(
+            (bounds.size.width - inset.x * 2.0).max(px(0.0)),
+            (bounds.size.height - inset.y * 2.0).max(px(0.0)),
+        );
         let mut gutter = self.screen_gutters.get(name).copied().unwrap_or(false);
-        let fit = |gutter| screen_size(bounds.size.width, bounds.size.height, cell, gutter);
+        let fit = |gutter| screen_size(room.width, room.height, cell, gutter);
         let mut screen = self.editor.screen(name, fit(gutter))?;
         if screen.gutter != gutter {
             gutter = screen.gutter;
             self.screen_gutters.insert(name.to_owned(), gutter);
             screen = self.editor.screen(name, fit(gutter))?;
         }
-        let fade = if screen.above {
-            f32::from(cell.height)
-        } else {
-            0.0
-        };
         let area = ScreenArea {
             buffer: name.to_owned(),
-            origin: bounds.origin,
+            origin: bounds.origin + inset,
             cell,
             gutter,
+            size: fit(gutter),
         };
-        let scrolled = name.to_owned();
-        let element = render_screen(screen, cell, fade, self.hovered_mark, cx)
-            .on_mouse_down(
-                MouseButton::Left,
+        let mut element = div()
+            .id(SharedString::from(format!("screen {name}")))
+            .size_full()
+            .child(render_screen(
+                screen,
+                cell,
+                inset,
+                under,
+                self.hovered_mark,
+                cx,
+            ));
+        for button in [MouseButton::Left, MouseButton::Middle, MouseButton::Right] {
+            let area = area.clone();
+            element = element.on_mouse_down(
+                button,
                 cx.listener(move |view, event: &MouseDownEvent, window, cx| {
                     cx.stop_propagation();
                     window.focus(&view.focus_handle);
                     view.press_screen(area.clone(), event, cx);
                 }),
-            )
+            );
+        }
+        let (moved, left, scrolled) = (area.clone(), area.clone(), area);
+        let element = element
+            .on_mouse_move(cx.listener(move |view, event: &MouseMoveEvent, _, cx| {
+                if event.pressed_button.is_none() {
+                    view.point_at_screen(&moved, event.position, &event.modifiers, cx);
+                }
+            }))
+            .on_hover(cx.listener(move |view, hovered: &bool, window, cx| {
+                if !hovered {
+                    let modifiers = window.modifiers();
+                    let pointer = left.pointer(left.origin, &modifiers, ScreenMouse::Leave);
+                    if view.editor.screen_mouse(&left.buffer, pointer) {
+                        cx.notify();
+                    }
+                }
+            }))
             .on_scroll_wheel(cx.listener(move |view, event: &ScrollWheelEvent, _, cx| {
                 cx.stop_propagation();
                 view.scroll_screen(&scrolled, event, cx);
@@ -688,44 +781,53 @@ impl EditorView {
     }
 
     fn press_screen(&mut self, area: ScreenArea, event: &MouseDownEvent, cx: &mut Context<Self>) {
-        let (row, column) = cell_at(
-            event.position.x - area.origin.x,
-            event.position.y - area.origin.y,
-            area.cell,
-            area.gutter,
-        );
         let mouse = ScreenMouse::Press {
+            button: screen_button(event.button),
             clicks: event.click_count,
-            extend: event.modifiers.shift,
         };
-        self.editor.screen_mouse(&area.buffer, row, column, mouse);
-        self.screen_press = Some(area);
+        let pointer = area.pointer(event.position, &event.modifiers, mouse);
+        self.editor.screen_mouse(&area.buffer, pointer);
+        self.screen_press = Some((area, event.button));
         self.after_input(cx);
     }
 
-    /// Passes the mouse dragged from a screen to it, its cells clamped to the screen.
-    fn drag_screen(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
-        let Some(area) = self.screen_press.clone() else {
-            return;
-        };
-        let (row, column) = cell_at(
-            (position.x - area.origin.x).max(px(0.0)),
-            (position.y - area.origin.y).max(px(0.0)),
-            area.cell,
-            area.gutter,
-        );
-        self.editor
-            .screen_mouse(&area.buffer, row, column, ScreenMouse::Drag);
-        cx.notify();
+    /// The mouse moved over a screen with no button held.
+    fn point_at_screen(
+        &mut self,
+        area: &ScreenArea,
+        position: Point<Pixels>,
+        modifiers: &gpui::Modifiers,
+        cx: &mut Context<Self>,
+    ) {
+        let pointer = area.pointer(position, modifiers, ScreenMouse::Move);
+        if self.editor.screen_mouse(&area.buffer, pointer) {
+            cx.notify();
+        }
     }
 
-    fn scroll_screen(&mut self, name: &str, event: &ScrollWheelEvent, cx: &mut Context<Self>) {
-        let row_height = px(font::code().line_height);
-        let rows = self.screen_scroll - event.delta.pixel_delta(row_height).y / row_height;
+    fn scroll_screen(
+        &mut self,
+        area: &ScreenArea,
+        event: &ScrollWheelEvent,
+        cx: &mut Context<Self>,
+    ) {
+        let row_height = area.cell.height;
+        let delta = event.delta.pixel_delta(row_height);
+        // macOS turns a mouse's wheel sideways while shift is held.
+        let delta = if event.modifiers.shift && delta.y == px(0.0) {
+            delta.x
+        } else {
+            delta.y
+        };
+        let rows = self.screen_scroll - delta / row_height;
         let whole = rows.trunc();
         self.screen_scroll = rows - whole;
         if whole != 0.0 {
-            self.editor.scroll_screen(name, whole as isize);
+            let mouse = ScreenMouse::Wheel {
+                rows: whole as isize,
+            };
+            let pointer = area.pointer(event.position, &event.modifiers, mouse);
+            self.editor.screen_mouse(&area.buffer, pointer);
         }
         cx.notify();
     }
@@ -789,11 +891,8 @@ impl EditorView {
                 }
             });
             window.on_mouse_event(move |event: &MouseUpEvent, phase, _, cx| {
-                if phase == DispatchPhase::Bubble && event.button == MouseButton::Left {
-                    let _ = view.update(cx, |view, cx| {
-                        view.release_mouse();
-                        cx.notify();
-                    });
+                if phase == DispatchPhase::Bubble {
+                    let _ = view.update(cx, |view, cx| view.on_mouse_up(event, cx));
                 }
             });
         };
@@ -1676,7 +1775,13 @@ impl Render for EditorView {
                 toolbar = self.render_header_controls(controls.tabs, controls.buttons, window, cx);
                 let bounds = full_screen_bounds(window.viewport_size());
                 let body = self
-                    .render_screen_in(&window_name, bounds, window, cx)
+                    .render_screen_in(
+                        &window_name,
+                        bounds,
+                        rgba(glass::window_tint()).into(),
+                        window,
+                        cx,
+                    )
                     .map_or_else(
                         || div().into_any_element(),
                         |screen| {
@@ -1747,7 +1852,8 @@ impl Render for EditorView {
                     let screen = match &shown.body {
                         PaneBody::Screen(name) => {
                             let bounds = screen_bounds(window.viewport_size(), shown.height);
-                            self.render_screen_in(name, bounds, window, cx)
+                            let under = over(PANE_TINT, glass::window_tint());
+                            self.render_screen_in(name, bounds, under, window, cx)
                         }
                         PaneBody::Columns(_) => None,
                     };

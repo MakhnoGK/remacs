@@ -4,6 +4,7 @@ mod buffers;
 mod file_index;
 mod find_file;
 mod ignored;
+pub mod links;
 mod preview;
 mod project;
 mod saving;

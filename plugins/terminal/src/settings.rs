@@ -5,6 +5,7 @@ use remacs_core::{CursorShape, Key, Section, parse_sequence};
 use serde::Deserialize;
 
 const PANEL_HEIGHTS: RangeInclusive<f32> = 120.0..=1200.0;
+const PADDINGS: RangeInclusive<f32> = 0.0..=64.0;
 const SCROLLBACK_LINES: RangeInclusive<usize> = 0..=1_000_000;
 /// Milliseconds.
 const KILL_TIMEOUTS: RangeInclusive<u64> = 0..=60_000;
@@ -21,6 +22,10 @@ pub struct TerminalSettings {
     pub open_in: Placement,
     /// Pixels the panel takes under the text.
     pub panel_height: f32,
+    /// Pixels between the text and the terminal's left and right edges.
+    pub padding_x: f32,
+    /// Pixels between the text and the terminal's top and bottom edges.
+    pub padding_y: f32,
     /// Lines a terminal keeps above its screen.
     pub scrollback_lines: usize,
     /// Where a new terminal starts.
@@ -28,6 +33,12 @@ pub struct TerminalSettings {
     pub cursor: CursorStyle,
     /// Close a terminal as soon as its shell exits, whatever its code.
     pub close_on_exit: bool,
+    /// zsh and bash started with hooks that report their prompts, commands and
+    /// directory, as fish does by itself.
+    pub shell_integration: bool,
+    /// Programs that ask for the kitty keyboard protocol get it, telling keys like ⇧↵
+    /// from ↵.
+    pub kitty_keyboard: bool,
     /// Milliseconds a closed terminal's programs have to end after the hangup signal
     /// before they are killed.
     pub kill_timeout: u64,
@@ -83,10 +94,14 @@ impl Default for TerminalSettings {
             args: vec!["--login".to_owned()],
             open_in: Placement::Panel,
             panel_height: 320.0,
+            padding_x: 10.0,
+            padding_y: 6.0,
             scrollback_lines: 10_000,
             directory: StartDirectory::Project,
             cursor: CursorStyle::Block,
             close_on_exit: false,
+            shell_integration: true,
+            kitty_keyboard: true,
             kill_timeout: 2_000,
             editor_keys: ["C-x", "M-x", "C-`", "M-<f12>"].map(str::to_owned).to_vec(),
             env: [
@@ -120,6 +135,16 @@ impl Section for TerminalSettings {
                 "panel-height must be {} to {}",
                 PANEL_HEIGHTS.start(),
                 PANEL_HEIGHTS.end()
+            ));
+        }
+        if let Some((name, _)) = [("padding-x", self.padding_x), ("padding-y", self.padding_y)]
+            .into_iter()
+            .find(|(_, padding)| !PADDINGS.contains(padding))
+        {
+            return Err(format!(
+                "{name} must be {} to {}",
+                PADDINGS.start(),
+                PADDINGS.end()
             ));
         }
         if !SCROLLBACK_LINES.contains(&self.scrollback_lines) {

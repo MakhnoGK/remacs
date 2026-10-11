@@ -1,21 +1,90 @@
-//! What a key sends to a terminal's program, as xterm encodes it; Option is Meta.
+//! What a key sends to a terminal's program: as xterm encodes it, or by the kitty
+//! keyboard protocol once the program asks for it; Option is Meta.
 
+use alacritty_terminal::term::TermMode;
 use remacs_core::{Key, KeyCode, Modifiers};
 
-/// The bytes for `key`; none for keys a terminal has no code for, like ⌘ chords.
-/// `application_cursor` is the mode in which programs like `less` want arrows as SS3.
-pub fn encode(key: Key, application_cursor: bool) -> Option<Vec<u8>> {
+/// The bytes for `key` in the terminal's `mode`; none for keys a terminal has no code
+/// for, like ⌘ chords.
+pub fn encode(key: Key, mode: TermMode) -> Option<Vec<u8>> {
+    if key.modifiers.super_key {
+        return None;
+    }
+    kitty(key, mode).or_else(|| legacy(key, mode.contains(TermMode::APP_CURSOR)))
+}
+
+/// xterm's modifier parameter: 1 plus shift 1, alt 2, control 4.
+fn parameter(
+    Modifiers {
+        control,
+        meta,
+        shift,
+        ..
+    }: Modifiers,
+) -> u8 {
+    1 + u8::from(shift) + 2 * u8::from(meta) + 4 * u8::from(control)
+}
+
+/// The kitty keyboard protocol's `CSI code[:shifted];modifiers[;text] u`, for the keys
+/// legacy encodings confuse; none where the legacy bytes are what the protocol wants
+/// too: arrows and function keys, and text typed with no more than shift.
+fn kitty(key: Key, mode: TermMode) -> Option<Vec<u8>> {
+    let every_key = mode.contains(TermMode::REPORT_ALL_KEYS_AS_ESC);
+    if !every_key && !mode.contains(TermMode::DISAMBIGUATE_ESC_CODES) {
+        return None;
+    }
+    let mut modifiers = key.modifiers;
+    let commanded = modifiers.control || modifiers.meta;
+    let (code, shifted, text) = match key.code {
+        KeyCode::Char(character) => {
+            if !every_key && !commanded {
+                return None;
+            }
+            // Shift is folded into a letter; the protocol reports the key unshifted.
+            let base = character.to_lowercase().next().unwrap_or(character);
+            modifiers.shift |= base != character;
+            let shifted = (base != character).then_some(character);
+            (base, shifted, (!commanded).then_some(character))
+        }
+        KeyCode::Escape => ('\x1b', None, None),
+        KeyCode::Return | KeyCode::Tab | KeyCode::Backspace
+            if every_key || modifiers != Modifiers::default() =>
+        {
+            let code = match key.code {
+                KeyCode::Return => '\r',
+                KeyCode::Tab => '\t',
+                _ => '\x7f',
+            };
+            (code, None, None)
+        }
+        _ => return None,
+    };
+    let mut sequence = format!("\x1b[{}", u32::from(code));
+    if let Some(shifted) = shifted.filter(|_| mode.contains(TermMode::REPORT_ALTERNATE_KEYS)) {
+        sequence += &format!(":{}", u32::from(shifted));
+    }
+    let parameter = parameter(modifiers);
+    let text = text.filter(|_| every_key && mode.contains(TermMode::REPORT_ASSOCIATED_TEXT));
+    if parameter > 1 || text.is_some() {
+        sequence += &format!(";{parameter}");
+    }
+    if let Some(text) = text {
+        sequence += &format!(";{}", u32::from(text));
+    }
+    sequence.push('u');
+    Some(sequence.into_bytes())
+}
+
+/// As xterm encodes `key`; `application_cursor` is the mode in which programs like
+/// `less` want arrows as SS3.
+fn legacy(key: Key, application_cursor: bool) -> Option<Vec<u8>> {
     let Modifiers {
         control,
         meta,
         shift,
-        super_key,
+        ..
     } = key.modifiers;
-    if super_key {
-        return None;
-    }
-    // xterm's modifier parameter: 1 plus shift 1, alt 2, control 4.
-    let parameter = 1 + u8::from(shift) + 2 * u8::from(meta) + 4 * u8::from(control);
+    let parameter = parameter(key.modifiers);
     let modified = parameter > 1;
     let csi = |final_byte: char| -> Vec<u8> {
         if modified {
@@ -107,7 +176,39 @@ mod tests {
     use super::*;
 
     fn bytes(notation: &str) -> Vec<u8> {
-        encode(Key::parse(notation).unwrap(), false).unwrap()
+        in_mode(notation, TermMode::empty())
+    }
+
+    fn in_mode(notation: &str, mode: TermMode) -> Vec<u8> {
+        encode(Key::parse(notation).unwrap(), mode).unwrap()
+    }
+
+    fn kitty(notation: &str) -> String {
+        String::from_utf8(in_mode(notation, TermMode::DISAMBIGUATE_ESC_CODES)).unwrap()
+    }
+
+    #[test]
+    fn tells_keys_apart_by_the_kitty_protocol() {
+        assert_eq!(kitty("S-RET"), "\x1b[13;2u");
+        assert_eq!(kitty("C-RET"), "\x1b[13;5u");
+        assert_eq!(kitty("RET"), "\r");
+        assert_eq!(kitty("TAB"), "\t");
+        assert_eq!(kitty("S-TAB"), "\x1b[9;2u");
+        assert_eq!(kitty("ESC"), "\x1b[27u");
+        assert_eq!(kitty("C-c"), "\x1b[99;5u");
+        assert_eq!(kitty("C-i"), "\x1b[105;5u");
+        assert_eq!(kitty("M-b"), "\x1b[98;3u");
+        assert_eq!(kitty("C-M-B"), "\x1b[98;8u");
+        assert_eq!(kitty("A"), "A");
+        assert_eq!(kitty("ж"), "ж");
+        assert_eq!(kitty("C-<left>"), "\x1b[1;5D");
+        let every_key = TermMode::REPORT_ALL_KEYS_AS_ESC
+            | TermMode::REPORT_ALTERNATE_KEYS
+            | TermMode::REPORT_ASSOCIATED_TEXT;
+        let every = |notation| String::from_utf8(in_mode(notation, every_key)).unwrap();
+        assert_eq!(every("a"), "\x1b[97;1;97u");
+        assert_eq!(every("A"), "\x1b[97:65;2;65u");
+        assert_eq!(every("RET"), "\x1b[13u");
     }
 
     #[test]
@@ -129,11 +230,8 @@ mod tests {
         assert_eq!(bytes("<f5>"), b"\x1b[15~");
         assert_eq!(bytes("<f12>"), b"\x1b[24~");
         assert_eq!(bytes("S-<f8>"), b"\x1b[19;2~");
-        assert_eq!(
-            encode(Key::parse("<down>").unwrap(), true).unwrap(),
-            b"\x1bOB"
-        );
-        assert_eq!(encode(Key::parse("s-c").unwrap(), false), None);
+        assert_eq!(in_mode("<down>", TermMode::APP_CURSOR), b"\x1bOB");
+        assert_eq!(encode(Key::parse("s-c").unwrap(), TermMode::empty()), None);
     }
 
     #[test]

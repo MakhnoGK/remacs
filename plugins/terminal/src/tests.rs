@@ -1,8 +1,11 @@
-use std::path::PathBuf;
-use std::thread;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
+use std::{env, fs, thread};
 
-use remacs_core::{Editor, Screen, ScreenSize, Settings, parse_sequence};
+use remacs_core::{
+    Editor, Key, Screen, ScreenButton, ScreenMouse, ScreenPointer, ScreenSize, Settings,
+    parse_sequence,
+};
 use remacs_editing::EditingPlugin;
 use remacs_files::FilesPlugin;
 use remacs_minibuffer::MinibufferPlugin;
@@ -221,6 +224,112 @@ fn commands_the_shell_reports_are_marked_by_their_prompt() {
         .filter_map(|row| row.mark.as_ref().map(|mark| mark.exit))
         .collect();
     assert_eq!(marked, vec![Some(7)]);
+}
+
+/// A terminal in the panel running `script` in sh, its buffer's name.
+fn running(script: &str) -> (Editor, String) {
+    let mut editor = editor(&format!(
+        "shell = \"/bin/sh\"\nargs = [\"-c\", {script:?}]\n"
+    ));
+    press(&mut editor, "C-`");
+    let name = terminals::buffer_name(&editor, in_panel(&editor).unwrap()).unwrap();
+    (editor, name)
+}
+
+fn pointer(row: usize, column: usize, modifiers: &str, mouse: ScreenMouse) -> ScreenPointer {
+    let key = Key::parse(&format!("{modifiers}a")).unwrap();
+    ScreenPointer {
+        row,
+        column,
+        modifiers: key.modifiers,
+        mouse,
+    }
+}
+
+#[test]
+fn command_click_visits_a_file_line_in_the_output() {
+    let path = format!("/tmp/remacs-link-{}.rs", std::process::id());
+    std::fs::write(&path, "one\ntwo three\n").unwrap();
+    let (mut editor, name) = running(&format!("printf 'see {path}:2:5 now'; sleep 5"));
+    wait_for_text(&mut editor, "now");
+    let screen = shown(&editor).unwrap();
+    let column = text(&screen).find(&path).unwrap() + 3;
+    assert!(!editor.screen_mouse(&name, pointer(0, column, "", ScreenMouse::Move)));
+    assert!(editor.screen_mouse(&name, pointer(0, column, "s-", ScreenMouse::Move)));
+    let screen = shown(&editor).unwrap();
+    assert!(screen.pointing);
+    let press = ScreenMouse::Press {
+        button: ScreenButton::Left,
+        clicks: 1,
+    };
+    editor.screen_mouse(&name, pointer(0, column, "s-", press));
+    std::fs::remove_file(&path).unwrap();
+    let buffer = editor.window_buffer();
+    assert!(buffer.name().starts_with("remacs-link-"));
+    assert_eq!(
+        buffer.contents(buffer.point()..buffer.text().len()),
+        "three\n"
+    );
+}
+
+#[test]
+fn programs_that_ask_get_the_mouse_and_the_keys_they_tell_apart() {
+    let script = r"stty raw -echo; printf '\033[?1000h\033[?1006h\033[>1u\033[?uready'; dd bs=1 count=22 2>/dev/null | od -An -c; sleep 5";
+    let (mut editor, name) = running(script);
+    wait_for_text(&mut editor, "ready");
+    let wheel = ScreenMouse::Wheel { rows: 1 };
+    editor.screen_mouse(&name, pointer(2, 4, "", wheel));
+    press(&mut editor, "S-RET");
+    // The answer to the query, the wheel at row 3 column 5, then ⇧↵.
+    wait_for_text(&mut editor, "?   1   u");
+    wait_for_text(&mut editor, "<   6   5   ;   5   ;   3   M");
+    wait_for_text(&mut editor, "1   3   ;   2   u");
+}
+
+/// `shell` started with its hooks in a home of its own holding `files`; checks that it
+/// read them, marks commands by how they ended, and reports its directory.
+fn reports_with_hooks(shell: &str, args: &str, files: &[(&str, &str)], prompt: &str) {
+    let home = env::temp_dir().join(format!("remacs-hooks-{shell}-{}", std::process::id()));
+    fs::create_dir_all(&home).unwrap();
+    for (name, contents) in files {
+        fs::write(home.join(name), contents).unwrap();
+    }
+    let mut editor = editor(&format!(
+        "shell = \"{shell}\"\nargs = {args}\n[env]\nHOME = {home:?}\nTERM = \"xterm-256color\"\n"
+    ));
+    press(&mut editor, "C-`");
+    wait_for_text(&mut editor, prompt);
+    type_text(&mut editor, "false\n");
+    wait_for(&mut editor, "the mark", |screen| {
+        screen
+            .rows
+            .iter()
+            .any(|row| row.mark.as_ref().is_some_and(|mark| mark.exit == Some(1)))
+    });
+    type_text(
+        &mut editor,
+        "cd /usr; echo \"[$REMACS_BASH_INJECT$REMACS_BASH_LOGIN$REMACS_ZSH_ZDOTDIR]\"\n",
+    );
+    wait_for_text(&mut editor, "\n[]");
+    let id = in_panel(&editor).unwrap();
+    let start = Instant::now();
+    while terminals::find(&editor, id).unwrap().directory != Path::new("/usr") {
+        assert!(start.elapsed() < WAIT, "the directory was not reported");
+        editor.refresh();
+        thread::sleep(Duration::from_millis(10));
+    }
+    fs::remove_dir_all(&home).unwrap();
+}
+
+#[test]
+fn zsh_and_bash_report_their_commands_through_injected_hooks() {
+    reports_with_hooks("/bin/zsh", "[]", &[(".zshrc", "PS1='zrc> '\n")], "zrc>");
+    reports_with_hooks(
+        "/bin/bash",
+        "[\"--login\"]",
+        &[(".bash_profile", "PS1='bprofile> '\n")],
+        "bprofile>",
+    );
 }
 
 #[test]

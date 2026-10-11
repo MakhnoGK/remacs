@@ -57,7 +57,6 @@ TermShared, TermCopy, TermShell, TermStates)
 
 ## Later
 
-- Shell integration for zsh and bash by injecting their hooks, as kitty and Ghostty do.
-- `file:line:col` and URLs as links; the mouse for programs that ask for it (vim, htop).
+- Shell integration for zsh and bash, links and the mouse for programs: done, ADR 0059.
 - Dragging the panel's edge to resize it; renaming a chip in place.
 - The panel under tables and outlines, not only under text.

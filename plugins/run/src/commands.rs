@@ -1,14 +1,13 @@
 use std::path::Path;
-use std::process::Command;
 
 use remacs_core::{CommandResult, Completions, Editor, Prompt};
+use remacs_files::links::follow;
 
 use crate::chooser;
 use crate::configuration::Configuration;
 use crate::configuration_store;
-use crate::console::{self, link_at, resolve};
+use crate::console::{self, Console, link_at};
 use crate::entry_points::EntryPoint;
-use crate::links::Target;
 use crate::process::Starter;
 use crate::sessions::{self, Session, get, of_window, sessions};
 use crate::window::{entry_point_for, window_root};
@@ -173,22 +172,14 @@ pub fn stop_session(editor: &mut Editor, id: u64) -> CommandResult {
 pub fn open_link_or_input(editor: &mut Editor) -> CommandResult {
     let id = of_window(editor).ok_or("Not in a console")?;
     let buffer = editor.window_buffer();
-    match link_at(buffer, buffer.point()) {
-        Some(Target::Url(url)) => {
-            Command::new("open").arg(&url).spawn()?;
-            Ok(())
-        }
-        Some(Target::File { path, line, column }) => {
-            let file = resolve(buffer, &path).ok_or_else(|| format!("No file {path}"))?;
-            editor.visit_file(&file)?;
-            editor.set_point_at(
-                line.saturating_sub(1),
-                column.unwrap_or(1).saturating_sub(1),
-            );
-            Ok(())
-        }
-        None => read_input(editor, id),
-    }
+    let Some(target) = link_at(buffer, buffer.point()) else {
+        return read_input(editor, id);
+    };
+    let directories = buffer
+        .local::<Console>()
+        .map(|console| console.directories.to_vec())
+        .unwrap_or_default();
+    follow(editor, &target, &directories)
 }
 
 fn read_input(editor: &mut Editor, id: u64) -> CommandResult {

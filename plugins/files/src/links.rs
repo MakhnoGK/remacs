@@ -2,6 +2,12 @@
 //! print them, and web addresses.
 
 use std::ops::Range;
+use std::path::PathBuf;
+use std::process::Command;
+
+use remacs_core::{CommandResult, Editor};
+
+use crate::expand_home;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Target {
@@ -29,6 +35,37 @@ pub fn links_in(line: &str) -> Vec<Link> {
     links.append(&mut files);
     links.sort_by_key(|link| link.range.start);
     links
+}
+
+/// Opens a web address in the browser, or visits the file at its line and column, a
+/// relative path looked for in `directories` in order.
+pub fn follow(editor: &mut Editor, target: &Target, directories: &[PathBuf]) -> CommandResult {
+    match target {
+        Target::Url(url) => {
+            Command::new("open").arg(url).spawn()?;
+        }
+        Target::File { path, line, column } => {
+            let file = resolve(path, directories).ok_or_else(|| format!("No file {path}"))?;
+            editor.visit_file(&file)?;
+            editor.set_point_at(
+                line.saturating_sub(1),
+                column.unwrap_or(1).saturating_sub(1),
+            );
+        }
+    }
+    Ok(())
+}
+
+/// The file `path` names, if it exists: absolute, or in one of `directories`.
+pub fn resolve(path: &str, directories: &[PathBuf]) -> Option<PathBuf> {
+    let path = expand_home(path);
+    if path.is_absolute() {
+        return path.exists().then_some(path);
+    }
+    directories
+        .iter()
+        .map(|directory| directory.join(&path))
+        .find(|candidate| candidate.exists())
 }
 
 /// Characters a path is made of.
@@ -117,4 +154,46 @@ fn number_at(line: &str, offset: usize) -> Option<(usize, usize)> {
         .unwrap_or(line.len() - offset);
     let number = line[offset..offset + digits].parse().ok()?;
     Some((number, offset + digits))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn file(path: &str, line: usize, column: Option<usize>) -> Target {
+        Target::File {
+            path: path.into(),
+            line,
+            column,
+        }
+    }
+
+    fn targets(line: &str) -> Vec<Target> {
+        links_in(line).into_iter().map(|link| link.target).collect()
+    }
+
+    #[test]
+    fn file_positions_and_urls_are_links() {
+        let panic = "thread 'main' panicked at core/src/cart.rs:20:9:";
+        assert_eq!(
+            links_in(panic),
+            [Link {
+                range: 26..47,
+                target: file("core/src/cart.rs", 20, Some(9))
+            }]
+        );
+        let stack = "    at lineTotal (apps/site/src/api.ts:4:21) file:///tmp/x.mjs:3 (node:internal/x.js:9:2)";
+        assert_eq!(
+            targets(stack),
+            [
+                file("apps/site/src/api.ts", 4, Some(21)),
+                file("/tmp/x.mjs", 3, None)
+            ]
+        );
+        let served = "Local: http://localhost:5173/, on 127.0.0.1:3000 at 9:15:31.";
+        assert_eq!(
+            targets(served),
+            [Target::Url("http://localhost:5173/".into())]
+        );
+    }
 }

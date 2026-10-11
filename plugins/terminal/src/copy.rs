@@ -10,6 +10,7 @@ use alacritty_terminal::term::search::{RegexIter, RegexSearch};
 use alacritty_terminal::term::{Term, TermMode};
 use alacritty_terminal::vi_mode::ViMotion;
 use remacs_core::{Key, KeyCode, ScreenMode, ScreenSearch};
+use remacs_files::links::Target;
 
 use crate::session::Listener;
 
@@ -36,6 +37,8 @@ pub enum Outcome {
     /// Copy the region and leave.
     Copy(String),
     Leave,
+    /// Leave and follow the link under the cursor.
+    Follow(Target),
     /// Not a copy mode key: it does nothing.
     Ignored,
 }

@@ -169,6 +169,7 @@ impl Session {
                 },
                 blinking: false,
             },
+            kitty_keyboard: settings.kitty_keyboard,
             ..term::Config::default()
         };
         let size = TermSize::new(INITIAL_SIZE.columns, INITIAL_SIZE.rows);

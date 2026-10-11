@@ -20,6 +20,8 @@ pub const PANE_BOTTOM: f32 = 56.0;
 /// Between the text and the pane.
 pub const PANE_GAP: f32 = 8.0;
 const PANE_SIDE: f32 = 16.0;
+/// Over the window's glass.
+pub const PANE_TINT: u32 = 0xffffff0a;
 const TOOLBAR_HEIGHT: f32 = 44.0;
 const COLUMN_HEADER_HEIGHT: f32 = 30.0;
 const ROW_HEIGHT: f32 = 22.0;
@@ -91,7 +93,7 @@ pub fn render_pane(
         .flex()
         .flex_col()
         .rounded(px(12.0))
-        .bg(rgba(0xffffff0a))
+        .bg(rgba(PANE_TINT))
         .border_1()
         .border_color(rgba(if focused {
             color::ACCENT << 8 | 0x80

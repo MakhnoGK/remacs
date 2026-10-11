@@ -5,11 +5,15 @@ use std::ffi::CStr;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use alacritty_terminal::term::TermMode;
 use remacs_core::{Notifier, TabState};
 use remacs_files::{abbreviate_home, expand_home};
 
 use crate::copy::CopyMode;
 use crate::history::Commands;
+use crate::integration::inject;
+use crate::links::ScreenLink;
+use crate::mouse::MouseState;
 use crate::session::{Launch, Phase, Session, lock};
 use crate::settings::TerminalSettings;
 
@@ -42,6 +46,11 @@ pub struct Terminal {
     pub rang: Option<Instant>,
     pub commands: Commands,
     pub copy: Option<CopyMode>,
+    /// Under the mouse while ⌘ is held.
+    pub link: Option<ScreenLink>,
+    pub mouse: MouseState,
+    /// Had the keys when last looked, to tell programs that ask when that changes.
+    pub focused: bool,
 }
 
 /// What the threads reported, for the plugin to act on.
@@ -68,6 +77,9 @@ impl Terminal {
             rang: None,
             commands: Commands::default(),
             copy: None,
+            link: None,
+            mouse: MouseState::default(),
+            focused: false,
         }
     }
 
@@ -77,15 +89,25 @@ impl Terminal {
         self.session = None;
         self.copy = None;
         self.commands = Commands::default();
+        self.link = None;
+        self.mouse = MouseState::default();
         let Some(program) = find_program(&self.program) else {
             self.phase = Phase::Failed(format!("no such file in PATH: {}", self.program));
             return;
         };
+        let injected = settings
+            .shell_integration
+            .then(|| inject(&program, &self.args, &settings.env))
+            .flatten();
+        let (args, env) = match &injected {
+            Some(injected) => (&injected.args, &injected.env),
+            None => (&self.args, &settings.env),
+        };
         let launch = Launch {
             program: &program.to_string_lossy(),
-            args: &self.args,
+            args,
             directory: &self.directory,
-            env: &settings.env,
+            env,
         };
         match Session::start(&launch, settings, notifier) {
             Ok(session) => {
@@ -133,6 +155,23 @@ impl Terminal {
             self.bell = false;
         }
         pumped
+    }
+
+    /// Tells a program that asked (DECSET 1004) when the terminal gets or loses the keys.
+    pub fn report_focus(&mut self, focused: bool) {
+        if self.focused == focused {
+            return;
+        }
+        self.focused = focused;
+        if let Some(session) = &self.session
+            && session
+                .screen
+                .lock()
+                .mode()
+                .contains(TermMode::FOCUS_IN_OUT)
+        {
+            session.write(if focused { "\x1b[I" } else { "\x1b[O" });
+        }
     }
 
     /// What its chip and buffer are called: its name, else the program's title, else

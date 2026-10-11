@@ -24,6 +24,8 @@ pub struct Overlay<'a> {
     pub matches: &'a [RangeInclusive<Point>],
     pub current_match: Option<&'a RangeInclusive<Point>>,
     pub commands: &'a Commands,
+    /// The link ⌘ points at.
+    pub link: Option<&'a RangeInclusive<Point>>,
 }
 
 pub fn rows(term: &Term<Listener>, overlay: &Overlay) -> (Vec<ScreenRow>, Option<ScreenCursor>) {
@@ -44,6 +46,8 @@ pub fn rows(term: &Term<Listener>, overlay: &Overlay) -> (Vec<ScreenRow>, Option
             Some(CellHighlight::Selection)
         } else if overlay.matches.iter().any(|found| found.contains(&point)) {
             Some(CellHighlight::SearchMatch)
+        } else if overlay.link.is_some_and(|link| link.contains(&point)) {
+            Some(CellHighlight::Link)
         } else {
             None
         }
@@ -69,10 +73,12 @@ pub fn rows(term: &Term<Listener>, overlay: &Overlay) -> (Vec<ScreenRow>, Option
                 if prompt.is_none() && cell.extra.is_some() {
                     prompt = cell.hyperlink().and_then(|link| prompt_id(link.uri()));
                 }
-                let face = CellFace {
-                    highlight: highlight(point),
+                let highlight = highlight(point);
+                let mut face = CellFace {
+                    highlight,
                     ..face(cell, colors)
                 };
+                face.underline |= highlight == Some(CellHighlight::Link);
                 let cells = if cell.flags.contains(Flags::WIDE_CHAR) {
                     2
                 } else {

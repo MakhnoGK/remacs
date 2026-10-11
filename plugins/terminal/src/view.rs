@@ -5,19 +5,19 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use alacritty_terminal::grid::{Dimensions, Scroll};
-use alacritty_terminal::index::{Column, Line, Point, Side};
-use alacritty_terminal::selection::{Selection, SelectionType};
-use alacritty_terminal::term::TermMode;
 use remacs_core::{
-    Buffer, CommandResult, Editor, Key, Pane, PaneBody, PaneButton, Screen, ScreenBanner,
-    ScreenMouse, ScreenNotice, ScreenSize, ScreenSource, StatusItem, StatusSegment, Tab, Tabs,
-    TextControls, Tone,
+    Buffer, CommandResult, Editor, Key, KeyCode, Pane, PaneBody, PaneButton, Screen, ScreenBanner,
+    ScreenMouse, ScreenNotice, ScreenPadding, ScreenPointer, ScreenSize, ScreenSource, StatusItem,
+    StatusSegment, Tab, Tabs, TextControls, Tone,
 };
 use remacs_files::abbreviate_home;
+use remacs_files::links::follow;
 
 use crate::copy::{self, Outcome};
 use crate::grid::{Overlay, rows};
 use crate::keys::encode;
+use crate::links::link_at;
+use crate::mouse;
 use crate::session::Phase;
 use crate::terminal::Terminal;
 use crate::terminals::{
@@ -98,6 +98,7 @@ impl ScreenSource for TerminalScreens {
             matches,
             current_match,
             commands: &terminal.commands,
+            link: terminal.link.as_ref().map(|link| &link.cells),
         };
         let (rows, cursor) = rows(&term, &overlay);
         let banner = match terminal.phase {
@@ -125,75 +126,36 @@ impl ScreenSource for TerminalScreens {
             gutter: terminal.commands.any(),
             above: term.grid().history_size() > term.grid().display_offset(),
             flash: terminal.rang.is_some_and(|rang| rang.elapsed() < FLASH),
+            pointing: terminal.link.is_some(),
         })
     }
 
-    fn scroll(&self, editor: &mut Editor, buffer: &str, rows: isize) {
-        let Some(terminal) = terminal_named(editor, buffer) else {
-            return;
-        };
-        let Some(session) = &terminal.session else {
-            return;
-        };
-        let mut term = session.screen.lock();
-        let mode = *term.mode();
-        if mode.contains(TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL) {
-            let arrow = if rows < 0 { "\x1b[A" } else { "\x1b[B" };
-            let arrow = if mode.contains(TermMode::APP_CURSOR) {
-                arrow.replace('[', "O")
-            } else {
-                arrow.to_owned()
-            };
-            drop(term);
-            session.write(arrow.repeat(rows.unsigned_abs()));
-            return;
+    fn padding(&self, editor: &Editor) -> ScreenPadding {
+        let settings = settings(editor);
+        ScreenPadding {
+            horizontal: settings.padding_x,
+            vertical: settings.padding_y,
         }
-        term.scroll_display(Scroll::Delta(-rows as i32));
     }
 
-    fn mouse(
-        &self,
-        editor: &mut Editor,
-        buffer: &str,
-        row: usize,
-        column: usize,
-        mouse: ScreenMouse,
-    ) {
+    fn mouse(&self, editor: &mut Editor, buffer: &str, pointer: ScreenPointer) -> bool {
         let Some(id) = terminal_named(editor, buffer).map(|terminal| terminal.id) else {
-            return;
+            return false;
         };
-        if let ScreenMouse::Press { .. } = mouse {
+        if let ScreenMouse::Press { .. } = pointer.mouse {
             focus(editor, id);
         }
-        let Some(session) = find(editor, id).and_then(|terminal| terminal.session.as_ref()) else {
-            return;
+        let Some(terminal) = find_mut(editor, id) else {
+            return false;
         };
-        let mut term = session.screen.lock();
-        let offset = term.grid().display_offset() as i32;
-        let point = Point::new(Line(row as i32 - offset), Column(column));
-        match mouse {
-            ScreenMouse::Press { extend: true, .. } => {
-                if let Some(selection) = &mut term.selection {
-                    selection.update(point, Side::Right);
+        let directory = terminal.directory.clone();
+        match mouse::take(terminal, pointer) {
+            mouse::Outcome::Changed(changed) => changed,
+            mouse::Outcome::Follow(target) => {
+                if let Err(error) = follow(editor, &target, &[directory]) {
+                    editor.set_error(error.0);
                 }
-            }
-            ScreenMouse::Press { clicks, .. } => {
-                let kind = match clicks {
-                    1 => SelectionType::Simple,
-                    2 => SelectionType::Semantic,
-                    _ => SelectionType::Lines,
-                };
-                term.selection = Some(Selection::new(kind, point, Side::Left));
-            }
-            ScreenMouse::Drag => {
-                if let Some(selection) = &mut term.selection {
-                    selection.update(point, Side::Right);
-                }
-            }
-            ScreenMouse::Release => {
-                if term.selection.as_ref().is_some_and(Selection::is_empty) {
-                    term.selection = None;
-                }
+                true
             }
         }
     }
@@ -401,7 +363,7 @@ pub fn take_key(editor: &mut Editor, key: Key) -> bool {
         return false;
     };
     let mut term = session.screen.lock();
-    let Some(bytes) = encode(key, term.mode().contains(TermMode::APP_CURSOR)) else {
+    let Some(bytes) = encode(key, *term.mode()) else {
         return false;
     };
     term.scroll_display(Scroll::Bottom);
@@ -419,8 +381,18 @@ fn copy_key(editor: &mut Editor, id: u64, key: Key, kept: bool) -> bool {
         return false;
     };
     let mut term = session.screen.lock();
-    let outcome = copy::take_key(copy, &mut term, key);
-    let leave = matches!(outcome, Outcome::Copy(_) | Outcome::Leave);
+    let directory = terminal.directory.clone();
+    let link = (copy.search.is_none() && key.code == KeyCode::Return)
+        .then(|| link_at(&term, term.vi_mode_cursor.point, &directory))
+        .flatten();
+    let outcome = match link {
+        Some(link) => Outcome::Follow(link.target),
+        None => copy::take_key(copy, &mut term, key),
+    };
+    let leave = matches!(
+        outcome,
+        Outcome::Copy(_) | Outcome::Leave | Outcome::Follow(_)
+    );
     if leave {
         copy::leave(&mut term);
     }
@@ -432,6 +404,12 @@ fn copy_key(editor: &mut Editor, id: u64, key: Key, kept: bool) -> bool {
         Outcome::Copy(text) => {
             editor.kill_ring.push(text);
             editor.set_done("Copied");
+            true
+        }
+        Outcome::Follow(target) => {
+            if let Err(error) = follow(editor, &target, &[directory]) {
+                editor.set_error(error.0);
+            }
             true
         }
         Outcome::Handled | Outcome::Leave => true,

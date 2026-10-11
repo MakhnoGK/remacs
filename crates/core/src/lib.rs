@@ -64,8 +64,8 @@ pub use popup::{Code, CodeHighlighter, DocBlock, Documentation, Note, Popup, Pop
 pub use remacs_config::{Section, Settings};
 pub use screen::{
     CellFace, CellHighlight, CellRun, CursorShape, KeySink, RowMark, Screen, ScreenBanner,
-    ScreenCursor, ScreenMode, ScreenMouse, ScreenNotice, ScreenProvider, ScreenRow, ScreenSearch,
-    ScreenSize, ScreenSource,
+    ScreenButton, ScreenCursor, ScreenMode, ScreenMouse, ScreenNotice, ScreenPadding,
+    ScreenPointer, ScreenProvider, ScreenRow, ScreenSearch, ScreenSize, ScreenSource,
 };
 pub use status::{StatusItem, StatusProvider, StatusSegment, Tone};
 pub use syntax::{SyntaxContext, SyntaxProbe};

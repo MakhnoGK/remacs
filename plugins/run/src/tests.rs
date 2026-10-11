@@ -15,7 +15,6 @@ use crate::entry_points::{EntryPoint, entry_points};
 use crate::launch::{
     Launch, detect_package_manager, launch, parse_dotenv, parse_version, typescript_command,
 };
-use crate::links::{Link, Target, links_in};
 use crate::sessions::{State, of_window};
 use crate::settings::TypeScriptRuntime;
 
@@ -167,45 +166,6 @@ fn a_carriage_return_redraws_the_line_unless_a_newline_follows() {
             Segment::Text("two 100%\n".into(), ConsoleStyle::default()),
         ]
     );
-}
-
-fn file(path: &str, line: usize, column: Option<usize>) -> Target {
-    Target::File {
-        path: path.into(),
-        line,
-        column,
-    }
-}
-
-#[test]
-fn file_positions_and_urls_are_links() {
-    let panic = "thread 'main' panicked at core/src/cart.rs:20:9:";
-    assert_eq!(
-        links_in(panic),
-        [Link {
-            range: 26..47,
-            target: file("core/src/cart.rs", 20, Some(9))
-        }]
-    );
-    let stack =
-        "    at lineTotal (apps/site/src/api.ts:4:21) file:///tmp/x.mjs:3 (node:internal/x.js:9:2)";
-    let targets: Vec<Target> = links_in(stack)
-        .into_iter()
-        .map(|link| link.target)
-        .collect();
-    assert_eq!(
-        targets,
-        [
-            file("apps/site/src/api.ts", 4, Some(21)),
-            file("/tmp/x.mjs", 3, None)
-        ]
-    );
-    let served = "Local: http://localhost:5173/, on 127.0.0.1:3000 at 9:15:31.";
-    let targets: Vec<Target> = links_in(served)
-        .into_iter()
-        .map(|link| link.target)
-        .collect();
-    assert_eq!(targets, [Target::Url("http://localhost:5173/".into())]);
 }
 
 fn settings() -> RunSettings {
