@@ -6,7 +6,7 @@ mod at_point;
 
 use std::rc::Rc;
 
-use remacs_core::{Command, Keymap, MinorKeymap, Plugin, Registry};
+use remacs_core::{Command, Keymap, MenuItem, MinorKeymap, Plugin, Registry, visiting_file};
 
 pub use at_point::{Answer, Request, deliver, take_requests};
 
@@ -21,6 +21,9 @@ const COMMANDS: &[Command] = &[
 ];
 
 const BINDINGS: &[(&str, &str)] = &[("C-h .", at_point::SHOW)];
+
+const MENU_ITEM: MenuItem = MenuItem::new("Help", "help", "Documentation at Point", at_point::SHOW)
+    .enabled_when(visiting_file);
 
 /// Active while the popup is shown; any other command hides it too.
 const POPUP_BINDINGS: &[(&str, &str)] = &[
@@ -37,6 +40,7 @@ impl Plugin for DocumentationPlugin {
         for &(keys, command) in BINDINGS {
             registry.keymap.bind(keys, command);
         }
+        registry.menu_items.push(MENU_ITEM);
         let mut keymap = Keymap::default();
         for &(keys, command) in POPUP_BINDINGS {
             keymap.bind(keys, command);

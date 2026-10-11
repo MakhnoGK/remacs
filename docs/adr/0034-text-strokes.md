@@ -21,8 +21,9 @@ Status: accepted, 2026-10-04 (issue #11)
   `RenderGlyphParams`), `window.rs` (sets it when painting a glyph),
   `platform/mac/text_system.rs` (rasterization), `taffy.rs` (two float literals typed, as
   a path dependency's warnings are no longer capped), `elements/text.rs` (a truncated
-  text is measured again at another width, ADR 0058). Upgrading gpui means re-applying
-  them.
+  text is measured again at another width, ADR 0058), `app.rs` and
+  `platform/app_menu.rs` (`App::on_validate_menu_action`, ADR 0060). Upgrading gpui means
+  re-applying them.
 - The strokes are part of a glyph's atlas key, so changing them at runtime rasterizes the
   glyphs again on the next frame. They are read from `ui.toml` (`font.strokes`), see
   ADR 0042.

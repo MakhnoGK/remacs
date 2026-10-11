@@ -3925,6 +3925,7 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "gpui",
+ "objc2",
  "remacs-actions",
  "remacs-completion",
  "remacs-config",
@@ -3937,6 +3938,7 @@ dependencies = [
  "remacs-editing",
  "remacs-files",
  "remacs-format",
+ "remacs-frame",
  "remacs-git",
  "remacs-languages",
  "remacs-lsp",
@@ -4075,6 +4077,15 @@ dependencies = [
  "remacs-editing",
  "remacs-text",
  "serde",
+]
+
+[[package]]
+name = "remacs-frame"
+version = "0.1.0"
+dependencies = [
+ "remacs-config",
+ "remacs-core",
+ "remacs-dired",
 ]
 
 [[package]]

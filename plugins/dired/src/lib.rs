@@ -19,7 +19,9 @@ mod wdired;
 use std::path::Path;
 use std::rc::Rc;
 
-use remacs_core::{Command, CommandResult, Editor, Keymap, MinorKeymap, Plugin, Registry};
+use remacs_core::{
+    Command, CommandResult, Editor, Keymap, MenuItem, MinorKeymap, Plugin, Registry,
+};
 
 use crate::listing::DIRED_MODE;
 
@@ -120,6 +122,12 @@ const NEW_FILE_BINDINGS: &[(&str, &str)] = &[
     ("C-c C-k", "dired-create-empty-file-cancel"),
 ];
 
+#[rustfmt::skip]
+const MENU_ITEMS: &[MenuItem] = &[
+    MenuItem::new("File", "open", "Open Directory…", "dired"),
+    MenuItem::new("File", "open", "Show in Directory", "dired-jump"),
+];
+
 impl Plugin for DiredPlugin {
     fn register(&self, registry: &mut Registry) {
         for command in COMMANDS {
@@ -128,6 +136,7 @@ impl Plugin for DiredPlugin {
         for &(keys, command) in BINDINGS {
             registry.keymap.bind(keys, command);
         }
+        registry.menu_items.extend_from_slice(MENU_ITEMS);
         registry.minor_keymaps.push(MinorKeymap {
             active: |editor| {
                 editor.buffer().mode() == DIRED_MODE

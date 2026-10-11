@@ -14,6 +14,7 @@ mod key;
 mod key_bindings;
 mod keymap;
 mod kill_ring;
+mod menu;
 mod minibuffer;
 mod mode;
 mod mouse;
@@ -45,6 +46,7 @@ pub use gutter::{
 pub use key::{Key, KeyCode, Modifiers, describe_sequence, parse_sequence};
 pub use keymap::{Binding, Keymap};
 pub use kill_ring::KillRing;
+pub use menu::{APP_MENU, FrameRequest, Menu, MenuItem, MenuLayout, visiting_file};
 pub use minibuffer::{
     AnswerCheck, Count, Dialog, DialogOption, ListItem, Message, Minibuffer, Prompt, PromptChoice,
     PromptOption, VISIBLE_CANDIDATES,

@@ -11,6 +11,11 @@ Emacs-inspired IDE from scratch in Rust + gpui. Everything is a plugin.
   key bindings, behavior toggles. When adding or changing a feature, expose its settings
   and update the default config in `~/.config/remacs/config/` (`ui.toml`, `lsp.toml`,
   `format.toml`, or a new file) to match.
+- Menus follow commands: when adding, renaming or removing a command a person would look
+  for, update the menu items its plugin declares (`MenuItem` in `Registry::menu_items`,
+  with `enabled_when` if it cannot always run); a new group or menu goes into the `frame`
+  plugin's layout (ADR 0060). The test in `crates/app/src/menu_bar.rs` checks that every
+  item runs an existing command.
 
 ## Fixed decisions
 

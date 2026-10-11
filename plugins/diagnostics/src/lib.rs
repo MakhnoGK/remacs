@@ -7,7 +7,7 @@ mod problems;
 
 use std::rc::Rc;
 
-use remacs_core::{Command, Plugin, Registry};
+use remacs_core::{Command, MenuItem, Plugin, Registry, visiting_file};
 
 pub use buffer_diagnostics::{Diagnostic, Severity, clear, publish};
 
@@ -30,6 +30,15 @@ const BINDINGS: &[(&str, &str)] = &[
     ("M-g p", "previous-error"),
 ];
 
+#[rustfmt::skip]
+const MENU_ITEMS: &[MenuItem] = &[
+    MenuItem::new("View", "panels", "Problems", problems::LIST_PROBLEMS),
+    MenuItem::new("Go", "problems", "Next Problem", "next-problem").enabled_when(visiting_file),
+    MenuItem::new("Go", "problems", "Previous Problem", "previous-problem").enabled_when(visiting_file),
+    MenuItem::new("Go", "problems", "Next Error", "next-error").enabled_when(visiting_file),
+    MenuItem::new("Go", "problems", "Previous Error", "previous-error").enabled_when(visiting_file),
+];
+
 impl Plugin for DiagnosticsPlugin {
     fn register(&self, registry: &mut Registry) {
         for command in COMMANDS {
@@ -38,6 +47,7 @@ impl Plugin for DiagnosticsPlugin {
         for &(keys, command) in BINDINGS {
             registry.keymap.bind(keys, command);
         }
+        registry.menu_items.extend_from_slice(MENU_ITEMS);
         registry
             .post_command_hooks
             .push(Rc::new(buffer_diagnostics::rebase));

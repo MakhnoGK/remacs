@@ -561,6 +561,7 @@ pub struct App {
     pub(crate) keyboard_mapper: Rc<dyn PlatformKeyboardMapper>,
     pub(crate) global_action_listeners:
         FxHashMap<TypeId, Vec<Rc<dyn Fn(&dyn Any, DispatchPhase, &mut Self)>>>,
+    menu_action_validator: Option<Rc<dyn Fn(&dyn Action, &mut Self) -> bool>>,
     pending_effects: VecDeque<Effect>,
     pub(crate) pending_notifications: FxHashSet<EntityId>,
     pub(crate) pending_global_notifications: FxHashSet<TypeId>,
@@ -636,6 +637,7 @@ impl App {
                 keyboard_layout,
                 keyboard_mapper,
                 global_action_listeners: FxHashMap::default(),
+                menu_action_validator: None,
                 pending_effects: VecDeque::new(),
                 pending_notifications: FxHashSet::default(),
                 pending_global_notifications: FxHashSet::default(),
@@ -1834,6 +1836,23 @@ impl App {
             || self
                 .global_action_listeners
                 .contains_key(&action.as_any().type_id())
+    }
+
+    /// Lets `validator` disable menu items whose action is available, e.g. by the data the
+    /// action carries, which availability cannot tell apart.
+    pub fn on_validate_menu_action(
+        &mut self,
+        validator: impl Fn(&dyn Action, &mut Self) -> bool + 'static,
+    ) {
+        self.menu_action_validator = Some(Rc::new(validator));
+    }
+
+    pub(crate) fn is_menu_action_enabled(&mut self, action: &dyn Action) -> bool {
+        self.is_action_available(action)
+            && self
+                .menu_action_validator
+                .clone()
+                .is_none_or(|validator| validator(action, self))
     }
 
     /// Sets the menu bar for this application. This will replace any existing menu bar.

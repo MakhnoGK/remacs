@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use remacs_config::{cache_dir, config_dir};
-use remacs_core::{Editor, Plugin, Registry, StatusItem, StatusSegment, Tone};
+use remacs_core::{Editor, MenuItem, Plugin, Registry, StatusItem, StatusSegment, Tone};
 
 use crate::settings::ToolsSettings;
 use crate::state::{Progress, Tools, tools};
@@ -28,6 +28,9 @@ impl Plugin for ToolsPlugin {
             registry.commands.add(*command);
         }
         registry.keymap.bind("C-c t", panel::OPEN);
+        registry
+            .menu_items
+            .push(MenuItem::new("View", "panels", "Tools", panel::OPEN));
         registry.settings_hooks.push(Rc::new(read_settings));
         registry.post_command_hooks.push(Rc::new(pick_up));
         registry.status_providers.push(Rc::new(status));

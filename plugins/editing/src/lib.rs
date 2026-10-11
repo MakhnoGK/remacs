@@ -9,7 +9,7 @@ mod killing;
 mod motion;
 mod pairs;
 
-use remacs_core::{Command, Plugin, Registry, SELF_INSERT_COMMAND};
+use remacs_core::{Command, Editor, MenuItem, Plugin, Registry, SELF_INSERT_COMMAND};
 
 pub struct EditingPlugin;
 
@@ -115,6 +115,23 @@ const BINDINGS: &[(&str, &str)] = &[
     ("M-y", killing::YANK_POP),
 ];
 
+#[rustfmt::skip]
+const MENU_ITEMS: &[MenuItem] = &[
+    MenuItem::new("Edit", "undo", "Undo", "undo"),
+    MenuItem::new("Edit", "undo", "Redo", "undo-redo"),
+    MenuItem::new("Edit", "clipboard", "Cut", "kill-region").enabled_when(has_region),
+    MenuItem::new("Edit", "clipboard", "Copy", "kill-ring-save").enabled_when(has_region),
+    MenuItem::new("Edit", "clipboard", "Paste", killing::YANK),
+    MenuItem::new("Edit", "clipboard", "Paste Earlier", killing::YANK_POP).enabled_when(after_yank),
+    MenuItem::new("Edit", "selection", "Select All", "mark-whole-buffer"),
+    MenuItem::new("Edit", "selection", "Set Mark", killing::SET_MARK_COMMAND),
+    MenuItem::new("Edit", "selection", "Expand Selection", expand::EXPAND_REGION),
+    MenuItem::new("Edit", "selection", "Shrink Selection", expand::CONTRACT_REGION).enabled_when(has_region),
+    MenuItem::new("Edit", "code", "Comment Line", "comment-line"),
+    MenuItem::new("Go", "buffer", "Beginning of Buffer", "beginning-of-buffer"),
+    MenuItem::new("Go", "buffer", "End of Buffer", "end-of-buffer"),
+];
+
 impl Plugin for EditingPlugin {
     fn register(&self, registry: &mut Registry) {
         for command in COMMANDS {
@@ -123,7 +140,19 @@ impl Plugin for EditingPlugin {
         for &(keys, command) in BINDINGS {
             registry.keymap.bind(keys, command);
         }
+        registry.menu_items.extend_from_slice(MENU_ITEMS);
     }
+}
+
+fn has_region(editor: &Editor) -> bool {
+    editor.buffer().region().is_some()
+}
+
+fn after_yank(editor: &Editor) -> bool {
+    matches!(
+        editor.last_command(),
+        Some(killing::YANK | killing::YANK_POP)
+    )
 }
 
 #[cfg(test)]

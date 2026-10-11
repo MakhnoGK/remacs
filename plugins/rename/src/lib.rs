@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use remacs_core::{
-    ChangedFiles, Command, CommandResult, Completions, Editor, FileChange, Plugin, Prompt, Registry,
+    ChangedFiles, Command, CommandResult, Completions, Editor, FileChange, MenuItem, Plugin,
+    Prompt, Registry, visiting_file,
 };
 
 pub struct RenamePlugin;
@@ -23,6 +24,9 @@ const COMMANDS: &[Command] = &[
 
 const BINDINGS: &[(&str, &str)] = &[("C-c C-r", RENAME_SYMBOL)];
 
+const MENU_ITEM: MenuItem =
+    MenuItem::new("Edit", "code", "Rename Symbol…", RENAME_SYMBOL).enabled_when(visiting_file);
+
 impl Plugin for RenamePlugin {
     fn register(&self, registry: &mut Registry) {
         for command in COMMANDS {
@@ -31,6 +35,7 @@ impl Plugin for RenamePlugin {
         for &(keys, command) in BINDINGS {
             registry.keymap.bind(keys, command);
         }
+        registry.menu_items.push(MENU_ITEM);
     }
 }
 

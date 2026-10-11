@@ -8,7 +8,7 @@ mod menu;
 
 use std::rc::Rc;
 
-use remacs_core::{Command, Keymap, MinorKeymap, Plugin, Registry};
+use remacs_core::{Command, Keymap, MenuItem, MinorKeymap, Plugin, Registry, visiting_file};
 
 pub use edits::{apply, failed};
 pub use menu::{Action, Request, deliver, take_requests};
@@ -25,6 +25,9 @@ const COMMANDS: &[Command] = &[
 ];
 
 const BINDINGS: &[(&str, &str)] = &[("C-c C-a", menu::CODE_ACTIONS)];
+
+const MENU_ITEM: MenuItem =
+    MenuItem::new("Edit", "code", "Code Actions…", menu::CODE_ACTIONS).enabled_when(visiting_file);
 
 /// Active while the popup is shown; any other command closes it.
 const POPUP_BINDINGS: &[(&str, &str)] = &[
@@ -45,6 +48,7 @@ impl Plugin for ActionsPlugin {
         for &(keys, command) in BINDINGS {
             registry.keymap.bind(keys, command);
         }
+        registry.menu_items.push(MENU_ITEM);
         let mut keymap = Keymap::default();
         for &(keys, command) in POPUP_BINDINGS {
             keymap.bind(keys, command);

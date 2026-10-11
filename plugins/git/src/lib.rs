@@ -29,8 +29,8 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use remacs_core::{
-    Buffer, ChangedLines, Command, Editor, FileStatus, Keymap, MinorKeymap, Plugin, Registry,
-    VersionControl,
+    Buffer, ChangedLines, Command, Editor, FileStatus, Keymap, MenuItem, MinorKeymap, Plugin,
+    Registry, VersionControl,
 };
 
 use crate::repositories::Repositories;
@@ -98,6 +98,23 @@ const CONFLICT_BINDINGS: &[(&str, &str)] = &[
 
 const BINDINGS: &[(&str, &str)] = &[("C-x g", "git-status")];
 
+#[rustfmt::skip]
+const MENU_ITEMS: &[MenuItem] = &[
+    MenuItem::new("Git", "status", "Status", "git-status"),
+    MenuItem::new("Git", "changes", "Commit…", "git-commit").enabled_when(status_shown),
+    MenuItem::new("Git", "changes", "Stash…", "git-stash").enabled_when(status_shown),
+    MenuItem::new("Git", "branches", "Switch Branch…", "git-branch").enabled_when(status_shown),
+    MenuItem::new("Git", "branches", "Merge…", "git-merge").enabled_when(status_shown),
+    MenuItem::new("Git", "branches", "Rebase…", "git-rebase").enabled_when(status_shown),
+    MenuItem::new("Git", "sync", "Pull", "git-pull").enabled_when(status_shown),
+    MenuItem::new("Git", "sync", "Push…", "git-push").enabled_when(status_shown),
+];
+
+/// The commands that act on a working tree act on the status buffer's.
+fn status_shown(editor: &Editor) -> bool {
+    commands::shown_status(editor).is_ok()
+}
+
 const STATUS_BINDINGS: &[(&str, &str)] = &[
     ("TAB", TOGGLE),
     ("s", "git-stage"),
@@ -133,6 +150,7 @@ impl Plugin for GitPlugin {
         for &(keys, command) in BINDINGS {
             registry.keymap.bind(keys, command);
         }
+        registry.menu_items.extend_from_slice(MENU_ITEMS);
         let mut conflict_keymap = Keymap::default();
         for &(keys, command) in CONFLICT_BINDINGS {
             conflict_keymap.bind(keys, command);

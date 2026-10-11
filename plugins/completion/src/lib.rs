@@ -7,7 +7,7 @@ mod session;
 
 use std::rc::Rc;
 
-use remacs_core::{Command, Keymap, MinorKeymap, Plugin, Registry};
+use remacs_core::{Command, Keymap, MenuItem, MinorKeymap, Plugin, Registry, visiting_file};
 
 pub use backend::{Item, List, Request, Trigger, deliver, is_word_char, resolved, take_requests};
 
@@ -28,6 +28,9 @@ const BINDINGS: &[(&str, &str)] = &[
     ("C-M-i", session::COMPLETION_AT_POINT),
     ("M-TAB", session::COMPLETION_AT_POINT),
 ];
+
+const MENU_ITEM: MenuItem = MenuItem::new("Edit", "code", "Complete", session::COMPLETION_AT_POINT)
+    .enabled_when(visiting_file);
 
 /// Active while the popup is shown, like `corfu-map`.
 const POPUP_BINDINGS: &[(&str, &str)] = &[
@@ -51,6 +54,7 @@ impl Plugin for CompletionPlugin {
         for &(keys, command) in BINDINGS {
             registry.keymap.bind(keys, command);
         }
+        registry.menu_items.push(MENU_ITEM);
         let mut keymap = Keymap::default();
         for &(keys, command) in POPUP_BINDINGS {
             keymap.bind(keys, command);

@@ -24,6 +24,7 @@ remacs-echo = { path = "plugins/echo" }
 remacs-editing = { path = "plugins/editing" }
 remacs-files = { path = "plugins/files" }
 remacs-format = { path = "plugins/format" }
+remacs-frame = { path = "plugins/frame" }
 remacs-git = { path = "plugins/git" }
 remacs-languages = { path = "plugins/languages" }
 remacs-lsp = { path = "plugins/lsp" }
@@ -50,6 +51,7 @@ memmap2 = "0.9"
 notify = "8"
 # Without `unicode-segmentation`, match indices count chars rather than graphemes.
 nucleo-matcher = { version = "0.3", default-features = false, features = ["unicode-casefold", "unicode-normalization"] }
+objc2 = "0.6"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 streaming-iterator = "0.1"

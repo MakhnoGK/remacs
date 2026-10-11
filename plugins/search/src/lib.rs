@@ -14,7 +14,7 @@ mod words;
 
 use std::rc::Rc;
 
-use remacs_core::{Command, Plugin, Registry};
+use remacs_core::{Command, MenuItem, Plugin, Registry};
 
 pub struct SearchPlugin;
 
@@ -44,6 +44,14 @@ const BINDINGS: &[(&str, &str)] = &[
     ("s-H", project_replace::PROJECT_QUERY_REPLACE),
 ];
 
+#[rustfmt::skip]
+const MENU_ITEMS: &[MenuItem] = &[
+    MenuItem::new("Edit", "find", "Search…", lines::SEARCH),
+    MenuItem::new("Edit", "find", "Replace…", replace::QUERY_REPLACE),
+    MenuItem::new("Edit", "find", "Search in Project…", project::PROJECT_SEARCH),
+    MenuItem::new("Edit", "find", "Replace in Project…", project_replace::PROJECT_QUERY_REPLACE),
+];
+
 impl Plugin for SearchPlugin {
     fn register(&self, registry: &mut Registry) {
         for command in COMMANDS {
@@ -52,6 +60,7 @@ impl Plugin for SearchPlugin {
         for &(keys, command) in BINDINGS {
             registry.keymap.bind(keys, command);
         }
+        registry.menu_items.extend_from_slice(MENU_ITEMS);
         registry.decorators.push(Rc::new(preview::decorate));
         registry.decorators.push(Rc::new(project_preview::decorate));
         registry.post_command_hooks.push(Rc::new(preview::sync));

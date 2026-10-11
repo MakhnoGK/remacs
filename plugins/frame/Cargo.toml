@@ -1,0 +1,15 @@
+[package]
+name = "remacs-frame"
+description = "Built-in plugin: the application and its window, and their menus: about, settings, hiding, minimizing, full screen"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+remacs-config.workspace = true
+remacs-core.workspace = true
+remacs-dired.workspace = true
+
+[lints]
+workspace = true

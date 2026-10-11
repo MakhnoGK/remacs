@@ -23,7 +23,9 @@ use std::path::Path;
 use std::rc::Rc;
 
 use remacs_config::{run_dir, state_dir};
-use remacs_core::{Command, Editor, Keymap, MinorKeymap, Plugin, Registry};
+use remacs_core::{
+    Command, Editor, Keymap, MenuItem, MinorKeymap, Plugin, Registry, visiting_file,
+};
 
 use crate::configuration::Store;
 use crate::console::Console;
@@ -80,6 +82,15 @@ const BINDINGS: &[(&str, &str)] = &[
     ("s-<f2>", STOP),
 ];
 
+#[rustfmt::skip]
+const MENU_ITEMS: &[MenuItem] = &[
+    MenuItem::new("Run", "run", "Run", RUN),
+    MenuItem::new("Run", "run", "Run at Point", RUN_AT_POINT).enabled_when(visiting_file),
+    MenuItem::new("Run", "run", "Choose Configuration…", CHOOSE),
+    MenuItem::new("Run", "run", "Edit Configurations", "run-edit-configurations"),
+    MenuItem::new("Run", "run", "Stop", STOP).enabled_when(sessions::any_running),
+];
+
 const MENU_BINDINGS: &[(&str, &str)] = &[
     ("C-n", menu::NEXT),
     ("<down>", menu::NEXT),
@@ -123,6 +134,7 @@ impl Plugin for RunPlugin {
         for &(keys, command) in BINDINGS {
             registry.keymap.bind(keys, command);
         }
+        registry.menu_items.extend_from_slice(MENU_ITEMS);
         registry.minor_keymaps.push(MinorKeymap {
             active: menu::is_shown,
             keymap: keymap(MENU_BINDINGS),

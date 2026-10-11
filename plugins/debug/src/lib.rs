@@ -22,12 +22,13 @@ use std::rc::Rc;
 
 use remacs_config::state_dir;
 use remacs_core::{
-    Command, CommandResult, Editor, Keymap, MinorKeymap, PaneSource, Plugin, Registry,
+    Command, CommandResult, Editor, Keymap, MenuItem, MinorKeymap, PaneSource, Plugin, Registry,
+    visiting_file,
 };
 use remacs_run::{DEBUG_AT_POINT, Starter};
 
 use crate::marks::TOGGLE_BREAKPOINT;
-use crate::session::{Address, current, debugger};
+use crate::session::{Address, Debugger, current, current_frame, debugger};
 use crate::settings::DebugSettings;
 
 pub struct DebugPlugin;
@@ -69,6 +70,30 @@ const BINDINGS: &[(&str, &str)] = &[
     ("M-<f8>", evaluate::EVALUATE),
 ];
 
+#[rustfmt::skip]
+const MENU_ITEMS: &[MenuItem] = &[
+    MenuItem::new("Run", "debug", "Debug", DEBUG),
+    MenuItem::new("Run", "debug", "Debug at Point", DEBUG_AT_POINT).enabled_when(visiting_file),
+    MenuItem::new("Run", "step", "Continue", CONTINUE).enabled_when(stopped),
+    MenuItem::new("Run", "step", "Pause", PAUSE).enabled_when(debugging),
+    MenuItem::new("Run", "step", "Step Over", STEP_OVER).enabled_when(stopped),
+    MenuItem::new("Run", "step", "Step Into", STEP_INTO).enabled_when(stopped),
+    MenuItem::new("Run", "step", "Step Out", STEP_OUT).enabled_when(stopped),
+    MenuItem::new("Run", "step", "Evaluate…", evaluate::EVALUATE).enabled_when(stopped),
+    MenuItem::new("Run", "breakpoints", "Toggle Breakpoint", TOGGLE_BREAKPOINT).enabled_when(visiting_file),
+    MenuItem::new("Run", "breakpoints", "Breakpoints", list::OPEN),
+];
+
+fn debugging(editor: &Editor) -> bool {
+    editor
+        .find_plugin_state::<Debugger>()
+        .is_some_and(|debugger| !debugger.sessions.is_empty())
+}
+
+fn stopped(editor: &Editor) -> bool {
+    current_frame(editor).is_some()
+}
+
 impl Plugin for DebugPlugin {
     fn register(&self, registry: &mut Registry) {
         let commands = COMMANDS
@@ -83,6 +108,7 @@ impl Plugin for DebugPlugin {
         for &(keys, command) in BINDINGS {
             registry.keymap.bind(keys, command);
         }
+        registry.menu_items.extend_from_slice(MENU_ITEMS);
         let mut focused = Keymap::default();
         for &(keys, command) in pane::FOCUSED_BINDINGS {
             focused.bind(keys, command);

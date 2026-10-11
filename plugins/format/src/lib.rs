@@ -10,7 +10,9 @@ use std::ops::Range;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use remacs_core::{Command, CommandResult, Editor, Plugin, Registry, Section};
+use remacs_core::{
+    Command, CommandResult, Editor, MenuItem, Plugin, Registry, Section, visiting_file,
+};
 use remacs_text::Snapshot;
 use serde::Deserialize;
 
@@ -31,6 +33,13 @@ const COMMANDS: &[Command] = &[
 
 const BINDINGS: &[(&str, &str)] = &[("C-c C-f", FORMAT)];
 
+#[rustfmt::skip]
+const MENU_ITEMS: &[MenuItem] = &[
+    MenuItem::new("Edit", "code", "Format", FORMAT).enabled_when(visiting_file),
+    MenuItem::new("Edit", "code", "Format Buffer", FORMAT_BUFFER).enabled_when(visiting_file),
+    MenuItem::new("Edit", "code", "Format on Save On or Off", FORMAT_ON_SAVE_MODE),
+];
+
 impl Plugin for FormatPlugin {
     fn register(&self, registry: &mut Registry) {
         for command in COMMANDS {
@@ -39,6 +48,7 @@ impl Plugin for FormatPlugin {
         for &(keys, command) in BINDINGS {
             registry.keymap.bind(keys, command);
         }
+        registry.menu_items.extend_from_slice(MENU_ITEMS);
         registry.post_command_hooks.push(Rc::new(format_saved));
         registry.settings_hooks.push(Rc::new(read_settings));
     }

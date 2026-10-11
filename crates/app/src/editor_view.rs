@@ -10,11 +10,11 @@ use std::time::Instant;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
-    AnyElement, App, Bounds, ClipboardItem, Context, DispatchPhase, Div, FocusHandle, Hsla,
-    IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    ParentElement, Pixels, Point, Render, ScrollDelta, ScrollHandle, ScrollWheelEvent,
-    SharedString, Size, StyledText, Subscription, Task, Window, canvas, div, font, point,
-    prelude::*, px, rgb, rgba, size, svg,
+    AnyElement, AnyWindowHandle, App, Bounds, ClipboardItem, Context, DispatchPhase, Div,
+    FocusHandle, Hsla, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, ParentElement, Pixels, Point, Render, ScrollDelta, ScrollHandle,
+    ScrollWheelEvent, SharedString, Size, StyledText, Subscription, Task, Window, canvas, div,
+    font, point, prelude::*, px, rgb, rgba, size, svg,
 };
 
 use crate::assets::{EXECUTION_POINT_ICON, LOGPOINT_ICON};
@@ -34,8 +34,10 @@ use crate::bottom_row::{
 };
 use crate::changes_view::render_changes;
 use crate::display_line::{DisplayLine, display_width, slice_line};
+use crate::frame;
 use crate::highlights::{Highlights, combine, face_style, region_style};
 use crate::key_input::{to_key, to_modifiers};
+use crate::menu_bar::{self, RunCommand};
 use crate::minibuffer_view::{is_problem_list, render_minibuffer, render_scrim};
 use crate::opening::open;
 use crate::outline_view::{
@@ -159,6 +161,7 @@ pub struct EditorView {
     /// Since when a prefix has been pending, and the timer that then lists its keys.
     prefix_since: Option<Instant>,
     prefix_timer: Option<Task<()>>,
+    window_handle: AnyWindowHandle,
     _activation: Subscription,
 }
 
@@ -292,8 +295,16 @@ impl EditorView {
             hints_open: false,
             prefix_since: None,
             prefix_timer: None,
+            window_handle: window.window_handle(),
             _activation: activation,
         };
+        let weak_view = cx.weak_entity();
+        cx.on_validate_menu_action(move |action, cx| {
+            weak_view
+                .upgrade()
+                .is_some_and(|view| menu_bar::enabled(&view.read(cx).editor, action))
+        });
+        menu_bar::set_menus(&view.editor, cx);
         view.receive_clipboard(cx);
         // Lets plugins pick up a file opened from the command line.
         view.editor.refresh();
@@ -317,6 +328,8 @@ impl EditorView {
             .set_limit(self.bottom.echo.history);
         self.editor.set_settings(read.settings);
         report(&read.errors, &mut self.editor);
+        // Shows the keys `keys.toml` binds now.
+        menu_bar::set_menus(&self.editor, cx);
         cx.notify();
     }
 
@@ -363,13 +376,25 @@ impl EditorView {
                 let text = message.text.clone();
                 self.editor.kill_ring.push(text);
                 self.editor.set_done("Copied");
+                cx.stop_propagation();
                 return self.after_input(cx);
             }
             if Key::parse(CLOSE_KEY) == Some(key) {
+                cx.stop_propagation();
                 return cx.notify();
             }
         }
-        self.editor.handle_key(key);
+        // A key taken goes no further: its menu item's key equivalent would run it again.
+        if self.editor.handle_key(key) {
+            cx.stop_propagation();
+        }
+        self.after_input(cx);
+    }
+
+    fn run_menu_command(&mut self, action: &RunCommand, _: &mut Window, cx: &mut Context<Self>) {
+        self.hints_open = false;
+        self.message_open = false;
+        self.editor.run_command(&action.name);
         self.after_input(cx);
     }
 
@@ -417,6 +442,7 @@ impl EditorView {
         if self.editor.quit_requested() {
             cx.quit();
         }
+        frame::act(self.editor.take_frame_requests(), self.window_handle, cx);
         self.scrolled_sideways = false;
         self.track_prefix(cx);
         self.schedule_refresh(cx);
@@ -1876,6 +1902,7 @@ impl Render for EditorView {
         div()
             .track_focus(&self.focus_handle)
             .on_key_down(cx.listener(Self::on_key_down))
+            .on_action(cx.listener(Self::run_menu_command))
             .on_scroll_wheel(cx.listener(Self::on_scroll))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .size_full()

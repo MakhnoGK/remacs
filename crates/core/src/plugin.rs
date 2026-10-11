@@ -5,6 +5,7 @@ use crate::decoration::Decorator;
 use crate::editor::Editor;
 use crate::gutter::{GutterProvider, LineExtraProvider, TextControlsProvider};
 use crate::keymap::Keymap;
+use crate::menu::{Menu, MenuItem};
 use crate::mode::Modes;
 use crate::outline::OutlineProvider;
 use crate::pane::PaneSource;
@@ -73,6 +74,10 @@ pub struct Registry {
     pub text_controls: Vec<TextControlsProvider>,
     /// For each file, the first that controls it.
     pub version_controls: Vec<Rc<dyn VersionControl>>,
+    /// The menu bar's menus in order, with the order of their groups.
+    pub menus: Vec<Menu>,
+    /// Items of the menu bar's menus, in the order they are listed within their group.
+    pub menu_items: Vec<MenuItem>,
 }
 
 pub trait Plugin {

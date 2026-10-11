@@ -11,7 +11,7 @@ mod saving;
 
 use std::rc::Rc;
 
-use remacs_core::{Command, CommandResult, Editor, Plugin, Registry};
+use remacs_core::{Command, CommandResult, Editor, MenuItem, Plugin, Registry};
 
 use crate::file_index::FileIndexes;
 use crate::ignored::FilesSettings;
@@ -50,6 +50,17 @@ const BINDINGS: &[(&str, &str)] = &[
     ("s-q", "save-buffers-kill-terminal"),
 ];
 
+#[rustfmt::skip]
+const MENU_ITEMS: &[MenuItem] = &[
+    MenuItem::new("File", "open", "Open…", "find-file"),
+    MenuItem::new("File", "open", "Switch to Buffer…", "switch-to-buffer"),
+    MenuItem::new("File", "save", "Save", "save-buffer"),
+    MenuItem::new("File", "save", "Save As…", "write-file"),
+    MenuItem::new("File", "save", "Save All…", "save-some-buffers"),
+    MenuItem::new("File", "close", "Close Buffer…", "kill-buffer"),
+    MenuItem::new("Window", "windows", "Other Window", "other-window"),
+];
+
 impl Plugin for FilesPlugin {
     fn register(&self, registry: &mut Registry) {
         for command in COMMANDS {
@@ -58,6 +69,7 @@ impl Plugin for FilesPlugin {
         for &(keys, command) in BINDINGS {
             registry.keymap.bind(keys, command);
         }
+        registry.menu_items.extend_from_slice(MENU_ITEMS);
         registry.settings_hooks.push(Rc::new(read_settings));
     }
 }

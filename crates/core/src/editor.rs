@@ -23,6 +23,7 @@ use crate::key::{Key, describe_sequence};
 use crate::key_bindings::KeysSettings;
 use crate::keymap::{Binding, Keymap};
 use crate::kill_ring::KillRing;
+use crate::menu::{self, FrameRequest, MenuLayout};
 use crate::minibuffer::{Dialog, Minibuffer, Prompt};
 use crate::mode::Mode;
 use crate::outline::Outline;
@@ -71,6 +72,7 @@ pub struct Editor {
     /// The view lists all its keys, not only those that fit, until the next key.
     key_hints_listed: bool,
     quit_requested: bool,
+    frame_requests: Vec<FrameRequest>,
     plugin_states: HashMap<TypeId, Box<dyn Any>>,
     settings: Settings,
     cache_dir: Option<PathBuf>,
@@ -115,6 +117,7 @@ impl Editor {
             messages: MessageLog::default(),
             key_hints_listed: false,
             quit_requested: false,
+            frame_requests: Vec::new(),
             plugin_states: HashMap::new(),
             settings: Settings::default(),
             cache_dir: None,
@@ -316,12 +319,14 @@ impl Editor {
         self.this_command_killed = true;
     }
 
-    pub fn handle_key(&mut self, key: Key) {
+    /// False when the key is a sequence of its own that nothing binds, nor types, so
+    /// that it may still mean something to the system, e.g. a menu's key equivalent.
+    pub fn handle_key(&mut self, key: Key) -> bool {
         self.clear_echo();
         if Key::parse(ABORT_KEY) == Some(key) && self.abort() {
             // Hooks see a prompt closed by quitting, e.g. to undo what it previewed.
             self.after_command();
-            return;
+            return true;
         }
         if self
             .minibuffer
@@ -329,7 +334,7 @@ impl Editor {
             .is_some_and(Minibuffer::is_question)
         {
             self.answer_question_key(key);
-            return;
+            return true;
         }
         if self.pending_keys.is_empty()
             && let Some(index) = self
@@ -338,7 +343,7 @@ impl Editor {
                 .and_then(|minibuffer| minibuffer.option_for_key(key))
         {
             self.toggle_prompt_option(index);
-            return;
+            return true;
         }
         if self.pending_keys.is_empty()
             && let Some(index) = self
@@ -347,13 +352,13 @@ impl Editor {
                 .and_then(|minibuffer| minibuffer.choice_for_key(key))
         {
             self.next_prompt_choice(index);
-            return;
+            return true;
         }
         if self.pending_keys.is_empty() && self.minibuffer.is_none() {
             for sink in self.registry.key_sinks.clone() {
                 if sink(self, key) {
                     self.last_key = Some(key);
-                    return;
+                    return true;
                 }
             }
         }
@@ -379,9 +384,11 @@ impl Editor {
                     self.run_command(SELF_INSERT_COMMAND);
                 } else {
                     self.set_message(format!("{} is undefined", describe_sequence(&keys)));
+                    return keys.len() > 1;
                 }
             }
         }
+        true
     }
 
     pub fn run_command(&mut self, name: &str) {
@@ -693,6 +700,29 @@ impl Editor {
 
     pub fn quit_requested(&self) -> bool {
         self.quit_requested
+    }
+
+    pub fn request_frame(&mut self, request: FrameRequest) {
+        self.frame_requests.push(request);
+    }
+
+    pub fn take_frame_requests(&mut self) -> Vec<FrameRequest> {
+        mem::take(&mut self.frame_requests)
+    }
+
+    pub fn menu_bar(&self) -> Vec<MenuLayout<'_>> {
+        menu::layout(&self.registry.menus, &self.registry.menu_items)
+    }
+
+    /// Whether the menu items running `command` can be chosen now.
+    pub fn menu_command_enabled(&self, command: &str) -> bool {
+        self.registry.commands.get(command).is_some()
+            && self
+                .registry
+                .menu_items
+                .iter()
+                .filter(|item| item.command == command)
+                .all(|item| item.enabled.is_none_or(|enabled| enabled(self)))
     }
 
     /// Replaces the settings and lets plugins read their sections again, then refreshes,
@@ -1310,6 +1340,26 @@ mod tests {
         listed.sort();
         assert_eq!(listed, ["a one", "r …"]);
         assert_eq!(editor.echo().as_deref(), Some("C-x-"));
+    }
+
+    #[test]
+    fn only_a_single_key_nothing_binds_is_left_to_the_system() {
+        struct Bindings;
+        impl Plugin for Bindings {
+            fn register(&self, registry: &mut Registry) {
+                registry
+                    .commands
+                    .add(crate::Command::new("one", "", |_| Ok(())));
+                registry.keymap.bind("C-x a", "one");
+                registry.keymap.bind("s-s", "one");
+            }
+        }
+        let mut editor = Editor::new(&[&Bindings]);
+        let mut press = |notation| editor.handle_key(Key::parse(notation).unwrap());
+        assert!(press("s-s"));
+        assert!(!press("s-m"));
+        assert!(press("C-x"));
+        assert!(press("s-m"));
     }
 
     #[test]

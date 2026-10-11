@@ -6,7 +6,9 @@ mod messages;
 
 use std::rc::Rc;
 
-use remacs_core::{Command, CommandResult, Editor, Keymap, MinorKeymap, Plugin, Registry};
+use remacs_core::{
+    Command, CommandResult, Editor, Keymap, MenuItem, MinorKeymap, Plugin, Registry,
+};
 
 pub use messages::{MESSAGES_BUFFER, VIEW as VIEW_MESSAGES};
 
@@ -26,6 +28,12 @@ const BINDINGS: &[(&str, &str)] = &[("C-h e", messages::VIEW), ("C-h k", LIST_KE
 
 const MESSAGES_BINDINGS: &[(&str, &str)] = &[("q", messages::QUIT), ("C-c C-k", messages::CLEAR)];
 
+#[rustfmt::skip]
+const MENU_ITEMS: &[MenuItem] = &[
+    MenuItem::new("Help", "help", "Messages", messages::VIEW),
+    MenuItem::new("Help", "help", "Keys of This View", LIST_KEYS),
+];
+
 impl Plugin for EchoPlugin {
     fn register(&self, registry: &mut Registry) {
         for command in COMMANDS {
@@ -34,6 +42,7 @@ impl Plugin for EchoPlugin {
         for &(keys, command) in BINDINGS {
             registry.keymap.bind(keys, command);
         }
+        registry.menu_items.extend_from_slice(MENU_ITEMS);
         let mut keymap = Keymap::default();
         for &(keys, command) in MESSAGES_BINDINGS {
             keymap.bind(keys, command);

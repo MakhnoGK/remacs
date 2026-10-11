@@ -7,8 +7,10 @@ mod dialog_view;
 mod display_line;
 mod editor_view;
 mod environment;
+mod frame;
 mod highlights;
 mod key_input;
+mod menu_bar;
 mod minibuffer_view;
 mod opening;
 mod outline_view;
@@ -43,6 +45,7 @@ use remacs_echo::EchoPlugin;
 use remacs_editing::EditingPlugin;
 use remacs_files::FilesPlugin;
 use remacs_format::FormatPlugin;
+use remacs_frame::FramePlugin;
 use remacs_git::GitPlugin;
 use remacs_languages::{GRAMMARS, LanguagesPlugin, PRETTIER_MODES, SERVERS};
 use remacs_lsp::LspPlugin;
@@ -63,6 +66,8 @@ use opening::{file_paths, open};
 use settings::{ReadSettings, read_settings, report, watch_settings};
 
 const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
+    // First, as it lays out the menu bar the others add items to.
+    &FramePlugin,
     &EditingPlugin,
     &MinibufferPlugin,
     &FilesPlugin,
@@ -141,7 +146,8 @@ fn main() -> ExitCode {
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: Some(TitlebarOptions {
-                title: None,
+                // Not drawn; macOS shows it in Mission Control and the Window menu.
+                title: Some("Remacs".into()),
                 appears_transparent: true,
                 traffic_light_position: Some(point(px(18.0), px(16.0))),
             }),

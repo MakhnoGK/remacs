@@ -33,7 +33,7 @@
 		</dict>
 	</array>
 	<key>CFBundleDisplayName</key>
-	<string>remacs</string>
+	<string>Remacs</string>
 	<key>CFBundleExecutable</key>
 	<string>remacs</string>
 	<key>CFBundleIconFile</key>
@@ -43,7 +43,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>remacs</string>
+	<string>Remacs</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

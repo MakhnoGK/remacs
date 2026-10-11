@@ -20,7 +20,7 @@ mod view;
 
 use std::rc::Rc;
 
-use remacs_core::{Command, Editor, Keymap, MinorKeymap, PaneSource, Plugin, Registry};
+use remacs_core::{Command, Editor, Keymap, MenuItem, MinorKeymap, PaneSource, Plugin, Registry};
 
 use crate::settings::TerminalSettings;
 use crate::terminals::{PANE, all, close, find_mut, is_shown, keyed, rename_buffers, terminals};
@@ -77,6 +77,13 @@ const BINDINGS: &[(&str, &str)] = &[
     ("s-RET", MAXIMIZE),
 ];
 
+#[rustfmt::skip]
+const MENU_ITEMS: &[MenuItem] = &[
+    MenuItem::new("View", "panels", "Terminal", TOGGLE),
+    MenuItem::new("View", "panels", "New Terminal", NEW),
+    MenuItem::new("View", "panels", "Maximize Terminal", MAXIMIZE),
+];
+
 /// While a terminal has the keys.
 const TERMINAL_BINDINGS: &[(&str, &str)] = &[
     ("s-}", NEXT),
@@ -109,6 +116,7 @@ impl Plugin for TerminalPlugin {
         for &(keys, command) in BINDINGS {
             registry.keymap.bind(keys, command);
         }
+        registry.menu_items.extend_from_slice(MENU_ITEMS);
         registry.minor_keymaps.push(MinorKeymap {
             active: view::ended_has_keys,
             keymap: keymap(EXITED_BINDINGS),

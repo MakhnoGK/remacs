@@ -1,7 +1,7 @@
 //! Built-in plugin: vertico-style keys for answering prompts, and `M-x`.
 
 use remacs_core::{
-    Candidate, Command, CommandResult, Completions, Count, Editor, Key, KeyCode, Keymap,
+    Candidate, Command, CommandResult, Completions, Count, Editor, Key, KeyCode, Keymap, MenuItem,
     Minibuffer, Plugin, Prompt, Registry, describe_sequence, filter_candidates,
 };
 
@@ -65,6 +65,12 @@ impl Plugin for MinibufferPlugin {
         for &(keys, command) in MESSAGE_BINDINGS {
             registry.message_keymap.bind(keys, command);
         }
+        registry.menu_items.push(MenuItem::new(
+            "View",
+            "commands",
+            "Execute Command…",
+            "execute-extended-command",
+        ));
     }
 }
 

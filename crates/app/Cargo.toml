@@ -19,6 +19,7 @@ runtime-shaders = ["gpui/runtime_shaders"]
 [dependencies]
 futures.workspace = true
 gpui.workspace = true
+objc2.workspace = true
 remacs-actions.workspace = true
 remacs-completion.workspace = true
 remacs-config.workspace = true
@@ -30,6 +31,7 @@ remacs-echo.workspace = true
 remacs-editing.workspace = true
 remacs-files.workspace = true
 remacs-format.workspace = true
+remacs-frame.workspace = true
 remacs-git.workspace = true
 remacs-languages.workspace = true
 remacs-lsp.workspace = true

@@ -90,6 +90,12 @@ pub fn find(editor: &Editor, root: &Path, name: &str) -> Option<u64> {
         .map(|session| session.id)
 }
 
+pub fn any_running(editor: &Editor) -> bool {
+    editor
+        .find_plugin_state::<Sessions>()
+        .is_some_and(|sessions| sessions.list.iter().any(Session::is_running))
+}
+
 pub fn get(editor: &Editor, id: u64) -> Option<&Session> {
     editor
         .find_plugin_state::<Sessions>()?

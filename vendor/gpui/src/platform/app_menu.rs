@@ -238,7 +238,7 @@ pub(crate) fn init_app_menus(platform: &dyn Platform, cx: &App) {
     platform.on_validate_app_menu_command(Box::new({
         let cx = cx.to_async();
         move |action| {
-            cx.update(|cx| cx.is_action_available(action))
+            cx.update(|cx| cx.is_menu_action_enabled(action))
                 .unwrap_or(false)
         }
     }));
