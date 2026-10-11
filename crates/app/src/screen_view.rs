@@ -9,11 +9,11 @@ use remacs_core::{
     CellFace, CellHighlight, CellRun, CursorShape, RowMark, Screen, ScreenBanner, ScreenCursor,
     ScreenNotice, ScreenRow, ScreenSearch, ScreenSize, Tone,
 };
-use remacs_theme::{color, font, glass};
+use remacs_theme::{color, cursor, font, glass};
 
 use crate::editor_view::EditorView;
 use crate::highlights::console_color;
-use crate::widgets::{Edge, edge_fade, glass_surface, hsla, key_caps, tone_color};
+use crate::widgets::{Edge, block_cursor, edge_fade, glass_surface, hsla, key_caps, tone_color};
 
 /// Room left of the rows for the marks of commands, once a shell reports them.
 pub const MARKS_GUTTER: f32 = 40.0;
@@ -190,18 +190,15 @@ fn render_cursor(cursor: ScreenCursor, rows: &[ScreenRow], cell: Cell) -> Div {
     let glyph_top = top + (cell.height - cell.glyph) / 2.0;
     let quad = div().absolute().left(left);
     match cursor.shape {
-        CursorShape::Block => {
-            let under = character_at(rows, cursor).unwrap_or_default();
-            quad.top(glyph_top)
-                .w(cell.width)
-                .h(cell.glyph)
-                .rounded(px(1.0))
-                .bg(rgb(color::FG_MAIN))
-                .text_color(rgb(color::BG_MAIN))
-                .flex()
-                .items_center()
-                .child(under)
-        }
+        CursorShape::Block => block_cursor()
+            .absolute()
+            .left(left)
+            .top(glyph_top)
+            .w(cell.width)
+            .h(cell.glyph)
+            .flex()
+            .items_center()
+            .child(character_at(rows, cursor).unwrap_or_default()),
         CursorShape::Bar => quad
             .top(glyph_top)
             .w(px(2.0))
@@ -216,7 +213,7 @@ fn render_cursor(cursor: ScreenCursor, rows: &[ScreenRow], cell: Cell) -> Div {
             .top(glyph_top)
             .w(cell.width)
             .h(cell.glyph)
-            .rounded(px(1.0))
+            .rounded(px(cursor::radius()))
             .border_1()
             .border_color(rgba(color::FG_MAIN << 8 | 0x99)),
     }

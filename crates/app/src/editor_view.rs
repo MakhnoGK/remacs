@@ -58,8 +58,8 @@ use crate::table_view::{
 };
 use crate::tabs_view::render_tabs;
 use crate::widgets::{
-    Edge, SCROLL_FADE_SIZE, Scrolled, code_font_features, cursor_text_style, edge_fade, hsla, icon,
-    modified_dot, over, pill, pill_separator, tone_color,
+    Edge, SCROLL_FADE_SIZE, Scrolled, block_cursor, code_font_features, cursor_text_style,
+    edge_fade, hsla, icon, modified_dot, over, pill, pill_separator, tone_color,
 };
 
 /// Minified files can hold megabytes on one line; lay out only what can be on screen.
@@ -1065,13 +1065,12 @@ impl EditorView {
                 CursorHeight::Font => metrics.glyph_height.min(row_height),
             };
             cursor = Some(
-                div()
+                block_cursor()
                     .absolute()
                     .left(metrics.char_width * column as f32)
                     .top((row_height - height) / 2.0)
                     .w(metrics.char_width)
-                    .h(height)
-                    .bg(rgb(color::FG_MAIN)),
+                    .h(height),
             );
         }
         let marks_width = if mark_slot.is_some() {

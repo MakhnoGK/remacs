@@ -28,6 +28,7 @@ Status: accepted, 2026-10-06 (issue #2)
 
   [cursor]
   height = "line"     # line: the whole row; font: ascent and descent, centered
+  radius = 1          # pixels the block's corners are rounded by, 0 to 4
   ```
 
 - **The code font is process-wide** (`remacs_theme::font::code`, `set_code`): its family
@@ -37,6 +38,9 @@ Status: accepted, 2026-10-06 (issue #2)
   have no view or context.
 - **The editor's cursor is a block drawn under the text**, not a highlight background, so
   its height can differ from the line's; the character under it keeps its inverted color.
+  Tables, prompts and terminals draw the same quad (`widgets::block_cursor`), with the
+  text split around it, so one process-wide radius (`remacs_theme::cursor`) rounds every
+  block cursor.
 - **Plugins read their own sections**: the `Editor` holds the settings
   (`set_settings`), and runs `Registry::settings_hooks` whenever they are read; a hook
   takes its section with `Editor::settings_section`, which shows an error and returns

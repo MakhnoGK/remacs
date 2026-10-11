@@ -175,6 +175,25 @@ pub mod glass {
     pub const DISABLED: u32 = 0xffffff0a;
 }
 
+/// The block cursor, wherever text has one.
+pub mod cursor {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    /// Pixels.
+    pub const DEFAULT_RADIUS: f32 = 1.0;
+    /// Pixels, as `f32` bits; set from the config.
+    static RADIUS: AtomicU32 = AtomicU32::new(DEFAULT_RADIUS.to_bits());
+
+    /// Of the block's corners.
+    pub fn radius() -> f32 {
+        f32::from_bits(RADIUS.load(Ordering::Relaxed))
+    }
+
+    pub fn set_radius(radius: f32) {
+        RADIUS.store(radius.to_bits(), Ordering::Relaxed);
+    }
+}
+
 pub mod font {
     use std::sync::{Arc, LazyLock, PoisonError, RwLock};
 

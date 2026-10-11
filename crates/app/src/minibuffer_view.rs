@@ -17,8 +17,8 @@ use crate::display_line::DisplayLine;
 use crate::editor_view::EditorView;
 use crate::outline_view::ref_chip;
 use crate::widgets::{
-    choice_chip, cursor_style, glass_surface, hsla, icon, kbd, list_items, modal_surface,
-    modified_dot, option_chip, segment, segmented, shadow, tone_color,
+    block_cursor, choice_chip, glass_surface, hsla, icon, kbd, list_items, modal_surface,
+    modified_dot, option_chip, segment, segmented, shadow, text_with_cursor, tone_color,
 };
 
 const POPOVER_TOP: f32 = 60.0;
@@ -540,11 +540,10 @@ fn render_input(minibuffer: &Minibuffer, scroll: &ScrollHandle) -> impl IntoElem
     let mut line = DisplayLine::new(&minibuffer.input_text());
     let cursor = line.cursor_cell(input.point_column());
     let part = |range: Range<usize>| div().flex_none().child(line.text[range].to_owned());
-    let cursor_text = line.text[cursor.clone()].to_owned();
-    let cursor_highlights = if minibuffer.in_description() || !minibuffer.is_typed() {
-        Vec::new()
+    let cursor_part = if minibuffer.in_description() || !minibuffer.is_typed() {
+        div().flex_none()
     } else {
-        vec![(0..cursor_text.len(), cursor_style())]
+        block_cursor()
     };
     scroll.scroll_to_item(CURSOR_CHILD);
     div()
@@ -558,11 +557,7 @@ fn render_input(minibuffer: &Minibuffer, scroll: &ScrollHandle) -> impl IntoElem
         .font_family(font::mono())
         .text_size(px(font::INPUT_SIZE))
         .child(part(0..cursor.start))
-        .child(
-            div()
-                .flex_none()
-                .child(StyledText::new(cursor_text).with_highlights(cursor_highlights)),
-        )
+        .child(cursor_part.child(line.text[cursor.clone()].to_owned()))
         .child(part(cursor.end..line.text.len()))
         .when(input.text().is_empty(), |field| {
             field.child(
@@ -596,17 +591,17 @@ fn render_description(minibuffer: &Minibuffer) -> Option<impl IntoElement> {
         .take(DESCRIPTION_LINES)
         .map(|(index, source)| {
             let mut line = DisplayLine::new(source);
-            let highlights = if active && index == point_line {
+            let text = if active && index == point_line {
                 let cursor = line.cursor_cell(description.point_column());
-                vec![(cursor, cursor_style())]
+                text_with_cursor(&line.text, &Vec::new(), cursor)
             } else {
-                Vec::new()
+                div().child(line.text)
             };
             div()
                 .h(px(DESCRIPTION_LINE_HEIGHT))
                 .whitespace_nowrap()
                 .overflow_hidden()
-                .child(StyledText::new(line.text).with_highlights(highlights))
+                .child(text)
         });
     let placeholder = minibuffer
         .prompt()

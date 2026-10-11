@@ -8,13 +8,15 @@ use gpui::{App, TextStrokes, WeakEntity, set_text_strokes};
 use remacs_config::{Section, Settings, SettingsError, config_dir, home, watch};
 use remacs_core::Editor;
 use remacs_theme::font::{self, CodeFont};
-use remacs_theme::glass;
+use remacs_theme::{cursor, glass};
 use serde::Deserialize;
 
 use crate::editor_view::EditorView;
 
 const FONT_SIZES: RangeInclusive<f32> = 6.0..=72.0;
 const LINE_HEIGHTS: RangeInclusive<f32> = 1.0..=3.0;
+/// Pixels; past half a narrow font's character the block is a pill.
+const CURSOR_RADII: RangeInclusive<f32> = 0.0..=4.0;
 /// Milliseconds.
 const DRAG_SCROLL_INTERVALS: RangeInclusive<u64> = 5..=1000;
 /// Milliseconds; 0 turns the animation off.
@@ -59,6 +61,7 @@ pub fn read_settings() -> ReadSettings {
     font::set_code(ui.font.code_font());
     set_text_strokes(ui.font.strokes.into());
     glass::set_window_opacity(ui.glass.opacity);
+    cursor::set_radius(ui.cursor.radius);
     ReadSettings {
         settings,
         ui,
@@ -157,6 +160,7 @@ impl Section for UiSettings {
                 LINE_HEIGHTS.end()
             ));
         }
+        check_range("cursor.radius", self.cursor.radius, &CURSOR_RADII)?;
         let interval = self.mouse.drag_scroll_interval;
         if !DRAG_SCROLL_INTERVALS.contains(&interval) {
             return Err(format!(
@@ -283,10 +287,21 @@ impl From<Strokes> for TextStrokes {
     }
 }
 
-#[derive(Debug, Default, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct CursorSettings {
     pub height: CursorHeight,
+    /// Pixels, of the block's corners in text, tables, prompts and terminals.
+    pub radius: f32,
+}
+
+impl Default for CursorSettings {
+    fn default() -> Self {
+        Self {
+            height: CursorHeight::default(),
+            radius: cursor::DEFAULT_RADIUS,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
@@ -473,7 +488,7 @@ mod tests {
         let settings = parse(
             "[font]\nfamily = \"Menlo\"\nsize = 15\nline-height = 1.5\nstrokes = \"thin\"\n\
              ligatures = false\n\
-             [cursor]\nheight = \"font\"\n[mouse]\ndrag-scroll-interval = 60\n\
+             [cursor]\nheight = \"font\"\nradius = 2.5\n[mouse]\ndrag-scroll-interval = 60\n\
              [scroll]\nanimation-duration = 0\n[glass]\nopacity = 0.5\nblur = 0\n\
              [echo]\nlines = 6\nhistory = 50\n[hints]\nshow = false\nside-room = 200\n\
              [prefix-keys]\nshow = false\ndelay = 0\ncolumns = 3\n\
@@ -519,6 +534,7 @@ mod tests {
         assert_eq!(settings.font.strokes, Strokes::Thin);
         assert!(!settings.font.code_font().ligatures);
         assert_eq!(settings.cursor.height, CursorHeight::Font);
+        assert_eq!(settings.cursor.radius, 2.5);
     }
 
     #[test]
@@ -526,6 +542,7 @@ mod tests {
         assert!(parse("[font]\nsize = 2\n").is_err());
         assert!(parse("[font]\nline-height = 0.5\n").is_err());
         assert!(parse("[cursor]\nheight = \"half\"\n").is_err());
+        assert!(parse("[cursor]\nradius = 5\n").is_err());
         assert!(parse("[mouse]\ndrag-scroll-interval = 0\n").is_err());
         assert!(parse("[scroll]\nanimation-duration = 5000\n").is_err());
         assert!(parse("[glass]\nopacity = 1.5\n").is_err());

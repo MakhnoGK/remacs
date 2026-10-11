@@ -1,18 +1,20 @@
+use std::ops::Range;
 use std::sync::Arc;
 
 use gpui::{
     BoxShadow, Div, FontFeatures, HighlightStyle, Hsla, IntoElement, ParentElement, Rgba, Styled,
-    Svg, canvas, div, linear_color_stop, linear_gradient, point, prelude::FluentBuilder, px, rgb,
-    rgba, svg,
+    StyledText, Svg, canvas, div, linear_color_stop, linear_gradient, point,
+    prelude::FluentBuilder, px, rgb, rgba, svg,
 };
 use remacs_core::{FileState, Icon, LineCounts, ListItem, Mark, Tone};
-use remacs_theme::{color, font, glass};
+use remacs_theme::{color, cursor, font, glass};
 
 use crate::assets::{
     BRANCH_ICON, CHECK_ICON, CHEVRON_DOWN_ICON, ERROR_ICON, FILE_ICON, FOLDER_ICON, INFO_ICON,
     PACKAGE_ICON, PLUS_ICON, PULL_ICON, PUSH_ICON, REMOTE_ICON, RERUN_ICON, RUN_ICON, SCRIPT_ICON,
     STOP_ICON, TERMINAL_ICON, WARNING_ICON,
 };
+use crate::highlights::{Highlights, slice};
 
 pub fn hsla(hex: u32) -> Hsla {
     rgb(hex).into()
@@ -385,12 +387,29 @@ pub fn key_caps(sequence: &str) -> impl Iterator<Item = Div> + '_ {
     sequence.split_whitespace().map(|key| kbd(key, false))
 }
 
-/// The block cursor: the character under it drawn inverted.
-pub fn cursor_style() -> HighlightStyle {
-    HighlightStyle {
-        background_color: Some(hsla(color::FG_MAIN)),
-        ..cursor_text_style()
-    }
+/// The block cursor's quad, which a text highlight cannot round; text in it is inverted.
+pub fn block_cursor() -> Div {
+    div()
+        .flex_none()
+        .rounded(px(cursor::radius()))
+        .bg(rgb(color::FG_MAIN))
+        .text_color(rgb(color::BG_MAIN))
+}
+
+/// `text` with the block cursor over its bytes `at`, the text on either side of it
+/// styled by `highlights`.
+pub fn text_with_cursor(text: &str, highlights: &Highlights, at: Range<usize>) -> Div {
+    let part = |range: Range<usize>| {
+        let styled = slice(highlights, range.clone());
+        div()
+            .flex_none()
+            .child(StyledText::new(text[range].to_owned()).with_highlights(styled))
+    };
+    div()
+        .flex()
+        .child(part(0..at.start))
+        .child(block_cursor().child(text[at.clone()].to_owned()))
+        .child(part(at.end..text.len()))
 }
 
 /// The character under a block cursor drawn on its own, under the text.

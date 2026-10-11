@@ -10,11 +10,11 @@ use remacs_theme::{color, font, glass};
 use crate::assets::CHEVRON_ICON;
 use crate::display_line::DisplayLine;
 use crate::editor_view::EditorView;
-use crate::highlights::{combine, region_style};
+use crate::highlights::region_style;
 use crate::preview_view::PREVIEW_WIDTH;
 use crate::widgets::{
-    Scrolled, cursor_style, fade_scrolled, icon, kbd, mark_badge, modified_dot, scrolled_by,
-    segment, segmented, shadow, state_letter,
+    Scrolled, fade_scrolled, icon, kbd, mark_badge, modified_dot, scrolled_by, segment, segmented,
+    shadow, state_letter, text_with_cursor,
 };
 
 const LIST_TOP: f32 = 52.0;
@@ -389,14 +389,16 @@ fn render_field(
     region: Option<Range<usize>>,
 ) -> Div {
     let mut display = DisplayLine::new(&text);
-    let mut layers = Vec::new();
-    if let Some(columns) = region {
-        layers.push(vec![(display.cell_range(columns), region_style())]);
-    }
-    if let Some(column) = at_point {
-        layers.push(vec![(display.cursor_cell(column), cursor_style())]);
-    }
-    let content = StyledText::new(display.text).with_highlights(combine(&layers));
+    let highlights = region
+        .map(|columns| vec![(display.cell_range(columns), region_style())])
+        .unwrap_or_default();
+    let content = match at_point {
+        Some(column) => {
+            let cursor = display.cursor_cell(column);
+            text_with_cursor(&display.text, &highlights, cursor)
+        }
+        None => div().child(StyledText::new(display.text).with_highlights(highlights)),
+    };
     let edited = field.original.is_some();
     let input = div()
         .flex()

@@ -149,6 +149,18 @@ pub fn combine(layers: &[Highlights]) -> Highlights {
     combined
 }
 
+/// The highlights within the bytes `range`, counted from its start.
+pub fn slice(highlights: &Highlights, range: Range<usize>) -> Highlights {
+    highlights
+        .iter()
+        .filter_map(|(highlight, style)| {
+            let start = highlight.start.max(range.start);
+            let end = highlight.end.min(range.end);
+            (start < end).then(|| (start - range.start..end - range.start, *style))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -169,5 +181,14 @@ mod tests {
                 (5..6, keyword)
             ]
         );
+    }
+
+    #[test]
+    fn slices_cut_highlights_at_their_edges() {
+        let region = region_style();
+        let keyword = face_style(Face::Keyword);
+        let highlights = vec![(0..3, keyword), (5..9, region)];
+        assert_eq!(slice(&highlights, 2..7), [(0..1, keyword), (3..5, region)]);
+        assert_eq!(slice(&highlights, 3..5), []);
     }
 }
