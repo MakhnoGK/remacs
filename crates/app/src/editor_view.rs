@@ -51,8 +51,8 @@ use crate::popup_view::{DocumentationScroll, DocumentationView, Placement, rende
 use crate::preview_view::render_preview;
 use crate::screen_view::{Cell as ScreenCell, cell_at, render_screen, screen_size};
 use crate::settings::{
-    BottomSettings, CursorHeight, DocumentationSettings, MouseSettings, ReadSettings,
-    ScrollSettings, UiSettings, report,
+    BottomSettings, CursorHeight, DocumentationSettings, GlassSettings, MouseSettings,
+    ReadSettings, ScrollSettings, UiSettings, report,
 };
 use crate::smooth_scroll::SmoothScroll;
 use crate::table_view::{
@@ -111,10 +111,10 @@ pub struct EditorView {
     /// And the code font they were measured from.
     metrics: Option<(CodeFont, Metrics)>,
     scroll: ScrollSettings,
-    /// Pixels the desktop behind the window is blurred by, and by how much it was last
-    /// blurred; the window server is told only of a change.
-    window_blur: u32,
-    applied_window_blur: Option<u32>,
+    /// The window's glass, and the glass it last had; the window server is told only of a
+    /// change.
+    glass: GlassSettings,
+    applied_glass: Option<GlassSettings>,
     /// Where the lines or rows are drawn, following the viewport's first line.
     vertical: SmoothScroll,
     /// Where the text is drawn sideways, following the viewport's first column.
@@ -270,8 +270,8 @@ impl EditorView {
             drag_scroll: None,
             metrics: None,
             scroll: ui.scroll,
-            window_blur: ui.glass.blur,
-            applied_window_blur: None,
+            glass: ui.glass,
+            applied_glass: None,
             vertical: SmoothScroll::default(),
             sideways: SmoothScroll::default(),
             scrolled_buffer: String::new(),
@@ -320,7 +320,7 @@ impl EditorView {
         self.cursor_height = read.ui.cursor.height;
         self.mouse = read.ui.mouse;
         self.scroll = read.ui.scroll;
-        self.window_blur = read.ui.glass.blur;
+        self.glass = read.ui.glass;
         self.documentation = read.ui.documentation;
         self.bottom = read.ui.bottom();
         self.editor
@@ -1750,9 +1750,10 @@ impl EditorView {
 impl Render for EditorView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         window.set_window_title(&format!("{} — remacs", self.editor.window_buffer().name()));
-        if self.applied_window_blur != Some(self.window_blur) {
-            window.set_background_blur_radius(self.window_blur);
-            self.applied_window_blur = Some(self.window_blur);
+        if self.applied_glass != Some(self.glass) {
+            window.set_background_appearance(self.glass.window_background());
+            window.set_background_blur_radius(self.glass.window_blur());
+            self.applied_glass = Some(self.glass);
         }
         let first_line = self.editor.viewport.first_line;
         let table_rows = ((window.viewport_size().height - px(ROWS_TOP) - px(LIST_BOTTOM))

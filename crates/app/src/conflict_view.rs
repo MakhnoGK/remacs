@@ -13,7 +13,7 @@ use crate::highlights::Highlights;
 use crate::outline_view::ref_chip;
 use crate::preview_view::faces_in;
 use crate::table_view::clickable;
-use crate::widgets::{kbd, shadow};
+use crate::widgets::{GlassBlur, kbd, shadow};
 
 const LINE_HEIGHT: f32 = 22.0;
 const NUMBER_WIDTH: f32 = 40.0;
@@ -255,7 +255,7 @@ fn render_block(
         .rounded(px(10.0))
         .overflow_hidden()
         .bg(rgba(glass::SURFACE))
-        .backdrop_filter(px(glass::CARD_BLUR), glass::CARD_SATURATION)
+        .glass_blur(glass::CARD_BLUR, glass::CARD_SATURATION)
         .border_1()
         .border_color(rgba(if current {
             CURRENT_BORDER

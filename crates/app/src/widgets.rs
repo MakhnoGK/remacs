@@ -20,6 +20,20 @@ pub fn hsla(hex: u32) -> Hsla {
     rgb(hex).into()
 }
 
+pub trait GlassBlur: Styled {
+    /// Blurs what is under the element by `radius` pixels, unless `ui.toml` turned
+    /// blurring off.
+    fn glass_blur(self, radius: f32, saturation: f32) -> Self {
+        if glass::blurs() {
+            self.backdrop_filter(px(radius), saturation)
+        } else {
+            self
+        }
+    }
+}
+
+impl<E: Styled> GlassBlur for E {}
+
 /// What the code font may do with its characters; fonts join them through either feature.
 pub fn code_font_features() -> FontFeatures {
     if font::code().ligatures {
@@ -424,7 +438,7 @@ pub fn cursor_text_style() -> HighlightStyle {
 pub fn glass_surface(radius: f32) -> Div {
     div()
         .bg(rgba(glass::SURFACE))
-        .backdrop_filter(px(glass::SURFACE_BLUR), glass::SURFACE_SATURATION)
+        .glass_blur(glass::SURFACE_BLUR, glass::SURFACE_SATURATION)
         .border_1()
         .border_color(rgba(glass::SURFACE_BORDER))
         .rounded(px(radius))
@@ -438,7 +452,7 @@ pub fn glass_surface(radius: f32) -> Div {
 pub fn modal_surface() -> Div {
     div()
         .bg(rgba(glass::MODAL))
-        .backdrop_filter(px(glass::MODAL_BLUR), glass::SURFACE_SATURATION)
+        .glass_blur(glass::MODAL_BLUR, glass::SURFACE_SATURATION)
         .border_1()
         .border_color(rgba(glass::MODAL_BORDER))
         .rounded(px(glass::SURFACE_RADIUS))
@@ -475,7 +489,7 @@ pub fn pill() -> Div {
         .p(px(3.0))
         .rounded(px(9.0))
         .bg(rgba(glass::PILL))
-        .backdrop_filter(px(glass::PILL_BLUR), 1.0)
+        .glass_blur(glass::PILL_BLUR, 1.0)
         .border_1()
         .border_color(rgba(glass::PILL_BORDER))
         .shadow(vec![shadow(0x00000059, 4.0, 14.0, 0.0)])

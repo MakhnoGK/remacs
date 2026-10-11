@@ -17,8 +17,9 @@ use crate::display_line::DisplayLine;
 use crate::editor_view::EditorView;
 use crate::outline_view::ref_chip;
 use crate::widgets::{
-    block_cursor, choice_chip, glass_surface, hsla, icon, kbd, list_items, modal_surface,
-    modified_dot, option_chip, segment, segmented, shadow, text_with_cursor, tone_color,
+    GlassBlur, block_cursor, choice_chip, glass_surface, hsla, icon, kbd, list_items,
+    modal_surface, modified_dot, option_chip, segment, segmented, shadow, text_with_cursor,
+    tone_color,
 };
 
 const POPOVER_TOP: f32 = 60.0;
@@ -54,7 +55,7 @@ pub fn render_scrim(modal: bool) -> impl IntoElement {
     if modal {
         scrim
             .bg(rgba(glass::MODAL_SCRIM))
-            .backdrop_filter(px(glass::MODAL_SCRIM_BLUR), 1.0)
+            .glass_blur(glass::MODAL_SCRIM_BLUR, 1.0)
     } else {
         scrim.bg(rgba(glass::SCRIM))
     }

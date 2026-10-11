@@ -370,8 +370,9 @@ impl MetalRenderer {
         }
     }
 
-    pub fn update_transparency(&self, _transparent: bool) {
-        // todo(mac)?
+    /// An opaque layer is not blended with what is behind the window.
+    pub fn update_transparency(&self, transparent: bool) {
+        self.layer.set_opaque(!transparent);
     }
 
     pub fn destroy(&self) {

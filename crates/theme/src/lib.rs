@@ -93,7 +93,18 @@ pub mod color {
 
 /// Translucent surfaces over the blurred desktop or editor. Colors are `0xRRGGBBAA`.
 pub mod glass {
-    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+
+    static BLURS: AtomicBool = AtomicBool::new(true);
+
+    /// Whether surfaces blur what is under them; off, they skip the blur's render pass.
+    pub fn blurs() -> bool {
+        BLURS.load(Ordering::Relaxed)
+    }
+
+    pub fn set_blurs(blurs: bool) {
+        BLURS.store(blurs, Ordering::Relaxed);
+    }
 
     const WINDOW_TINT_RGB: u32 = 0x000000;
     static WINDOW_TINT: AtomicU32 = AtomicU32::new(WINDOW_TINT_RGB << 8 | 0xcc);

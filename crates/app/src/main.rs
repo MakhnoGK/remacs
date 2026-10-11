@@ -30,8 +30,8 @@ use std::process::ExitCode;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
-    App, Application, Bounds, TitlebarOptions, WindowBackgroundAppearance, WindowBounds,
-    WindowOptions, point, prelude::*, px, size,
+    App, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions, point, prelude::*, px,
+    size,
 };
 use remacs_actions::ActionsPlugin;
 use remacs_completion::CompletionPlugin;
@@ -152,7 +152,7 @@ fn main() -> ExitCode {
                 traffic_light_position: Some(point(px(18.0), px(16.0))),
             }),
             // Blurred by the radius in the settings, not by the system's fixed material.
-            window_background: WindowBackgroundAppearance::Transparent,
+            window_background: ui.glass.window_background(),
             ..Default::default()
         };
         let window = cx

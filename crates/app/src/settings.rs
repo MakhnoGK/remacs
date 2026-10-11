@@ -5,7 +5,8 @@ use std::time::Duration;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
-    App, FontWeight, SharedString, TextStrokes, WeakEntity, set_family_weight, set_text_strokes,
+    App, FontWeight, SharedString, TextStrokes, WeakEntity, WindowBackgroundAppearance,
+    set_family_weight, set_text_strokes,
 };
 use remacs_config::{Section, Settings, SettingsError, config_dir, home, watch};
 use remacs_core::Editor;
@@ -69,6 +70,7 @@ pub fn read_settings() -> ReadSettings {
     font::set_code(code_font);
     set_text_strokes(ui.font.strokes.into());
     glass::set_window_opacity(ui.glass.opacity);
+    glass::set_blurs(ui.glass.blur > 0);
     cursor::set_radius(ui.cursor.radius);
     ReadSettings {
         settings,
@@ -424,8 +426,29 @@ impl Default for MouseSettings {
 pub struct GlassSettings {
     /// Of the window's tint: 0.0 shows the desktop as it is, 1.0 hides it.
     pub opacity: f32,
-    /// Pixels the desktop behind the window is blurred by; 0 leaves it sharp.
+    /// Pixels the desktop behind the window is blurred by; 0 leaves it sharp and the
+    /// surfaces over the editor unblurred.
     pub blur: u32,
+}
+
+impl GlassSettings {
+    /// Opaque when the tint hides the desktop, so the window server neither blends nor
+    /// blurs what is behind the window.
+    pub fn window_background(&self) -> WindowBackgroundAppearance {
+        if self.opacity >= *GLASS_OPACITIES.end() {
+            WindowBackgroundAppearance::Opaque
+        } else {
+            WindowBackgroundAppearance::Transparent
+        }
+    }
+
+    /// Of the desktop behind the window.
+    pub fn window_blur(&self) -> u32 {
+        match self.window_background() {
+            WindowBackgroundAppearance::Opaque => 0,
+            _ => self.blur,
+        }
+    }
 }
 
 impl Default for GlassSettings {
@@ -597,6 +620,21 @@ mod tests {
         assert!(!settings.font.code_font().ligatures);
         assert_eq!(settings.cursor.height, CursorHeight::Font);
         assert_eq!(settings.cursor.radius, 2.5);
+    }
+
+    #[test]
+    fn an_opaque_tint_makes_the_window_opaque_and_unblurred() {
+        let glass = |opacity| GlassSettings { opacity, blur: 30 };
+        assert_eq!(
+            glass(1.0).window_background(),
+            WindowBackgroundAppearance::Opaque
+        );
+        assert_eq!(glass(1.0).window_blur(), 0);
+        assert_eq!(
+            glass(0.9).window_background(),
+            WindowBackgroundAppearance::Transparent
+        );
+        assert_eq!(glass(0.9).window_blur(), 30);
     }
 
     #[test]

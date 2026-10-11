@@ -57,6 +57,10 @@ Status: accepted, 2026-10-05 (issue #3)
 
 - Each blur is a render pass break, a copy and an MPS blur per frame; its two textures are
   allocated per blur and frame.
+- **Glass off costs nothing** (issue #35): at `opacity = 1.0` the window is `Opaque` and
+  unblurred, and the Metal layer is opaque (gpui's `update_transparency`, a no-op before),
+  so the window server neither blends nor blurs the desktop. `blur = 0` also drops the
+  surfaces' backdrop filters (`widgets::GlassBlur`), so no blur pass is encoded.
 - Changes to the vendored gpui: `scene.rs`, `window.rs`, `style.rs`, `styled.rs`,
   `build.rs`, `platform/mac/{metal_renderer.rs, shaders.metal, window.rs}`.
 
