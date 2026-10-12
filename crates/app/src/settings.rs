@@ -38,10 +38,10 @@ const HINTS_SIDE_ROOMS: RangeInclusive<f32> = 0.0..=800.0;
 /// Milliseconds.
 const PREFIX_KEYS_DELAYS: RangeInclusive<u64> = 0..=5000;
 const PREFIX_KEYS_COLUMNS: RangeInclusive<usize> = 1..=8;
+/// Pixels, of documentation and problems by the text.
+const POPUP_MAX_WIDTHS: RangeInclusive<f32> = 240.0..=2000.0;
 /// Pixels.
-const DOCUMENTATION_MAX_WIDTHS: RangeInclusive<f32> = 240.0..=2000.0;
-/// Pixels.
-const DOCUMENTATION_MAX_HEIGHTS: RangeInclusive<f32> = 120.0..=2000.0;
+const POPUP_MAX_HEIGHTS: RangeInclusive<f32> = 120.0..=2000.0;
 /// Pixels.
 const PROMPT_INPUT_MARGINS: RangeInclusive<f32> = 0.0..=400.0;
 /// Milliseconds; past 250 a surface keeps one waiting to see it.
@@ -143,6 +143,7 @@ pub struct UiSettings {
     pub hints: HintsSettings,
     pub prefix_keys: PrefixKeysSettings,
     pub documentation: DocumentationSettings,
+    pub problems: ProblemsSettings,
     pub prompts: PromptsSettings,
     pub transitions: TransitionsSettings,
 }
@@ -227,17 +228,25 @@ impl Section for UiSettings {
             prefix_keys.columns,
             &PREFIX_KEYS_COLUMNS,
         )?;
-        let documentation = &self.documentation;
-        check_range(
-            "documentation.max-width",
-            documentation.max_width,
-            &DOCUMENTATION_MAX_WIDTHS,
-        )?;
-        check_range(
-            "documentation.max-height",
-            documentation.max_height,
-            &DOCUMENTATION_MAX_HEIGHTS,
-        )?;
+        for (popup, max_width, max_height) in [
+            (
+                "documentation",
+                self.documentation.max_width,
+                self.documentation.max_height,
+            ),
+            (
+                "problems",
+                self.problems.max_width,
+                self.problems.max_height,
+            ),
+        ] {
+            check_range(&format!("{popup}.max-width"), max_width, &POPUP_MAX_WIDTHS)?;
+            check_range(
+                &format!("{popup}.max-height"),
+                max_height,
+                &POPUP_MAX_HEIGHTS,
+            )?;
+        }
         check_range(
             "prompts.input-margin",
             self.prompts.input_margin,
@@ -594,6 +603,26 @@ impl Default for DocumentationSettings {
     }
 }
 
+/// The problems at the cursor, shown by the text: their messages wrap at `max_width`, and
+/// they scroll past `max_height`.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct ProblemsSettings {
+    /// Pixels.
+    pub max_width: f32,
+    /// Pixels.
+    pub max_height: f32,
+}
+
+impl Default for ProblemsSettings {
+    fn default() -> Self {
+        Self {
+            max_width: 560.0,
+            max_height: 360.0,
+        }
+    }
+}
+
 /// What a prompt's input keeps in view as it scrolls sideways.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
@@ -686,6 +715,7 @@ mod tests {
              [hints]\nshow = false\nside-room = 200\n\
              [prefix-keys]\nshow = false\ndelay = 0\ncolumns = 3\n\
              [documentation]\nmax-width = 900\nmax-height = 300\n\
+             [problems]\nmax-width = 700\nmax-height = 200\n\
              [prompts]\ninput-margin = 20\n\
              [transitions]\npane-duration = 0\npane-slide = 0\nprompt-duration = 100\n\
              prompt-slide = 12\npopup-duration = 40\npopup-slide = 4\n",
@@ -707,6 +737,13 @@ mod tests {
             DocumentationSettings {
                 max_width: 900.0,
                 max_height: 300.0
+            }
+        );
+        assert_eq!(
+            settings.problems,
+            ProblemsSettings {
+                max_width: 700.0,
+                max_height: 200.0
             }
         );
         assert_eq!(
@@ -792,6 +829,7 @@ mod tests {
         assert!(parse("[prefix-keys]\ncolumns = 0\n").is_err());
         assert!(parse("[documentation]\nmax-width = 100\n").is_err());
         assert!(parse("[documentation]\nmax-height = 5000\n").is_err());
+        assert!(parse("[problems]\nmax-height = 100\n").is_err());
         assert!(parse("[transitions]\npane-duration = 251\n").is_err());
         assert!(parse("[transitions]\npopup-slide = -1\n").is_err());
         assert!(parse("[transitions]\nduration = 50\n").is_err());

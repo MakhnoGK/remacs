@@ -41,15 +41,18 @@ const HOVER_INSET: f32 = 1.0 + HOVER_PADDING;
 /// Room below the line that is enough for documentation, which is otherwise put where
 /// there is more room.
 const HOVER_ENOUGH_ROOM: f32 = 320.0;
-const NOTES_WIDTH: f32 = 520.0;
 const NOTES_PADDING: f32 = 4.0;
 const NOTE_PADDING_X: f32 = 10.0;
+const NOTE_PADDING_Y: f32 = 8.0;
 const NOTE_ICON_SIZE: f32 = 10.0;
 const NOTE_ICON_GAP: f32 = 10.0;
 /// From the notes' edge to their messages, which line up with the anchor.
 const NOTES_INSET: f32 = 1.0 + NOTES_PADDING + NOTE_PADDING_X + NOTE_ICON_SIZE + NOTE_ICON_GAP;
-const NOTES_ENOUGH_ROOM: f32 = 160.0;
+/// Of the notes beside their messages: borders, paddings and icons.
+const NOTES_INSETS_X: f32 = NOTES_INSET + NOTE_PADDING_X + NOTES_PADDING + 1.0;
 const NOTE_LINE_HEIGHT: f32 = 20.0;
+const NOTE_LINE_GAP: f32 = 2.0;
+const NOTE_SOURCE_LINE_HEIGHT: f32 = 16.0;
 /// Of code quoted in a note.
 const CHIP_PADDING: f32 = 5.0;
 const CHIP_RADIUS: f32 = 4.0;
@@ -114,16 +117,20 @@ impl Placement {
 
 /// What popups take from the view: faces for documentation's code, the scroll position of
 /// its body, which the mouse wheel and the plugin's page keys move, how wide a character of
-/// code is, and how large documentation grows before its code wraps and it scrolls.
-pub struct DocumentationView<'a> {
+/// text is, and how large documentation and notes grow before they wrap and scroll.
+pub struct PopupView<'a> {
     pub code_faces: &'a dyn Fn(&Code) -> Highlights,
     pub scroll: &'a ScrollHandle,
     /// Of signatures.
     pub mono_width: Pixels,
     /// Of code blocks in documentation and code quoted in notes.
     pub small_mono_width: Pixels,
+    /// About, of text in notes.
+    pub ui_char_width: Pixels,
     pub max_width: Pixels,
     pub max_height: Pixels,
+    pub notes_max_width: Pixels,
+    pub notes_max_height: Pixels,
 }
 
 /// Keeps the shown documentation's scroll position between frames: new documentation
@@ -179,40 +186,49 @@ impl DocumentationScroll {
 }
 
 /// A list with the selected row's documentation beside it, documentation alone, or notes.
-pub fn render_popup(popup: &Popup, placement: Placement, view: &DocumentationView) -> AnyElement {
+pub fn render_popup(popup: &Popup, placement: Placement, view: &PopupView) -> AnyElement {
     match &popup.documentation {
         Some(documentation) if popup.rows.is_empty() => {
             render_hover(documentation, popup.hints, &placement, view)
         }
-        None if popup.rows.is_empty() => {
-            render_notes(&popup.notes, &placement, view.small_mono_width)
-        }
+        None if popup.rows.is_empty() => render_notes(&popup.notes, &placement, view),
         _ => render_list_popup(popup, &placement, view),
     }
 }
 
-/// Above the line, their messages in line with the anchor, or below when there is more
-/// room; leaves the text after the anchor in view.
-fn render_notes(notes: &[Note], placement: &Placement, code_width: Pixels) -> AnyElement {
-    let text_width =
-        NOTES_WIDTH - 2.0 * (1.0 + NOTES_PADDING + NOTE_PADDING_X) - NOTE_ICON_SIZE - NOTE_ICON_GAP;
-    let code_chars = ((px(text_width - 2.0 * CHIP_PADDING) / code_width).floor() as usize).max(1);
+/// Above the line, their messages in line with the anchor, or below when they fit there
+/// and not above, or there is more room; leaves the text after the anchor in view. Longer
+/// than the room, they scroll.
+fn render_notes(notes: &[Note], placement: &Placement, view: &PopupView) -> AnyElement {
+    let width = view
+        .notes_max_width
+        .min(placement.window_width - px(2.0 * WINDOW_MARGIN));
+    let text_width = width - px(NOTES_INSETS_X);
+    let code_chars =
+        ((text_width - px(2.0 * CHIP_PADDING)) / view.small_mono_width).floor() as usize;
+    let code_chars = code_chars.max(1);
+    let height = notes_height(notes, text_width, code_chars, view).min(view.notes_max_height);
     let (below, above) = (placement.room_below(), placement.room_above());
-    let fits_above = above >= px(NOTES_ENOUGH_ROOM) || above >= below;
-    let panel = panel()
-        .bg(rgba(glass::NOTE))
-        .border_color(rgba(glass::NOTE_BORDER))
-        .max_w(px(NOTES_WIDTH))
-        .max_h(if fits_above { above } else { below })
-        .overflow_hidden()
-        .p(px(NOTES_PADDING))
+    let fits_above = above >= height || above >= below;
+    let mut hasher = DefaultHasher::new();
+    for note in notes {
+        (&note.message, &note.source).hash(&mut hasher);
+    }
+    let body = div()
+        // New notes start at the top.
+        .id(ElementId::from(("notes", hasher.finish())))
+        .flex()
+        .flex_col()
+        .flex_shrink()
+        .min_h_0()
+        .overflow_y_scroll()
         .children(notes.iter().enumerate().map(|(index, note)| {
             div()
                 .flex()
                 .flex_none()
                 .gap(px(NOTE_ICON_GAP))
                 .px(px(NOTE_PADDING_X))
-                .py(px(8.0))
+                .py(px(NOTE_PADDING_Y))
                 .when(index > 0, |note| {
                     note.border_t_1().border_color(rgba(glass::NOTE_SEPARATOR))
                 })
@@ -228,7 +244,7 @@ fn render_notes(notes: &[Note], placement: &Placement, code_width: Pixels) -> An
                         .flex()
                         .flex_col()
                         .min_w_0()
-                        .gap(px(2.0))
+                        .gap(px(NOTE_LINE_GAP))
                         .children(
                             note.message
                                 .lines()
@@ -238,15 +254,24 @@ fn render_notes(notes: &[Note], placement: &Placement, code_width: Pixels) -> An
                             text.child(
                                 div()
                                     .text_size(px(font::SMALL_SIZE))
+                                    .line_height(px(NOTE_SOURCE_LINE_HEIGHT))
                                     .text_color(rgb(color::FG_NOTE_SOURCE))
                                     .child(note.source.clone()),
                             )
                         }),
                 )
         }));
+    let panel = panel()
+        .bg(rgba(glass::NOTE))
+        .border_color(rgba(glass::NOTE_BORDER))
+        .max_w(width)
+        .max_h(if fits_above { above } else { below }.min(view.notes_max_height))
+        .overflow_hidden()
+        .p(px(NOTES_PADDING))
+        .child(body);
     let container = div()
         .absolute()
-        .left(placement.left(NOTES_INSET, NOTES_WIDTH))
+        .left(placement.left(NOTES_INSET, width.into()))
         .flex()
         .flex_col()
         .font_family(font::UI)
@@ -287,6 +312,51 @@ fn render_note_line(line: &str, code_chars: usize) -> Div {
         }))
 }
 
+/// About how tall the notes are drawn with messages `text_width` wide, known before they
+/// are laid out, to choose the side of the line with room for them.
+fn notes_height(notes: &[Note], text_width: Pixels, code_chars: usize, view: &PopupView) -> Pixels {
+    let notes_height: f32 = notes
+        .iter()
+        .map(|note| {
+            let lines: usize = note
+                .message
+                .lines()
+                .map(|line| {
+                    let widths = line_pieces(line, code_chars)
+                        .into_iter()
+                        .map(|piece| piece.width(view.ui_char_width, view.small_mono_width));
+                    wrapped_lines(widths, text_width)
+                })
+                .sum();
+            let source = if note.source.is_empty() {
+                0.0
+            } else {
+                NOTE_LINE_GAP + NOTE_SOURCE_LINE_HEIGHT
+            };
+            let gaps = lines.saturating_sub(1) as f32 * NOTE_LINE_GAP;
+            1.0 + 2.0 * NOTE_PADDING_Y + lines as f32 * NOTE_LINE_HEIGHT + gaps + source
+        })
+        .sum();
+    px(notes_height + 2.0 * (1.0 + NOTES_PADDING))
+}
+
+/// Lines that pieces as wide as `widths` take, each wrapped where the next one would go
+/// past `line_width`, or inside one wider than a line.
+fn wrapped_lines(widths: impl IntoIterator<Item = Pixels>, line_width: Pixels) -> usize {
+    let mut lines = 1;
+    let mut filled = px(0.0);
+    for width in widths {
+        if filled > px(0.0) && filled + width > line_width {
+            lines += 1;
+            filled = px(0.0);
+        }
+        let whole_lines = (width / line_width).ceil().max(1.0) as usize;
+        lines += whole_lines - 1;
+        filled += width - line_width * (whole_lines - 1) as f32;
+    }
+    lines
+}
+
 #[derive(Debug, PartialEq)]
 enum Piece<'a> {
     /// With the spaces after it, or a run of spaces alone.
@@ -298,6 +368,19 @@ enum Piece<'a> {
         first: bool,
         last: bool,
     },
+}
+
+impl Piece<'_> {
+    /// About, drawn with characters of text and of code this wide.
+    fn width(&self, char_width: Pixels, code_width: Pixels) -> Pixels {
+        match *self {
+            Piece::Word(word) => char_width * word.chars().count() as f32,
+            Piece::Code { text, first, last } => {
+                let padding = [first, last].into_iter().filter(|&end| end).count() as f32;
+                code_width * text.chars().count() as f32 + px(CHIP_PADDING * padding)
+            }
+        }
+    }
 }
 
 /// The line's words and those of the code its backticks quote, none of the code's longer
@@ -347,7 +430,7 @@ fn render_hover(
     documentation: &Documentation,
     hints: &'static [(&'static str, &'static str)],
     placement: &Placement,
-    view: &DocumentationView,
+    view: &PopupView,
 ) -> AnyElement {
     let (below, above) = (placement.room_below(), placement.room_above());
     let fits_below = below >= px(HOVER_ENOUGH_ROOM) || below >= above;
@@ -421,7 +504,7 @@ fn render_hover(
 
 /// The list below the line, or above it when it does not fit; the documentation beside
 /// it, on the right if there is room.
-fn render_list_popup(popup: &Popup, placement: &Placement, view: &DocumentationView) -> AnyElement {
+fn render_list_popup(popup: &Popup, placement: &Placement, view: &PopupView) -> AnyElement {
     let rows = popup.rows.len() as f32;
     let list_height =
         rows * ROW_HEIGHT + (rows - 1.0).max(0.0) * ROW_GAP + 2.0 * (LIST_PADDING + 1.0);
@@ -576,7 +659,7 @@ fn render_documentation(
     documentation: &Documentation,
     hints: &'static [(&'static str, &'static str)],
     room: Pixels,
-    view: &DocumentationView,
+    view: &PopupView,
 ) -> Div {
     let title = [documentation.container.as_str(), &documentation.kind]
         .into_iter()
@@ -618,7 +701,7 @@ fn fit(
     insets: &CodeInsets,
     min_width: Pixels,
     max_width: Pixels,
-    view: &DocumentationView,
+    view: &PopupView,
 ) -> (Pixels, Documentation) {
     let mut widest = px(0.0);
     let mut fit_code = |code: &Code, inset: f32, char_width: Pixels| {
@@ -654,12 +737,7 @@ fn fit(
 
 /// Code as it was wrapped; a line still longer than the box scrolls sideways. `index` tells
 /// boxes of the same code apart, which keep where they were scrolled to.
-fn code_box(
-    name: &'static str,
-    index: usize,
-    code: &Code,
-    view: &DocumentationView,
-) -> Stateful<Div> {
+fn code_box(name: &'static str, index: usize, code: &Code, view: &PopupView) -> Stateful<Div> {
     let mut hasher = DefaultHasher::new();
     (index, &code.text).hash(&mut hasher);
     let mut code_box = div()
@@ -680,7 +758,7 @@ fn render_body(
     signature: Option<AnyElement>,
     blocks: &[DocBlock],
     gap: f32,
-    view: &DocumentationView,
+    view: &PopupView,
 ) -> Stateful<Div> {
     let mut sections: Vec<AnyElement> = signature.into_iter().collect();
     let mut blocks = blocks.iter().enumerate().peekable();
@@ -715,7 +793,7 @@ fn render_body(
 }
 
 /// Colored like the buffer when its mode has a grammar.
-fn render_code(code: &Code, view: &DocumentationView) -> StyledText {
+fn render_code(code: &Code, view: &PopupView) -> StyledText {
     StyledText::new(code.text.clone()).with_highlights((view.code_faces)(code))
 }
 
@@ -728,7 +806,7 @@ fn render_heading(heading: &str) -> impl IntoElement {
         .child(StyledText::new(text).with_highlights(code))
 }
 
-fn render_block(index: usize, block: &DocBlock, view: &DocumentationView) -> AnyElement {
+fn render_block(index: usize, block: &DocBlock, view: &PopupView) -> AnyElement {
     match block {
         DocBlock::Heading(heading) => render_heading(heading).into_any_element(),
         DocBlock::Text(text) => {
@@ -830,6 +908,15 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn pieces_wrap_before_the_one_that_goes_past_the_line() {
+        let widths = |widths: &[f32]| widths.iter().map(|&width| px(width)).collect::<Vec<_>>();
+        assert_eq!(wrapped_lines(widths(&[]), px(100.0)), 1);
+        assert_eq!(wrapped_lines(widths(&[40.0, 60.0]), px(100.0)), 1);
+        assert_eq!(wrapped_lines(widths(&[40.0, 61.0, 39.0]), px(100.0)), 2);
+        assert_eq!(wrapped_lines(widths(&[30.0, 250.0, 50.0]), px(100.0)), 4);
     }
 
     #[test]

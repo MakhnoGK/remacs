@@ -48,12 +48,13 @@ use crate::outline_view::{
 use crate::pane_view::{
     PANE_BOTTOM, PANE_GAP, PANE_TINT, PaneChrome, render_button, render_pane, screen_bounds,
 };
-use crate::popup_view::{DocumentationScroll, DocumentationView, Placement, render_popup};
+use crate::popup_view::{DocumentationScroll, Placement, PopupView, render_popup};
 use crate::preview_view::render_preview;
 use crate::screen_view::{Cell as ScreenCell, cell_at, render_screen, screen_size};
 use crate::settings::{
     BottomSettings, CursorHeight, DocumentationSettings, GlassSettings, MouseSettings,
-    PromptsSettings, ReadSettings, ScrollSettings, TransitionsSettings, UiSettings, report,
+    ProblemsSettings, PromptsSettings, ReadSettings, ScrollSettings, TransitionsSettings,
+    UiSettings, report,
 };
 use crate::smooth_scroll::SmoothScroll;
 use crate::table_view::{
@@ -134,6 +135,7 @@ pub struct EditorView {
     more_on_right: bool,
     documentation_scroll: DocumentationScroll,
     documentation: DocumentationSettings,
+    problems: ProblemsSettings,
     prompts: PromptsSettings,
     /// How far the minibuffer input is scrolled sideways.
     input_scroll: ScrollHandle,
@@ -281,6 +283,8 @@ struct Metrics {
     mono_width: Pixels,
     /// Of code blocks in documentation and code quoted in notes.
     small_mono_width: Pixels,
+    /// About, of text in notes.
+    ui_char_width: Pixels,
 }
 
 impl EditorView {
@@ -333,6 +337,7 @@ impl EditorView {
             more_on_right: false,
             documentation_scroll: DocumentationScroll::default(),
             documentation: ui.documentation,
+            problems: ui.problems,
             prompts: ui.prompts,
             input_scroll: ScrollHandle::new(),
             code_faces: RefCell::default(),
@@ -378,6 +383,7 @@ impl EditorView {
         self.scroll = read.ui.scroll;
         self.glass = read.ui.glass;
         self.documentation = read.ui.documentation;
+        self.problems = read.ui.problems;
         self.prompts = read.ui.prompts;
         self.bottom = read.ui.bottom();
         self.transitions = read.ui.transitions;
@@ -1056,6 +1062,14 @@ impl EditorView {
             digit_width: advance(code_font.line_number_size(), '0'),
             mono_width: advance(font::MONO_SIZE, 'm'),
             small_mono_width: advance(font::STATUS_SIZE, 'm'),
+            // 'n' is about as wide as a letter of text on average, spaces counted.
+            ui_char_width: text_system
+                .advance(
+                    text_system.resolve_font(&font(font::UI)),
+                    px(font::UI_SIZE),
+                    'n',
+                )
+                .map_or(px(font::UI_SIZE * 0.55), |advance| advance.width),
         };
         self.metrics = Some((code_font, metrics));
         metrics
@@ -1306,13 +1320,16 @@ impl EditorView {
             retained.update(popup, now, transition.duration);
         }
         let code_faces = |code: &Code| self.faces_of(code);
-        let view = DocumentationView {
+        let view = PopupView {
             code_faces: &code_faces,
             scroll: &self.documentation_scroll.handle,
             mono_width: metrics.mono_width,
             small_mono_width: metrics.small_mono_width,
+            ui_char_width: metrics.ui_char_width,
             max_width: px(self.documentation.max_width),
             max_height: px(self.documentation.max_height),
+            notes_max_width: px(self.problems.max_width),
+            notes_max_height: px(self.problems.max_height),
         };
         self.surfaces
             .popups
