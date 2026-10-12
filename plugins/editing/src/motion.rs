@@ -128,30 +128,65 @@ pub(crate) fn line_end(buffer: &Buffer) -> usize {
         .map_or(buffer.text().len(), |range| range.end)
 }
 
-/// End of the run after `offset`: alphanumerics, or everything else up to the next one.
-pub(crate) fn word_end(buffer: &Buffer, mut offset: usize) -> usize {
-    let Some(first) = buffer.char_after(offset) else {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CharClass {
+    Word,
+    Space,
+    Punctuation,
+}
+
+impl CharClass {
+    fn of(character: char) -> Self {
+        if character.is_alphanumeric() {
+            Self::Word
+        } else if character.is_whitespace() {
+            Self::Space
+        } else {
+            Self::Punctuation
+        }
+    }
+}
+
+/// End of the step after `offset`: a word with the whitespace to its left on its line, or
+/// a run of punctuation, or whitespace on its own before punctuation or across lines.
+pub(crate) fn word_end(buffer: &Buffer, offset: usize) -> usize {
+    let Some(first) = buffer.char_after(offset).map(CharClass::of) else {
         return offset;
     };
-    while buffer
-        .char_after(offset)
-        .is_some_and(|character| character.is_alphanumeric() == first.is_alphanumeric())
+    let end = skip_forward(buffer, offset, first);
+    if first == CharClass::Space
+        && buffer.char_after(end).map(CharClass::of) == Some(CharClass::Word)
+        && !buffer.contents(offset..end).contains('\n')
     {
+        skip_forward(buffer, end, CharClass::Word)
+    } else {
+        end
+    }
+}
+
+/// Start of the step before `offset`: a word with the whitespace to its left, or a run
+/// of punctuation or of whitespace.
+pub(crate) fn word_start(buffer: &Buffer, offset: usize) -> usize {
+    let Some(last) = buffer.char_before(offset).map(CharClass::of) else {
+        return offset;
+    };
+    let start = skip_backward(buffer, offset, last);
+    if last == CharClass::Word {
+        skip_backward(buffer, start, CharClass::Space)
+    } else {
+        start
+    }
+}
+
+fn skip_forward(buffer: &Buffer, mut offset: usize, class: CharClass) -> usize {
+    while buffer.char_after(offset).map(CharClass::of) == Some(class) {
         offset = buffer.text().next_char_boundary(offset);
     }
     offset
 }
 
-/// Start of the run before `offset`: alphanumerics, or everything else back to the
-/// previous one.
-pub(crate) fn word_start(buffer: &Buffer, mut offset: usize) -> usize {
-    let Some(last) = buffer.char_before(offset) else {
-        return offset;
-    };
-    while buffer
-        .char_before(offset)
-        .is_some_and(|character| character.is_alphanumeric() == last.is_alphanumeric())
-    {
+fn skip_backward(buffer: &Buffer, mut offset: usize, class: CharClass) -> usize {
+    while buffer.char_before(offset).map(CharClass::of) == Some(class) {
         offset = buffer.text().previous_char_boundary(offset);
     }
     offset

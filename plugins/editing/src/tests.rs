@@ -119,16 +119,67 @@ fn motion_steps_over_multibyte_characters() {
 }
 
 #[test]
-fn word_motion_stops_between_letters_and_other_characters() {
-    let mut editor = editor_with("fn  main() -> жук");
-    press(&mut editor, "M-f M-f");
-    assert_eq!(editor.buffer().point(), 4);
-    press(&mut editor, "M-f M-f");
-    assert_eq!(editor.buffer().point(), "fn  main() -> ".len());
-    press(&mut editor, "M-f");
-    assert_eq!(editor.buffer().point(), "fn  main() -> жук".len());
-    press(&mut editor, "M-b M-b");
-    assert_eq!(editor.buffer().point(), "fn  main".len());
+fn word_motion_steps_over_words_with_the_whitespace_before_them() {
+    let text = "fn  main() -> жук";
+    let mut editor = editor_with(text);
+    let mut steps = |keys: &str| {
+        keys.split(' ')
+            .map(|key| {
+                press(&mut editor, key);
+                &text[..editor.buffer().point()]
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        steps("M-f M-f M-f M-f M-f M-f"),
+        [
+            "fn",
+            "fn  main",
+            "fn  main()",
+            "fn  main() ",
+            "fn  main() ->",
+            text
+        ]
+    );
+    assert_eq!(
+        steps("M-b M-b M-b M-b M-b M-b"),
+        [
+            "fn  main() ->",
+            "fn  main() ",
+            "fn  main()",
+            "fn  main",
+            "fn",
+            ""
+        ]
+    );
+}
+
+#[test]
+fn word_kills_take_a_word_with_the_whitespace_before_it() {
+    let cases = [
+        ("word1 word2|", "M-DEL", "word1|"),
+        ("word1| word2", "M-d", "word1|"),
+        ("слово1 слово2|", "M-DEL", "слово1|"),
+        ("слово1| слово2", "M-d", "слово1|"),
+        ("meta: {\n    |sentAt", "M-DEL", "meta: {|sentAt"),
+        ("1000,\n|                  },\n};", "M-d", "1000,\n|},\n};"),
+        ("foo\n    bar|", "M-DEL", "foo|"),
+        ("word1 word2|", "M-b", "word1| word2"),
+        ("word1| word2", "M-f", "word1 word2|"),
+        ("a(|  )", "M-d", "a(|)"),
+        ("a(  )|", "M-DEL", "a(  |"),
+        ("';\n|\ntype Media", "M-d", "';\n|type Media"),
+        ("foo|\n    bar", "M-d", "foo|bar"),
+        ("foo|\n    bar", "M-f", "foo\n    |bar"),
+    ];
+    for (before, keys, expected) in cases {
+        let mut editor = editor_with(&before.replace('|', ""));
+        editor.buffer_mut().set_point(before.find('|').unwrap());
+        press(&mut editor, keys);
+        let mut after = contents(&editor);
+        after.insert(editor.buffer().point(), '|');
+        assert_eq!(after, expected, "{keys} on {before:?}");
+    }
 }
 
 #[test]
@@ -347,7 +398,8 @@ fn delete_takes_an_empty_pair_whole() {
 #[test]
 fn an_opener_wraps_the_region_and_keeps_it() {
     let mut editor = code_editor_with("let x = a + b;");
-    press(&mut editor, "M-f M-f M-f M-f C-SPC C-e C-b");
+    editor.buffer_mut().set_point("let x = ".len());
+    press(&mut editor, "C-SPC C-e C-b");
     type_text(&mut editor, "(");
     assert_eq!(contents(&editor), "let x = (a + b);");
     type_text(&mut editor, "[");
@@ -523,7 +575,7 @@ fn paging_moves_point_into_view() {
 #[test]
 fn region_is_killed_and_yanked_back() {
     let mut editor = editor_with("hello brave world");
-    press(&mut editor, "M-f C-SPC M-f M-f");
+    press(&mut editor, "M-f C-SPC M-f");
     assert_eq!(editor.buffer().region(), Some(5..11));
     press(&mut editor, "C-w");
     assert_eq!(contents(&editor), "hello world");
@@ -541,8 +593,8 @@ fn consecutive_kills_yank_as_one() {
     assert_eq!(contents(&editor), "two\nthree");
     press(&mut editor, "C-y");
     assert_eq!(contents(&editor), "one\ntwo\nthree");
-    press(&mut editor, "M-> M-DEL M-DEL M-DEL");
-    assert_eq!(editor.kill_ring.newest(), Some("two\nthree"));
+    press(&mut editor, "M-> M-DEL M-DEL");
+    assert_eq!(editor.kill_ring.newest(), Some("\ntwo\nthree"));
 }
 
 #[test]
