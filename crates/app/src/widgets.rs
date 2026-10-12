@@ -4,7 +4,7 @@ use std::sync::Arc;
 use gpui::{
     BoxShadow, Div, FontFeatures, HighlightStyle, Hsla, IntoElement, ParentElement, Rgba, Styled,
     StyledText, Svg, canvas, div, linear_color_stop, linear_gradient, point,
-    prelude::FluentBuilder, px, rgb, rgba, svg,
+    prelude::FluentBuilder, px, rgb, rgba, svg, transparent_black,
 };
 use remacs_core::{FileState, Icon, LineCounts, ListItem, Mark, Tone};
 use remacs_theme::{color, cursor, font, glass};
@@ -426,10 +426,12 @@ pub fn text_with_cursor(text: &str, highlights: &Highlights, at: Range<usize>) -
         .child(part(at.end..text.len()))
 }
 
-/// The character under a block cursor drawn on its own, under the text.
+/// The character under a block cursor drawn on its own, under the text: clear of any
+/// background, like the region's, that would cover the cursor.
 pub fn cursor_text_style() -> HighlightStyle {
     HighlightStyle {
         color: Some(hsla(color::BG_MAIN)),
+        background_color: Some(transparent_black()),
         ..Default::default()
     }
 }

@@ -2,6 +2,7 @@
 //! the plugin registry.
 
 mod buffer;
+mod char_class;
 mod command;
 mod completion;
 mod decoration;
@@ -30,6 +31,7 @@ mod vc;
 mod viewport;
 
 pub use buffer::{Buffer, FileEdits};
+pub use char_class::CharClass;
 pub use command::{Command, CommandError, CommandResult, Commands};
 pub use completion::{
     Candidate, Completions, EntryAction, Expansion, FuzzyQuery, Icon, Match, Selection, SymbolKind,

@@ -2,8 +2,8 @@ use std::ops::Range;
 
 use gpui::{
     AnyElement, Context, Div, FontWeight, HighlightStyle, IntoElement, MouseButton, MouseDownEvent,
-    ParentElement, ScrollHandle, StyledText, div, linear_color_stop, linear_gradient, prelude::*,
-    px, rgb, rgba, svg,
+    ParentElement, Pixels, ScrollHandle, StyledText, div, linear_color_stop, linear_gradient,
+    prelude::*, px, rgb, rgba, svg,
 };
 use remacs_core::{
     BannerPart, Candidate, CommitChain, Count, EntryAction, Expansion, Icon, Minibuffer,
@@ -84,10 +84,12 @@ fn panel_on(surface: Div, width: f32) -> Div {
         .text_color(rgb(color::FG_MAIN))
 }
 
-/// `input_scroll` keeps the input's sideways scroll between frames.
+/// `input_scroll` keeps the input's sideways scroll between frames; it keeps
+/// `input_margin` in view on each side of the cursor.
 pub fn render_minibuffer(
     minibuffer: &Minibuffer,
     input_scroll: &ScrollHandle,
+    input_margin: Pixels,
     cx: &mut Context<EditorView>,
 ) -> AnyElement {
     if let Some(dialog) = minibuffer.dialog() {
@@ -104,7 +106,7 @@ pub fn render_minibuffer(
         || prompt.options.iter().any(|option| !option.is_switch());
     let field = match &prompt.title {
         Some(title) => render_title(title).into_any_element(),
-        None => render_field(minibuffer, input_scroll).into_any_element(),
+        None => render_field(minibuffer, input_scroll, input_margin).into_any_element(),
     };
     let chips = render_chips(minibuffer, !has_switch, cx);
     let (chips_first, chips_last) = if prompt.chips_first {
@@ -427,7 +429,11 @@ fn centered(popover: impl IntoElement) -> AnyElement {
         .into_any_element()
 }
 
-fn render_field(minibuffer: &Minibuffer, input_scroll: &ScrollHandle) -> impl IntoElement {
+fn render_field(
+    minibuffer: &Minibuffer,
+    input_scroll: &ScrollHandle,
+    input_margin: Pixels,
+) -> impl IntoElement {
     let prompt = minibuffer.prompt();
     let field = div()
         .flex()
@@ -472,7 +478,7 @@ fn render_field(minibuffer: &Minibuffer, input_scroll: &ScrollHandle) -> impl In
                     .child(prompt.prefix.clone()),
             )
         })
-        .child(render_input(minibuffer, input_scroll))
+        .child(render_input(minibuffer, input_scroll, input_margin))
         .child(if is_problem_list(minibuffer) {
             render_severity_counts(minibuffer.candidates()).into_any_element()
         } else if let Some(message) = &prompt.message {
@@ -533,10 +539,14 @@ fn render_severity_counts(candidates: &[Candidate]) -> impl IntoElement {
         }))
 }
 
-/// Scrolled sideways just enough to keep the cursor in view, like Emacs `hscroll`: the
-/// text before it, the cursor and the text after it are separate children so the view
-/// can scroll to the cursor's.
-fn render_input(minibuffer: &Minibuffer, scroll: &ScrollHandle) -> impl IntoElement {
+/// Scrolled sideways just enough to keep the cursor and `margin` on each side of it in
+/// view, like Emacs `hscroll`: the text before it, the cursor and the text after it are
+/// separate children so the view can scroll to the cursor's.
+fn render_input(
+    minibuffer: &Minibuffer,
+    scroll: &ScrollHandle,
+    margin: Pixels,
+) -> impl IntoElement {
     let input = minibuffer.input();
     let mut line = DisplayLine::new(&minibuffer.input_text());
     let cursor = line.cursor_cell(input.point_column());
@@ -546,6 +556,15 @@ fn render_input(minibuffer: &Minibuffer, scroll: &ScrollHandle) -> impl IntoElem
     } else {
         block_cursor()
     };
+    // Padding the view scrolls into sight with the cursor, taken back by as much margin so
+    // the text does not move; none past the end, where the text before fills the field.
+    let text_after = cursor.end < line.text.len();
+    let cursor_with_margin = div()
+        .flex_none()
+        .pl(margin)
+        .ml(-margin)
+        .when(text_after, |part| part.pr(margin).mr(-margin))
+        .child(cursor_part.child(line.text[cursor.clone()].to_owned()));
     scroll.scroll_to_item(CURSOR_CHILD);
     div()
         .id("minibuffer-input")
@@ -558,7 +577,7 @@ fn render_input(minibuffer: &Minibuffer, scroll: &ScrollHandle) -> impl IntoElem
         .font_family(font::mono())
         .text_size(px(font::INPUT_SIZE))
         .child(part(0..cursor.start))
-        .child(cursor_part.child(line.text[cursor.clone()].to_owned()))
+        .child(cursor_with_margin)
         .child(part(cursor.end..line.text.len()))
         .when(input.text().is_empty(), |field| {
             field.child(

@@ -31,6 +31,8 @@ const GLASS_OPACITIES: RangeInclusive<f32> = 0.0..=1.0;
 const GLASS_BLURS: RangeInclusive<u32> = 0..=64;
 const ECHO_LINES: RangeInclusive<usize> = 3..=40;
 const ECHO_HISTORIES: RangeInclusive<usize> = 10..=100_000;
+/// Milliseconds; 0 keeps a message until the next key.
+const ECHO_HIDE_AFTERS: RangeInclusive<u64> = 0..=60_000;
 /// Pixels.
 const HINTS_SIDE_ROOMS: RangeInclusive<f32> = 0.0..=800.0;
 /// Milliseconds.
@@ -40,6 +42,8 @@ const PREFIX_KEYS_COLUMNS: RangeInclusive<usize> = 1..=8;
 const DOCUMENTATION_MAX_WIDTHS: RangeInclusive<f32> = 240.0..=2000.0;
 /// Pixels.
 const DOCUMENTATION_MAX_HEIGHTS: RangeInclusive<f32> = 120.0..=2000.0;
+/// Pixels.
+const PROMPT_INPUT_MARGINS: RangeInclusive<f32> = 0.0..=400.0;
 /// Milliseconds; past 250 a surface keeps one waiting to see it.
 const TRANSITION_DURATIONS: RangeInclusive<u64> = 0..=250;
 /// Pixels.
@@ -139,6 +143,7 @@ pub struct UiSettings {
     pub hints: HintsSettings,
     pub prefix_keys: PrefixKeysSettings,
     pub documentation: DocumentationSettings,
+    pub prompts: PromptsSettings,
     pub transitions: TransitionsSettings,
 }
 
@@ -213,6 +218,7 @@ impl Section for UiSettings {
         }
         check_range("echo.lines", self.echo.lines, &ECHO_LINES)?;
         check_range("echo.history", self.echo.history, &ECHO_HISTORIES)?;
+        check_range("echo.hide-after", self.echo.hide_after, &ECHO_HIDE_AFTERS)?;
         check_range("hints.side-room", self.hints.side_room, &HINTS_SIDE_ROOMS)?;
         let prefix_keys = &self.prefix_keys;
         check_range("prefix-keys.delay", prefix_keys.delay, &PREFIX_KEYS_DELAYS)?;
@@ -231,6 +237,11 @@ impl Section for UiSettings {
             "documentation.max-height",
             documentation.max_height,
             &DOCUMENTATION_MAX_HEIGHTS,
+        )?;
+        check_range(
+            "prompts.input-margin",
+            self.prompts.input_margin,
+            &PROMPT_INPUT_MARGINS,
         )?;
         let transitions = &self.transitions;
         for (kind, duration, slide) in [
@@ -491,12 +502,21 @@ pub struct BottomSettings {
 
 /// The echo area's messages.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct EchoSettings {
     /// Of a message opened whole from its pill; more scroll.
     pub lines: usize,
     /// Messages kept in `*Messages*`.
     pub history: usize,
+    /// Milliseconds an info or done message stays before it goes; 0 keeps it. Errors
+    /// stay.
+    pub hide_after: u64,
+}
+
+impl EchoSettings {
+    pub fn hide_after(&self) -> Option<Duration> {
+        (self.hide_after > 0).then(|| Duration::from_millis(self.hide_after))
+    }
 }
 
 impl Default for EchoSettings {
@@ -504,6 +524,7 @@ impl Default for EchoSettings {
         Self {
             lines: 12,
             history: 1000,
+            hide_after: 4000,
         }
     }
 }
@@ -570,6 +591,20 @@ impl Default for DocumentationSettings {
             max_width: 760.0,
             max_height: 480.0,
         }
+    }
+}
+
+/// What a prompt's input keeps in view as it scrolls sideways.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct PromptsSettings {
+    /// Pixels kept in view on each side of the cursor, where there is text to show.
+    pub input_margin: f32,
+}
+
+impl Default for PromptsSettings {
+    fn default() -> Self {
+        Self { input_margin: 64.0 }
     }
 }
 
@@ -647,9 +682,11 @@ mod tests {
              ligatures = false\n\
              [cursor]\nheight = \"font\"\nradius = 2.5\n[mouse]\ndrag-scroll-interval = 60\n\
              [scroll]\nanimation-duration = 0\n[glass]\nopacity = 0.5\nblur = 0\n\
-             [echo]\nlines = 6\nhistory = 50\n[hints]\nshow = false\nside-room = 200\n\
+             [echo]\nlines = 6\nhistory = 50\nhide-after = 0\n\
+             [hints]\nshow = false\nside-room = 200\n\
              [prefix-keys]\nshow = false\ndelay = 0\ncolumns = 3\n\
              [documentation]\nmax-width = 900\nmax-height = 300\n\
+             [prompts]\ninput-margin = 20\n\
              [transitions]\npane-duration = 0\npane-slide = 0\nprompt-duration = 100\n\
              prompt-slide = 12\npopup-duration = 40\npopup-slide = 4\n",
         )
@@ -664,6 +701,7 @@ mod tests {
             }
         );
         assert_eq!(settings.transitions.popup().slide, 4.0);
+        assert_eq!(settings.prompts.input_margin, 20.0);
         assert_eq!(
             settings.documentation,
             DocumentationSettings {
@@ -676,7 +714,8 @@ mod tests {
             BottomSettings {
                 echo: EchoSettings {
                     lines: 6,
-                    history: 50
+                    history: 50,
+                    hide_after: 0
                 },
                 hints: HintsSettings {
                     show: false,
@@ -747,6 +786,8 @@ mod tests {
         assert!(parse("[glass]\nopacity = 1.5\n").is_err());
         assert!(parse("[glass]\nblur = 65\n").is_err());
         assert!(parse("[echo]\nlines = 1\n").is_err());
+        assert!(parse("[echo]\nhide-after = 60001\n").is_err());
+        assert!(parse("[prompts]\ninput-margin = -1\n").is_err());
         assert!(parse("[hints]\nside-room = -1\n").is_err());
         assert!(parse("[prefix-keys]\ncolumns = 0\n").is_err());
         assert!(parse("[documentation]\nmax-width = 100\n").is_err());

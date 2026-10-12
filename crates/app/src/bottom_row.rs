@@ -132,7 +132,7 @@ pub fn fit_hints(hints: Hints, show: bool, side_room: f32, window: &Window) -> F
 
 /// The row, its three slots side by side; the middle one stays centered while the
 /// status fits its side.
-pub fn render_row(echo: Option<Div>, hints: Option<Div>, status: AnyElement) -> Div {
+pub fn render_row(echo: Option<AnyElement>, hints: Option<Div>, status: AnyElement) -> Div {
     div()
         .absolute()
         .left(px(SIDE))

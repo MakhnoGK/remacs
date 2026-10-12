@@ -1,5 +1,6 @@
 use remacs_core::{Buffer, CommandError, CommandResult, Editor};
 
+use crate::motion::{at_beginning_of_buffer, at_end_of_buffer};
 use crate::{indent, pairs};
 
 /// The buffer to edit, unless it is read-only.
@@ -34,7 +35,7 @@ pub fn delete_char(editor: &mut Editor) -> CommandResult {
     }
     let point = buffer.point();
     if point == buffer.text().len() {
-        return Err("End of buffer".into());
+        return at_end_of_buffer(editor);
     }
     let next = buffer.text().next_char_boundary(point);
     buffer.delete(point..next);
@@ -53,7 +54,7 @@ pub fn delete_backward_char(editor: &mut Editor) -> CommandResult {
     }
     let point = buffer.point();
     if point == 0 {
-        return Err("Beginning of buffer".into());
+        return at_beginning_of_buffer(editor);
     }
     let previous = buffer.text().previous_char_boundary(point);
     buffer.delete(previous..point);

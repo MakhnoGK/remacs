@@ -1,7 +1,8 @@
 use std::rc::Rc;
 
 use remacs_core::{
-    Buffer, CommentSyntax, Editor, Key, Mode, Plugin, Registry, SyntaxContext, parse_sequence,
+    Buffer, CommentSyntax, Editor, Key, MessageKind, Mode, Plugin, Registry, SyntaxContext,
+    parse_sequence,
 };
 use remacs_text::Text;
 
@@ -107,6 +108,7 @@ fn vertical_motion_keeps_goal_column() {
     press(&mut editor, "C-n");
     assert_eq!(editor.buffer().point(), 16);
     assert_eq!(editor.echo().as_deref(), Some("End of buffer"));
+    assert_eq!(editor.message().unwrap().kind, MessageKind::Info);
 }
 
 #[test]

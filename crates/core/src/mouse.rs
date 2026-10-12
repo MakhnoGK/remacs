@@ -1,6 +1,7 @@
 use std::ops::Range;
 
 use crate::buffer::Buffer;
+use crate::char_class::CharClass;
 
 /// What one press selects, by the clicks in a row it ends.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -85,26 +86,6 @@ impl MouseSelection {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum CharClass {
-    /// Identifier characters, so a double click takes `snake_case` whole.
-    Word,
-    Space,
-    Punctuation,
-}
-
-impl CharClass {
-    fn of(character: char) -> Self {
-        if character.is_alphanumeric() || character == '_' {
-            Self::Word
-        } else if character.is_whitespace() {
-            Self::Space
-        } else {
-            Self::Punctuation
-        }
-    }
-}
-
 /// The run of characters of one class around `offset` on its line; at the line's end,
 /// the run before it.
 fn word_at(buffer: &Buffer, offset: usize) -> Range<usize> {
@@ -114,10 +95,11 @@ fn word_at(buffer: &Buffer, offset: usize) -> Range<usize> {
         .unwrap_or(offset..offset);
     let after = buffer.char_after(offset).filter(|_| offset < line.end);
     let before = buffer.char_before(offset).filter(|_| offset > line.start);
-    let Some(class) = after.or(before).map(CharClass::of) else {
+    let Some(class) = after.or(before).map(CharClass::in_identifier) else {
         return offset..offset;
     };
-    let in_class = |character: Option<char>| character.is_some_and(|c| CharClass::of(c) == class);
+    let in_class =
+        |character: Option<char>| character.is_some_and(|c| CharClass::in_identifier(c) == class);
     let mut start = offset;
     while start > line.start && in_class(buffer.char_before(start)) {
         start = text.previous_char_boundary(start);

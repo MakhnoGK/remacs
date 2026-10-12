@@ -5,7 +5,7 @@ use std::ops::Range;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 
 use futures::StreamExt;
 use futures::channel::mpsc;
@@ -20,9 +20,9 @@ use gpui::{
 use crate::assets::{EXECUTION_POINT_ICON, LOGPOINT_ICON};
 use remacs_core::{
     Action, BreakpointIcon, ChangedLines, Code, CommandError, EchoMessage, Editor, GutterIcon,
-    GutterMark, Icon, Key, LineChange, LineExtra, Minibuffer, MouseSelection, Outline, Pane,
-    PaneBody, PaneButton, Popup, Preview, ScreenButton, ScreenMouse, ScreenPointer, ScreenSize,
-    Scroll, StatusSegment, Tabs, describe_sequence,
+    GutterMark, Icon, Key, LineChange, LineExtra, MessageKind, Minibuffer, MouseSelection, Outline,
+    Pane, PaneBody, PaneButton, Popup, Preview, ScreenButton, ScreenMouse, ScreenPointer,
+    ScreenSize, Scroll, StatusSegment, Tabs, describe_sequence,
 };
 use remacs_echo::VIEW_MESSAGES;
 use remacs_theme::font::CodeFont;
@@ -53,7 +53,7 @@ use crate::preview_view::render_preview;
 use crate::screen_view::{Cell as ScreenCell, cell_at, render_screen, screen_size};
 use crate::settings::{
     BottomSettings, CursorHeight, DocumentationSettings, GlassSettings, MouseSettings,
-    ReadSettings, ScrollSettings, TransitionsSettings, UiSettings, report,
+    PromptsSettings, ReadSettings, ScrollSettings, TransitionsSettings, UiSettings, report,
 };
 use crate::smooth_scroll::SmoothScroll;
 use crate::table_view::{
@@ -134,6 +134,7 @@ pub struct EditorView {
     more_on_right: bool,
     documentation_scroll: DocumentationScroll,
     documentation: DocumentationSettings,
+    prompts: PromptsSettings,
     /// How far the minibuffer input is scrolled sideways.
     input_scroll: ScrollHandle,
     /// Faces of code shown in popups and side panels, by mode and text, parsed when first
@@ -160,6 +161,8 @@ pub struct EditorView {
     surfaces: Surfaces,
     /// The echo area's message is shown whole above it, until the next key or click.
     message_open: bool,
+    /// When the echo area's message came, and the timer that then takes it away.
+    message_timer: Option<(SystemTime, Task<()>)>,
     /// The view's keys that do not fit under it are listed, until the next key or click.
     hints_open: bool,
     /// Since when a prefix has been pending, and the timer that then lists its keys.
@@ -172,6 +175,8 @@ pub struct EditorView {
 /// What comes and goes over the editor, each kept to be drawn as it goes.
 #[derive(Default)]
 struct Surfaces {
+    /// The echo area's message in its pill.
+    echo: Retained<EchoMessage>,
     /// The pane under the text and its frame.
     pane: Retained<(Pane, PaneChrome)>,
     /// Each plugin's popup by the text, in the order of `Editor::popup_slots`.
@@ -188,7 +193,8 @@ struct Surfaces {
 impl Surfaces {
     /// Some surface is on its way in or out, so another frame is due.
     fn are_changing(&self) -> bool {
-        self.pane.is_changing()
+        self.echo.is_changing()
+            || self.pane.is_changing()
             || self.popups.iter().any(Retained::is_changing)
             || self.prompt.is_changing()
             || self.message.is_changing()
@@ -327,6 +333,7 @@ impl EditorView {
             more_on_right: false,
             documentation_scroll: DocumentationScroll::default(),
             documentation: ui.documentation,
+            prompts: ui.prompts,
             input_scroll: ScrollHandle::new(),
             code_faces: RefCell::default(),
             showing_rows: false,
@@ -340,6 +347,7 @@ impl EditorView {
             transitions: ui.transitions,
             surfaces: Surfaces::default(),
             message_open: false,
+            message_timer: None,
             hints_open: false,
             prefix_since: None,
             prefix_timer: None,
@@ -370,6 +378,7 @@ impl EditorView {
         self.scroll = read.ui.scroll;
         self.glass = read.ui.glass;
         self.documentation = read.ui.documentation;
+        self.prompts = read.ui.prompts;
         self.bottom = read.ui.bottom();
         self.transitions = read.ui.transitions;
         self.editor
@@ -477,6 +486,49 @@ impl EditorView {
             cx.background_executor().timer(delay).await;
             let _ = view.update(cx, |_, cx| cx.notify());
         }));
+    }
+
+    /// Takes an info or done message away once it has been shown for a while, though not
+    /// while it is open whole; errors stay until the next key.
+    fn track_message(&mut self, cx: &mut Context<Self>) {
+        if self.message_open {
+            return;
+        }
+        let hide_after = self.bottom.echo.hide_after();
+        let due = self
+            .editor
+            .message()
+            .filter(|message| message.kind != MessageKind::Error)
+            .zip(hide_after)
+            .map(|(message, hide_after)| (message.at, hide_after));
+        let Some((at, hide_after)) = due else {
+            self.message_timer = None;
+            return;
+        };
+        if self
+            .message_timer
+            .as_ref()
+            .is_some_and(|&(timed, _)| timed == at)
+        {
+            return;
+        }
+        let delay = hide_after.saturating_sub(at.elapsed().unwrap_or_default());
+        let timer = cx.spawn(async move |view, cx| {
+            cx.background_executor().timer(delay).await;
+            let _ = view.update(cx, |view, cx| {
+                view.message_timer = None;
+                let current = view
+                    .editor
+                    .message()
+                    .is_some_and(|message| message.at == at);
+                // Opened whole, it goes once closed.
+                if current && !view.message_open {
+                    view.editor.clear_message();
+                    cx.notify();
+                }
+            });
+        });
+        self.message_timer = Some((at, timer));
     }
 
     fn prefix_keys_due(&self) -> bool {
@@ -1349,7 +1401,12 @@ impl EditorView {
         let look = retained.look(transition.coming_from(side))?;
         let scrim = render_scrim(minibuffer.dialog().is_some());
         Some(PromptSurface {
-            surface: look.apply(render_minibuffer(minibuffer, &self.input_scroll, cx)),
+            surface: look.apply(render_minibuffer(
+                minibuffer,
+                &self.input_scroll,
+                px(self.prompts.input_margin),
+                cx,
+            )),
             scrim: look.in_place().apply(scrim),
             problem_list,
         })
@@ -1754,20 +1811,26 @@ impl EditorView {
                 .map(describe_sequence)
         };
         let whole_key = key_for(&self.editor, VIEW_MESSAGES);
+        self.track_message(cx);
+        let transition = self.transitions.popup().coming_from(Side::Below);
+        let message = self.editor.message().cloned();
+        let echo_pill = &mut self.surfaces.echo;
+        echo_pill.update(message, Instant::now(), transition.duration);
         let pending = self.editor.pending_keys();
+        // Keys typed show at once, in place of the message.
         let echo = if !pending.is_empty() {
-            Some(render_prefix_echo(pending))
+            Some(render_prefix_echo(pending).into_any_element())
         } else {
-            self.editor.message().map(|message| {
-                let room = echo_room(&fitted, window);
-                render_message_echo(
-                    message,
-                    room,
+            echo_pill.shown(transition).map(|shown| {
+                let pill = render_message_echo(
+                    shown.content,
+                    echo_room(&fitted, window),
                     self.message_open,
                     whole_key.as_deref(),
                     window,
                     cx,
-                )
+                );
+                shown.look.apply_in_flow(pill)
             })
         };
         let listed = self.hints_open || self.editor.key_hints_listed();

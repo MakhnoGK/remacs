@@ -641,6 +641,11 @@ impl Editor {
         self.message.as_ref()
     }
 
+    /// Takes the message out of the echo area before the next key; `*Messages*` keeps it.
+    pub fn clear_message(&mut self) {
+        self.message = None;
+    }
+
     /// The keys of a prefix typed so far, e.g. `C-x`; empty when none is.
     pub fn pending_keys(&self) -> &[Key] {
         &self.pending_keys

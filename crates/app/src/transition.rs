@@ -3,7 +3,7 @@
 
 use std::time::{Duration, Instant};
 
-use gpui::{AnyElement, IntoElement, ParentElement, Styled, div, inert, px};
+use gpui::{AnyElement, Div, IntoElement, ParentElement, Styled, div, inert, px};
 
 /// How a kind of surface comes and goes.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -187,11 +187,18 @@ impl Look {
 
     /// `surface`, laid out over the whole view as surfaces are, drawn as this look says.
     pub fn apply(self, surface: impl IntoElement) -> AnyElement {
-        let layer = div()
-            .absolute()
-            .left_0()
+        self.layer(div().absolute().left_0().size_full(), surface)
+    }
+
+    /// `surface` in its place in the layout, e.g. a pill in a row, drawn as this look says.
+    pub fn apply_in_flow(self, surface: impl IntoElement) -> AnyElement {
+        // A flex item, so a pill that truncates its text still can.
+        self.layer(div().relative().flex().min_w_0(), surface)
+    }
+
+    fn layer(self, layer: Div, surface: impl IntoElement) -> AnyElement {
+        let layer = layer
             .top(px(self.offset))
-            .size_full()
             .opacity(self.opacity)
             .child(surface);
         if self.leaving {

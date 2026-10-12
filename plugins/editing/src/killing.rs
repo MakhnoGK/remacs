@@ -1,7 +1,9 @@
 use remacs_core::{Candidate, CommandResult, Editor, Prompt, filter_candidates};
 
 use crate::editing::writable_buffer;
-use crate::motion::{line_end, paragraph_end, paragraph_start, word_end, word_start};
+use crate::motion::{
+    at_end_of_buffer, line_end, paragraph_end, paragraph_start, word_end, word_start,
+};
 
 pub const SET_MARK_COMMAND: &str = "set-mark-command";
 pub const YANK: &str = "yank";
@@ -69,7 +71,7 @@ pub fn kill_line(editor: &mut Editor) -> CommandResult {
         line_end
     };
     if end == point {
-        return Err("End of buffer".into());
+        return at_end_of_buffer(editor);
     }
     editor.kill(point..end);
     Ok(())
@@ -94,7 +96,7 @@ pub fn kill_paragraph(editor: &mut Editor) -> CommandResult {
     let buffer = writable_buffer(editor)?;
     let (point, end) = (buffer.point(), paragraph_end(buffer, buffer.point_line()));
     if end == point {
-        return Err("End of buffer".into());
+        return at_end_of_buffer(editor);
     }
     editor.kill(point..end);
     Ok(())

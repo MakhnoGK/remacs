@@ -1,12 +1,23 @@
-use remacs_core::{Buffer, CommandResult, Editor};
+use remacs_core::{Buffer, CharClass, CommandResult, Editor};
 
 /// Lines of overlap kept when paging, like Emacs `next-screen-context-lines`.
 const CONTEXT_LINES: usize = 2;
 
+/// Reaching an end of the buffer is told, not an error: nothing went wrong.
+pub(crate) fn at_end_of_buffer(editor: &mut Editor) -> CommandResult {
+    editor.set_message("End of buffer");
+    Ok(())
+}
+
+pub(crate) fn at_beginning_of_buffer(editor: &mut Editor) -> CommandResult {
+    editor.set_message("Beginning of buffer");
+    Ok(())
+}
+
 pub fn forward_char(editor: &mut Editor) -> CommandResult {
     let buffer = editor.buffer_mut();
     if buffer.point() == buffer.text().len() {
-        return Err("End of buffer".into());
+        return at_end_of_buffer(editor);
     }
     buffer.set_point(buffer.text().next_char_boundary(buffer.point()));
     Ok(())
@@ -15,7 +26,7 @@ pub fn forward_char(editor: &mut Editor) -> CommandResult {
 pub fn backward_char(editor: &mut Editor) -> CommandResult {
     let buffer = editor.buffer_mut();
     if buffer.point() == 0 {
-        return Err("Beginning of buffer".into());
+        return at_beginning_of_buffer(editor);
     }
     buffer.set_point(buffer.text().previous_char_boundary(buffer.point()));
     Ok(())
@@ -24,7 +35,7 @@ pub fn backward_char(editor: &mut Editor) -> CommandResult {
 pub fn forward_word(editor: &mut Editor) -> CommandResult {
     let buffer = editor.buffer_mut();
     if buffer.point() == buffer.text().len() {
-        return Err("End of buffer".into());
+        return at_end_of_buffer(editor);
     }
     buffer.set_point(word_end(buffer, buffer.point()));
     Ok(())
@@ -33,7 +44,7 @@ pub fn forward_word(editor: &mut Editor) -> CommandResult {
 pub fn backward_word(editor: &mut Editor) -> CommandResult {
     let buffer = editor.buffer_mut();
     if buffer.point() == 0 {
-        return Err("Beginning of buffer".into());
+        return at_beginning_of_buffer(editor);
     }
     buffer.set_point(word_start(buffer, buffer.point()));
     Ok(())
@@ -43,7 +54,7 @@ pub fn backward_word(editor: &mut Editor) -> CommandResult {
 pub fn forward_paragraph(editor: &mut Editor) -> CommandResult {
     let buffer = editor.buffer_mut();
     if buffer.point() == buffer.text().len() {
-        return Err("End of buffer".into());
+        return at_end_of_buffer(editor);
     }
     buffer.set_point(paragraph_end(buffer, buffer.point_line()));
     Ok(())
@@ -53,7 +64,7 @@ pub fn forward_paragraph(editor: &mut Editor) -> CommandResult {
 pub fn backward_paragraph(editor: &mut Editor) -> CommandResult {
     let buffer = editor.buffer_mut();
     if buffer.point() == 0 {
-        return Err("Beginning of buffer".into());
+        return at_beginning_of_buffer(editor);
     }
     buffer.set_point(paragraph_start(buffer, buffer.point_line()));
     Ok(())
@@ -63,7 +74,7 @@ pub fn next_line(editor: &mut Editor) -> CommandResult {
     let buffer = editor.buffer_mut();
     let next = buffer.point_line() + 1;
     if next >= buffer.text().line_count() {
-        return Err("End of buffer".into());
+        return at_end_of_buffer(editor);
     }
     buffer.move_to_line(next);
     Ok(())
@@ -71,10 +82,9 @@ pub fn next_line(editor: &mut Editor) -> CommandResult {
 
 pub fn previous_line(editor: &mut Editor) -> CommandResult {
     let buffer = editor.buffer_mut();
-    let previous = buffer
-        .point_line()
-        .checked_sub(1)
-        .ok_or("Beginning of buffer")?;
+    let Some(previous) = buffer.point_line().checked_sub(1) else {
+        return at_beginning_of_buffer(editor);
+    };
     buffer.move_to_line(previous);
     Ok(())
 }
@@ -104,15 +114,19 @@ pub fn end_of_buffer(editor: &mut Editor) -> CommandResult {
 }
 
 pub fn scroll_up_command(editor: &mut Editor) -> CommandResult {
-    scroll_page(editor, 1)
-        .then_some(())
-        .ok_or("End of buffer".into())
+    if scroll_page(editor, 1) {
+        Ok(())
+    } else {
+        at_end_of_buffer(editor)
+    }
 }
 
 pub fn scroll_down_command(editor: &mut Editor) -> CommandResult {
-    scroll_page(editor, -1)
-        .then_some(())
-        .ok_or("Beginning of buffer".into())
+    if scroll_page(editor, -1) {
+        Ok(())
+    } else {
+        at_beginning_of_buffer(editor)
+    }
 }
 
 pub fn recenter(editor: &mut Editor) -> CommandResult {
@@ -126,25 +140,6 @@ pub(crate) fn line_end(buffer: &Buffer) -> usize {
         .text()
         .line_range(buffer.point_line())
         .map_or(buffer.text().len(), |range| range.end)
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum CharClass {
-    Word,
-    Space,
-    Punctuation,
-}
-
-impl CharClass {
-    fn of(character: char) -> Self {
-        if character.is_alphanumeric() {
-            Self::Word
-        } else if character.is_whitespace() {
-            Self::Space
-        } else {
-            Self::Punctuation
-        }
-    }
 }
 
 /// End of the step after `offset`: a word with the whitespace to its left on its line, or
