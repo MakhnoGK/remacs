@@ -352,6 +352,26 @@ fn buffers_switch_and_kill_with_confirmation() {
 }
 
 #[test]
+fn without_the_prompt_kill_buffer_kills_the_current_buffer() {
+    let project = Project::new("kill-current");
+    let mut editor = editor_visiting(&project.path("src/marker.rs"));
+    editor.visit_file(&project.path("Cargo.toml")).unwrap();
+    let settings = [("files.toml", "kill-buffer-prompt = false\n")]
+        .map(|(name, text)| (PathBuf::from(name), text.to_owned()));
+    editor.set_settings(Settings::from_files(settings));
+
+    press(&mut editor, "C-x k");
+    assert!(editor.minibuffer().is_none());
+    assert_eq!(buffer_names(&editor), ["marker.rs", "*scratch*"]);
+
+    type_text(&mut editor, "x");
+    press(&mut editor, "C-x k");
+    assert!(editor.minibuffer().unwrap().is_question());
+    press(&mut editor, "y");
+    assert_eq!(buffer_names(&editor), ["*scratch*"]);
+}
+
+#[test]
 fn quitting_offers_to_save_each_modified_file() {
     let project = Project::new("quit");
     let mut editor = editor_visiting(&project.path("Cargo.toml"));

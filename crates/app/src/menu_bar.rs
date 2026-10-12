@@ -75,14 +75,15 @@ fn shown_menus(editor: &Editor) -> Vec<ShownMenu> {
                     group
                         .iter()
                         .map(|item| {
+                            let item_title = item.title_in(editor);
                             let (title, key_equivalent) = match shown_keys(editor, item.command) {
                                 Some(Shown::Native(keystroke)) => {
-                                    (item.title.to_owned(), Some(keystroke))
+                                    (item_title.to_owned(), Some(keystroke))
                                 }
                                 Some(Shown::InTitle(keys)) => {
-                                    (format!("{} ({keys})", item.title), None)
+                                    (format!("{item_title} ({keys})"), None)
                                 }
-                                None => (item.title.to_owned(), None),
+                                None => (item_title.to_owned(), None),
                             };
                             ShownItem {
                                 title,

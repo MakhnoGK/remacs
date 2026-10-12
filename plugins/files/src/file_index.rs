@@ -52,7 +52,7 @@ impl FileIndexes {
     /// Drops the indexes when what they leave out changed, so that the next asks scan
     /// again.
     pub fn set_settings(&mut self, settings: FilesSettings) {
-        if self.settings != settings {
+        if self.settings.key() != settings.key() {
             self.indexes.clear();
             self.settings = settings;
         }

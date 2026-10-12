@@ -13,6 +13,7 @@ use std::rc::Rc;
 
 use remacs_core::{Command, CommandResult, Editor, MenuItem, Plugin, Registry};
 
+use crate::buffers::KillBufferPrompt;
 use crate::file_index::FileIndexes;
 use crate::ignored::FilesSettings;
 
@@ -57,7 +58,7 @@ const MENU_ITEMS: &[MenuItem] = &[
     MenuItem::new("File", "save", "Save", "save-buffer"),
     MenuItem::new("File", "save", "Save As…", "write-file"),
     MenuItem::new("File", "save", "Save All…", "save-some-buffers"),
-    MenuItem::new("File", "close", "Close Buffer…", "kill-buffer"),
+    MenuItem::new("File", "close", "Close Buffer…", "kill-buffer").titled_by(buffers::close_buffer_title),
     MenuItem::new("Window", "windows", "Other Window", "other-window"),
 ];
 
@@ -84,6 +85,7 @@ fn other_window(editor: &mut Editor) -> CommandResult {
 /// Indexes scan again once `files.toml` changes what they leave out.
 fn read_settings(editor: &mut Editor) {
     let settings = editor.settings_section::<FilesSettings>();
+    editor.plugin_state::<KillBufferPrompt>().0 = settings.kill_buffer_prompt;
     editor.plugin_state::<FileIndexes>().set_settings(settings);
 }
 

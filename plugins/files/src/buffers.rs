@@ -32,8 +32,31 @@ pub fn switch_to_buffer(editor: &mut Editor) -> CommandResult {
     })
 }
 
+/// Whether `kill-buffer` asks which buffer to kill, from `files.toml`.
+pub struct KillBufferPrompt(pub bool);
+
+impl Default for KillBufferPrompt {
+    fn default() -> Self {
+        Self(true)
+    }
+}
+
+fn prompts_for_buffer(editor: &Editor) -> bool {
+    editor
+        .find_plugin_state::<KillBufferPrompt>()
+        .is_none_or(|prompt| prompt.0)
+}
+
+pub fn close_buffer_title(editor: &Editor) -> &'static str {
+    if prompts_for_buffer(editor) {
+        "Close Buffer…"
+    } else {
+        "Close Buffer"
+    }
+}
+
 /// Kills a buffer, asking first if it has unsaved changes; inside a buffer prompt it kills
-/// the selected candidate instead.
+/// the selected candidate instead, and with the prompt off in `files.toml`, the current one.
 pub fn kill_buffer(editor: &mut Editor) -> CommandResult {
     if let Some(minibuffer) = editor.minibuffer() {
         if minibuffer.prompt().category != BUFFER_CATEGORY {
@@ -51,6 +74,10 @@ pub fn kill_buffer(editor: &mut Editor) -> CommandResult {
         editor.refresh_minibuffer();
         return Ok(());
     }
+    if !prompts_for_buffer(editor) {
+        let name = editor.window_buffer().name().to_owned();
+        return kill_confirming_changes(editor, name);
+    }
     let prompt = Prompt {
         label: "Kill buffer".into(),
         category: BUFFER_CATEGORY,
@@ -60,21 +87,23 @@ pub fn kill_buffer(editor: &mut Editor) -> CommandResult {
         hints: &[("↵", "Kill"), ("C-g", "Cancel")],
         ..Prompt::default()
     };
-    editor.read(prompt, buffer_candidates, |editor, name| {
-        if !has_unsaved_changes(editor, &name) {
-            editor.kill_buffer(&name);
-            return Ok(());
-        }
-        editor.ask_y_or_n(
-            format!("Buffer {name} modified; kill anyway?"),
-            move |editor, yes| {
-                if yes {
-                    editor.kill_buffer(&name);
-                }
-                Ok(())
-            },
-        )
-    })
+    editor.read(prompt, buffer_candidates, kill_confirming_changes)
+}
+
+fn kill_confirming_changes(editor: &mut Editor, name: String) -> CommandResult {
+    if !has_unsaved_changes(editor, &name) {
+        editor.kill_buffer(&name);
+        return Ok(());
+    }
+    editor.ask_y_or_n(
+        format!("Buffer {name} modified; kill anyway?"),
+        move |editor, yes| {
+            if yes {
+                editor.kill_buffer(&name);
+            }
+            Ok(())
+        },
+    )
 }
 
 /// Buffers in recently-used order, as in Emacs `buffer-list`.

@@ -31,6 +31,8 @@ pub struct MenuItem {
     pub command: &'static str,
     /// Disables the item while false, e.g. while the command has nothing to act on.
     pub enabled: Option<fn(&Editor) -> bool>,
+    /// Replaces `title` when what the command does depends on the settings.
+    pub titled: Option<fn(&Editor) -> &'static str>,
 }
 
 impl MenuItem {
@@ -46,6 +48,7 @@ impl MenuItem {
             title,
             command,
             enabled: None,
+            titled: None,
         }
     }
 
@@ -54,6 +57,17 @@ impl MenuItem {
             enabled: Some(enabled),
             ..self
         }
+    }
+
+    pub const fn titled_by(self, titled: fn(&Editor) -> &'static str) -> Self {
+        Self {
+            titled: Some(titled),
+            ..self
+        }
+    }
+
+    pub fn title_in(&self, editor: &Editor) -> &'static str {
+        self.titled.map_or(self.title, |titled| titled(editor))
     }
 }
 

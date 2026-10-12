@@ -12,7 +12,7 @@ use remacs_core::Section;
 use serde::Deserialize;
 
 /// `files.toml`.
-#[derive(Clone, Debug, Deserialize, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct FilesSettings {
     /// Files and folders left out of `find-file` and `project-search`, in `.gitignore`
@@ -20,6 +20,8 @@ pub struct FilesSettings {
     pub ignore: Vec<String>,
     /// Also leave out what the project's `.gitignore` and `.ignore` files do.
     pub use_gitignore: bool,
+    /// `kill-buffer` asks which buffer to kill; off, it kills the current one.
+    pub kill_buffer_prompt: bool,
 }
 
 /// Left out whatever the settings say.
@@ -38,6 +40,7 @@ impl Default for FilesSettings {
         Self {
             ignore: ignore.map(str::to_owned).to_vec(),
             use_gitignore: false,
+            kill_buffer_prompt: true,
         }
     }
 }
@@ -57,10 +60,10 @@ impl Section for FilesSettings {
 }
 
 impl FilesSettings {
-    /// Tells the index caches of different settings apart.
+    /// Tells the index caches of different settings of what is left out apart.
     pub fn key(&self) -> u64 {
         let mut hasher = DefaultHasher::new();
-        self.hash(&mut hasher);
+        (&self.ignore, self.use_gitignore).hash(&mut hasher);
         hasher.finish()
     }
 }
@@ -124,7 +127,7 @@ mod tests {
         let root = Path::new("/project");
         let settings = FilesSettings {
             ignore: vec!["node_modules/".into(), "*.min.js".into(), "/out".into()],
-            use_gitignore: false,
+            ..FilesSettings::default()
         };
         let ignored = Ignored::new(root, &settings);
         let is_ignored = |path: &str, is_dir| ignored.is_ignored(&root.join(path), is_dir);
