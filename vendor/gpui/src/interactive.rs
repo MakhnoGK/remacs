@@ -372,6 +372,10 @@ pub struct ScrollWheelEvent {
 
     /// The phase of the touch event.
     pub touch_phase: TouchPhase,
+
+    /// Whether a mouse wheel sent it, even as pixels, rather than a touch surface's
+    /// gesture or the momentum after it.
+    pub from_wheel: bool,
 }
 
 impl Sealed for ScrollWheelEvent {}

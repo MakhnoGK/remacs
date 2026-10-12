@@ -214,6 +214,9 @@ impl PlatformInput {
                     }
                 }
                 NSEventType::NSScrollWheel => window_height.map(|window_height| {
+                    // A wheel's events have neither a gesture's phase nor momentum's.
+                    let from_wheel = native_event.phase() == NSEventPhase::NSEventPhaseNone
+                        && native_event.momentumPhase() == NSEventPhase::NSEventPhaseNone;
                     let phase = match native_event.phase() {
                         NSEventPhase::NSEventPhaseMayBegin | NSEventPhase::NSEventPhaseBegan => {
                             TouchPhase::Started
@@ -240,6 +243,7 @@ impl PlatformInput {
                         ),
                         delta,
                         touch_phase: phase,
+                        from_wheel,
                         modifiers: read_modifiers(native_event),
                     })
                 }),

@@ -12,9 +12,9 @@ use futures::channel::mpsc;
 use gpui::{
     AnyElement, AnyWindowHandle, App, Bounds, ClipboardItem, Context, DispatchPhase, Div,
     FocusHandle, Hsla, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, ParentElement, Pixels, Point, Render, ScrollDelta, ScrollHandle,
-    ScrollWheelEvent, SharedString, Size, StyledText, Subscription, Task, Window, canvas, div,
-    font, point, prelude::*, px, rgb, rgba, size, svg,
+    MouseUpEvent, ParentElement, Pixels, Point, Render, ScrollHandle, ScrollWheelEvent,
+    SharedString, Size, StyledText, Subscription, Task, Window, canvas, div, font, point,
+    prelude::*, px, rgb, rgba, size, svg,
 };
 
 use crate::assets::{EXECUTION_POINT_ICON, LOGPOINT_ICON};
@@ -56,7 +56,7 @@ use crate::settings::{
     ProblemsSettings, PromptsSettings, ReadSettings, ScrollSettings, TransitionsSettings,
     UiSettings, report,
 };
-use crate::smooth_scroll::SmoothScroll;
+use crate::smooth_scroll::{Glide, SmoothScroll, wheel_delta};
 use crate::table_view::{
     LIST_BOTTOM, ROW_PITCH, ROWS_TOP, TableCursor, fits_preview, render_table,
 };
@@ -124,8 +124,12 @@ pub struct EditorView {
     sideways: SmoothScroll,
     /// The buffer the scrolls follow; another one is shown at once.
     scrolled_buffer: String,
-    /// Commits of an outline's history scrolled past its first one, short of a whole one.
-    history_fraction: f32,
+    /// Commits of an outline's history drawn past the first one the plugin shows, and
+    /// where the wheel scrolled it to; the plugin moves its first one by whole commits.
+    history: Glide,
+    history_target: f32,
+    /// Moves the plugin's first commit, from the history last drawn.
+    history_scroll: Option<Scroll>,
     /// Whether the history was last drawn with commits above and below it.
     history_scrolled: Scrolled,
     /// The text was scrolled sideways by hand, so point may be out of view until the next
@@ -331,7 +335,9 @@ impl EditorView {
             vertical: SmoothScroll::default(),
             sideways: SmoothScroll::default(),
             scrolled_buffer: String::new(),
-            history_fraction: 0.0,
+            history: Glide::default(),
+            history_target: 0.0,
+            history_scroll: None,
             history_scrolled: Scrolled::default(),
             scrolled_sideways: false,
             more_on_right: false,
@@ -606,11 +612,7 @@ impl EditorView {
         } else {
             font::code().line_height
         });
-        let (delta, at_once) = match event.delta {
-            // A trackpad moves the content under the fingers, momentum included.
-            ScrollDelta::Pixels(delta) => (delta, true),
-            ScrollDelta::Lines(_) => (event.delta.pixel_delta(row_height), false),
-        };
+        let (delta, at_once) = wheel_delta(event, row_height, self.scroll.lines_per_notch);
         // A swipe is never quite straight: it scrolls along its main direction only.
         if delta.x.abs() > delta.y.abs() {
             self.scroll_sideways(-delta.x, at_once, cx);
@@ -662,16 +664,12 @@ impl EditorView {
         cx.notify();
     }
 
-    /// Scrolls an outline's history by what the wheel moved, part of a commit included.
-    pub fn scroll_history(
-        &mut self,
-        event: &ScrollWheelEvent,
-        scroll: Scroll,
-        cx: &mut Context<Self>,
-    ) {
+    /// Scrolls an outline's history by what the wheel moved, part of a commit included;
+    /// the plugin is told as whole commits are scrolled past.
+    pub fn scroll_history(&mut self, event: &ScrollWheelEvent, cx: &mut Context<Self>) {
         let row_height = px(COMMIT_HEIGHT);
-        let delta = event.delta.pixel_delta(row_height).y;
-        let mut position = self.history_fraction - delta / row_height;
+        let (delta, at_once) = wheel_delta(event, row_height, self.scroll.lines_per_notch);
+        let mut position = self.history.target() - delta.y / row_height;
         // Nothing is above the newest commit or below the oldest.
         if !self.history_scrolled.above {
             position = position.max(0.0);
@@ -679,15 +677,35 @@ impl EditorView {
         if !self.history_scrolled.below {
             position = position.min(0.0);
         }
-        let whole = position.floor();
-        self.history_fraction = position - whole;
-        if whole != 0.0 {
+        self.history_target = position;
+        if at_once {
+            self.history.place(position);
+        }
+        cx.notify();
+    }
+
+    /// Glides the history toward where the wheel scrolled it and moves its first commit
+    /// past those scrolled over; returns commits drawn past the first, a fraction of one.
+    fn advance_history(&mut self, window: &Window, cx: &mut Context<Self>) -> f32 {
+        let duration = self.scroll.animation_duration();
+        let max_distance = fitting_commits(window.viewport_size().height, false) as f32;
+        let shown =
+            self.history
+                .advance(self.history_target, Instant::now(), duration, max_distance);
+        if self.history.is_animating() {
+            window.request_animation_frame();
+        }
+        let whole = shown.floor();
+        if whole != 0.0
+            && let Some(scroll) = self.history_scroll.clone()
+        {
             let rows = whole as isize;
             let action: Action = Rc::new(move |editor| scroll(editor, rows));
             self.run_action(&action, cx);
-        } else {
-            cx.notify();
+            self.history.shift(-whole);
+            self.history_target -= whole;
         }
+        self.history.shown().max(0.0)
     }
 
     fn on_mouse_down(
@@ -1625,7 +1643,8 @@ impl EditorView {
             self.scrolled_buffer = name.to_owned();
             self.vertical.jump(viewport.first_line);
             self.sideways.jump(viewport.first_column);
-            self.history_fraction = 0.0;
+            self.history.place(0.0);
+            self.history_target = 0.0;
         }
         let now = Instant::now();
         let duration = self.scroll.animation_duration();
@@ -1697,9 +1716,14 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) -> Option<(AnyElement, Hints, Option<AnyElement>)> {
         let height = window.viewport_size().height;
+        let history_shown = self.advance_history(window, cx);
         let mut outline = self.editor.outline(
             self.editor.viewport.first_line..self.editor.viewport.first_line + outline_lines,
         )?;
+        self.history_scroll = outline
+            .history
+            .as_ref()
+            .map(|history| history.scroll.clone());
         let fit = |outline: &Outline| {
             let has_banner = outline.banner.is_some();
             fitting_rows(&outline.rows, outline.facts.len(), has_banner, height)
@@ -1748,14 +1772,15 @@ impl EditorView {
                 above: history.scrolled,
                 below: history.commits.len() > fitting,
             };
+            // With the oldest commit in view, part of one scrolled past glides back.
             if !self.history_scrolled.below {
-                self.history_fraction = 0.0;
+                self.history_target = self.history_target.min(0.0);
             }
             scrolled.history = Scrolled {
-                above: history.scrolled || self.history_fraction > 0.0,
+                above: history.scrolled || history_shown > 0.0,
                 ..self.history_scrolled
             };
-            scrolled.history_shift = COMMIT_HEIGHT * self.history_fraction;
+            scrolled.history_shift = COMMIT_HEIGHT * history_shown;
             history.commits.truncate(fitting + 1);
         }
         let hints = outline.hints;

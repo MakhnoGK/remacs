@@ -496,7 +496,6 @@ fn render_history(
         search,
         commits,
         empty,
-        scroll,
         ..
     } = history;
     let lanes = commits
@@ -579,7 +578,7 @@ fn render_history(
         .text_size(px(font::UI_SIZE))
         .on_scroll_wheel(cx.listener(move |view, event: &ScrollWheelEvent, _, cx| {
             cx.stop_propagation();
-            view.scroll_history(event, scroll.clone(), cx);
+            view.scroll_history(event, cx);
         }))
         .child(header)
         .child(list)

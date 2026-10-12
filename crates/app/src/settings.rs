@@ -26,6 +26,7 @@ const CURSOR_RADII: RangeInclusive<f32> = 0.0..=4.0;
 const DRAG_SCROLL_INTERVALS: RangeInclusive<u64> = 5..=1000;
 /// Milliseconds; 0 turns the animation off.
 const SCROLL_ANIMATION_DURATIONS: RangeInclusive<u64> = 0..=1000;
+const SCROLL_LINES_PER_NOTCH: RangeInclusive<usize> = 1..=20;
 const GLASS_OPACITIES: RangeInclusive<f32> = 0.0..=1.0;
 /// Pixels; the window server blurs no more than 64.
 const GLASS_BLURS: RangeInclusive<u32> = 0..=64;
@@ -200,6 +201,11 @@ impl Section for UiSettings {
                 SCROLL_ANIMATION_DURATIONS.end()
             ));
         }
+        check_range(
+            "scroll.lines-per-notch",
+            self.scroll.lines_per_notch,
+            &SCROLL_LINES_PER_NOTCH,
+        )?;
         let glass = &self.glass;
         if !GLASS_OPACITIES.contains(&glass.opacity) {
             return Err(format!(
@@ -437,6 +443,8 @@ pub struct ScrollSettings {
     /// Milliseconds the text takes to glide to where a command or a wheel notch scrolled
     /// it; 0 jumps.
     pub animation_duration: u64,
+    /// Lines or rows a mouse wheel's notch scrolls, or columns' worth sideways.
+    pub lines_per_notch: usize,
 }
 
 impl ScrollSettings {
@@ -449,6 +457,7 @@ impl Default for ScrollSettings {
     fn default() -> Self {
         Self {
             animation_duration: 150,
+            lines_per_notch: 3,
         }
     }
 }
@@ -710,7 +719,7 @@ mod tests {
              strokes = \"thin\"\n\
              ligatures = false\n\
              [cursor]\nheight = \"font\"\nradius = 2.5\n[mouse]\ndrag-scroll-interval = 60\n\
-             [scroll]\nanimation-duration = 0\n[glass]\nopacity = 0.5\nblur = 0\n\
+             [scroll]\nanimation-duration = 0\nlines-per-notch = 5\n[glass]\nopacity = 0.5\nblur = 0\n\
              [echo]\nlines = 6\nhistory = 50\nhide-after = 0\n\
              [hints]\nshow = false\nside-room = 200\n\
              [prefix-keys]\nshow = false\ndelay = 0\ncolumns = 3\n\
@@ -774,6 +783,7 @@ mod tests {
         );
         assert_eq!(settings.mouse.drag_scroll_interval, 60);
         assert_eq!(settings.scroll.animation_duration, 0);
+        assert_eq!(settings.scroll.lines_per_notch, 5);
         assert_eq!(settings.font.family, "Menlo");
         assert_eq!(settings.font.code_font().line_height, 23.0);
         assert_eq!(settings.font.code_font().weight, 300.0);
@@ -820,6 +830,7 @@ mod tests {
         assert!(parse("[cursor]\nradius = 5\n").is_err());
         assert!(parse("[mouse]\ndrag-scroll-interval = 0\n").is_err());
         assert!(parse("[scroll]\nanimation-duration = 5000\n").is_err());
+        assert!(parse("[scroll]\nlines-per-notch = 0\n").is_err());
         assert!(parse("[glass]\nopacity = 1.5\n").is_err());
         assert!(parse("[glass]\nblur = 65\n").is_err());
         assert!(parse("[echo]\nlines = 1\n").is_err());
