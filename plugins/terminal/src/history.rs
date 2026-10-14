@@ -49,9 +49,11 @@ impl Commands {
         }
     }
 
-    /// Whether the shell reports its commands at all.
-    pub fn any(&self) -> bool {
-        self.current.is_some()
+    /// Whether a command typed at the last prompt runs now.
+    pub fn running(&self) -> bool {
+        self.current
+            .and_then(|id| self.by_prompt.get(&id))
+            .is_some_and(|command| command.started.is_some() && command.finished.is_none())
     }
 
     fn current_mut(&mut self) -> Option<&mut Command> {
@@ -120,14 +122,17 @@ mod tests {
         let mut commands = Commands::default();
         commands.apply(Mark::Prompt(1), start);
         assert_eq!(commands.mark(1), None);
+        assert!(!commands.running());
         commands.apply(Mark::Started, start);
         assert_eq!(commands.mark(1).unwrap().exit, None);
+        assert!(commands.running());
         commands.apply(
             Mark::Finished(Some(101)),
             start + Duration::from_millis(2_800),
         );
         let mark = commands.mark(1).unwrap();
         assert_eq!(mark.exit, Some(101));
+        assert!(!commands.running());
         assert!(mark.detail.starts_with("exit 101 · 2.8 s · finished "));
         // An empty command line runs nothing.
         commands.apply(Mark::Prompt(2), start);

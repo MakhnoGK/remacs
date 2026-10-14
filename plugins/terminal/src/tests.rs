@@ -224,6 +224,28 @@ fn commands_the_shell_reports_are_marked_by_their_prompt() {
         .filter_map(|row| row.mark.as_ref().map(|mark| mark.exit))
         .collect();
     assert_eq!(marked, vec![Some(7)]);
+    assert!(screen.gutter, "room for the mark");
+}
+
+#[test]
+fn the_marks_take_room_only_while_one_shows_and_no_program_draws_its_own() {
+    // A finished command is marked; the next runs a program that takes the keys as
+    // Claude Code does, drawing in place.
+    let script = r"printf '\033]133;A\007P1> \033]133;C\007\nout\n\033]133;D;0\007\033]133;A\007P2> \033]133;C\007'; sleep 1; printf '\033[?2004h\033[>5utui'; sleep 1; printf '\033[?2004l\033[<u\033[2J\033[Hclear'; sleep 5";
+    let mut editor = editor(&format!(
+        "shell = \"/bin/sh\"\nargs = [\"-c\", {script:?}]\n"
+    ));
+    press(&mut editor, "C-`");
+    wait_for(&mut editor, "the mark", |screen| {
+        text(screen).contains("P2>") && screen.gutter
+    });
+    wait_for(&mut editor, "the program", |screen| {
+        text(screen).contains("tui") && !screen.gutter
+    });
+    // Left the keys, but cleared the screen: no mark shows.
+    wait_for(&mut editor, "no mark", |screen| {
+        text(screen).contains("clear") && !screen.gutter
+    });
 }
 
 /// A terminal in the panel running `script` in sh, its buffer's name.

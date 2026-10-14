@@ -5,6 +5,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use alacritty_terminal::grid::{Dimensions, Scroll};
+use alacritty_terminal::term::TermMode;
 use remacs_core::{
     Buffer, CommandResult, Editor, Key, KeyCode, Pane, PaneBody, PaneButton, Screen, ScreenBanner,
     ScreenMouse, ScreenNotice, ScreenPadding, ScreenPointer, ScreenSize, ScreenSource, StatusItem,
@@ -15,6 +16,7 @@ use remacs_files::links::follow;
 
 use crate::copy::{self, Outcome};
 use crate::grid::{Overlay, rows};
+use crate::history::Commands;
 use crate::keys::encode;
 use crate::links::link_at;
 use crate::mouse;
@@ -101,6 +103,10 @@ impl ScreenSource for TerminalScreens {
             link: terminal.link.as_ref().map(|link| &link.cells),
         };
         let (rows, cursor) = rows(&term, &overlay);
+        // Room for the marks only while one shows, so that the text is not pushed aside
+        // by an empty column.
+        let gutter = !program_has_screen(*term.mode(), &terminal.commands)
+            && rows.iter().any(|row| row.mark.is_some());
         let banner = match terminal.phase {
             Phase::Exited(code) => Some(ScreenBanner {
                 text: format!("Process exited with code {code}"),
@@ -123,7 +129,7 @@ impl ScreenSource for TerminalScreens {
             search: copying
                 .and_then(|copy| copy.search.as_ref())
                 .map(copy::search_bar),
-            gutter: terminal.commands.any(),
+            gutter,
             above: term.grid().history_size() > term.grid().display_offset(),
             flash: terminal.rang.is_some_and(|rang| rang.elapsed() < FLASH),
             pointing: terminal.link.is_some(),
@@ -177,6 +183,17 @@ fn focus(editor: &mut Editor, id: u64) {
     } else if in_window(editor) == Some(id) {
         editor.focus_pane(false);
     }
+}
+
+/// Whether a program draws its own interface: one on the alternate screen, like vim, or a
+/// command that took over keys or the mouse to draw in place, like Claude Code. Shells
+/// turn these modes off before running a command, so a running one turned them on.
+fn program_has_screen(mode: TermMode, commands: &Commands) -> bool {
+    let interactive = TermMode::BRACKETED_PASTE
+        | TermMode::FOCUS_IN_OUT
+        | TermMode::MOUSE_MODE
+        | TermMode::KITTY_KEYBOARD_PROTOCOL;
+    mode.contains(TermMode::ALT_SCREEN) || (commands.running() && mode.intersects(interactive))
 }
 
 /// In place of the rows: the shell starting, or why it could not.

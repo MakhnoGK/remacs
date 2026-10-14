@@ -47,7 +47,10 @@ TermShared, TermCopy, TermShell, TermStates)
   OSC 133 (prompt, command start, exit code), as fish 4 prints. A prompt's cells are
   tagged with a hyperlink of our own (`remacs-prompt:<id>`), so its mark stays with its row
   through scrolling and rewrapping; marks are ✓ or ✗ with the code, a bar down the output,
-  the code, duration and time on hover.
+  the code, duration and time on hover. Their column takes room only while a mark shows
+  and no program draws its own interface — on the alternate screen, or a running command
+  that turned on bracketed paste, focus events, the mouse or kitty keys, as Claude Code
+  does in place (user, 2026-10-14); else the text keeps even padding on both sides.
 - **Ended shells stay** with their screen and a banner: ↵ restarts in the last
   directory, `q` closes; `close-on-exit` closes at once. **Closing kills** (user's
   choice: no restoring): SIGHUP to the shell's and the foreground process groups,
