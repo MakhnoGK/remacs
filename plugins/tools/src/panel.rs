@@ -6,6 +6,7 @@ use std::borrow::Cow;
 use remacs_core::{Candidate, Command, CommandResult, Completions, Editor, Keymap, Prompt};
 use remacs_files::abbreviate_home;
 
+use crate::catalog::ToolKind;
 use crate::state::{self, Entry, Progress, Tools, tools};
 
 pub const OPEN: &str = "tools";
@@ -72,7 +73,7 @@ impl Action {
 fn action(tools: &Tools, entry: &Entry) -> Action {
     match &entry.progress {
         _ if tools.own_program(entry.tool.name).is_some() => Action::OpenSettings,
-        Progress::Downloading { .. } | Progress::Unpacking { .. } => Action::Cancel,
+        Progress::Downloading { .. } | Progress::Installing { .. } => Action::Cancel,
         Progress::Failed(_) => Action::Install,
         Progress::Idle if entry.installed.is_none() => Action::Install,
         Progress::Idle if entry.update.is_some() => Action::Update,
@@ -120,7 +121,7 @@ fn completions(editor: &Editor) -> Completions {
         .map(|entry| candidate(tools, entry))
         .collect();
     Completions {
-        subject: Some("Debug adapters and language servers, downloaded on first use".into()),
+        subject: Some("Debug adapters and language servers remacs downloads".into()),
         ..candidates.into()
     }
 }
@@ -138,22 +139,22 @@ fn candidate(tools: &Tools, entry: &Entry) -> Candidate {
             },
             _,
         )
-        | (_, Progress::Unpacking { version }, _)
-        | (_, _, Some(version)) => format!("{version} · GitHub releases"),
-        _ => "GitHub releases".into(),
+        | (_, Progress::Installing { version }, _)
+        | (_, _, Some(version)) => format!("{version} · {}", entry.tool.origin()),
+        _ => entry.tool.origin().into(),
     };
     Candidate {
         value: name.into(),
         label: name.into(),
         annotation,
-        detail: Some(Cow::Owned(describe(entry, own.is_some()))),
+        detail: Some(Cow::Owned(describe(tools, entry, own.is_some()))),
         keys: vec![action(tools, entry).key().into()],
         group: Some(entry.tool.kind.group().into()),
         ..Candidate::default()
     }
 }
 
-fn describe(entry: &Entry, own: bool) -> String {
+fn describe(tools: &Tools, entry: &Entry, own: bool) -> String {
     match &entry.progress {
         _ if own => "Set in tools.toml".into(),
         Progress::Downloading { percent: None, .. } => "Looking up the release…".into(),
@@ -161,12 +162,18 @@ fn describe(entry: &Entry, own: bool) -> String {
             percent: Some(percent),
             ..
         } => format!("Downloading {percent}%"),
-        Progress::Unpacking { .. } => "Unpacking…".into(),
+        Progress::Installing { .. } => "Installing…".into(),
         Progress::Failed(error) => format!("Failed: {error}"),
         Progress::Idle => match (&entry.installed, &entry.update) {
             (Some(_), Some(update)) => format!("Update available · {update}"),
             (Some(_), None) => "Installed".into(),
-            (None, _) => "Downloaded on first use".into(),
+            (None, _) if !tools.can_install(entry.tool) => {
+                format!("Needs {} on PATH", tools.needs(entry.tool).join(", "))
+            }
+            (None, _) if entry.tool.kind == ToolKind::DebugAdapter => {
+                "Downloaded on first use".into()
+            }
+            (None, _) => "Not installed".into(),
         },
     }
 }
@@ -178,8 +185,10 @@ fn selected(editor: &Editor) -> Result<&'static str, &'static str> {
         .and_then(|minibuffer| minibuffer.selected_candidate())
         .map(|candidate| candidate.value.as_str())
         .ok_or("No tool")?;
-    crate::catalog::find(value)
-        .map(|tool| tool.name)
+    editor
+        .find_plugin_state::<Tools>()
+        .and_then(|tools| tools.entry(value))
+        .map(|entry| entry.tool.name)
         .ok_or("No tool")
 }
 

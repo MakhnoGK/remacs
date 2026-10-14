@@ -1,0 +1,62 @@
+# How remacs installs packages, for the tools that come from one. In the commands and
+# paths: {dir} is the version's own directory, {package}, {version} and {program} the
+# tool's; {arch} and {target} tell this Mac's builds apart. `needs` must be on PATH, else
+# the installer's tools are not offered. `latest` looks up the newest version, by a
+# command's output or a JSON answer and the pointer to its version; without it, a tool is
+# installed as version "latest". `env` is for the commands, `run-env` for the program.
+
+[npm]
+needs = ["npm"]
+latest = { command = ["npm", "view", "{package}@latest", "version"] }
+install = [
+    ["npm", "install", "--no-audit", "--no-fund", "--no-package-lock", "--prefix", "{dir}", "{package}@{version}"],
+]
+program = "node_modules/.bin/{program}"
+
+[go]
+needs = ["go"]
+latest = { url = "https://proxy.golang.org/{package}/@latest", version = "/Version" }
+install = [["go", "install", "{package}@{version}"]]
+env = { GOBIN = "{dir}/bin" }
+program = "bin/{program}"
+
+[pip]
+needs = ["python3"]
+latest = { url = "https://pypi.org/pypi/{package}/json", version = "/info/version" }
+install = [
+    ["python3", "-m", "venv", "{dir}/venv"],
+    ["{dir}/venv/bin/pip", "install", "--quiet", "--disable-pip-version-check", "{package}=={version}"],
+]
+program = "venv/bin/{program}"
+
+[gem]
+needs = ["gem"]
+latest = { url = "https://rubygems.org/api/v1/versions/{package}/latest.json", version = "/version" }
+install = [
+    ["gem", "install", "--no-document", "--install-dir", "{dir}", "--bindir", "{dir}/bin", "{package}", "--version", "{version}"],
+]
+program = "bin/{program}"
+run-env = { GEM_HOME = "{dir}", GEM_PATH = "{dir}" }
+
+[dotnet]
+needs = ["dotnet"]
+latest = { url = "https://azuresearch-usnc.nuget.org/query?q=packageid:{package}&prerelease=false", version = "/data/0/version" }
+install = [["dotnet", "tool", "install", "{package}", "--tool-path", "{dir}", "--version", "{version}"]]
+program = "{program}"
+
+[cargo]
+needs = ["cargo"]
+latest = { url = "https://crates.io/api/v1/crates/{package}", version = "/crate/max_stable_version" }
+install = [["cargo", "install", "--locked", "--root", "{dir}", "{package}", "--version", "{version}"]]
+program = "bin/{program}"
+
+# A .tar.gz at a URL, the package; unversioned.
+[url]
+needs = ["curl", "tar"]
+install = [["sh", "-c", "curl -fsSL \"$0\" | tar -xz -C \"$1\"", "{package}", "{dir}"]]
+program = "{program}"
+
+[coursier]
+needs = ["cs"]
+install = [["cs", "install", "--install-dir", "{dir}", "{package}"]]
+program = "{program}"

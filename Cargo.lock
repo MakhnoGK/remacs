@@ -4119,6 +4119,7 @@ dependencies = [
  "remacs-prettier",
  "remacs-rename",
  "remacs-syntax",
+ "remacs-tools",
  "remacs-xref",
  "tree-sitter",
  "tree-sitter-bash",
@@ -4162,13 +4163,17 @@ dependencies = [
  "lsp-types",
  "remacs-actions",
  "remacs-completion",
+ "remacs-config",
  "remacs-core",
  "remacs-diagnostics",
  "remacs-dired",
  "remacs-documentation",
+ "remacs-editing",
  "remacs-format",
+ "remacs-minibuffer",
  "remacs-rename",
  "remacs-text",
+ "remacs-tools",
  "remacs-xref",
  "serde",
  "serde_json",
@@ -4291,6 +4296,7 @@ dependencies = [
  "remacs-minibuffer",
  "serde",
  "serde_json",
+ "toml 1.1.6+spec-1.1.0",
 ]
 
 [[package]]

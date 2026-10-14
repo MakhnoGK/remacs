@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use remacs_core::Section;
 use serde::Deserialize;
 
-use crate::catalog;
+use crate::installers::Installer;
 
 /// `tools.toml`.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -12,6 +12,8 @@ pub struct ToolsSettings {
     /// Newer releases of the tools installed are looked for when the Tools panel opens.
     pub check_updates: bool,
     pub tools: BTreeMap<String, ToolSettings>,
+    /// Installers of one's own, or changes to the built-in ones, by name.
+    pub installers: BTreeMap<String, Installer>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
@@ -28,6 +30,7 @@ impl Default for ToolsSettings {
         Self {
             check_updates: true,
             tools: BTreeMap::new(),
+            installers: BTreeMap::new(),
         }
     }
 }
@@ -40,11 +43,4 @@ impl ToolsSettings {
 
 impl Section for ToolsSettings {
     const NAME: &str = "tools";
-
-    fn check(&self) -> Result<(), String> {
-        match self.tools.keys().find(|name| catalog::find(name).is_none()) {
-            Some(name) => Err(format!("no tool is called {name}")),
-            None => Ok(()),
-        }
-    }
 }

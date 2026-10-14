@@ -1,9 +1,6 @@
 //! Which debug adapter debugs a configuration, what is done before it starts, and what it
 //! is asked to launch.
 
-use std::env;
-use std::path::Path;
-
 use remacs_run::{Configuration, Kind, Launch};
 use serde_json::{Map, Value, json};
 
@@ -107,7 +104,8 @@ pub fn plan(configuration: &Configuration, launch: &Launch) -> Result<(Adapter, 
             Adapter::CodeLldb
         }
         Kind::Executable { .. } => {
-            target.program = on_path(&target.program)
+            target.program = remacs_tools::find_on_path(&target.program)
+                .map(|path| path.display().to_string())
                 .ok_or_else(|| format!("{} is not on PATH", target.program))?;
             Adapter::CodeLldb
         }
@@ -119,21 +117,4 @@ pub fn plan(configuration: &Configuration, launch: &Launch) -> Result<(Adapter, 
         target,
     };
     Ok((adapter, plan))
-}
-
-/// `program` as a path: itself if it has a slash, else where `PATH` finds it.
-fn on_path(program: &str) -> Option<String> {
-    if program.contains('/') {
-        return Some(program.to_owned());
-    }
-    env::split_paths(&env::var_os("PATH")?)
-        .map(|dir| dir.join(program))
-        .find(|path| is_executable(path))
-        .map(|path| path.display().to_string())
-}
-
-fn is_executable(path: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    path.metadata()
-        .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
 }

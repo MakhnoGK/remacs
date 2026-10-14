@@ -13,15 +13,17 @@ use remacs_core::{Editor, Notifier};
 use remacs_diagnostics::{self as diagnostics, Diagnostic, Severity};
 use remacs_format::{Failure, Request as FormatRequest};
 use remacs_text::Snapshot;
+use remacs_tools::Program;
 use serde_json::json;
 
 use crate::LanguageServer;
+use crate::catalog::{ServerSpec, has_file};
 use crate::client::{Answer, Client, Outgoing, Published, Question};
 use crate::completion::Origin;
 use crate::markdown::CodeModes;
 use crate::position::{Encoding, from_lsp};
-use crate::settings::{LspSettings, ServerSettings};
-use crate::{code_action, definition, uri};
+use crate::settings::LspSettings;
+use crate::{code_action, definition, offer, uri};
 
 /// Servers hold whole files in memory and reparse them; larger ones stay unsynced.
 const MAX_SYNCED_BYTES: usize = 16 << 20;
@@ -361,8 +363,20 @@ pub(crate) struct Clients {
     failed: HashSet<&'static str>,
     /// Per server, directories lacking its required files, so they are looked for once.
     declined: HashMap<&'static str, HashSet<PathBuf>>,
-    /// What servers start with.
+    /// Per server, directories of files that wanted it while its program was nowhere.
+    missing: HashMap<&'static str, (&'static LanguageServer, HashSet<PathBuf>)>,
     settings: LspSettings,
+    /// The servers, once built from the catalog and `lsp.toml`.
+    servers: Option<&'static [LanguageServer]>,
+    /// What they were built from, to tell which changed.
+    specs: BTreeMap<String, ServerSpec>,
+}
+
+/// Why a server wanted for a file is not running for it.
+pub(crate) enum NotStarted {
+    /// Its program is on neither `PATH` nor in `node_modules`, nor downloaded.
+    Missing,
+    Failed(String),
 }
 
 impl Clients {
@@ -384,31 +398,62 @@ impl Clients {
         started
     }
 
-    /// Whether `server` is known not to serve `path`: it is turned off, it could not start,
-    /// or the file's project lacks what it requires.
-    fn passes_over(&self, server: &LanguageServer, path: &Path) -> bool {
-        !self.settings.enabled(server.name)
-            || self.failed.contains(server.name)
-            || path.parent().is_some_and(|directory| {
-                self.declined
-                    .get(server.name)
-                    .is_some_and(|declined| declined.contains(directory))
-            })
+    pub(crate) fn settings(&self) -> &LspSettings {
+        &self.settings
     }
 
-    /// The server for `path`'s project, started on first use; `Err` the one time it fails
-    /// to start. `None` for a server that failed or that the file's project does not use.
+    pub(crate) fn servers(&self) -> Option<&'static [LanguageServer]> {
+        self.servers
+    }
+
+    /// Whether `server` is known not to serve `path`: it could not start, its program is
+    /// missing, or the file's project is not one it serves.
+    pub(crate) fn passes_over(&self, server: &LanguageServer, path: &Path) -> bool {
+        let known = |directories: Option<&HashSet<PathBuf>>| {
+            path.parent()
+                .is_some_and(|directory| directories.is_some_and(|known| known.contains(directory)))
+        };
+        self.failed.contains(server.name)
+            || known(self.declined.get(server.name))
+            || known(
+                self.missing
+                    .get(server.name)
+                    .map(|(_, directories)| directories),
+            )
+    }
+
+    /// The servers whose programs were missing for files in `directory`.
+    pub(crate) fn missing_in(
+        &self,
+        directory: &Path,
+    ) -> impl Iterator<Item = &'static LanguageServer> {
+        self.missing
+            .values()
+            .filter(move |(_, directories)| directories.contains(directory))
+            .map(|&(server, _)| server)
+    }
+
+    /// Looks for server `name`'s program again, e.g. once it was downloaded.
+    pub(crate) fn forget_missing(&mut self, name: &str) {
+        self.missing.remove(name);
+    }
+
+    /// The server for `path`'s project, started on first use; `Err` the one time it
+    /// fails to start or is found missing. `None` for a server that failed or is missing,
+    /// or that the file's project does not use. `downloaded` is the server's program as
+    /// remacs downloaded it, if it did.
     pub(crate) fn client_for(
         &mut self,
         server: &'static LanguageServer,
         path: &Path,
+        downloaded: Option<Program>,
         notifier: Notifier,
-    ) -> Result<Option<Rc<Client>>, String> {
+    ) -> Result<Option<Rc<Client>>, NotStarted> {
         if self.passes_over(server, path) {
             return Ok(None);
         }
         let directory = path.parent().unwrap_or(path);
-        if !server.required_files.is_empty() && !has_any(directory, server.required_files) {
+        if !server.when.holds(directory) {
             let declined = self.declined.entry(server.name).or_default();
             declined.insert(directory.to_path_buf());
             return Ok(None);
@@ -417,8 +462,15 @@ impl Clients {
         if let Some(client) = self.running.get(&(server.name, root.clone())) {
             return Ok(Some(Rc::clone(client)));
         }
-        let settings = self.settings.server(server.name);
-        match Client::start(server, settings, &root, notifier) {
+        let Some(Program { path: program, env }) = program(server, &root, downloaded) else {
+            let (_, missing) = self
+                .missing
+                .entry(server.name)
+                .or_insert_with(|| (server, HashSet::new()));
+            missing.insert(directory.to_path_buf());
+            return Err(NotStarted::Missing);
+        };
+        match Client::start(server, &program, &env, &root, notifier) {
             Ok(client) => {
                 let client = Rc::new(client);
                 self.running.insert((server.name, root), Rc::clone(&client));
@@ -426,27 +478,67 @@ impl Clients {
             }
             Err(error) => {
                 self.failed.insert(server.name);
-                let command = settings
-                    .and_then(ServerSettings::command)
-                    .unwrap_or_else(|| server.command.into());
-                Err(format!("{}: {error}", command.display()))
+                let error = format!("{}: {error}", program.display());
+                Err(NotStarted::Failed(error))
             }
         }
     }
 }
 
-/// Puts `settings` in place for servers started from now on; returns the previous ones.
-pub(crate) fn replace_settings(editor: &mut Editor, settings: LspSettings) -> LspSettings {
-    mem::replace(&mut editor.plugin_state::<Clients>().settings, settings)
+/// The program set in `lsp.toml`; else the project's own copy in `node_modules/.bin` of
+/// the root or above, for servers that prefer it; else the command found on `PATH`; else
+/// the one remacs downloaded.
+fn program(server: &LanguageServer, root: &Path, downloaded: Option<Program>) -> Option<Program> {
+    let own = |path: PathBuf| Program {
+        path,
+        env: Vec::new(),
+    };
+    if let Some(program) = server.own_program {
+        return Some(own(program.to_path_buf()));
+    }
+    server
+        .node_modules
+        .then(|| {
+            root.ancestors()
+                .map(|directory| directory.join("node_modules/.bin").join(server.command))
+                .find(|program| program.is_file())
+        })
+        .flatten()
+        .or_else(|| remacs_tools::find_on_path(server.command))
+        .map(own)
+        .or(downloaded)
 }
 
-/// Stops server `name` everywhere and forgets that it failed; the next sync starts it
-/// again where it is wanted. Its files are closed and the processes, left without
-/// clients, exit as their input closes.
+/// Puts the servers built from `specs` in place, with the `lsp.toml` they came from;
+/// returns the names of the servers before them that changed or are gone.
+pub(crate) fn replace_catalog(
+    editor: &mut Editor,
+    settings: LspSettings,
+    servers: &'static [LanguageServer],
+    specs: BTreeMap<String, ServerSpec>,
+) -> Vec<&'static str> {
+    let clients = editor.plugin_state::<Clients>();
+    let changed = clients
+        .servers
+        .unwrap_or_default()
+        .iter()
+        .filter(|server| clients.specs.get(server.name) != specs.get(server.name))
+        .map(|server| server.name)
+        .collect();
+    clients.settings = settings;
+    clients.servers = Some(servers);
+    clients.specs = specs;
+    changed
+}
+
+/// Stops server `name` everywhere and forgets that it failed or was missing; the next
+/// sync starts it again where it is wanted. Its files are closed and the processes, left
+/// without clients, exit as their input closes.
 pub(crate) fn restart(editor: &mut Editor, name: &'static str) {
     let clients = editor.plugin_state::<Clients>();
     clients.running.retain(|(server, _), _| *server != name);
     clients.failed.remove(name);
+    clients.missing.remove(name);
     detach(editor, name);
 }
 
@@ -758,25 +850,40 @@ fn send_formats(editor: &mut Editor) {
     }
 }
 
+/// The servers for `mode` that may serve `path`, in the servers' order: of a group of
+/// alternatives, only the first not known to pass it over.
+pub(crate) fn wanted(
+    servers: &'static [LanguageServer],
+    clients: Option<&Clients>,
+    mode: &str,
+    path: &Path,
+) -> Vec<(&'static LanguageServer, &'static str)> {
+    let mut groups = HashSet::new();
+    servers
+        .iter()
+        .filter_map(|server| Some((server, server.language_id(mode)?)))
+        .filter(|(server, _)| !clients.is_some_and(|clients| clients.passes_over(server, path)))
+        .filter(|(server, _)| server.group.is_none_or(|group| groups.insert(group)))
+        .collect()
+}
+
 /// Opens the buffer's file on every server for its mode that could start, in the servers'
-/// order; closes it on those that no longer serve its file or mode.
+/// order; closes it on those that no longer serve its file or mode. A group's server
+/// found missing makes way for the next of the group at once.
 fn attach(editor: &mut Editor, index: usize, servers: &'static [LanguageServer]) {
+    while attach_once(editor, index, servers) {}
+}
+
+/// `attach`; true when a server of a group was found missing.
+fn attach_once(editor: &mut Editor, index: usize, servers: &'static [LanguageServer]) -> bool {
     let buffer = &editor.buffers()[index];
     let path = buffer
         .path()
         .filter(|_| buffer.text().len() <= MAX_SYNCED_BYTES);
     let clients = editor.find_plugin_state::<Clients>();
-    let wanted: Vec<_> = path
-        .into_iter()
-        .flat_map(|path| {
-            servers
-                .iter()
-                .filter_map(|server| Some((server, server.language_id(buffer.mode())?)))
-                .filter(move |(server, _)| {
-                    !clients.is_some_and(|clients| clients.passes_over(server, path))
-                })
-        })
-        .collect();
+    let wanted = path.map_or_else(Vec::new, |path| {
+        wanted(servers, clients, buffer.mode(), path)
+    });
     let attached = buffer
         .local::<Documents>()
         .map_or(&[][..], |documents| &documents.list);
@@ -786,7 +893,7 @@ fn attach(editor: &mut Editor, index: usize, servers: &'static [LanguageServer])
             .zip(&wanted)
             .all(|(document, &(server, language))| document.serves(server, language, path))
     {
-        return;
+        return false;
     }
     let path = path.map(Path::to_path_buf);
     let buffer = &mut editor.buffers_mut()[index];
@@ -805,6 +912,7 @@ fn attach(editor: &mut Editor, index: usize, servers: &'static [LanguageServer])
         diagnostics::clear(buffer, document.server.name);
     }
     let mut list = Vec::new();
+    let mut next_of_group = false;
     for (server, language) in wanted {
         if let Some(position) = kept
             .iter()
@@ -814,8 +922,12 @@ fn attach(editor: &mut Editor, index: usize, servers: &'static [LanguageServer])
             continue;
         }
         let path = path.clone().expect("servers are wanted for files only");
-        if let Some(document) = open(editor, index, server, language, path) {
-            list.push(document);
+        match open(editor, index, server, language, path.clone()) {
+            Some(document) => list.push(document),
+            None => {
+                next_of_group |= server.group.is_some()
+                    && editor.plugin_state::<Clients>().passes_over(server, &path);
+            }
         }
     }
     let buffer = &mut editor.buffers_mut()[index];
@@ -827,6 +939,7 @@ fn attach(editor: &mut Editor, index: usize, servers: &'static [LanguageServer])
             gathering: None,
         });
     }
+    next_of_group
 }
 
 /// Opens buffer `index`'s file on `server`, starting it for the file's project first.
@@ -838,12 +951,20 @@ fn open(
     path: PathBuf,
 ) -> Option<Document> {
     let notifier = editor.notifier();
+    let downloaded = server
+        .tool
+        .and_then(|tool| remacs_tools::installed(editor, tool.name));
     let client = match editor
         .plugin_state::<Clients>()
-        .client_for(server, &path, notifier)
+        .client_for(server, &path, downloaded, notifier)
     {
         Ok(client) => client?,
-        Err(message) => {
+        Err(NotStarted::Missing) => {
+            let mode = editor.buffers()[index].mode();
+            offer::missing(editor, server, &path, mode);
+            return None;
+        }
+        Err(NotStarted::Failed(message)) => {
             editor.set_error(message);
             return None;
         }
@@ -867,27 +988,14 @@ fn open(
     Some(document)
 }
 
-/// Whether one of `files` is in `directory` or above, up to the Git work tree.
-fn has_any(directory: &Path, files: &[&str]) -> bool {
-    for ancestor in directory.ancestors() {
-        if files.iter().any(|file| ancestor.join(file).exists()) {
-            return true;
-        }
-        if ancestor.join(".git").exists() {
-            return false;
-        }
-    }
-    false
-}
-
 /// The outermost directory with a root marker inside the Git work tree; else the work
 /// tree, else the file's directory. One server then covers a whole Cargo workspace or
 /// monorepo.
-fn project_root(path: &Path, markers: &[&str]) -> PathBuf {
+pub(crate) fn project_root(path: &Path, markers: &[&str]) -> PathBuf {
     let directory = path.parent().unwrap_or(path);
     let mut outermost = None;
     for ancestor in directory.ancestors() {
-        if markers.iter().any(|marker| ancestor.join(marker).exists()) {
+        if markers.iter().any(|marker| has_file(ancestor, marker)) {
             outermost = Some(ancestor);
         }
         if ancestor.join(".git").exists() {

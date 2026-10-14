@@ -71,10 +71,25 @@ mod tests {
 
     #[test]
     fn servers_serve_known_modes() {
-        for server in SERVERS {
+        let servers = remacs_lsp::catalog_servers(SERVERS).unwrap();
+        for server in &servers {
             for (mode, _) in server.languages {
-                assert!(MODES.iter().any(|known| known.name == *mode), "{mode}");
+                let known = MODES.iter().any(|known| known.name == *mode);
+                assert!(known, "{}: {mode}", server.name);
             }
+        }
+    }
+
+    #[test]
+    fn every_mode_with_a_language_server_has_one_built_in() {
+        let servers = remacs_lsp::catalog_servers(SERVERS).unwrap();
+        // Make and diff have no language server worth running.
+        let without = ["Make", "Diff"];
+        for mode in MODES.iter().filter(|mode| !without.contains(&mode.name)) {
+            let served = servers
+                .iter()
+                .any(|server| server.languages.iter().any(|(name, _)| *name == mode.name));
+            assert!(served, "{}", mode.name);
         }
     }
 }

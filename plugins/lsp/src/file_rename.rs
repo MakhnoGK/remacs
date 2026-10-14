@@ -13,7 +13,7 @@ use remacs_core::{Editor, FileChange, FileEdits};
 
 use crate::LanguageServer;
 use crate::client::{Client, Outgoing};
-use crate::document::Clients;
+use crate::document::{self, Clients};
 use crate::uri;
 use crate::workspace_edit::file_edits;
 
@@ -144,13 +144,22 @@ pub(crate) fn clients_for(
     }
     let mode = editor.mode_for(Some(path));
     let notifier = editor.notifier();
+    let clients = editor.find_plugin_state::<Clients>();
+    let wanted: Vec<_> = document::wanted(servers, clients, mode, path)
+        .into_iter()
+        .map(|(server, _)| {
+            let downloaded = server
+                .tool
+                .and_then(|tool| remacs_tools::installed(editor, tool.name));
+            (server, downloaded)
+        })
+        .collect();
     let clients = editor.plugin_state::<Clients>();
-    servers
-        .iter()
-        .filter(|server| server.language_id(mode).is_some())
-        .filter_map(|server| {
+    wanted
+        .into_iter()
+        .filter_map(|(server, downloaded)| {
             clients
-                .client_for(server, path, Arc::clone(&notifier))
+                .client_for(server, path, downloaded, Arc::clone(&notifier))
                 .ok()
                 .flatten()
         })

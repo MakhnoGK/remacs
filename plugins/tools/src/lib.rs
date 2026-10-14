@@ -1,14 +1,19 @@
-//! Built-in plugin: the programs remacs runs but does not ship, like debug adapters,
-//! downloaded from their GitHub releases the first time they are needed. Each is checked
-//! against the release's checksum and kept under `~/.config/remacs/cache/tools/`, one
-//! directory per version; `tools.toml` can pin a version or name a program of one's own.
+//! Built-in plugin: the programs remacs runs but does not ship, like debug adapters and
+//! language servers, downloaded from their GitHub releases or installed by a package
+//! manager (npm, go, pip…, see `installers.toml`) when they are first wanted. A download
+//! is checked against the release's checksum; all are kept under
+//! `~/.config/remacs/cache/tools/`, one directory per version; `tools.toml` can pin a
+//! version, name a program of one's own, or add an installer.
 
 mod catalog;
 mod install;
+mod installers;
 mod panel;
 mod settings;
 mod state;
 
+use std::env;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -18,7 +23,8 @@ use remacs_core::{Editor, MenuItem, Plugin, Registry, StatusItem, StatusSegment,
 use crate::settings::ToolsSettings;
 use crate::state::{Progress, Tools, tools};
 
-pub use catalog::{CODELLDB, JS_DEBUG, Tool, ToolKind};
+pub use catalog::{CODELLDB, InstallSpec, JS_DEBUG, Tool, ToolKind};
+pub use state::Program;
 
 pub struct ToolsPlugin;
 
@@ -56,12 +62,54 @@ pub fn ensure(
     state::ensure(editor, name, Box::new(then));
 }
 
+/// The program of the tool called `name` if it is there, without downloading it.
+pub fn installed(editor: &Editor, name: &str) -> Option<Program> {
+    editor.find_plugin_state::<Tools>()?.installed_program(name)
+}
+
+/// Whether `tool` can be installed here, e.g. npm is there for an npm package.
+pub fn can_install(editor: &Editor, tool: &Tool) -> bool {
+    editor
+        .find_plugin_state::<Tools>()
+        .is_some_and(|tools| tools.can_install(tool))
+}
+
+/// Makes `tools` the tools of `kind`, e.g. the language servers of the servers' catalog;
+/// `tools.toml` naming a tool that is none of them is an error.
+pub fn provide(editor: &mut Editor, kind: ToolKind, tools: &[&'static Tool]) {
+    let state = self::tools(editor);
+    state.provide(kind, tools);
+    let unknown = state
+        .settings
+        .tools
+        .keys()
+        .find(|name| state.entry(name).is_none())
+        .cloned();
+    if let Some(name) = unknown {
+        editor.set_error(format!("tools.toml: no tool is called {name}"));
+    }
+}
+
+/// `program` as a path: itself if it has a slash, else where `PATH` finds it.
+pub fn find_on_path(program: &str) -> Option<PathBuf> {
+    if program.contains('/') {
+        return Some(PathBuf::from(program));
+    }
+    env::split_paths(&env::var_os("PATH")?)
+        .map(|dir| dir.join(program))
+        .find(|path| is_executable(path))
+}
+
+fn is_executable(path: &Path) -> bool {
+    path.metadata()
+        .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+}
+
 fn read_settings(editor: &mut Editor) {
     let settings = editor.settings_section::<ToolsSettings>();
     let tools = tools(editor);
     if tools.settings != settings {
-        tools.settings = settings;
-        tools.scan();
+        tools.set_settings(settings);
     }
 }
 
@@ -85,7 +133,7 @@ fn status(editor: &Editor) -> Option<StatusSegment> {
                 Some(format!("Downloading {name} {version} — {percent}%"))
             }
             Progress::Downloading { percent: None, .. } => Some(format!("Looking up {name}…")),
-            Progress::Unpacking { version } => Some(format!("Unpacking {name} {version}…")),
+            Progress::Installing { version } => Some(format!("Installing {name} {version}…")),
             Progress::Idle | Progress::Failed(_) => None,
         }
     })?;

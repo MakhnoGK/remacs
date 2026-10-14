@@ -1,0 +1,417 @@
+# The built-in language servers, in the order they serve a file: a language's own server
+# answers questions such as completion; add-ons after it (linters, Tailwind) check the
+# file and offer actions beside it. `lsp.toml` changes any of them, by name, or adds
+# servers of its own in the same form.
+#
+# languages     major modes and their LSP language ids
+# when          the server serves only projects where one of these holds: `files` there
+#               (`*` matches any part of a name), `dependencies` of a package.json
+#               (`@scope/*` a whole scope), or text a file `contains`
+# group         alternatives for the same languages: the first found serves, and a project
+#               lacking all of them is offered a choice
+# node-modules  the project's own copy in node_modules/.bin comes first
+# install       where it is downloaded from when a project wants it and it is nowhere:
+#               `from = "github"` with `package` (owner/name), `asset`, `tag-prefix`; or
+#               an installer of tools.toml (npm, go, pip, gem, dotnet, cargo, coursier,
+#               url) with its `package`; `program` when it is not the command; `needs`,
+#               programs it runs with; `arch`, what the builds call Apple silicon and Intel
+# Without `install`, a server runs only when it is on PATH: one that comes with its
+# language's own tools, like sourcekit-lsp or dart.
+
+[[servers]]
+name = "rust-analyzer"
+command = "rust-analyzer"
+languages = { Rust = "rust" }
+root-markers = ["Cargo.toml"]
+# Calls complete to `f()` with point inside, not to argument names to type over.
+initialization-options = { completion = { callable = { snippets = "add_parentheses" } } }
+reports-loading = true
+install = { from = "github", package = "rust-lang/rust-analyzer", asset = "rust-analyzer-{target}.gz" }
+
+[[servers]]
+name = "clangd"
+command = "clangd"
+args = ["--function-arg-placeholders=0"]
+languages = { C = "c", "C++" = "cpp", "Objective-C" = "objective-c" }
+root-markers = ["compile_commands.json", "compile_flags.txt", ".clangd"]
+# A universal build, with the compiler headers it needs beside it.
+install = { from = "github", package = "clangd/clangd", asset = "clangd-mac-{tag}.zip", program = "clangd_{version}/bin/clangd" }
+
+# TypeScript 7's own server, native and much leaner than typescript-language-server. A
+# project's own `tsc` is mostly TypeScript 5, which has no `--lsp`.
+[[servers]]
+name = "tsc"
+command = "tsc"
+args = ["--lsp", "--stdio"]
+languages = { TypeScript = "typescript", TSX = "typescriptreact", JavaScript = "javascript", JSX = "javascriptreact" }
+root-markers = ["package.json", "tsconfig.json", "jsconfig.json"]
+pull-diagnostics = true
+install = { from = "npm", package = "typescript" }
+
+[[servers]]
+name = "vscode-html-language-server"
+command = "vscode-html-language-server"
+args = ["--stdio"]
+languages = { HTML = "html" }
+root-markers = ["package.json"]
+# Formats only when asked to provide it.
+initialization-options = { provideFormatter = true }
+install = { from = "npm", package = "vscode-langservers-extracted" }
+
+[[servers]]
+name = "vscode-css-language-server"
+command = "vscode-css-language-server"
+args = ["--stdio"]
+languages = { CSS = "css" }
+root-markers = ["package.json"]
+initialization-options = { provideFormatter = true }
+install = { from = "npm", package = "vscode-langservers-extracted" }
+
+[[servers]]
+name = "vscode-json-language-server"
+command = "vscode-json-language-server"
+args = ["--stdio"]
+languages = { JSON = "json" }
+initialization-options = { provideFormatter = true }
+install = { from = "npm", package = "vscode-langservers-extracted" }
+
+[[servers]]
+name = "tombi"
+command = "tombi"
+args = ["lsp"]
+languages = { TOML = "toml" }
+group = "toml"
+install = { from = "github", package = "tombi-toml/tombi", tag-prefix = "v", asset = "tombi-cli-{version}-{target}.tar.gz", program = "tombi-cli-{version}-{target}/tombi" }
+
+[[servers]]
+name = "taplo"
+command = "taplo"
+args = ["lsp", "stdio"]
+languages = { TOML = "toml" }
+group = "toml"
+install = { from = "github", package = "tamasfe/taplo", asset = "taplo-darwin-{cpu}.gz" }
+
+[[servers]]
+name = "yaml-language-server"
+command = "yaml-language-server"
+args = ["--stdio"]
+languages = { YAML = "yaml" }
+install = { from = "npm", package = "yaml-language-server" }
+
+[[servers]]
+name = "lemminx"
+command = "lemminx"
+languages = { XML = "xml" }
+install = { from = "github", package = "redhat-developer/vscode-xml", asset = "lemminx-osx-{arch}.zip", program = "lemminx-osx-{arch}", arch = ["aarch_64", "x86_64"] }
+
+[[servers]]
+name = "marksman"
+command = "marksman"
+args = ["server"]
+languages = { Markdown = "markdown" }
+install = { from = "github", package = "artempyanykh/marksman", asset = "marksman-macos" }
+
+[[servers]]
+name = "bash-language-server"
+command = "bash-language-server"
+args = ["start"]
+languages = { Bash = "shellscript" }
+install = { from = "npm", package = "bash-language-server" }
+
+[[servers]]
+name = "neocmakelsp"
+command = "neocmakelsp"
+args = ["stdio"]
+languages = { CMake = "cmake" }
+install = { from = "github", package = "Decodetalkers/neocmakelsp", tag-prefix = "v", asset = "neocmakelsp-universal-apple-darwin.tar.gz" }
+
+[[servers]]
+name = "sqls"
+command = "sqls"
+languages = { SQL = "sql" }
+group = "sql"
+install = { from = "github", package = "sqls-server/sqls", tag-prefix = "v", asset = "sqls-darwin-{version}.zip" }
+
+[[servers]]
+name = "postgres-language-server"
+command = "postgres-language-server"
+args = ["lsp-proxy"]
+languages = { SQL = "sql" }
+group = "sql"
+install = { from = "github", package = "supabase-community/postgres-language-server", asset = "postgres-language-server_{target}" }
+
+[[servers]]
+name = "basedpyright"
+command = "basedpyright-langserver"
+args = ["--stdio"]
+languages = { Python = "python" }
+root-markers = ["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt"]
+group = "python"
+# The wheel brings its own Node.
+install = { from = "pip", package = "basedpyright" }
+
+[[servers]]
+name = "pyright"
+command = "pyright-langserver"
+args = ["--stdio"]
+languages = { Python = "python" }
+root-markers = ["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt"]
+group = "python"
+install = { from = "npm", package = "pyright" }
+
+[[servers]]
+name = "ty"
+command = "ty"
+args = ["server"]
+languages = { Python = "python" }
+root-markers = ["pyproject.toml"]
+group = "python"
+install = { from = "github", package = "astral-sh/ty", asset = "ty-{target}.tar.gz", program = "ty-{target}/ty" }
+
+[[servers]]
+name = "pylsp"
+command = "pylsp"
+languages = { Python = "python" }
+root-markers = ["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt"]
+group = "python"
+install = { from = "pip", package = "python-lsp-server" }
+
+[[servers]]
+name = "gopls"
+command = "gopls"
+languages = { Go = "go" }
+root-markers = ["go.work", "go.mod"]
+install = { from = "go", package = "golang.org/x/tools/gopls" }
+
+[[servers]]
+name = "jdtls"
+command = "jdtls"
+languages = { Java = "java" }
+root-markers = ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle"]
+# Its launcher is a Python script; the server needs Java 21 or later.
+install = { from = "url", package = "https://download.eclipse.org/jdtls/snapshots/jdt-language-server-latest.tar.gz", program = "bin/jdtls", needs = ["java", "python3"] }
+
+[[servers]]
+name = "csharp-ls"
+command = "csharp-ls"
+languages = { "C#" = "csharp" }
+root-markers = ["*.sln", "*.csproj"]
+group = "csharp"
+install = { from = "dotnet", package = "csharp-ls" }
+
+[[servers]]
+name = "omnisharp"
+command = "OmniSharp"
+args = ["-lsp"]
+languages = { "C#" = "csharp" }
+root-markers = ["*.sln", "*.csproj"]
+group = "csharp"
+install = { from = "github", package = "OmniSharp/omnisharp-roslyn", tag-prefix = "v", asset = "omnisharp-osx-{arch}.tar.gz", needs = ["dotnet"] }
+
+# Comes with Xcode and its command line tools.
+[[servers]]
+name = "sourcekit-lsp"
+command = "sourcekit-lsp"
+languages = { Swift = "swift" }
+root-markers = ["Package.swift"]
+
+# Comes with the Dart and Flutter SDKs.
+[[servers]]
+name = "dart"
+command = "dart"
+args = ["language-server", "--protocol=lsp"]
+languages = { Dart = "dart" }
+root-markers = ["pubspec.yaml"]
+
+[[servers]]
+name = "metals"
+command = "metals"
+languages = { Scala = "scala" }
+root-markers = ["build.sbt", "build.sc", "build.mill"]
+install = { from = "coursier", package = "metals", needs = ["java"] }
+
+[[servers]]
+name = "intelephense"
+command = "intelephense"
+args = ["--stdio"]
+languages = { PHP = "php" }
+root-markers = ["composer.json"]
+group = "php"
+install = { from = "npm", package = "intelephense" }
+
+[[servers]]
+name = "phpactor"
+command = "phpactor"
+args = ["language-server"]
+languages = { PHP = "php" }
+root-markers = ["composer.json"]
+group = "php"
+install = { from = "github", package = "phpactor/phpactor", asset = "phpactor.phar", program = "phpactor", needs = ["php"] }
+
+[[servers]]
+name = "ruby-lsp"
+command = "ruby-lsp"
+languages = { Ruby = "ruby" }
+root-markers = ["Gemfile"]
+group = "ruby"
+install = { from = "gem", package = "ruby-lsp" }
+
+[[servers]]
+name = "solargraph"
+command = "solargraph"
+args = ["stdio"]
+languages = { Ruby = "ruby" }
+root-markers = ["Gemfile"]
+group = "ruby"
+install = { from = "gem", package = "solargraph" }
+
+[[servers]]
+name = "lua-language-server"
+command = "lua-language-server"
+languages = { Lua = "lua" }
+root-markers = [".luarc.json", ".luarc.jsonc"]
+install = { from = "github", package = "LuaLS/lua-language-server", asset = "lua-language-server-{version}-darwin-{arch}.tar.gz", program = "bin/lua-language-server" }
+
+# Its version must suit the project's Zig; the latest serves the latest Zig.
+[[servers]]
+name = "zls"
+command = "zls"
+languages = { Zig = "zig" }
+root-markers = ["build.zig"]
+install = { from = "github", package = "zigtools/zls", asset = "zls-{cpu}-macos.tar.xz", needs = ["zig"] }
+
+# Comes with GHCup, matched to the project's GHC.
+[[servers]]
+name = "haskell-language-server"
+command = "haskell-language-server-wrapper"
+args = ["--lsp"]
+languages = { Haskell = "haskell" }
+root-markers = ["stack.yaml", "cabal.project", "*.cabal"]
+
+[[servers]]
+name = "expert"
+command = "expert"
+args = ["--stdio"]
+languages = { Elixir = "elixir" }
+root-markers = ["mix.exs"]
+install = { from = "github", package = "expert-lsp/expert", tag-prefix = "v", asset = "expert_darwin_{goarch}", needs = ["elixir"] }
+
+# Installed with Nix.
+[[servers]]
+name = "nil"
+command = "nil"
+languages = { Nix = "nix" }
+root-markers = ["flake.nix"]
+group = "nix"
+
+[[servers]]
+name = "nixd"
+command = "nixd"
+languages = { Nix = "nix" }
+root-markers = ["flake.nix"]
+group = "nix"
+
+# Add-ons, after the languages' own servers.
+
+# A linter beside tsc, which answers the questions; only for projects that use it.
+[[servers]]
+name = "oxlint"
+command = "oxlint"
+args = ["--lsp"]
+languages = { TypeScript = "typescript", TSX = "typescriptreact", JavaScript = "javascript", JSX = "javascriptreact" }
+root-markers = ["package.json", ".oxlintrc.json"]
+node-modules = true
+when = { files = [".oxlintrc.json", ".oxlintrc.jsonc"], dependencies = ["oxlint"] }
+install = { from = "github", package = "oxc-project/oxc", tag-prefix = "oxlint_v", asset = "oxlint-{target}.tar.gz", program = "oxlint-{target}" }
+
+# Loads the project's own eslint, else the global one; only for projects with a config.
+[[servers]]
+name = "eslint"
+command = "vscode-eslint-language-server"
+args = ["--stdio"]
+languages = { TypeScript = "typescript", TSX = "typescriptreact", JavaScript = "javascript", JSX = "javascriptreact" }
+root-markers = ["package.json"]
+pull-diagnostics = true
+when = { files = ["eslint.config.*", ".eslintrc", ".eslintrc.*"], dependencies = ["eslint"] }
+install = { from = "npm", package = "vscode-langservers-extracted" }
+
+# VS Code's defaults, which the server expects in full. `packageManager` lets it find a
+# global eslint; fixes on save are left to remacs.
+[servers.configuration]
+validate = "on"
+run = "onType"
+packageManager = "npm"
+workingDirectory = { mode = "auto" }
+options = {}
+experimental = {}
+rulesCustomizations = []
+problems = { shortenToSingleLine = false }
+onIgnoredFiles = "off"
+quiet = false
+format = false
+codeActionOnSave = { enable = false, mode = "all" }
+codeAction = { disableRuleComment = { enable = true, location = "separateLine", commentStyle = "line" }, showDocumentation = { enable = false } }
+
+[[servers]]
+name = "biome"
+command = "biome"
+args = ["lsp-proxy"]
+languages = { TypeScript = "typescript", TSX = "typescriptreact", JavaScript = "javascript", JSX = "javascriptreact", JSON = "json", CSS = "css" }
+root-markers = ["biome.json", "biome.jsonc"]
+node-modules = true
+when = { files = ["biome.json", "biome.jsonc"], dependencies = ["@biomejs/biome"] }
+install = { from = "github", package = "biomejs/biome", tag-prefix = "@biomejs/biome@", asset = "biome-darwin-{arch}" }
+
+[[servers]]
+name = "stylelint"
+command = "stylelint-language-server"
+args = ["--stdio"]
+languages = { CSS = "css" }
+root-markers = ["package.json"]
+when = { files = ["stylelint.config.*", ".stylelintrc", ".stylelintrc.*"], dependencies = ["stylelint"] }
+install = { from = "npm", package = "@stylelint/language-server" }
+
+[[servers]]
+name = "tailwindcss"
+command = "tailwindcss-language-server"
+args = ["--stdio"]
+languages = { HTML = "html", CSS = "css", JavaScript = "javascript", JSX = "javascriptreact", TypeScript = "typescript", TSX = "typescriptreact", PHP = "php", Ruby = "ruby", Elixir = "elixir" }
+root-markers = ["package.json"]
+# Tailwind 3's config, or Tailwind 4's package; a project of 4 without a package.json
+# names it in `lsp.toml` `when`.
+when = { files = ["tailwind.config.*"], dependencies = ["tailwindcss", "@tailwindcss/*"] }
+install = { from = "npm", package = "@tailwindcss/language-server" }
+
+[[servers]]
+name = "ruff"
+command = "ruff"
+args = ["server"]
+languages = { Python = "python" }
+root-markers = ["pyproject.toml", "ruff.toml"]
+when = { files = ["ruff.toml", ".ruff.toml"], contains = { "pyproject.toml" = "[tool.ruff" } }
+install = { from = "github", package = "astral-sh/ruff", asset = "ruff-{target}.tar.gz", program = "ruff-{target}/ruff" }
+
+[[servers]]
+name = "typos-lsp"
+command = "typos-lsp"
+languages = { Rust = "rust", Python = "python", Go = "go", TypeScript = "typescript", TSX = "typescriptreact", JavaScript = "javascript", JSX = "javascriptreact", Markdown = "markdown" }
+when = { files = ["typos.toml", "_typos.toml", ".typos.toml"], contains = { "pyproject.toml" = "[tool.typos]", "Cargo.toml" = "metadata.typos]" } }
+install = { from = "github", package = "tekumara/typos-lsp", tag-prefix = "v", asset = "typos-lsp-{tag}-{target}.tar.gz" }
+
+# Grammar and spelling of prose; turned on in lsp.toml, as no project says it wants it.
+[[servers]]
+name = "harper-ls"
+command = "harper-ls"
+args = ["--stdio"]
+languages = { Markdown = "markdown" }
+enabled = false
+install = { from = "github", package = "Automattic/harper", tag-prefix = "v", asset = "harper-ls-{target}.tar.gz" }
+
+# Emmet abbreviations; turned on in lsp.toml.
+[[servers]]
+name = "emmet"
+command = "emmet-language-server"
+args = ["--stdio"]
+languages = { HTML = "html", CSS = "css", JSX = "javascriptreact", TSX = "typescriptreact" }
+enabled = false
+install = { from = "npm", package = "@olrtg/emmet-language-server" }

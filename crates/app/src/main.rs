@@ -50,7 +50,7 @@ use remacs_format::FormatPlugin;
 use remacs_frame::FramePlugin;
 use remacs_git::GitPlugin;
 use remacs_languages::{GRAMMARS, LanguagesPlugin, PRETTIER_MODES, SERVERS};
-use remacs_lsp::LspPlugin;
+use remacs_lsp::{LspPlugin, keep_offers_in};
 use remacs_minibuffer::MinibufferPlugin;
 use remacs_prettier::PrettierPlugin;
 use remacs_rename::RenamePlugin;
@@ -121,6 +121,7 @@ fn main() -> ExitCode {
         editor.keep_caches_in(cache_dir(&home));
         keep_configurations_in(&mut editor, &home);
         keep_tools_in(&mut editor, &home);
+        keep_offers_in(&mut editor, &home);
         keep_breakpoints_in(&mut editor, &home);
     }
 

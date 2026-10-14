@@ -72,24 +72,17 @@ mod tests {
     use remacs_core::Buffer;
     use remacs_text::Text;
 
-    use crate::{LanguageServer, LspPlugin};
+    use crate::LspPlugin;
 
     use super::*;
 
-    static FAILING: [LanguageServer; 1] = [LanguageServer {
-        name: "failing",
-        command: "sh",
-        args: &["-c", "echo 'cannot serve' >&2; exit 1"],
-        languages: &[("Fundamental", "plaintext")],
-        root_markers: &[],
-        initialization_options: None,
-        configuration: None,
-        pull_diagnostics: false,
-        reports_loading: false,
-        node_modules: false,
-        required_files: &[],
-    }];
-    static PLUGIN: LspPlugin = LspPlugin::new(&FAILING);
+    static PLUGIN: LspPlugin = LspPlugin::new(
+        "[[servers]]\n\
+         name = \"failing\"\n\
+         command = \"sh\"\n\
+         args = [\"-c\", \"echo 'cannot serve' >&2; exit 1\"]\n\
+         languages = { Fundamental = \"plaintext\" }\n",
+    );
 
     /// Refreshes once the server has exited, as the app does when it is notified.
     fn wait_for_exit(editor: &mut Editor, notified: &Receiver<()>) {

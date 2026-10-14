@@ -38,7 +38,6 @@ use crate::LanguageServer;
 use crate::completion::{self, CompletionSupport, Origin};
 use crate::markdown::CodeModes;
 use crate::position::{Encoding, from_lsp, to_lsp};
-use crate::settings::ServerSettings;
 use crate::symbols::{self, FoundSymbol};
 use crate::transport::{read_message, write_message};
 use crate::{code_action, definition, hover, symbol_rename, uri};
@@ -420,22 +419,17 @@ pub(crate) struct Client {
 }
 
 impl Client {
-    /// `settings` change the built-in `server`, as `lsp.toml` says.
+    /// Runs `program` as `server`, with `env` added to its environment.
     pub fn start(
         server: &LanguageServer,
-        settings: Option<&ServerSettings>,
+        program: &Path,
+        env: &[(String, String)],
         root: &Path,
         notifier: Notifier,
     ) -> io::Result<Self> {
-        let program = settings
-            .and_then(ServerSettings::command)
-            .unwrap_or_else(|| program(server, root));
-        let mut command = Command::new(program);
-        match settings.and_then(ServerSettings::args) {
-            Some(args) => command.args(args),
-            None => command.args(server.args),
-        };
-        let mut child = command
+        let mut child = Command::new(program)
+            .args(server.args)
+            .envs(env.iter().map(|(name, value)| (name, value)))
             .current_dir(root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -460,21 +454,13 @@ impl Client {
             notifier: Arc::clone(&notifier),
             next_id: INITIALIZE_ID + 1,
         };
-        let options = settings
-            .and_then(ServerSettings::initialization_options)
-            .cloned()
-            .or_else(|| server.initialization_options.map(built_in_json));
-        let initialize = initialize_params(options, root);
+        let initialize = initialize_params(server.initialization_options.clone(), root);
         thread::Builder::new()
             .name(format!("{} writer", server.name))
             .spawn(move || writer.write_all(initialize, negotiated, queued))?;
         let reader = Reader {
             server: server.name,
-            configuration: settings
-                .and_then(ServerSettings::configuration)
-                .cloned()
-                .or_else(|| server.configuration.map(built_in_json))
-                .unwrap_or_default(),
+            configuration: server.configuration.clone().unwrap_or_default(),
             replies: outgoing.clone(),
             agreed: Some(agreed),
             encoding: Encoding::Utf16,
@@ -561,24 +547,6 @@ impl Client {
         self.pull_generation.fetch_add(1, Ordering::Relaxed);
         (self.notifier)();
     }
-}
-
-/// The project's own copy in `node_modules/.bin` of the root or above, for servers that
-/// prefer it; else the command, found on `PATH`.
-fn program(server: &LanguageServer, root: &Path) -> PathBuf {
-    server
-        .node_modules
-        .then(|| {
-            root.ancestors()
-                .map(|directory| directory.join("node_modules/.bin").join(server.command))
-                .find(|program| program.is_file())
-        })
-        .flatten()
-        .unwrap_or_else(|| server.command.into())
-}
-
-fn built_in_json(json: &str) -> Value {
-    serde_json::from_str(json).expect("built-in server settings are JSON")
 }
 
 fn initialize_params(options: Option<Value>, root: &Path) -> Value {
@@ -1385,20 +1353,14 @@ mod tests {
                 "-c",
                 "echo \"error TS5023: Unknown compiler option '--lsp'.\" >&2; exit 1",
             ],
-            languages: &[],
-            root_markers: &[],
-            initialization_options: None,
-            configuration: None,
-            pull_diagnostics: false,
-            reports_loading: false,
-            node_modules: false,
-            required_files: &[],
+            ..LanguageServer::default()
         };
         let (sender, exited) = mpsc::channel();
         let notifier: Notifier = Arc::new(move || {
             let _ = sender.send(());
         });
-        let client = Client::start(&server, None, Path::new("/"), notifier).unwrap();
+        let program = Path::new("sh");
+        let client = Client::start(&server, program, &[], Path::new("/"), notifier).unwrap();
         exited.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(
             client.take_exit().as_deref(),

@@ -11,7 +11,7 @@ use remacs_editing::EditingPlugin;
 use remacs_minibuffer::MinibufferPlugin;
 
 use super::*;
-use crate::catalog::version_key;
+use crate::catalog::{Archive, Source, version_key};
 
 const WAIT: Duration = Duration::from_secs(10);
 
@@ -70,11 +70,10 @@ impl Releases {
             }],
         })
         .to_string();
-        let releases = self
-            .dir
-            .join("repos")
-            .join(CODELLDB.repository)
-            .join("releases");
+        let Source::GitHub { repository, .. } = CODELLDB.source else {
+            unreachable!("codelldb comes from GitHub");
+        };
+        let releases = self.dir.join("repos").join(repository).join("releases");
         fs::create_dir_all(releases.join("tags")).unwrap();
         fs::write(releases.join("tags").join(&tag), &release).unwrap();
         if latest {
@@ -233,12 +232,14 @@ fn tools_toml_pins_a_version_or_names_a_program_of_ones_own() {
         )
     );
 
-    let unknown = "[tools.gdb]\npath = \"gdb\"\n".to_owned();
-    let error = Settings::from_files([(PathBuf::from("tools.toml"), unknown)])
-        .section::<ToolsSettings>()
-        .map(drop)
-        .map_err(|(error, _)| error.message);
-    assert_eq!(error, Err("no tool is called gdb".to_owned()));
+    // Known once the plugins provided their tools.
+    let unknown = "[tools.gdb]\npath = \"gdb\"\n";
+    let mut editor = self::editor(&home, &releases, unknown);
+    provide(&mut editor, ToolKind::LanguageServer, &[]);
+    assert_eq!(
+        editor.echo().as_deref(),
+        Some("tools.toml: no tool is called gdb")
+    );
 }
 
 #[test]
@@ -266,11 +267,137 @@ fn the_tools_panel_finds_a_newer_release_and_updates_to_it() {
     assert!(program.starts_with(home.join("cache/tools/codelldb/1.12.3")));
 }
 
+/// A language server from `install`, as the servers' catalog has it.
+fn server(name: &str, install: &str) -> &'static Tool {
+    let spec: InstallSpec = toml::from_str(install).unwrap();
+    spec.tool(name, name).unwrap()
+}
+
+/// A fake package manager in `home` that installs `package-x` 4.10.0 with programs
+/// `one` and `two`, logging each install; `tools.toml` naming it the installer `fake`.
+fn fake_installer(home: &Path) -> String {
+    let manager = home.join("bin/fake");
+    fs::create_dir_all(manager.parent().unwrap()).unwrap();
+    let log = home.join("installs.log");
+    let script = format!(
+        "#!/bin/sh\n\
+         case \"$1\" in\n\
+         latest) echo 4.10.0 ;;\n\
+         install)\n\
+         \x20 mkdir -p \"$2/bin\"\n\
+         \x20 for program in one two; do printf '#!/bin/sh\\n' > \"$2/bin/$program\"; done\n\
+         \x20 echo \"$3\" >> {log} ;;\n\
+         fail) echo 'error: no such package' >&2; mkdir -p \"$2/bin\"; exit 1 ;;\n\
+         esac\n",
+        log = log.display()
+    );
+    fs::write(&manager, script).unwrap();
+    Process::new("chmod")
+        .arg("+x")
+        .arg(&manager)
+        .status()
+        .unwrap();
+    let manager = manager.display();
+    format!(
+        "[installers.fake]\n\
+         needs = [\"{manager}\"]\n\
+         latest = {{ command = [\"{manager}\", \"latest\"] }}\n\
+         install = [[\"{manager}\", \"install\", \"{{dir}}\", \"{{package}}@{{version}}\"]]\n\
+         program = \"bin/{{program}}\"\n\
+         run-env = {{ FAKE_HOME = \"{{dir}}\" }}\n\
+         [installers.broken]\n\
+         needs = [\"{manager}\"]\n\
+         install = [[\"{manager}\", \"fail\", \"{{dir}}\"]]\n\
+         program = \"bin/{{program}}\"\n\
+         [installers.absent]\n\
+         needs = [\"remacs-no-such-manager\"]\n\
+         install = []\n\
+         program = \"{{program}}\"\n"
+    )
+}
+
+#[test]
+fn installers_install_packages_once_for_all_their_tools() {
+    let home = directory("installers");
+    let releases = Releases::new(&home);
+    let mut editor = editor(&home, &releases, &fake_installer(&home));
+    let one = server("one", "from = \"fake\"\npackage = \"package-x\"");
+    let two = server("two", "from = \"fake\"\npackage = \"package-x\"");
+    let absent = server("absent", "from = \"absent\"\npackage = \"x\"");
+    let github = server(
+        "gh",
+        "from = \"github\"\npackage = \"o/r\"\nasset = \"gh.zip\"",
+    );
+    provide(
+        &mut editor,
+        ToolKind::LanguageServer,
+        &[one, two, absent, github],
+    );
+    assert!(can_install(&editor, one));
+    assert!(!can_install(&editor, absent), "its manager is not on PATH");
+    assert!(can_install(&editor, github));
+
+    let got: [Got; 2] = Default::default();
+    for (name, got) in ["one", "two"].into_iter().zip(&got) {
+        let shared = Rc::clone(got);
+        ensure(&mut editor, name, move |_, result| {
+            *shared.borrow_mut() = Some(result);
+        });
+    }
+    let first = wait_for(&mut editor, &got[0]).unwrap();
+    let second = wait_for(&mut editor, &got[1]).unwrap();
+
+    let version = home.join("cache/tools/fake-package-x/4.10.0");
+    assert_eq!(first, version.join("bin/one"));
+    assert_eq!(second, version.join("bin/two"));
+    let log = fs::read_to_string(home.join("installs.log")).unwrap();
+    assert_eq!(log, "package-x@4.10.0\n");
+    let program = installed(&editor, "two").unwrap();
+    let env = vec![("FAKE_HOME".to_owned(), version.display().to_string())];
+    assert_eq!(program.env, env);
+}
+
+#[test]
+fn a_failed_install_leaves_nothing_behind() {
+    let home = directory("broken");
+    let releases = Releases::new(&home);
+    let mut editor = editor(&home, &releases, &fake_installer(&home));
+    let broken = server("broken", "from = \"broken\"\npackage = \"y\"");
+    provide(&mut editor, ToolKind::LanguageServer, &[broken]);
+
+    let got: Got = Rc::default();
+    let shared = Rc::clone(&got);
+    ensure(&mut editor, "broken", move |_, result| {
+        *shared.borrow_mut() = Some(result);
+    });
+    let error = wait_for(&mut editor, &got).unwrap_err();
+
+    assert_eq!(error, "fake failed: error: no such package");
+    assert!(!home.join("cache/tools/broken-y/latest").exists());
+    assert_eq!(installed(&editor, "broken"), None);
+}
+
 #[test]
 fn versions_are_ordered_by_their_numbers() {
     assert!(version_key("1.9.0") < version_key("1.11.4"));
     assert!(version_key("2026-09-29") < version_key("2026-10-06"));
     assert_eq!(CODELLDB.version_of("v1.12.3"), "1.12.3");
+    let oxlint = "from = \"github\"\npackage = \"oxc-project/oxc\"\ntag-prefix = \"oxlint_v\"\n\
+                  asset = \"oxlint-{target}.tar.gz\"";
+    assert_eq!(
+        server("oxlint", oxlint).version_of("oxlint_v1.88.0"),
+        "1.88.0"
+    );
+    let rust_analyzer = "from = \"github\"\npackage = \"rust-lang/rust-analyzer\"\n\
+                         asset = \"rust-analyzer-{target}.gz\"";
+    let arm = cfg!(target_arch = "aarch64");
+    let target = if arm { "aarch64" } else { "x86_64" };
+    assert_eq!(
+        server("ra", rust_analyzer).asset_name("2026-10-12"),
+        format!("rust-analyzer-{target}-apple-darwin.gz")
+    );
+    assert_eq!(Archive::of("x.tar.xz"), Archive::TarXz);
+    assert_eq!(Archive::of("marksman-macos"), Archive::Program);
     assert!(
         JS_DEBUG
             .asset_name("v1.140.0")

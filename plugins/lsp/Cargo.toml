@@ -10,6 +10,7 @@ publish.workspace = true
 lsp-types.workspace = true
 remacs-actions.workspace = true
 remacs-completion.workspace = true
+remacs-config.workspace = true
 remacs-core.workspace = true
 remacs-diagnostics.workspace = true
 remacs-dired.workspace = true
@@ -17,12 +18,15 @@ remacs-documentation.workspace = true
 remacs-format.workspace = true
 remacs-rename.workspace = true
 remacs-text.workspace = true
+remacs-tools.workspace = true
 remacs-xref.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+toml.workspace = true
 
 [dev-dependencies]
-toml.workspace = true
+remacs-editing.workspace = true
+remacs-minibuffer.workspace = true
 
 [lints]
 workspace = true

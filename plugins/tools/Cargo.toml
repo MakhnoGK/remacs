@@ -13,6 +13,7 @@ remacs-core.workspace = true
 remacs-files.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+toml.workspace = true
 
 [dev-dependencies]
 remacs-editing.workspace = true
