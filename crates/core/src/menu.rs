@@ -130,6 +130,16 @@ pub enum FrameRequest {
     Minimize,
     Zoom,
     ToggleFullScreen,
+    TextSize(TextSize),
+}
+
+/// A change of the size of the window buffer's text, not of the rest of the window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TextSize {
+    Larger,
+    Smaller,
+    /// Back to the configured size.
+    Configured,
 }
 
 #[cfg(test)]

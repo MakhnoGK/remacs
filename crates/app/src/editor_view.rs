@@ -19,12 +19,13 @@ use gpui::{
 
 use crate::assets::{EXECUTION_POINT_ICON, LOGPOINT_ICON};
 use remacs_core::{
-    Action, BreakpointIcon, ChangedLines, Code, CommandError, EchoMessage, Editor, GutterIcon,
-    GutterMark, Icon, Key, LineChange, LineExtra, MessageKind, Minibuffer, MouseSelection, Outline,
-    Pane, PaneBody, PaneButton, Popup, Preview, ScreenButton, ScreenMouse, ScreenPointer,
-    ScreenSize, Scroll, StatusSegment, Tabs, describe_sequence,
+    Action, BreakpointIcon, ChangedLines, Code, CommandError, EchoMessage, Editor, FrameRequest,
+    GutterIcon, GutterMark, Icon, Key, LineChange, LineExtra, MessageKind, Minibuffer,
+    MouseSelection, Outline, Pane, PaneBody, PaneButton, Popup, Preview, ScreenButton, ScreenMouse,
+    ScreenPointer, ScreenSize, Scroll, StatusItem, StatusSegment, Tabs, describe_sequence,
 };
 use remacs_echo::VIEW_MESSAGES;
+use remacs_frame::TEXT_CONFIGURED;
 use remacs_theme::font::CodeFont;
 use remacs_theme::{color, font, glass};
 
@@ -54,13 +55,14 @@ use crate::screen_view::{Cell as ScreenCell, cell_at, render_screen, screen_size
 use crate::settings::{
     BottomSettings, CursorHeight, DocumentationSettings, GlassSettings, MouseSettings,
     ProblemsSettings, PromptsSettings, ReadSettings, ScrollSettings, TransitionsSettings,
-    UiSettings, report,
+    UiSettings, ZoomSettings, report,
 };
 use crate::smooth_scroll::{Glide, SmoothScroll, wheel_delta};
 use crate::table_view::{
     LIST_BOTTOM, ROW_PITCH, ROWS_TOP, TableCursor, fits_preview, render_table,
 };
 use crate::tabs_view::render_tabs;
+use crate::text_zoom::TextZoom;
 use crate::transition::{Retained, Side};
 use crate::widgets::{
     Edge, SCROLL_FADE_SIZE, Scrolled, block_cursor, code_font_features, cursor_text_style,
@@ -111,8 +113,12 @@ pub struct EditorView {
     drag_position: Point<Pixels>,
     /// Scrolls toward the mouse while it is held past the text's top or bottom.
     drag_scroll: Option<Task<()>>,
-    /// And the code font they were measured from.
+    /// Of the window buffer's text, and the font they were measured from.
     metrics: Option<(CodeFont, Metrics)>,
+    /// Of screens, at the configured size, and the font they were measured from.
+    screen_metrics: Option<(CodeFont, Metrics)>,
+    zoom: ZoomSettings,
+    text_zoom: TextZoom,
     scroll: ScrollSettings,
     /// The window's glass, and the glass it last had; the window server is told only of a
     /// change.
@@ -329,6 +335,9 @@ impl EditorView {
             drag_position: Point::default(),
             drag_scroll: None,
             metrics: None,
+            screen_metrics: None,
+            zoom: ui.zoom,
+            text_zoom: TextZoom::default(),
             scroll: ui.scroll,
             glass: ui.glass,
             applied_glass: None,
@@ -386,6 +395,7 @@ impl EditorView {
     pub fn apply_settings(&mut self, read: ReadSettings, cx: &mut Context<Self>) {
         self.cursor_height = read.ui.cursor.height;
         self.mouse = read.ui.mouse;
+        self.zoom = read.ui.zoom;
         self.scroll = read.ui.scroll;
         self.glass = read.ui.glass;
         self.documentation = read.ui.documentation;
@@ -555,7 +565,13 @@ impl EditorView {
         if self.editor.quit_requested() {
             cx.quit();
         }
-        frame::act(self.editor.take_frame_requests(), self.window_handle, cx);
+        let requests = self.editor.take_frame_requests();
+        for request in &requests {
+            if let FrameRequest::TextSize(change) = *request {
+                self.text_zoom.change(change, font::code().size, self.zoom);
+            }
+        }
+        frame::act(requests, self.window_handle, cx);
         self.scrolled_sideways = false;
         self.track_prefix(cx);
         self.schedule_refresh(cx);
@@ -607,10 +623,19 @@ impl EditorView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if event.modifiers.platform {
+            if self
+                .text_zoom
+                .scroll(event.delta, font::code().size, self.zoom)
+            {
+                cx.notify();
+            }
+            return;
+        }
         let row_height = px(if self.showing_rows {
             ROW_PITCH
         } else {
-            font::code().line_height
+            self.text_font().line_height
         });
         let (delta, at_once) = wheel_delta(event, row_height, self.scroll.lines_per_notch);
         // A swipe is never quite straight: it scrolls along its main direction only.
@@ -841,7 +866,7 @@ impl EditorView {
 
     /// The line drawn at `y` in the window, none above the text.
     fn line_at(&self, y: Pixels) -> Option<usize> {
-        let rows = (y - px(TEXT_TOP)) / px(font::code().line_height);
+        let rows = (y - px(TEXT_TOP)) / px(self.text_font().line_height);
         (rows >= 0.0).then(|| (self.vertical.shown() + rows) as usize)
     }
 
@@ -866,10 +891,11 @@ impl EditorView {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let metrics = self.metrics(window);
+        let code_font = font::code();
+        let metrics = cached_metrics(&mut self.screen_metrics, code_font.clone(), window);
         let cell = ScreenCell {
             width: metrics.char_width,
-            height: px(font::code().line_height),
+            height: px(code_font.line_height),
             glyph: metrics.glyph_height,
         };
         let padding = self.editor.screen_padding(name);
@@ -1057,40 +1083,15 @@ impl EditorView {
         Some(canvas(|_, _, _| {}, paint).absolute().size_full())
     }
 
+    /// The font of the window buffer's text: the code font at the zoomed size.
+    fn text_font(&self) -> CodeFont {
+        self.text_zoom.font(font::code())
+    }
+
+    /// Of the window buffer's text.
     fn metrics(&mut self, window: &Window) -> Metrics {
-        let code_font = font::code();
-        if let Some((measured, metrics)) = &self.metrics
-            && *measured == code_font
-        {
-            return *metrics;
-        }
-        let text_system = window.text_system();
-        let font_id = text_system.resolve_font(&font(code_font.family.clone()));
-        let advance = |size: f32, character| {
-            text_system
-                .advance(font_id, px(size), character)
-                .map_or(px(size * 0.6), |advance| advance.width)
-        };
-        let size = px(code_font.size);
-        let metrics = Metrics {
-            char_width: advance(code_font.size, 'm'),
-            // The font's descent is negative here, unlike a laid-out line's.
-            glyph_height: text_system.ascent(font_id, size)
-                + text_system.descent(font_id, size).abs(),
-            digit_width: advance(code_font.line_number_size(), '0'),
-            mono_width: advance(font::MONO_SIZE, 'm'),
-            small_mono_width: advance(font::STATUS_SIZE, 'm'),
-            // 'n' is about as wide as a letter of text on average, spaces counted.
-            ui_char_width: text_system
-                .advance(
-                    text_system.resolve_font(&font(font::UI)),
-                    px(font::UI_SIZE),
-                    'n',
-                )
-                .map_or(px(font::UI_SIZE * 0.55), |advance| advance.width),
-        };
-        self.metrics = Some((code_font, metrics));
-        metrics
+        let text_font = self.text_font();
+        cached_metrics(&mut self.metrics, text_font, window)
     }
 
     fn gutter_width(&self, metrics: Metrics) -> Pixels {
@@ -1205,7 +1206,7 @@ impl EditorView {
         extra: Option<LineExtra>,
     ) -> (AnyElement, bool) {
         let (band, note) = extra.map_or((None, None), |extra| (extra.band, extra.note));
-        let code_font = font::code();
+        let code_font = self.text_font();
         let row_height = px(code_font.line_height);
         let buffer = self.editor.window_buffer();
         let is_current = line == buffer.point_line();
@@ -1327,7 +1328,7 @@ impl EditorView {
         window: &Window,
     ) -> Vec<AnyElement> {
         let window_size = window.viewport_size();
-        let line_height = px(font::code().line_height);
+        let line_height = px(self.text_font().line_height);
         let transition = self.transitions.popup();
         let slots: Vec<Option<Popup>> = self.editor.popup_slots().collect();
         self.documentation_scroll.update(slots.iter().flatten());
@@ -1560,7 +1561,7 @@ impl EditorView {
     ) -> (AnyElement, Vec<AnyElement>) {
         let metrics = self.metrics(window);
         // Point stays above the footer fade; lines under it are drawn but not counted.
-        let line_height = px(font::code().line_height);
+        let line_height = px(self.text_font().line_height);
         let text_height = window.viewport_size().height - px(TEXT_TOP) - reserved;
         let clear_rows = ((text_height - px(FOOTER_FADE_HEIGHT)) / line_height)
             .floor()
@@ -1605,7 +1606,9 @@ impl EditorView {
             .editor
             .line_changes(first_line..last_line)
             .into_iter()
-            .filter_map(|changed| render_line_change(changed, first_line..last_line, text_left));
+            .filter_map(|changed| {
+                render_line_change(changed, first_line..last_line, text_left, line_height)
+            });
         let glass = rgba(glass::window_tint()).into();
         let lines = div()
             .relative()
@@ -1950,10 +1953,22 @@ impl EditorView {
     fn render_status(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let buffer = self.editor.window_buffer();
         let position = format!("{}:{}", buffer.point_line() + 1, buffer.point_column() + 1);
+        // Only text zooms; a click gives it the configured size back.
+        let zoom = self
+            .text_zoom
+            .percent(font::code().size)
+            .filter(|_| !self.showing_rows && !self.showing_screen)
+            .map(|percent| StatusSegment {
+                items: vec![StatusItem::new(None, format!("{percent}%"))],
+                command: Some(TEXT_CONFIGURED),
+                active: false,
+                code: true,
+            });
         let mut segments = self
             .editor
             .status_segments()
             .into_iter()
+            .chain(zoom)
             .flat_map(|segment| {
                 [
                     Self::render_segment(segment, cx).into_any_element(),
@@ -2173,6 +2188,45 @@ impl Render for EditorView {
     }
 }
 
+/// The metrics of `code_font`, measured again only once it changes.
+fn cached_metrics(
+    cache: &mut Option<(CodeFont, Metrics)>,
+    code_font: CodeFont,
+    window: &Window,
+) -> Metrics {
+    if let Some((measured, metrics)) = cache
+        && *measured == code_font
+    {
+        return *metrics;
+    }
+    let text_system = window.text_system();
+    let font_id = text_system.resolve_font(&font(code_font.family.clone()));
+    let advance = |size: f32, character| {
+        text_system
+            .advance(font_id, px(size), character)
+            .map_or(px(size * 0.6), |advance| advance.width)
+    };
+    let size = px(code_font.size);
+    let metrics = Metrics {
+        char_width: advance(code_font.size, 'm'),
+        // The font's descent is negative here, unlike a laid-out line's.
+        glyph_height: text_system.ascent(font_id, size) + text_system.descent(font_id, size).abs(),
+        digit_width: advance(code_font.line_number_size(), '0'),
+        mono_width: advance(font::MONO_SIZE, 'm'),
+        small_mono_width: advance(font::STATUS_SIZE, 'm'),
+        // 'n' is about as wide as a letter of text on average, spaces counted.
+        ui_char_width: text_system
+            .advance(
+                text_system.resolve_font(&font(font::UI)),
+                px(font::UI_SIZE),
+                'n',
+            )
+            .map_or(px(font::UI_SIZE * 0.55), |advance| advance.width),
+    };
+    *cache = Some((code_font, metrics));
+    metrics
+}
+
 /// Rows laid out in the top `height` of the window, clear of the pane under them.
 fn above_pane(rows: impl IntoElement, height: Pixels) -> AnyElement {
     div()
@@ -2234,8 +2288,8 @@ fn render_line_change(
     changed: ChangedLines,
     shown: Range<usize>,
     text_left: Pixels,
+    line_height: Pixels,
 ) -> Option<AnyElement> {
-    let line_height = px(font::code().line_height);
     let top = |line: usize| line_height * (line - shown.start) as f32;
     let mark = if changed.lines.is_empty() {
         div()

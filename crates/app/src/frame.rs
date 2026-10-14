@@ -25,6 +25,8 @@ pub fn act(requests: Vec<FrameRequest>, window: AnyWindowHandle, cx: &mut App) {
                 FrameRequest::ToggleFullScreen => {
                     let _ = window.update(cx, |_, window, _| window.toggle_fullscreen());
                 }
+                // The view's own, done before.
+                FrameRequest::TextSize(_) => {}
             }
         }
     });

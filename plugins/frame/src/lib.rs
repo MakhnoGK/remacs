@@ -3,6 +3,7 @@
 use remacs_config::{config_dir, home};
 use remacs_core::{
     APP_MENU, Command, CommandResult, Editor, FrameRequest, Menu, MenuItem, Plugin, Registry,
+    TextSize,
 };
 use remacs_dired::list_directory;
 
@@ -17,7 +18,11 @@ const MINIMIZE: &str = "iconify-frame";
 const ZOOM: &str = "toggle-frame-maximized";
 const FULL_SCREEN: &str = "toggle-frame-fullscreen";
 const QUIT: &str = "save-buffers-kill-terminal";
+const TEXT_LARGER: &str = "text-scale-increase";
+const TEXT_SMALLER: &str = "text-scale-decrease";
+pub const TEXT_CONFIGURED: &str = "text-scale-reset";
 const WINDOW_MENU: &str = "Window";
+const VIEW_MENU: &str = "View";
 
 #[rustfmt::skip]
 const COMMANDS: &[Command] = &[
@@ -29,6 +34,9 @@ const COMMANDS: &[Command] = &[
     Command::new(MINIMIZE, "Minimize the window into the Dock", |editor| request(editor, FrameRequest::Minimize)),
     Command::new(ZOOM, "Fill the screen with the window, or give it its size back", |editor| request(editor, FrameRequest::Zoom)),
     Command::new(FULL_SCREEN, "Show the window full screen, or leave full screen", |editor| request(editor, FrameRequest::ToggleFullScreen)),
+    Command::new(TEXT_LARGER, "Make the editor's text larger", |editor| request(editor, FrameRequest::TextSize(TextSize::Larger))),
+    Command::new(TEXT_SMALLER, "Make the editor's text smaller", |editor| request(editor, FrameRequest::TextSize(TextSize::Smaller))),
+    Command::new(TEXT_CONFIGURED, "Give the editor's text the size ui.toml sets", |editor| request(editor, FrameRequest::TextSize(TextSize::Configured))),
 ];
 
 const BINDINGS: &[(&str, &str)] = &[
@@ -37,6 +45,10 @@ const BINDINGS: &[(&str, &str)] = &[
     ("M-s-h", HIDE_OTHERS),
     ("s-m", MINIMIZE),
     ("C-s-f", FULL_SCREEN),
+    ("s-=", TEXT_LARGER),
+    ("s-+", TEXT_LARGER),
+    ("s--", TEXT_SMALLER),
+    ("s-0", TEXT_CONFIGURED),
 ];
 
 /// The menu bar; plugins add their items to these groups, or to groups of their own.
@@ -45,7 +57,7 @@ const MENUS: &[Menu] = &[
     Menu { title: APP_MENU, groups: &["about", "settings", "hide", "quit"], trailing: false },
     Menu { title: "File", groups: &["open", "save", "close"], trailing: false },
     Menu { title: "Edit", groups: &["undo", "clipboard", "selection", "find", "code"], trailing: false },
-    Menu { title: "View", groups: &["commands", "panels"], trailing: false },
+    Menu { title: VIEW_MENU, groups: &["commands", "panels", "text-size"], trailing: false },
     Menu { title: "Go", groups: &["buffer", "definitions", "problems"], trailing: false },
     Menu { title: "Git", groups: &["status", "changes", "branches", "sync"], trailing: false },
     Menu { title: "Run", groups: &["run", "debug", "step", "breakpoints"], trailing: false },
@@ -64,6 +76,9 @@ const MENU_ITEMS: &[MenuItem] = &[
     MenuItem::new(WINDOW_MENU, "size", "Minimize", MINIMIZE),
     MenuItem::new(WINDOW_MENU, "size", "Zoom", ZOOM),
     MenuItem::new(WINDOW_MENU, "size", "Toggle Full Screen", FULL_SCREEN),
+    MenuItem::new(VIEW_MENU, "text-size", "Zoom In", TEXT_LARGER),
+    MenuItem::new(VIEW_MENU, "text-size", "Zoom Out", TEXT_SMALLER),
+    MenuItem::new(VIEW_MENU, "text-size", "Actual Size", TEXT_CONFIGURED),
 ];
 
 impl Plugin for FramePlugin {

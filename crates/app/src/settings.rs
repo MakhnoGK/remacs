@@ -20,6 +20,10 @@ use crate::transition::{Side, Transition};
 const FONT_SIZES: RangeInclusive<f32> = 6.0..=72.0;
 const LINE_HEIGHTS: RangeInclusive<f32> = 1.0..=3.0;
 const FONT_WEIGHTS: RangeInclusive<f32> = 100.0..=900.0;
+/// Points.
+const ZOOM_STEPS: RangeInclusive<f32> = 0.5..=8.0;
+/// Pixels.
+const ZOOM_WHEEL_STEPS: RangeInclusive<f32> = 10.0..=1000.0;
 /// Pixels; past half a narrow font's character the block is a pill.
 const CURSOR_RADII: RangeInclusive<f32> = 0.0..=4.0;
 /// Milliseconds.
@@ -136,6 +140,7 @@ pub fn watch_settings(view: WeakEntity<EditorView>, cx: &mut App) {
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct UiSettings {
     pub font: FontSettings,
+    pub zoom: ZoomSettings,
     pub cursor: CursorSettings,
     pub mouse: MouseSettings,
     pub scroll: ScrollSettings,
@@ -184,6 +189,17 @@ impl Section for UiSettings {
             ));
         }
         check_range("font.weight", font.weight.value(), &FONT_WEIGHTS)?;
+        let zoom = &self.zoom;
+        check_range("zoom.step", zoom.step, &ZOOM_STEPS)?;
+        check_range("zoom.min-size", zoom.min_size, &FONT_SIZES)?;
+        check_range("zoom.max-size", zoom.max_size, &FONT_SIZES)?;
+        if zoom.min_size > zoom.max_size {
+            return Err(format!(
+                "zoom.min-size {} is over zoom.max-size {}",
+                zoom.min_size, zoom.max_size
+            ));
+        }
+        check_range("zoom.wheel-step", zoom.wheel_step, &ZOOM_WHEEL_STEPS)?;
         check_range("cursor.radius", self.cursor.radius, &CURSOR_RADII)?;
         let interval = self.mouse.drag_scroll_interval;
         if !DRAG_SCROLL_INTERVALS.contains(&interval) {
@@ -313,6 +329,30 @@ impl FontSettings {
             line_height: (self.size * self.line_height).round(),
             weight: self.weight.value(),
             ligatures: self.ligatures,
+        }
+    }
+}
+
+/// How ⌘= and ⌘-, or ⌘ with the wheel, size the window buffer's text.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct ZoomSettings {
+    /// Points a step changes the size by.
+    pub step: f32,
+    pub min_size: f32,
+    pub max_size: f32,
+    /// Pixels a trackpad or a smooth-scrolling wheel moves with ⌘ held for a step; a
+    /// notch of a plain wheel is one.
+    pub wheel_step: f32,
+}
+
+impl Default for ZoomSettings {
+    fn default() -> Self {
+        Self {
+            step: 1.0,
+            min_size: 8.0,
+            max_size: 36.0,
+            wheel_step: 100.0,
         }
     }
 }
@@ -718,6 +758,7 @@ mod tests {
             "[font]\nfamily = \"Menlo\"\nsize = 15\nline-height = 1.5\nweight = \"light\"\n\
              strokes = \"thin\"\n\
              ligatures = false\n\
+             [zoom]\nstep = 2\nmin-size = 10\nmax-size = 24\nwheel-step = 50\n\
              [cursor]\nheight = \"font\"\nradius = 2.5\n[mouse]\ndrag-scroll-interval = 60\n\
              [scroll]\nanimation-duration = 0\nlines-per-notch = 5\n[glass]\nopacity = 0.5\nblur = 0\n\
              [echo]\nlines = 6\nhistory = 50\nhide-after = 0\n\
@@ -791,6 +832,21 @@ mod tests {
         assert!(!settings.font.code_font().ligatures);
         assert_eq!(settings.cursor.height, CursorHeight::Font);
         assert_eq!(settings.cursor.radius, 2.5);
+        assert_eq!(
+            settings.zoom,
+            ZoomSettings {
+                step: 2.0,
+                min_size: 10.0,
+                max_size: 24.0,
+                wheel_step: 50.0
+            }
+        );
+    }
+
+    #[test]
+    fn the_smallest_zoomed_size_is_not_over_the_largest() {
+        let error = parse("[zoom]\nmin-size = 30\nmax-size = 20\n").unwrap_err();
+        assert_eq!(error, "zoom.min-size 30 is over zoom.max-size 20");
     }
 
     #[test]
