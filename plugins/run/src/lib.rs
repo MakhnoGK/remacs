@@ -140,7 +140,9 @@ impl Plugin for RunPlugin {
             keymap: keymap(MENU_BINDINGS),
         });
         registry.minor_keymaps.push(MinorKeymap {
-            active: |editor| editor.window_buffer().local::<Console>().is_some(),
+            active: |editor| {
+                editor.buffer_has_keys() && editor.window_buffer().local::<Console>().is_some()
+            },
             keymap: keymap(CONSOLE_BINDINGS),
         });
         registry.settings_hooks.push(Rc::new(read_settings));

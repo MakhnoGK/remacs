@@ -1,11 +1,12 @@
 use std::fs;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use remacs_core::{
-    Changes, DiffLine, Editor, Elsewhere, FileDiff, FileEdits, Mark, Preview, PreviewBody, RowFace,
-    Tone, parse_sequence,
+    Changes, Command, DiffLine, Editor, Elsewhere, FileDiff, FileEdits, Keymap, Mark, MinorKeymap,
+    PaneSource, Plugin, Preview, PreviewBody, Registry, RowFace, Tone, parse_sequence,
 };
 use remacs_editing::EditingPlugin;
 use remacs_files::FilesPlugin;
@@ -197,6 +198,54 @@ fn a_listing_is_a_read_only_table_with_point_on_the_first_entry() {
     press(&mut editor, "z");
     assert!(editor.echo().unwrap().starts_with("Buffer is read-only"));
     assert_eq!(lines(&editor).len(), 5);
+}
+
+/// A pane always shown that answers `n` while it has the keys.
+struct KeyedPane;
+
+impl Plugin for KeyedPane {
+    fn register(&self, registry: &mut Registry) {
+        registry
+            .commands
+            .add(Command::new("pane-key", "", |editor| {
+                editor.set_message("pane got n");
+                Ok(())
+            }));
+        let mut keymap = Keymap::default();
+        keymap.bind("n", "pane-key");
+        registry.minor_keymaps.push(MinorKeymap {
+            active: |editor| editor.pane_has_keys("Pane"),
+            keymap,
+        });
+        registry.panes.push(PaneSource {
+            name: "Pane",
+            shown: |_| true,
+            describe: Rc::new(|_| None),
+        });
+    }
+}
+
+#[test]
+fn a_pane_over_a_listing_takes_the_keys_until_they_go_back() {
+    let tree = Tree::new("pane");
+    let mut editor = Editor::new(&[
+        &EditingPlugin,
+        &MinibufferPlugin,
+        &FilesPlugin,
+        &DiredPlugin,
+        &KeyedPane,
+    ]);
+    open_directory(&mut editor, &tree.0, None, false).unwrap();
+    wait_for_listing(&mut editor);
+
+    press(&mut editor, "C-x o");
+    press(&mut editor, "n");
+    assert_eq!(editor.echo().as_deref(), Some("pane got n"));
+    assert_eq!(line_at_point(&editor), "sub");
+
+    press(&mut editor, "C-x o");
+    press(&mut editor, "n");
+    assert_eq!(line_at_point(&editor), ".hidden");
 }
 
 #[test]

@@ -931,6 +931,12 @@ impl Editor {
         self.pane_focused && self.minibuffer.is_none() && self.shown_pane().is_some()
     }
 
+    /// Whether the keys go to `buffer()`, the prompt's or the window's, not to a pane;
+    /// a keymap of the window buffer's mode holds only while they do.
+    pub fn buffer_has_keys(&self) -> bool {
+        !self.pane_focused()
+    }
+
     /// Whether the pane named `name` is shown and has the keys.
     pub fn pane_has_keys(&self, name: &str) -> bool {
         self.pane_focused() && self.shown_pane() == Some(name)

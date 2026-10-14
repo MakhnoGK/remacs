@@ -162,7 +162,7 @@ impl Plugin for GitPlugin {
             conflict_keymap.bind(keys, command);
         }
         registry.minor_keymaps.push(MinorKeymap {
-            active: resolve::in_conflict,
+            active: |editor| editor.buffer_has_keys() && resolve::in_conflict(editor),
             keymap: conflict_keymap,
         });
         let mut status_keymap = Keymap::default();
@@ -170,7 +170,7 @@ impl Plugin for GitPlugin {
             status_keymap.bind(keys, command);
         }
         registry.minor_keymaps.push(MinorKeymap {
-            active: |editor| editor.buffer().mode() == GIT_MODE,
+            active: |editor| editor.buffer_has_keys() && editor.buffer().mode() == GIT_MODE,
             keymap: status_keymap,
         });
         registry.version_controls.push(Rc::new(Git));

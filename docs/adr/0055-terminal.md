@@ -59,4 +59,8 @@ TermShared, TermCopy, TermShell, TermStates)
 
 - Shell integration for zsh and bash, links and the mouse for programs: done, ADR 0059.
 - Dragging the panel's edge to resize it; renaming a chip in place.
-- The panel under tables and outlines, not only under text.
+- The panel under tables and outlines, not only under text: done (#17). Their rows end
+  above it; a mode's keymap holds only while the window buffer has the keys
+  (`Editor::buffer_has_keys`), so `C-x o` hands them to the pane over dired or git
+  status as over text. Over rows the bottom row lists the pane's keys only while it has
+  them.

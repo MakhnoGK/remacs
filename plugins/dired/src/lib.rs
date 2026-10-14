@@ -139,18 +139,19 @@ impl Plugin for DiredPlugin {
         registry.menu_items.extend_from_slice(MENU_ITEMS);
         registry.minor_keymaps.push(MinorKeymap {
             active: |editor| {
-                editor.buffer().mode() == DIRED_MODE
+                editor.buffer_has_keys()
+                    && editor.buffer().mode() == DIRED_MODE
                     && !wdired::is_editing(editor)
                     && !new_file::is_creating(editor)
             },
             keymap: keymap(DIRED_BINDINGS),
         });
         registry.minor_keymaps.push(MinorKeymap {
-            active: wdired::is_editing,
+            active: |editor| editor.buffer_has_keys() && wdired::is_editing(editor),
             keymap: keymap(WDIRED_BINDINGS),
         });
         registry.minor_keymaps.push(MinorKeymap {
-            active: new_file::is_creating,
+            active: |editor| editor.buffer_has_keys() && new_file::is_creating(editor),
             keymap: keymap(NEW_FILE_BINDINGS),
         });
         registry.tables.push(Rc::new(listing::table));

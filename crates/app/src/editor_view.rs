@@ -1708,14 +1708,14 @@ impl EditorView {
         self.after_input(cx);
     }
 
-    /// The window buffer's outline in the rows that fit, the viewport set to them.
+    /// The window buffer's outline in the rows that fit `height`, the viewport set to them.
     fn render_outline(
         &mut self,
         outline_lines: usize,
+        height: Pixels,
         window: &Window,
         cx: &mut Context<Self>,
     ) -> Option<(AnyElement, Hints, Option<AnyElement>)> {
-        let height = window.viewport_size().height;
         let history_shown = self.advance_history(window, cx);
         let mut outline = self.editor.outline(
             self.editor.viewport.first_line..self.editor.viewport.first_line + outline_lines,
@@ -1888,9 +1888,8 @@ impl EditorView {
                 all_messages: whole_key,
             });
         let keys = (listed && !fitted.listed().is_empty()).then(|| {
-            // Under text the keys are a shown pane's, when there is one.
             let title = match self.editor.shown_pane() {
-                Some(pane) if !self.showing_rows && !self.showing_screen => pane,
+                Some(pane) if self.pane_keys_listed() => pane,
                 _ => self.editor.window_buffer().mode(),
             };
             (fitted, title)
@@ -1901,6 +1900,12 @@ impl EditorView {
             row.into_any_element(),
             self.render_cards(message, keys, prefix_keys, window),
         )
+    }
+
+    /// Whether the keys listed are a shown pane's: always under text, under rows only
+    /// while it has them, since theirs are what the rows are for.
+    fn pane_keys_listed(&self) -> bool {
+        !self.showing_screen && (!self.showing_rows || self.editor.pane_focused())
     }
 
     /// Over the bottom row, rising from it, as they come, are, or go.
@@ -2001,13 +2006,19 @@ impl Render for EditorView {
             window.set_background_blur_radius(self.glass.window_blur());
             self.applied_glass = Some(self.glass);
         }
-        let first_line = self.editor.viewport.first_line;
-        let table_rows = ((window.viewport_size().height - px(ROWS_TOP) - px(LIST_BOTTOM))
-            / px(ROW_PITCH))
-        .floor()
-        .max(1.0) as usize;
         let window_name = self.editor.window_buffer().name().to_owned();
         self.showing_screen = self.editor.is_screen(&window_name);
+        let shown_pane = (!self.showing_screen).then(|| self.editor.pane()).flatten();
+        let reserved = shown_pane
+            .as_ref()
+            .map_or(px(0.0), |pane| px(pane.height + PANE_BOTTOM + PANE_GAP));
+        // Tables and outlines are laid out in the window above the pane.
+        let rows_area_height =
+            window.viewport_size().height - (reserved - px(LIST_BOTTOM)).max(px(0.0));
+        let first_line = self.editor.viewport.first_line;
+        let table_rows = ((rows_area_height - px(ROWS_TOP) - px(LIST_BOTTOM)) / px(ROW_PITCH))
+            .floor()
+            .max(1.0) as usize;
         // One row more than fits is partly scrolled in; another tells whether there are
         // rows below.
         let table = (!self.showing_screen)
@@ -2017,13 +2028,12 @@ impl Render for EditorView {
             Some(_) => None,
             None if self.showing_screen => None,
             None => {
-                let lines = max_outline_lines(window.viewport_size().height);
-                self.render_outline(lines, window, cx)
+                let lines = max_outline_lines(rows_area_height);
+                self.render_outline(lines, rows_area_height, window, cx)
             }
         };
         self.showing_rows = table.is_some() || outline.is_some();
         let mut toolbar = None;
-        let mut pane = None;
         let mut text_shown = false;
         let (body, hints, popups) = match (table, outline) {
             _ if self.showing_screen => {
@@ -2055,7 +2065,7 @@ impl Render for EditorView {
             }
             (None, Some((body, hints, outline_toolbar))) => {
                 toolbar = outline_toolbar;
-                (body, hints, Vec::new())
+                (above_pane(body, rows_area_height), hints, Vec::new())
             }
             (Some(mut table), _) => {
                 self.editor.viewport.set_height(table_rows);
@@ -2087,36 +2097,32 @@ impl Render for EditorView {
                     (Some(changes), _) => Some(render_changes(changes, cx)),
                     (None, preview) => preview.map(|preview| self.render_preview(preview)),
                 };
-                let body = render_table(table, first_line, scrolled, top.fract(), cursor, side, cx)
-                    .into_any_element();
-                (body, hints, Vec::new())
+                let body = render_table(table, first_line, scrolled, top.fract(), cursor, side, cx);
+                (above_pane(body, rows_area_height), hints, Vec::new())
             }
             (None, None) => {
-                let shown_pane = self.editor.pane();
-                let reserved = shown_pane
-                    .as_ref()
-                    .map_or(px(0.0), |pane| px(pane.height + PANE_BOTTOM + PANE_GAP));
                 let (body, popups) = self.render_text(reserved, window, cx);
                 let controls = self.editor.text_controls().unwrap_or_default();
                 if !controls.toolbar.is_empty() {
                     toolbar = Some(render_toolbar(controls.toolbar, cx).into_any_element());
                 }
-                let hints = shown_pane
-                    .as_ref()
-                    .map_or(controls.hints, |pane| pane.hints);
-                pane = shown_pane.map(|shown| {
-                    let chrome = PaneChrome {
-                        switch: self.editor.pane_switch(),
-                        shown: self.editor.shown_pane().unwrap_or_default(),
-                        focused: self.editor.pane_focused(),
-                        window_width: window.viewport_size().width,
-                    };
-                    (shown, chrome)
-                });
                 text_shown = true;
-                (body, hints, popups)
+                (body, controls.hints, popups)
             }
         };
+        let hints = match &shown_pane {
+            Some(pane) if self.pane_keys_listed() => pane.hints,
+            _ => hints,
+        };
+        let pane = shown_pane.map(|shown| {
+            let chrome = PaneChrome {
+                switch: self.editor.pane_switch(),
+                shown: self.editor.shown_pane().unwrap_or_default(),
+                focused: self.editor.pane_focused(),
+                window_width: window.viewport_size().width,
+            };
+            (shown, chrome)
+        });
         // Popups belong to the text; drawn again, they come anew.
         if !text_shown {
             self.surfaces.popups.clear();
@@ -2165,6 +2171,18 @@ impl Render for EditorView {
             .children(prompt)
             .children(self.render_drag_listeners(cx))
     }
+}
+
+/// Rows laid out in the top `height` of the window, clear of the pane under them.
+fn above_pane(rows: impl IntoElement, height: Pixels) -> AnyElement {
+    div()
+        .absolute()
+        .top_0()
+        .left_0()
+        .right_0()
+        .h(height)
+        .child(rows)
+        .into_any_element()
 }
 
 /// A gutter mark as drawn: run triangles and execution arrows are icons, breakpoints dots.
