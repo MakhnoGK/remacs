@@ -20,11 +20,16 @@ pub struct Launch {
     pub env: Vec<(String, String)>,
     /// Shell commands, run in turn in `cwd` first.
     pub before: Vec<String>,
+    /// Shown in place of the command line, e.g. the command a shell is given.
+    pub shown: Option<String>,
 }
 
 impl Launch {
     /// As a shell would take it, e.g. `cargo run -p api`.
     pub fn command_line(&self) -> String {
+        if let Some(shown) = &self.shown {
+            return shown.clone();
+        }
         let program = Path::new(&self.program)
             .file_name()
             .map_or(self.program.as_str(), |name| {
@@ -57,6 +62,7 @@ pub fn launch(
     root: &Path,
     settings: &RunSettings,
 ) -> Result<Launch, String> {
+    let mut shown = None;
     let (program, mut args, own_directory) = match &configuration.kind {
         Kind::Cargo(cargo) => {
             let mut args = vec![cargo.command.clone()];
@@ -105,8 +111,19 @@ pub fn launch(
             };
             (program, Vec::new(), root.to_path_buf())
         }
+        Kind::Shell { command } => {
+            let line = std::iter::once(command.clone())
+                .chain(configuration.args.iter().map(String::as_str).map(quote))
+                .collect::<Vec<_>>()
+                .join(" ");
+            shown = Some(line.clone());
+            let args = vec!["-c".to_owned(), line];
+            (settings.compile.shell(), args, root.to_path_buf())
+        }
     };
-    args.extend(configuration.args.iter().cloned());
+    if !matches!(configuration.kind, Kind::Shell { .. }) {
+        args.extend(configuration.args.iter().cloned());
+    }
     let cwd = configuration
         .cwd
         .as_ref()
@@ -134,6 +151,7 @@ pub fn launch(
         cwd,
         env,
         before: configuration.before_launch.clone(),
+        shown,
     })
 }
 

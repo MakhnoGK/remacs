@@ -17,7 +17,8 @@ const CONSOLE_HINTS: &[(&str, &str)] = &[
     ("↵", "Open link / input"),
     ("TAB", "Next link"),
     ("C-c C-c", "Stop"),
-    ("C-r", "Rerun"),
+    ("g", "Rerun"),
+    ("M-g M-n", "Next error"),
     ("M-1…9", "Run"),
 ];
 

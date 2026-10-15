@@ -4,7 +4,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use remacs_core::{
-    ConsoleColor, ConsoleStyle, Editor, Face, GutterIcon, Mode, Section, parse_sequence,
+    Completions, ConsoleColor, ConsoleStyle, Editor, Face, GutterIcon, Mode, Section,
+    parse_sequence,
 };
 use remacs_editing::EditingPlugin;
 use remacs_minibuffer::MinibufferPlugin;
@@ -16,7 +17,7 @@ use crate::launch::{
     Launch, detect_package_manager, launch, parse_dotenv, parse_version, typescript_command,
 };
 use crate::sessions::{State, of_window};
-use crate::settings::TypeScriptRuntime;
+use crate::settings::{CompileSettings, TypeScriptRuntime};
 
 const WAIT: Duration = Duration::from_secs(10);
 
@@ -295,6 +296,7 @@ fn command_lines_quote_what_a_shell_would_split() {
         cwd: PathBuf::new(),
         env: Vec::new(),
         before: Vec::new(),
+        shown: None,
     };
     assert_eq!(launch.command_line(), r"env 'a b' 'it'\''s' --x=1");
     assert_eq!(
@@ -842,4 +844,168 @@ fn run_settings_have_sane_bounds() {
     assert!(RunSettings::default().check().is_ok());
     let settings: RunSettings = toml::from_str("console-lines = 5\n").unwrap();
     assert!(settings.check().is_err());
+    let settings: RunSettings = toml::from_str("[compile]\nhistory = 0\n").unwrap();
+    assert!(settings.check().is_err());
+}
+
+/// An editor whose compile commands run on `sh`, whatever `$SHELL` is.
+fn compile_editor(home: &Path) -> Editor {
+    let mut editor = editor(home);
+    sessions::sessions(&mut editor).settings.compile.shell = "/bin/sh".into();
+    editor
+}
+
+fn message(editor: &Editor) -> String {
+    editor
+        .message()
+        .map(|message| message.text.clone())
+        .unwrap_or_default()
+}
+
+fn position(editor: &Editor) -> (&str, usize, usize) {
+    let buffer = editor.window_buffer();
+    (buffer.name(), buffer.point_line(), buffer.point_column())
+}
+
+#[test]
+fn shell_configurations_run_their_command_line_on_the_configured_shell() {
+    let mut configuration = Configuration::new(
+        "lint",
+        Kind::Shell {
+            command: "cargo clippy | tee out".into(),
+        },
+    );
+    configuration.args = vec!["a b".into()];
+    let mut settings = settings();
+    settings.compile.shell = "/bin/zsh".into();
+    let launch = launch(&configuration, Path::new("/src/shop"), &settings).unwrap();
+    assert_eq!(launch.program, "/bin/zsh");
+    assert_eq!(launch.args, ["-c", "cargo clippy | tee out 'a b'"]);
+    assert_eq!(launch.cwd, Path::new("/src/shop"));
+    assert_eq!(launch.command_line(), "cargo clippy | tee out 'a b'");
+}
+
+#[test]
+fn compile_runs_a_command_line_and_next_error_visits_its_locations_in_turn() {
+    let home = directory("compile");
+    let mut editor = compile_editor(&home);
+    let root = home.join("project");
+    fs::create_dir_all(root.join(".git")).unwrap();
+    write(&root.join("src/a.rs"), "one\ntwo\n");
+    write(&root.join("src/b.rs"), "three\n");
+    write(
+        &root.join("build.sh"),
+        "echo 'src/a.rs:2:1: error'\necho 'see https://x.dev and src/b.rs:1:3'\nexit 1\n",
+    );
+    let script = "sh build.sh";
+    compile::run(&mut editor, &root, script).unwrap();
+    assert_eq!(editor.window_buffer().name(), "*compile: project*");
+    wait_until(&mut editor, |editor| {
+        contents(editor).contains("Process exited")
+    });
+    assert_eq!(
+        contents(&editor),
+        format!(
+            "{script}\nsrc/a.rs:2:1: error\nsee https://x.dev and src/b.rs:1:3\n\
+             Process exited with code 1\n"
+        )
+    );
+    assert_eq!(
+        message(&editor),
+        "Compilation exited abnormally with code 1"
+    );
+    // The project's chosen configuration stays as it was.
+    assert_eq!(
+        editor.find_plugin_state::<Store>().unwrap().selected(&root),
+        None
+    );
+
+    press(&mut editor, "M-<");
+    press(&mut editor, "M-g M-n");
+    assert_eq!(position(&editor), ("a.rs", 1, 0));
+    press(&mut editor, "M-g M-n");
+    assert_eq!(position(&editor), ("b.rs", 0, 2), "URLs are skipped");
+    press(&mut editor, "M-g M-n");
+    assert_eq!(message(&editor), "No more locations");
+    press(&mut editor, "M-g M-p");
+    assert_eq!(position(&editor), ("a.rs", 1, 0));
+
+    // g in the console runs the same command again, in the same console.
+    let buffers = editor.buffers().len();
+    editor.switch_to_buffer("*compile: project*");
+    press(&mut editor, "g");
+    wait_until(&mut editor, |editor| {
+        of_window(editor)
+            .and_then(|id| sessions::get(editor, id))
+            .is_some_and(|session| session.finished.is_some())
+            && contents(editor).contains("Process exited")
+    });
+    assert_eq!(editor.buffers().len(), buffers);
+    assert!(contents(&editor).starts_with(script));
+    fs::remove_dir_all(home).unwrap();
+}
+
+#[test]
+fn compile_commands_are_remembered_per_project_newest_first() {
+    let home = directory("compile-history");
+    let mut editor = compile_editor(&home);
+    let root = home.join("project");
+    write(&root.join("Cargo.toml"), "");
+    for command in ["echo one", "echo two", "echo one"] {
+        compile::run(&mut editor, &root, command).unwrap();
+        wait_until(&mut editor, |editor| {
+            contents(editor).contains("Process exited")
+        });
+    }
+    assert_eq!(message(&editor), "Compilation finished");
+    assert_eq!(
+        editor.buffers().len(),
+        2,
+        "one compile console and *scratch*"
+    );
+
+    let mut reopened = compile::History::default();
+    reopened.keep_in(home.join("state/compile.json"));
+    let commands = vec!["echo one".to_owned(), "echo two".to_owned()];
+    assert_eq!(reopened.of(&root), commands);
+
+    let labels = |completions: Completions| -> Vec<String> {
+        completions
+            .candidates
+            .into_iter()
+            .map(|candidate| candidate.value)
+            .collect()
+    };
+    assert_eq!(
+        labels(compile::candidates(&commands, Some("cargo build"), "")),
+        ["echo one", "echo two", "cargo build"]
+    );
+    assert_eq!(
+        labels(compile::candidates(&commands, None, "echo t")),
+        ["echo t", "echo two"],
+        "what is typed is the answer unless a command is chosen"
+    );
+    let settings = CompileSettings::default();
+    assert_eq!(
+        compile::default_command(&root, &settings).as_deref(),
+        Some("cargo build")
+    );
+
+    // From a file of the project, RET runs the last command; what is typed runs as typed.
+    editor.visit_file(&root.join("Cargo.toml")).unwrap();
+    press(&mut editor, "C-f");
+    press(&mut editor, "s-<f9>");
+    press(&mut editor, "RET");
+    wait_until(&mut editor, |editor| {
+        contents(editor).starts_with("echo one\n") && contents(editor).contains("Process exited")
+    });
+    press(&mut editor, "s-<f9>");
+    for key in "echo t".chars() {
+        press(&mut editor, &key.to_string().replace(' ', "SPC"));
+    }
+    press(&mut editor, "RET");
+    wait_until(&mut editor, |editor| {
+        contents(editor).starts_with("echo t\n") && contents(editor).contains("Process exited")
+    });
+    fs::remove_dir_all(home).unwrap();
 }

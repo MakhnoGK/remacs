@@ -28,6 +28,9 @@ pub struct Console {
     styles: Vec<(Range<usize>, ConsoleStyle)>,
     /// A carriage return came: the next text replaces the last line.
     redraw_line: bool,
+    /// Where the `file:line` last visited by `compile-next-error` starts, like Emacs's
+    /// current error.
+    pub location: Option<usize>,
 }
 
 pub fn new_buffer(name: String, session: u64, cwd: &Path, root: &Path) -> Buffer {
@@ -40,6 +43,7 @@ pub fn new_buffer(name: String, session: u64, cwd: &Path, root: &Path) -> Buffer
         parser: Parser::default(),
         styles: Vec::new(),
         redraw_line: false,
+        location: None,
     });
     buffer
 }
@@ -52,6 +56,7 @@ pub fn clear(buffer: &mut Buffer) {
         console.parser = Parser::default();
         console.styles.clear();
         console.redraw_line = false;
+        console.location = None;
     }
 }
 
@@ -160,6 +165,9 @@ fn trim(buffer: &mut Buffer, max_lines: usize) {
             *range = range.start.saturating_sub(cut)..range.end.saturating_sub(cut);
             range.start < range.end
         });
+        console.location = console
+            .location
+            .and_then(|location| location.checked_sub(cut));
     }
 }
 
@@ -221,6 +229,33 @@ pub fn link_at(buffer: &Buffer, offset: usize) -> Option<Target> {
         .into_iter()
         .find(|(range, _)| range.start <= offset && offset <= range.end)
         .map(|(_, target)| target)
+}
+
+/// The next `file:line` link starting after `offset`, from the first when there is no
+/// offset, or the previous one before it: where it starts, and where it leads.
+pub fn next_location(
+    buffer: &Buffer,
+    offset: Option<usize>,
+    forward: bool,
+) -> Option<(usize, Target)> {
+    let text = buffer.text();
+    let files = |line: usize| {
+        line_links(buffer, line)
+            .into_iter()
+            .filter(|(_, target)| matches!(target, Target::File { .. }))
+            .map(|(range, target)| (range.start, target))
+    };
+    match (offset, forward) {
+        (None, true) => (0..text.line_count()).flat_map(files).next(),
+        (Some(offset), true) => (text.line_of(offset)..text.line_count())
+            .flat_map(files)
+            .find(|&(start, _)| start > offset),
+        (None, false) => None,
+        (Some(offset), false) => (0..=text.line_of(offset))
+            .rev()
+            .flat_map(|line| files(line).rev())
+            .find(|&(start, _)| start < offset),
+    }
 }
 
 /// Where the next link after `offset` starts, or the previous one before it.

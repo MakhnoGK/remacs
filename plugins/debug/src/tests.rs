@@ -67,6 +67,7 @@ fn cargo_configurations_are_built_then_debugged_with_codelldb() {
         cwd: "/src/shop".into(),
         env: vec![("RUST_LOG".into(), "debug".into())],
         before: vec![],
+        shown: None,
     };
     let (adapter, plan) = plan(&configuration, &launch).unwrap();
     assert_eq!(adapter, Adapter::CodeLldb);
@@ -120,6 +121,7 @@ fn cargo_tests_are_built_without_running_and_debugged_with_their_filter() {
         cwd: "/src/shop".into(),
         env: vec![],
         before: vec![],
+        shown: None,
     };
     let (_, tests) = plan(&configuration, &launch).unwrap();
     assert_eq!(

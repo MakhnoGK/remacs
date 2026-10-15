@@ -110,6 +110,7 @@ pub fn plan(configuration: &Configuration, launch: &Launch) -> Result<(Adapter, 
             Adapter::CodeLldb
         }
         Kind::Node { .. } | Kind::Npm { .. } => Adapter::JsDebug,
+        Kind::Shell { .. } => return Err("A shell command cannot be debugged".into()),
     };
     let plan = Plan {
         before: launch.before.clone(),

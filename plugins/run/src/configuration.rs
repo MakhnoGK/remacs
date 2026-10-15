@@ -57,6 +57,10 @@ pub enum Kind {
     Executable {
         program: String,
     },
+    /// A command line, run by the shell `run.toml` [compile] names, as `compile` runs it.
+    Shell {
+        command: String,
+    },
 }
 
 /// `cargo <command> -p <package> [--lib | --bin <bin> | --test <test> | --example
@@ -166,7 +170,7 @@ impl Kind {
             Kind::Cargo(_) => Icon::Package,
             Kind::Npm { .. } => Icon::Script,
             Kind::Node { .. } => Icon::File,
-            Kind::Executable { .. } => Icon::Terminal,
+            Kind::Executable { .. } | Kind::Shell { .. } => Icon::Terminal,
         }
     }
 
@@ -177,6 +181,7 @@ impl Kind {
             Kind::Npm { .. } => "npm scripts",
             Kind::Node { .. } => "Files",
             Kind::Executable { .. } => "Executables",
+            Kind::Shell { .. } => "Shell commands",
         }
     }
 
@@ -187,6 +192,7 @@ impl Kind {
             Kind::Npm { .. } => 1,
             Kind::Node { .. } => 2,
             Kind::Executable { .. } => 3,
+            Kind::Shell { .. } => 4,
         }
     }
 }
@@ -224,6 +230,7 @@ const HEADER: &str = "\
 # kind = \"npm\": package-json, script, package-manager (npm, pnpm, yarn, bun)
 # kind = \"node\": file (.js or .ts)
 # kind = \"executable\": program
+# kind = \"shell\": command, a command line run by the shell run.toml [compile] names
 # Any kind: args, cwd, env, env-file, before-launch
 ";
 

@@ -38,6 +38,11 @@ pub struct Session {
     pub starter: Option<Starter>,
     /// Runs again once the process it stopped has ended.
     rerun: bool,
+    /// The project's `compile` session, whatever command it runs, rather than a run of a
+    /// configuration.
+    pub compile: bool,
+    /// The name its console is made with.
+    console_name: String,
 }
 
 impl Session {
@@ -86,7 +91,29 @@ pub fn find(editor: &Editor, root: &Path, name: &str) -> Option<u64> {
         .find_plugin_state::<Sessions>()?
         .list
         .iter()
-        .find(|session| session.root == root && session.configuration.name == name)
+        .find(|session| {
+            !session.compile && session.root == root && session.configuration.name == name
+        })
+        .map(|session| session.id)
+}
+
+/// The `compile` session of the project at `root`.
+pub fn find_compile(editor: &Editor, root: &Path) -> Option<u64> {
+    editor
+        .find_plugin_state::<Sessions>()?
+        .list
+        .iter()
+        .find(|session| session.compile && session.root == root)
+        .map(|session| session.id)
+}
+
+/// The session started last.
+pub fn latest(editor: &Editor) -> Option<u64> {
+    editor
+        .find_plugin_state::<Sessions>()?
+        .list
+        .iter()
+        .max_by_key(|session| session.started)
         .map(|session| session.id)
 }
 
@@ -127,9 +154,48 @@ pub fn run(
     configuration: Configuration,
     starter: Option<Starter>,
 ) -> CommandResult {
+    run_in(editor, root, configuration, starter, false)
+}
+
+/// Runs a shell command line as the `compile` of the project at `root`, in its console
+/// `*compile: <project>*`; a compile still going is stopped first.
+pub fn compile(editor: &mut Editor, root: &Path, configuration: Configuration) -> CommandResult {
+    run_in(editor, root, configuration, None, true)
+}
+
+/// Runs the session again as it was last started, or with `starter` when given.
+pub fn rerun(editor: &mut Editor, id: u64, starter: Option<Starter>) -> CommandResult {
+    let session = get_mut(editor, id).ok_or("No such run")?;
+    let Some(starter) = starter else {
+        return run_session(editor, id);
+    };
+    let earlier = session.starter.replace(starter);
+    let result = run_session(editor, id);
+    if result.is_err()
+        && let Some(session) = get_mut(editor, id)
+    {
+        session.starter = earlier;
+    }
+    result
+}
+
+/// Runs `configuration` in its session, the project's `compile` one if `compile`, made
+/// first if there is none.
+fn run_in(
+    editor: &mut Editor,
+    root: &Path,
+    configuration: Configuration,
+    starter: Option<Starter>,
+    compile: bool,
+) -> CommandResult {
     let settings = sessions(editor).settings.clone();
     launch(&configuration, root, &settings)?;
-    let id = match find(editor, root, &configuration.name) {
+    let found = if compile {
+        find_compile(editor, root)
+    } else {
+        find(editor, root, &configuration.name)
+    };
+    let id = match found {
         Some(id) => {
             let session = get_mut(editor, id).expect("found");
             session.configuration = configuration;
@@ -137,6 +203,11 @@ pub fn run(
             id
         }
         None => {
+            let console_name = if compile {
+                format!("*compile: {}*", directory_name(root))
+            } else {
+                format!("*run: {}*", configuration.name)
+            };
             let sessions = sessions(editor);
             sessions.next_id += 1;
             let id = sessions.next_id;
@@ -150,10 +221,24 @@ pub fn run(
                 process: None,
                 starter,
                 rerun: false,
+                compile,
+                console_name,
             });
             id
         }
     };
+    run_session(editor, id)
+}
+
+fn directory_name(root: &Path) -> String {
+    root.file_name().map_or_else(
+        || root.display().to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    )
+}
+
+/// Shows the session's console and starts it, once the run going on, if any, has ended.
+fn run_session(editor: &mut Editor, id: u64) -> CommandResult {
     show(editor, id);
     let session = get_mut(editor, id).expect("just made");
     if session.is_running() {
@@ -209,8 +294,7 @@ pub fn show(editor: &mut Editor, id: u64) {
         .settings;
     let cwd = launch(&session.configuration, &session.root, settings)
         .map_or_else(|_| session.root.clone(), |launch| launch.cwd);
-    let name = format!("*run: {}*", session.configuration.name);
-    let buffer = console::new_buffer(name, id, &cwd, &session.root);
+    let buffer = console::new_buffer(session.console_name.clone(), id, &cwd, &session.root);
     editor.add_buffer(buffer);
 }
 
@@ -297,6 +381,9 @@ fn exited(editor: &mut Editor, id: u64, name: &str, exit: Exit) {
         State::Exited(exit)
     };
     let rerun = session.rerun;
+    if session.compile && !rerun {
+        report_compile(editor, stopped, exit);
+    }
     let buffer = editor.buffer_named_mut(name).expect("exited in a console");
     match (stopped, exit) {
         (true, _) => console::append_note(buffer, "Process stopped", dim()),
@@ -315,5 +402,20 @@ fn exited(editor: &mut Editor, id: u64, name: &str, exit: Exit) {
     }
     if rerun && let Err(error) = start(editor, id) {
         editor.set_error(error.0);
+    }
+}
+
+/// Says in the echo area how a compile ended, as Emacs does, its console perhaps hidden.
+fn report_compile(editor: &mut Editor, stopped: bool, exit: Exit) {
+    match (stopped, exit) {
+        (true, _) => editor.set_message("Compilation stopped"),
+        (false, Exit::Code(0)) => editor.set_message("Compilation finished"),
+        (false, Exit::Code(code)) => {
+            editor.set_error(format!("Compilation exited abnormally with code {code}"));
+        }
+        (false, Exit::Signal(signal)) => {
+            editor.set_error(format!("Compilation ended by signal {signal}"));
+        }
+        (false, Exit::NotStarted) => editor.set_error("Compilation could not start"),
     }
 }

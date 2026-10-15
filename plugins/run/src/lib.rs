@@ -6,6 +6,7 @@
 mod ansi;
 mod chooser;
 mod commands;
+mod compile;
 mod configuration;
 mod console;
 mod discovery;
@@ -53,6 +54,10 @@ const COMMANDS: &[Command] = &[
     Command::new(CHOOSE, "Choose a configuration of the project and run it", chooser::choose),
     Command::new(STOP, "Stop the console's program, or the chosen configuration's", commands::stop),
     Command::new("run-edit-configurations", "Visit the project's run configurations", commands::edit_configurations),
+    Command::new(compile::COMPILE, "Run a shell command from the project root, its output in the project's compile console", compile::compile),
+    Command::new(compile::RECOMPILE, "Run the project's last compile command again", compile::recompile),
+    Command::new(compile::NEXT_ERROR, "Visit the next file:line of the compile output, or of the console's", compile::next_error),
+    Command::new(compile::PREVIOUS_ERROR, "Visit the previous file:line of the compile output, or of the console's", compile::previous_error),
     Command::new(chooser::EDIT, "Edit the selected configuration", chooser::edit),
     Command::new(window::ENTRY_POINT_MENU, "Show what can be done with the entry point at point", menu::open),
     Command::new(menu::NEXT, "Select the next item of the entry point menu", menu::next),
@@ -81,6 +86,11 @@ const BINDINGS: &[(&str, &str)] = &[
     ("C-R", RUN_AT_POINT),
     ("M-R", CHOOSE),
     ("s-<f2>", STOP),
+    ("s-<f9>", compile::COMPILE),
+    ("s-S-<f9>", compile::RECOMPILE),
+    ("M-g M-n", compile::NEXT_ERROR),
+    ("M-g M-p", compile::PREVIOUS_ERROR),
+    ("C-x `", compile::NEXT_ERROR),
 ];
 
 #[rustfmt::skip]
@@ -90,6 +100,10 @@ const MENU_ITEMS: &[MenuItem] = &[
     MenuItem::new("Run", "run", "Choose Configuration…", CHOOSE),
     MenuItem::new("Run", "run", "Edit Configurations", "run-edit-configurations"),
     MenuItem::new("Run", "run", "Stop", STOP).enabled_when(sessions::any_running),
+    MenuItem::new("Run", "compile", "Compile…", compile::COMPILE),
+    MenuItem::new("Run", "compile", "Recompile", compile::RECOMPILE),
+    MenuItem::new("Run", "compile", "Next Error Location", compile::NEXT_ERROR).enabled_when(compile::has_output),
+    MenuItem::new("Run", "compile", "Previous Error Location", compile::PREVIOUS_ERROR).enabled_when(compile::has_output),
 ];
 
 const MENU_BINDINGS: &[(&str, &str)] = &[
@@ -106,6 +120,7 @@ const CONSOLE_BINDINGS: &[(&str, &str)] = &[
     ("RET", "run-console-open-or-input"),
     ("TAB", "run-console-next-link"),
     ("S-TAB", "run-console-previous-link"),
+    ("g", RUN),
     ("C-c C-c", "run-console-stop"),
     ("C-c C-d", "run-console-send-eof"),
     ("M-1", "run-show-1"),
@@ -165,9 +180,10 @@ fn read_settings(editor: &mut Editor) {
 }
 
 /// Keeps run files under `home`'s `run` directory, and which configuration each project
-/// runs in its state directory.
+/// runs and the commands it compiled in its state directory.
 pub fn keep_configurations_in(editor: &mut Editor, home: &Path) {
     configuration_store(editor).keep_in(run_dir(home), state_dir(home).join("run.json"));
+    compile::history(editor).keep_in(state_dir(home).join("compile.json"));
 }
 
 fn configuration_store(editor: &mut Editor) -> &mut Store {

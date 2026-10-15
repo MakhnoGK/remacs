@@ -60,7 +60,7 @@ const MENUS: &[Menu] = &[
     Menu { title: VIEW_MENU, groups: &["commands", "panels", "text-size"], trailing: false },
     Menu { title: "Go", groups: &["buffer", "definitions", "problems"], trailing: false },
     Menu { title: "Git", groups: &["status", "history", "changes", "branches", "sync"], trailing: false },
-    Menu { title: "Run", groups: &["run", "debug", "step", "breakpoints"], trailing: false },
+    Menu { title: "Run", groups: &["run", "compile", "debug", "step", "breakpoints"], trailing: false },
     Menu { title: WINDOW_MENU, groups: &["size", "windows"], trailing: true },
     Menu { title: "Help", groups: &["help"], trailing: true },
 ];

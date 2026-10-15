@@ -20,10 +20,8 @@ pub fn run(editor: &mut Editor) -> CommandResult {
 /// elsewhere the project's chosen one, else the entry point at point, else asks which to
 /// run. `starter` starts it other than by running it.
 pub fn run_with(editor: &mut Editor, starter: Option<Starter>) -> CommandResult {
-    if let Some(session) = of_window(editor).and_then(|id| get(editor, id)) {
-        let (root, configuration) = (session.root.clone(), session.configuration.clone());
-        let starter = starter.or_else(|| session.starter.clone());
-        return sessions::run(editor, &root, configuration, starter);
+    if let Some(id) = of_window(editor) {
+        return sessions::rerun(editor, id, starter);
     }
     let root = window_root(editor).ok_or("Not in a project")?;
     let store = configuration_store(editor);

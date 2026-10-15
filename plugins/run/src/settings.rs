@@ -8,6 +8,8 @@ const CONSOLE_LINES: std::ops::RangeInclusive<usize> = 100..=1_000_000;
 /// Milliseconds.
 const STOP_TIMEOUTS: std::ops::RangeInclusive<u64> = 0..=60_000;
 const ENTRY_POINT_DELAYS: std::ops::RangeInclusive<u64> = 0..=5_000;
+const COMPILE_HISTORY: std::ops::RangeInclusive<u64> = 1..=1_000;
+const FALLBACK_SHELL: &str = "/bin/sh";
 
 /// `run.toml`.
 #[derive(Clone, Debug, Deserialize)]
@@ -22,6 +24,63 @@ pub struct RunSettings {
     pub typescript: TypeScriptRuntime,
     /// Set for every process run, e.g. so that it prints colors though not to a terminal.
     pub env: BTreeMap<String, String>,
+    pub compile: CompileSettings,
+}
+
+/// `run.toml` [compile]: how `compile` runs shell commands.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct CompileSettings {
+    /// Runs the commands with `-c`, a path or a name; empty, `$SHELL`.
+    pub shell: String,
+    /// Commands remembered for each project.
+    pub history: usize,
+    /// Offered in a project that has run none yet: the command of the first whose file
+    /// is at the project root.
+    pub defaults: Vec<DefaultCommand>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct DefaultCommand {
+    pub file: String,
+    pub command: String,
+}
+
+impl Default for CompileSettings {
+    fn default() -> Self {
+        Self {
+            shell: String::new(),
+            history: 50,
+            defaults: [
+                ("Cargo.toml", "cargo build"),
+                ("package.json", "npm run build"),
+                ("go.mod", "go build ./..."),
+                ("CMakeLists.txt", "cmake --build build"),
+                ("Makefile", "make -k"),
+            ]
+            .into_iter()
+            .map(|(file, command)| DefaultCommand {
+                file: file.to_owned(),
+                command: command.to_owned(),
+            })
+            .collect(),
+        }
+    }
+}
+
+impl CompileSettings {
+    /// The shell to run commands with: the configured one, else `$SHELL`, else `sh`.
+    pub fn shell(&self) -> String {
+        Some(self.shell.clone())
+            .filter(|shell| !shell.is_empty())
+            .or_else(|| {
+                std::env::var("SHELL")
+                    .ok()
+                    .filter(|shell| !shell.is_empty())
+            })
+            .unwrap_or_else(|| FALLBACK_SHELL.to_owned())
+    }
 }
 
 /// What runs a TypeScript file.
@@ -50,6 +109,7 @@ impl Default for RunSettings {
             .into_iter()
             .map(|(name, value)| (name.to_owned(), value.to_owned()))
             .collect(),
+            compile: CompileSettings::default(),
         }
     }
 }
@@ -91,6 +151,11 @@ impl Section for RunSettings {
             self.entry_point_delay,
             &ENTRY_POINT_DELAYS,
             "entry-point-delay",
+        )?;
+        within(
+            self.compile.history as u64,
+            &COMPILE_HISTORY,
+            "compile.history",
         )
     }
 }
