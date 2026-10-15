@@ -12,7 +12,9 @@ mod file_rename;
 mod hover;
 mod markdown;
 mod offer;
-mod position;
+/// Public for the benchmarks only.
+#[doc(hidden)]
+pub mod position;
 mod restart;
 mod settings;
 mod snippet;

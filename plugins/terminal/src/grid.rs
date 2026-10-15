@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::ops::RangeInclusive;
 
 use alacritty_terminal::Term;
+use alacritty_terminal::event::EventListener;
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Column, Line, Point};
 use alacritty_terminal::term::cell::{Cell, Flags};
@@ -28,7 +29,10 @@ pub struct Overlay<'a> {
     pub link: Option<&'a RangeInclusive<Point>>,
 }
 
-pub fn rows(term: &Term<Listener>, overlay: &Overlay) -> (Vec<ScreenRow>, Option<ScreenCursor>) {
+pub fn rows<L: EventListener>(
+    term: &Term<L>,
+    overlay: &Overlay,
+) -> (Vec<ScreenRow>, Option<ScreenCursor>) {
     let grid = term.grid();
     let offset = grid.display_offset() as i32;
     let selection = term
@@ -36,7 +40,16 @@ pub fn rows(term: &Term<Listener>, overlay: &Overlay) -> (Vec<ScreenRow>, Option
         .as_ref()
         .and_then(|selection| selection.to_range(term));
     let colors = term.colors();
-    let highlight = |point: Point| -> Option<CellHighlight> {
+    // Matches are sorted and cells are visited in order, so one index walks them all.
+    let mut next_match = 0;
+    let mut in_match = |point: Point| {
+        let matches = overlay.matches;
+        next_match += matches[next_match..].partition_point(|found| *found.end() < point);
+        matches
+            .get(next_match)
+            .is_some_and(|found| found.contains(&point))
+    };
+    let mut highlight = |point: Point| -> Option<CellHighlight> {
         if overlay
             .current_match
             .is_some_and(|current| current.contains(&point))
@@ -44,7 +57,7 @@ pub fn rows(term: &Term<Listener>, overlay: &Overlay) -> (Vec<ScreenRow>, Option
             Some(CellHighlight::SearchCurrent)
         } else if selection.is_some_and(|selection| selection.contains(point)) {
             Some(CellHighlight::Selection)
-        } else if overlay.matches.iter().any(|found| found.contains(&point)) {
+        } else if in_match(point) {
             Some(CellHighlight::SearchMatch)
         } else if overlay.link.is_some_and(|link| link.contains(&point)) {
             Some(CellHighlight::Link)
@@ -119,7 +132,7 @@ pub fn rows(term: &Term<Listener>, overlay: &Overlay) -> (Vec<ScreenRow>, Option
     (rows, cursor(term, overlay.focused))
 }
 
-fn cursor(term: &Term<Listener>, focused: bool) -> Option<ScreenCursor> {
+fn cursor<L: EventListener>(term: &Term<L>, focused: bool) -> Option<ScreenCursor> {
     let content = term.renderable_content();
     let shape = match content.cursor.shape {
         Shape::Hidden => return None,

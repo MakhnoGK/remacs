@@ -1,3 +1,4 @@
+use std::ops::Range;
 use std::path::Path;
 
 use lsp_types::Position;
@@ -6,12 +7,12 @@ use remacs_text::{Snapshot, Text};
 
 /// What an LSP `character` counts: UTF-16 code units unless the server agreed to bytes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Encoding {
+pub enum Encoding {
     Utf8,
     Utf16,
 }
 
-pub(crate) fn to_lsp(text: &Snapshot, offset: usize, encoding: Encoding) -> Position {
+pub fn to_lsp(text: &Snapshot, offset: usize, encoding: Encoding) -> Position {
     let (line, column) = text.position(offset);
     let character = match encoding {
         Encoding::Utf8 => column,
@@ -23,30 +24,51 @@ pub(crate) fn to_lsp(text: &Snapshot, offset: usize, encoding: Encoding) -> Posi
 }
 
 /// Byte offset of `position`, clamped to its line and kept on a character boundary.
-pub(crate) fn from_lsp(text: &Snapshot, position: Position, encoding: Encoding) -> usize {
+pub fn from_lsp(text: &Snapshot, position: Position, encoding: Encoding) -> usize {
     let Some(line) = text.line_range(position.line as usize) else {
         return text.len();
     };
     let character = position.character as usize;
     let offset = match encoding {
         Encoding::Utf8 => (line.start + character).min(line.end),
-        Encoding::Utf16 => {
-            let line_text = String::from_utf8_lossy(&text.bytes_in(line.clone())).into_owned();
-            let mut units = 0;
-            line_text
-                .char_indices()
-                .find(|(_, char)| {
-                    units += char.len_utf16();
-                    units > character
-                })
-                .map_or(line.end, |(index, _)| line.start + index)
-        }
+        Encoding::Utf16 => utf16_offset(text, line.clone(), character),
     };
     if text.is_char_boundary(offset) {
         offset
     } else {
         text.previous_char_boundary(offset)
     }
+}
+
+/// Offset in `line` of the character starting after `units` UTF-16 code units, else the
+/// line's end. Reads the line in place: minified lines are megabytes, and servers send
+/// hundreds of positions on one.
+fn utf16_offset(text: &Snapshot, line: Range<usize>, units: usize) -> usize {
+    const BLOCK: usize = 64;
+    // A UTF-8 lead byte starts a character of one code unit, or two from 4 bytes on.
+    let units_of = |byte: u8| usize::from(byte & 0xC0 != 0x80) + usize::from(byte >= 0xF0);
+    let mut counted = 0;
+    let mut offset = line.start;
+    for chunk in text.chunks(line.clone()) {
+        let mut rest = chunk;
+        while rest.len() >= BLOCK {
+            let block_units: usize = rest[..BLOCK].iter().map(|&byte| units_of(byte)).sum();
+            if counted + block_units > units {
+                break;
+            }
+            counted += block_units;
+            offset += BLOCK;
+            rest = &rest[BLOCK..];
+        }
+        for &byte in rest {
+            counted += units_of(byte);
+            if counted > units {
+                return offset;
+            }
+            offset += 1;
+        }
+    }
+    line.end
 }
 
 /// The text a server's positions in `path` refer to: the buffer visiting it, else the
@@ -91,5 +113,18 @@ mod tests {
             from_lsp(&text, Position::new(9, 0), Encoding::Utf8),
             text.len()
         );
+    }
+
+    #[test]
+    fn utf16_columns_of_a_long_line_land_on_its_characters() {
+        let line = "a😀ж".repeat(100);
+        let text = Text::from(format!("x\n{line}\n").as_str());
+        let start = text.line_range(1).unwrap().start;
+        let mut units = 0;
+        for (index, character) in line.char_indices() {
+            let position = Position::new(1, units as u32);
+            assert_eq!(from_lsp(&text, position, Encoding::Utf16), start + index);
+            units += character.len_utf16();
+        }
     }
 }

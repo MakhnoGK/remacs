@@ -5,7 +5,9 @@
 
 mod commands;
 mod copy;
-mod grid;
+/// Public for the benchmarks only.
+#[doc(hidden)]
+pub mod grid;
 mod history;
 mod integration;
 mod keys;

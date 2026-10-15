@@ -14,6 +14,7 @@ mod launch;
 mod menu;
 mod process;
 mod rust_tests;
+mod scanner;
 mod sessions;
 mod settings;
 mod status;

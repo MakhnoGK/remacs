@@ -17,8 +17,13 @@ remacs-theme.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
+divan.workspace = true
 remacs-editing.workspace = true
 remacs-minibuffer.workspace = true
+
+[[bench]]
+name = "grid"
+harness = false
 
 [lints]
 workspace = true

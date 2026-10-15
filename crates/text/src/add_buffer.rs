@@ -5,11 +5,12 @@ use std::sync::Arc;
 const CHUNK_CAPACITY: usize = 64 * 1024;
 
 /// Append-only storage for inserted text. Full chunks are frozen and shared between
-/// snapshots, so cloning copies at most one partly filled chunk.
+/// snapshots; the open chunk is shared too and copied only when appended to while a
+/// snapshot holds it, so cloning costs no copy and a key typed at most one.
 #[derive(Clone, Default)]
 pub(crate) struct AddBuffer {
     frozen: Vec<Arc<[u8]>>,
-    current: Vec<u8>,
+    current: Arc<Vec<u8>>,
 }
 
 impl AddBuffer {
@@ -22,23 +23,27 @@ impl AddBuffer {
             self.frozen.push(text.into());
             return (self.frozen.len() as u32 - 1, 0..text.len());
         }
-        if self.current.capacity() == 0 {
-            self.current.reserve_exact(CHUNK_CAPACITY);
+        if Arc::get_mut(&mut self.current).is_none_or(|current| current.capacity() == 0) {
+            let mut owned = Vec::with_capacity(CHUNK_CAPACITY);
+            owned.extend_from_slice(&self.current);
+            self.current = Arc::new(owned);
         }
-        let start = self.current.len();
-        self.current.extend_from_slice(text);
-        (self.frozen.len() as u32, start..self.current.len())
+        let current = Arc::get_mut(&mut self.current).expect("the open chunk was just unshared");
+        let start = current.len();
+        current.extend_from_slice(text);
+        (self.frozen.len() as u32, start..current.len())
     }
 
     pub fn chunk(&self, index: u32) -> &[u8] {
         self.frozen
             .get(index as usize)
-            .map_or(&self.current, |chunk| chunk)
+            .map_or(self.current.as_slice(), |chunk| chunk)
     }
 
     fn freeze_current(&mut self) {
         if !self.current.is_empty() {
-            self.frozen.push(mem::take(&mut self.current).into());
+            self.frozen
+                .push(Arc::unwrap_or_clone(mem::take(&mut self.current)).into());
         }
     }
 }

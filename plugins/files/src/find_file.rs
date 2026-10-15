@@ -6,7 +6,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use remacs_core::{
-    Buffer, Candidate, CommandResult, Completions, Count, Editor, FuzzyQuery, Icon, Prompt, filter,
+    Buffer, Candidate, CommandResult, CompletionMemo, Completions, Count, Editor, FuzzyQuery, Icon, Prompt, filter,
     filter_map_parallel, rank,
 };
 
@@ -56,14 +56,21 @@ fn read_file_name(
         ..Prompt::default()
     };
     let (source_root, source_index) = (Rc::clone(&root), Arc::clone(&index));
+    let memo = CompletionMemo::<(String, Arc<Vec<String>>, usize)>::default();
     editor.read(
         prompt,
         move |editor, input| {
             if is_absolute(input) {
-                directory_candidates(input)
-            } else {
-                project_candidates(editor, &source_root, &source_index.files(), input)
+                return directory_candidates(input);
             }
+            let files = source_index.files();
+            // Open buffers tag their files.
+            let key = (input.to_owned(), Arc::clone(&files), editor.buffers().len());
+            memo.get(
+                key,
+                |last, new| last.0 == new.0 && Arc::ptr_eq(&last.1, &new.1) && last.2 == new.2,
+                || project_candidates(editor, &source_root, &files, input),
+            )
         },
         move |editor, answer| {
             let path = if is_absolute(&answer) {

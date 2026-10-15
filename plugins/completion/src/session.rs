@@ -4,6 +4,7 @@ use std::ops::Range;
 
 use remacs_core::{
     Buffer, Candidate, CommandResult, Editor, Popup, SELF_INSERT_COMMAND, Selection, flex_match,
+    flex_rank,
 };
 
 use crate::backend::{Item, List, Request, Trigger, is_word_char};
@@ -59,9 +60,10 @@ struct Session {
     start: usize,
     items: Vec<Item>,
     incomplete: bool,
-    /// Items matching the word, prefix matches first, with the ranges of their labels
-    /// that matched.
-    matches: Vec<(usize, Vec<Range<usize>>)>,
+    /// Indices of the items matching the word, prefix matches first.
+    matches: Vec<usize>,
+    /// The word matched; the rows shown highlight what of it their labels match.
+    word: String,
     selection: Selection,
     /// Point when the word was matched; moving it other than by typing ends the session.
     point: usize,
@@ -78,6 +80,7 @@ impl Session {
             items: list.items,
             incomplete: list.incomplete,
             matches: Vec::new(),
+            word: String::new(),
             selection: Selection::default(),
             point: start,
             resolving: HashSet::new(),
@@ -91,17 +94,13 @@ impl Session {
             .iter()
             .enumerate()
             .filter_map(|(index, item)| {
-                let matched = flex_match(word, &item.filter_text)?;
-                let is_prefix = matched.first() == Some(&(0..word.len()));
-                let highlights = flex_match(word, &item.label).unwrap_or_default();
-                Some((!is_prefix, index, highlights))
+                let is_prefix = flex_rank(word, &item.filter_text)?;
+                Some((!is_prefix, index))
             })
             .collect();
-        ranked.sort_by_key(|&(not_prefix, index, _)| (not_prefix, index));
-        self.matches = ranked
-            .into_iter()
-            .map(|(_, index, highlights)| (index, highlights))
-            .collect();
+        ranked.sort_unstable();
+        self.matches = ranked.into_iter().map(|(_, index)| index).collect();
+        word.clone_into(&mut self.word);
         self.selection = Selection::default();
         self.documentation_pages = 0;
         self.point = point;
@@ -118,7 +117,7 @@ impl Session {
     }
 
     fn selected_item(&self) -> Option<&Item> {
-        let (index, _) = self.matches.get(self.selection.selected())?;
+        let index = self.matches.get(self.selection.selected())?;
         Some(&self.items[*index])
     }
 }
@@ -146,7 +145,7 @@ impl Completion {
         let Some(session) = &mut self.session else {
             return;
         };
-        let Some(&(index, _)) = session.matches.get(session.selection.selected()) else {
+        let Some(&index) = session.matches.get(session.selection.selected()) else {
             return;
         };
         if session.items[index].documentation.is_none() && session.resolving.insert(index) {
@@ -332,10 +331,10 @@ pub(crate) fn popup(editor: &Editor) -> Option<Popup> {
         .visible(session.matches.len(), VISIBLE_ROWS);
     let rows = session.matches[visible.clone()]
         .iter()
-        .map(|(index, highlights)| {
-            let item = &session.items[*index];
+        .map(|&index| {
+            let item = &session.items[index];
             Candidate {
-                matches: highlights.clone(),
+                matches: flex_match(&session.word, &item.label).unwrap_or_default(),
                 detail: (!item.detail.is_empty()).then(|| item.detail.clone().into()),
                 kind: item.kind,
                 ..Candidate::new(item.label.clone())
@@ -416,7 +415,7 @@ pub(crate) fn insert(editor: &mut Editor) -> CommandResult {
     let state = completion(editor);
     let session = state.session.take().ok_or("No completion")?;
     state.awaited = None;
-    let &(index, _) = session
+    let &index = session
         .matches
         .get(session.selection.selected())
         .ok_or("No completion")?;

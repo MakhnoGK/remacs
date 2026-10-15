@@ -3,6 +3,9 @@ use std::ops::Range;
 use memchr::memmem::Finder;
 use remacs_text::Snapshot;
 
+/// Bytes copied into the search window at a time; small enough to stay in cache.
+const SEARCHED_BLOCK: usize = 64 * 1024;
+
 /// A literal string to find, with smart case like the prompts' filters: ASCII case is
 /// ignored unless it has an uppercase letter.
 #[derive(Clone)]
@@ -36,20 +39,23 @@ impl Query {
     }
 
     /// Calls `each` with the start of every match within `range` of `text`, in order,
-    /// until it returns false. Reads a chunk at a time, so a file of gigabytes is never
-    /// copied whole.
+    /// until it returns false. Reads a block at a time, so a file of gigabytes, which an
+    /// unedited buffer holds as one piece, is never copied whole.
     pub fn find(&self, text: &Snapshot, range: Range<usize>, mut each: impl FnMut(usize) -> bool) {
-        // Enough of the previous chunk for a match that crosses into the next.
+        // Enough of the previous block for a match that crosses into the next.
         let overlap = self.len - 1;
-        let mut window = Vec::new();
+        let mut window = Vec::with_capacity(SEARCHED_BLOCK + overlap);
         let mut window_start = range.start;
         // Matches do not overlap: the next may start only after the last one reported.
         let mut next_allowed = range.start;
-        for chunk in text.chunks(range) {
+        for block in text
+            .chunks(range)
+            .flat_map(|chunk| chunk.chunks(SEARCHED_BLOCK))
+        {
             let kept = window.len().min(overlap);
             window_start += window.len() - kept;
             window.drain(..window.len() - kept);
-            window.extend_from_slice(chunk);
+            window.extend_from_slice(block);
             if self.ignore_case {
                 window[kept..].make_ascii_lowercase();
             }

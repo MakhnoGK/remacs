@@ -11,7 +11,12 @@ memchr.workspace = true
 memmap2.workspace = true
 
 [dev-dependencies]
+divan.workspace = true
 libc.workspace = true
+
+[[bench]]
+name = "text"
+harness = false
 
 [lints]
 workspace = true

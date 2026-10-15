@@ -10,8 +10,13 @@ publish.workspace = true
 remacs-core.workspace = true
 
 [dev-dependencies]
+divan.workspace = true
 remacs-editing.workspace = true
 remacs-text.workspace = true
+
+[[bench]]
+name = "popup"
+harness = false
 
 [lints]
 workspace = true

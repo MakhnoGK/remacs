@@ -59,3 +59,47 @@ pub struct Span {
 /// Faces for the bytes of `range` of a buffer, sorted and non-overlapping; like Emacs
 /// font-lock, asked only for what is on screen.
 pub type Decorator = Rc<dyn Fn(&Buffer, Range<usize>) -> Vec<Span>>;
+
+/// Sorted, non-overlapping `spans` cut to each of the sorted `lines`.
+pub(crate) fn split_by_line(spans: &[Span], lines: &[Range<usize>]) -> Vec<Vec<Span>> {
+    let mut first = 0;
+    lines
+        .iter()
+        .map(|line| {
+            first += spans[first..].partition_point(|span| span.range.end <= line.start);
+            spans[first..]
+                .iter()
+                .take_while(|span| span.range.start < line.end)
+                .map(|span| Span {
+                    range: span.range.start.max(line.start)..span.range.end.min(line.end),
+                    face: span.face,
+                })
+                .filter(|span| !span.range.is_empty())
+                .collect()
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn spans_are_cut_to_the_lines_they_cross() {
+        let span = |range: Range<usize>| Span {
+            range,
+            face: Face::String,
+        };
+        let spans = [span(0..2), span(4..12), span(20..21)];
+        let lines = [0..5, 6..10, 11..15, 16..19];
+        assert_eq!(
+            split_by_line(&spans, &lines),
+            [
+                vec![span(0..2), span(4..5)],
+                vec![span(6..10)],
+                vec![span(11..12)],
+                vec![],
+            ]
+        );
+    }
+}
