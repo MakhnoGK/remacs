@@ -188,8 +188,13 @@ fn run(requests: Receiver<Request>, notifier: Notifier) {
                 Some(base) => compare(&base, &request.text.bytes_in(0..request.text.len())),
                 None => Vec::new(),
             };
-            lock(&request.slot).changes = changes;
-            notifier();
+            // Each wake costs the UI a full refresh; most keys change no line's mark.
+            let mut compared = lock(&request.slot);
+            if compared.changes != changes {
+                compared.changes = changes;
+                drop(compared);
+                notifier();
+            }
         }
     }
 }

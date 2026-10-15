@@ -84,6 +84,12 @@ fn panel_on(surface: Div, width: f32) -> Div {
         .text_color(rgb(color::FG_MAIN))
 }
 
+/// Whether the prompt shows the editable input, which dialogs, titled prompts and
+/// questions leave out.
+pub fn draws_input(minibuffer: &Minibuffer) -> bool {
+    minibuffer.dialog().is_none() && minibuffer.prompt().title.is_none() && !minibuffer.is_question()
+}
+
 /// `input_scroll` keeps the input's sideways scroll between frames; it keeps
 /// `input_margin` in view on each side of the cursor.
 pub fn render_minibuffer(
@@ -1183,4 +1189,25 @@ fn render_hints(hints: &'static [(&'static str, &'static str)]) -> impl IntoElem
                 .children(keys.split_whitespace().map(|key| kbd(key, false)))
                 .child(action)
         }))
+}
+
+#[cfg(test)]
+mod tests {
+    use remacs_core::{Editor, Prompt};
+
+    use super::draws_input;
+
+    /// Until the input is laid out, every frame asks for another; a question must not.
+    #[test]
+    fn only_prompts_with_an_input_wait_for_its_layout() {
+        let mut asking = Editor::new(&[]);
+        asking.ask_y_or_n("Proceed?", |_, _| Ok(())).unwrap();
+        assert!(!draws_input(asking.minibuffer().unwrap()));
+
+        let mut reading = Editor::new(&[]);
+        reading
+            .read(Prompt::default(), |_, _| Default::default(), |_, _| Ok(()))
+            .unwrap();
+        assert!(draws_input(reading.minibuffer().unwrap()));
+    }
 }

@@ -1,6 +1,8 @@
 use std::fs;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -343,6 +345,37 @@ fn buffers_mark_the_lines_changed_since_the_last_commit_saved_or_not() {
     wait_until(&mut editor, "the untracked file", |editor| {
         line_changes(editor) == [(0..2, LineChange::Added)]
     });
+}
+
+/// Each comparison used to wake the UI for a full refresh; typing on a line already
+/// marked changes nothing in the gutter, so it wakes nothing.
+#[test]
+fn typing_on_a_changed_line_wakes_the_ui_for_no_comparison() {
+    let repository = Repository::new("line-changes-quiet");
+    let mut editor = editor();
+    let wakes = Arc::new(AtomicUsize::new(0));
+    editor.set_notifier(Arc::new({
+        let wakes = Arc::clone(&wakes);
+        move || {
+            wakes.fetch_add(1, Ordering::Relaxed);
+        }
+    }));
+    editor.visit_file(&repository.0.join("lib.rs")).unwrap();
+    editor.window_buffer_mut().insert("zero\n");
+    wait_until(&mut editor, "the added line", |editor| {
+        line_changes(editor) == [(0..1, LineChange::Added)]
+    });
+    editor.window_buffer_mut().set_point(0);
+    thread::sleep(Duration::from_millis(300));
+    let before = wakes.load(Ordering::Relaxed);
+    for character in "typed on the added line".chars() {
+        editor.window_buffer_mut().insert(&character.to_string());
+        editor.refresh();
+        thread::sleep(Duration::from_millis(5));
+    }
+    thread::sleep(Duration::from_millis(300));
+    assert_eq!(line_changes(&editor), [(0..1, LineChange::Added)]);
+    assert_eq!(wakes.load(Ordering::Relaxed) - before, 0);
 }
 
 /// The status buffer of `repository`, once its status is shown.

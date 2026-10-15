@@ -16,6 +16,11 @@ Emacs-inspired IDE from scratch in Rust + gpui. Everything is a plugin.
   with `enabled_when` if it cannot always run); a new group or menu goes into the `frame`
   plugin's layout (ADR 0060). The test in `crates/app/src/menu_bar.rs` checks that every
   item runs an existing command.
+- Performance changes are always measured: benchmark first (divan with its allocation
+  profiler in the crate's `benches/`, dhat for peak heap, or a test counting calls or
+  frames), record the baseline, change the code, measure again with the same benchmark.
+  Keep a change only if it gains at least 10% in time, allocations or peak heap;
+  otherwise revert it. The benchmark stays in the repo.
 
 ## Fixed decisions
 

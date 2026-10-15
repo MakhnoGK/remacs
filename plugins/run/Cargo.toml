@@ -19,8 +19,13 @@ tree-sitter.workspace = true
 tree-sitter-rust.workspace = true
 
 [dev-dependencies]
+divan.workspace = true
 remacs-editing.workspace = true
 remacs-minibuffer.workspace = true
+
+[[bench]]
+name = "entry_points"
+harness = false
 
 [lints]
 workspace = true

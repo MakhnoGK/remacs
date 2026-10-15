@@ -75,7 +75,11 @@ impl Snapshot {
     }
 
     pub fn bytes_in(&self, range: Range<usize>) -> Vec<u8> {
-        self.chunks(range).flatten().copied().collect()
+        let mut bytes = Vec::with_capacity(range.len().min(self.len()));
+        for chunk in self.chunks(range) {
+            bytes.extend_from_slice(chunk);
+        }
+        bytes
     }
 
     pub fn is_char_boundary(&self, offset: usize) -> bool {

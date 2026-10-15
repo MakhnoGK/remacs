@@ -34,8 +34,8 @@ pub use buffer::{Buffer, FileEdits};
 pub use char_class::CharClass;
 pub use command::{Command, CommandError, CommandResult, Commands};
 pub use completion::{
-    Candidate, Completions, EntryAction, Expansion, FuzzyQuery, Icon, Match, Selection, SymbolKind,
-    filter, filter_candidates, filter_map_parallel, flex_match, rank,
+    Candidate, CompletionMemo, Completions, EntryAction, Expansion, FuzzyQuery, Icon, Match, Selection, SymbolKind,
+    filter, filter_candidates, filter_map_parallel, flex_match, flex_rank, rank,
 };
 pub use decoration::{ConsoleColor, ConsoleStyle, Decorator, Face, Span};
 pub use echo::{EchoMessage, MessageKind, MessageLog};

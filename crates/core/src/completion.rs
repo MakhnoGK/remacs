@@ -140,7 +140,7 @@ impl Candidate {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Completions {
     /// The best matches; `total` may count more than were materialised.
     pub candidates: Vec<Candidate>,
@@ -161,6 +161,41 @@ pub struct Completions {
     pub outcome: Option<(String, CommitChain)>,
     /// A note beside the chips, e.g. what a setting will do.
     pub footnote: Option<String>,
+}
+
+/// The completions a source last computed and what they were computed from, handed out
+/// again while that holds: a background refresh re-asks every source, though usually
+/// neither the input nor the source's data changed.
+pub struct CompletionMemo<K> {
+    last: RefCell<Option<(K, Completions)>>,
+}
+
+impl<K> Default for CompletionMemo<K> {
+    fn default() -> Self {
+        Self {
+            last: RefCell::new(None),
+        }
+    }
+}
+
+impl<K> CompletionMemo<K> {
+    /// The completions for `key`, computed again only when `same` tells it from the last.
+    pub fn get(
+        &self,
+        key: K,
+        same: impl FnOnce(&K, &K) -> bool,
+        compute: impl FnOnce() -> Completions,
+    ) -> Completions {
+        let mut last = self.last.borrow_mut();
+        if let Some((last_key, completions)) = last.as_ref()
+            && same(last_key, &key)
+        {
+            return completions.clone();
+        }
+        let completions = compute();
+        *last = Some((key, completions.clone()));
+        completions
+    }
 }
 
 impl From<Vec<Candidate>> for Completions {
@@ -402,6 +437,33 @@ pub fn flex_match(query: &str, text: &str) -> Option<Vec<Range<usize>>> {
     Some(merge(ranges))
 }
 
+/// Whether `text` matches `query` as [`flex_match`] matches it, and if so whether it
+/// starts with it; nothing is allocated, so whole lists can be ranked per key.
+pub fn flex_rank(query: &str, text: &str) -> Option<bool> {
+    let case_sensitive = query.chars().any(char::is_uppercase);
+    let starts_with = if case_sensitive {
+        text.starts_with(query)
+    } else {
+        text.as_bytes()
+            .get(..query.len())
+            .is_some_and(|start| start.eq_ignore_ascii_case(query.as_bytes()))
+    };
+    if starts_with {
+        return Some(true);
+    }
+    let mut rest = text.chars();
+    let found = query.chars().all(|wanted| {
+        rest.any(|character| {
+            if case_sensitive {
+                character == wanted
+            } else {
+                character.eq_ignore_ascii_case(&wanted)
+            }
+        })
+    });
+    found.then_some(false)
+}
+
 fn find(text: &str, term: &str) -> Option<usize> {
     if term.chars().any(char::is_uppercase) {
         return text.find(term);
@@ -495,5 +557,17 @@ mod tests {
         assert_eq!(flex_match("sT", "is_sorted"), None);
         assert_eq!(flex_match("жx", "ажbx"), Some(vec![2..4, 5..6]));
         assert_eq!(flex_match("", "any"), Some(vec![]));
+    }
+
+    #[test]
+    fn flex_rank_agrees_with_flex_match() {
+        let texts = ["last()", "size_hint()", "is_sorted", "start", "Start", "ажbx", "s", ""];
+        for query in ["st", "sT", "St", "s", "жx", "", "start"] {
+            for text in texts {
+                let ranked = flex_match(query, text)
+                    .map(|ranges| query.is_empty() || ranges.first() == Some(&(0..query.len())));
+                assert_eq!(flex_rank(query, text), ranked, "{query:?} in {text:?}");
+            }
+        }
     }
 }

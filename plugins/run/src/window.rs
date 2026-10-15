@@ -2,17 +2,16 @@
 //! found again once edits pause.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use remacs_core::{Editor, GutterIcon, GutterMark};
 use remacs_files::project_root;
 use remacs_text::Snapshot;
 
 use crate::console::Console;
-use crate::entry_points::{EntryPoint, entry_points, may_have_entry_points};
+use crate::entry_points::{EntryPoint, may_have_entry_points};
+use crate::scanner::{Request, ScanSlot, Scanner};
 use crate::sessions::{get, sessions};
-
-/// Larger files are not looked through for entry points.
-const MAX_SCANNED_BYTES: usize = 4 << 20;
 
 pub const ENTRY_POINT_MENU: &str = "run-entry-point-menu";
 
@@ -21,6 +20,14 @@ pub struct EntryPoints {
     text: Snapshot,
     pub root: PathBuf,
     pub points: Vec<EntryPoint>,
+}
+
+/// The version of a buffer's text last sent to the scanner, and where its entry points
+/// will be left.
+struct Scanning {
+    slot: ScanSlot,
+    text: Snapshot,
+    root: PathBuf,
 }
 
 #[derive(Default)]
@@ -64,6 +71,7 @@ fn find_root(editor: &Editor) -> Option<PathBuf> {
 /// Finds the window buffer's entry points when it is first shown, and again once its
 /// text has stayed the same for the delay `run.toml` sets.
 fn update_entry_points(editor: &mut Editor) {
+    take_scan(editor);
     let buffer = editor.window_buffer();
     let (Some(path), Some(root)) = (buffer.path().map(Path::to_path_buf), window_root(editor))
     else {
@@ -77,10 +85,13 @@ fn update_entry_points(editor: &mut Editor) {
     if !may_have_entry_points(mode, file_name) {
         return;
     }
-    let current = buffer
+    let known = buffer
         .local::<EntryPoints>()
         .is_some_and(|known| known.text.is_same(buffer.text()) && known.root == root);
-    if current {
+    let asked = buffer
+        .local::<Scanning>()
+        .is_some_and(|scanning| scanning.text.is_same(buffer.text()) && scanning.root == root);
+    if known || asked {
         return;
     }
     let name = buffer.name().to_owned();
@@ -97,17 +108,45 @@ fn update_entry_points(editor: &mut Editor) {
         return;
     }
     editor.plugin_state::<Window>().stale = None;
-    let buffer = editor.window_buffer();
+    let buffer = editor.window_buffer_mut();
+    let slot = buffer
+        .local::<Scanning>()
+        .map(|scanning| Arc::clone(&scanning.slot))
+        .unwrap_or_default();
     let text = buffer.text().snapshot();
-    let points = if text.len() > MAX_SCANNED_BYTES {
-        Vec::new()
-    } else {
-        let contents = buffer.contents(0..text.len());
-        entry_points(&path, mode, &contents, &root)
+    buffer.set_local(Scanning {
+        slot: Arc::clone(&slot),
+        text: text.clone(),
+        root: root.clone(),
+    });
+    let request = Request {
+        path,
+        mode,
+        text,
+        root,
+        slot,
     };
-    editor
-        .window_buffer_mut()
-        .set_local(EntryPoints { text, root, points });
+    let notifier = editor.notifier();
+    editor.plugin_state::<Scanner>().send(request, notifier);
+}
+
+/// Takes the window buffer's entry points the scanner found since the last call.
+fn take_scan(editor: &mut Editor) {
+    let buffer = editor.window_buffer_mut();
+    let Some(scan) = buffer.local::<Scanning>().and_then(|scanning| {
+        scanning
+            .slot
+            .lock()
+            .expect("scan slots are never poisoned")
+            .take()
+    }) else {
+        return;
+    };
+    buffer.set_local(EntryPoints {
+        text: scan.text,
+        root: scan.root,
+        points: scan.points,
+    });
 }
 
 /// The window buffer's entry points, as last found.

@@ -1,3 +1,6 @@
+use std::ops::Range;
+
+use memchr::{memchr, memchr_iter, memrchr};
 use remacs_core::{Buffer, Candidate, CommandResult, Completions, Count, Editor, Keymap, Prompt};
 use remacs_text::Snapshot;
 
@@ -12,6 +15,8 @@ const MAX_LINES: usize = 10_000;
 /// Bytes of a line shown; a longer one shows the part around its first match.
 const MAX_LABEL: usize = 240;
 const CONTEXT_BEFORE_MATCH: usize = 40;
+/// Past this many bytes to the next match, its line is looked up rather than counted.
+const MAX_COUNTED_GAP: usize = 64 * 1024;
 
 /// Reads a string and lists the lines that contain it, the first match after point
 /// selected; choosing one goes to its first match.
@@ -56,18 +61,20 @@ fn line_candidates(buffer: &Buffer, input: &str, point: usize) -> Completions {
     let text = buffer.text();
     let mut candidates = Vec::new();
     let mut starts = Vec::new();
-    let mut last_line = None;
+    let mut lines = LineCursor::new(text);
+    // The end of the last line listed; later matches before it are on it too.
+    let mut listed_end = None;
     let mut more = false;
     query.find(text, 0..text.len(), |start| {
-        let line = text.line_of(start);
-        if last_line == Some(line) {
+        if listed_end.is_some_and(|end| start < end) {
             return true;
         }
         if candidates.len() == MAX_LINES {
             more = true;
             return false;
         }
-        last_line = Some(line);
+        let line = lines.line_at(start);
+        listed_end = Some(line.range.end);
         starts.push(start);
         candidates.push(candidate(text, &query, line, start));
         true
@@ -81,8 +88,69 @@ fn line_candidates(buffer: &Buffer, input: &str, point: usize) -> Completions {
     }
 }
 
-fn candidate(text: &Snapshot, query: &Query, line: usize, start: usize) -> Candidate {
-    let range = text.line_range(line).unwrap_or_default();
+/// A line: its number and its bytes without the newline.
+struct Line {
+    number: usize,
+    range: Range<usize>,
+}
+
+/// Lines of offsets asked for in order, counted in one pass over the text: the line
+/// index looks lines up only to its 16 KiB block and then counts, which for a match
+/// on every line of a big file costs more than the search.
+struct LineCursor<'a> {
+    text: &'a Snapshot,
+    /// Newlines before here are counted.
+    counted_to: usize,
+    line: usize,
+    line_start: usize,
+}
+
+impl<'a> LineCursor<'a> {
+    fn new(text: &'a Snapshot) -> Self {
+        Self {
+            text,
+            counted_to: 0,
+            line: 0,
+            line_start: 0,
+        }
+    }
+
+    /// The line of `offset`, at or after the last one asked for.
+    fn line_at(&mut self, offset: usize) -> Line {
+        if offset - self.counted_to > MAX_COUNTED_GAP {
+            self.line = self.text.line_of(offset);
+            self.line_start = self.text.line_start(self.line).unwrap_or(0);
+            self.counted_to = offset;
+        }
+        let mut chunk_start = self.counted_to;
+        for chunk in self.text.chunks(self.counted_to..offset) {
+            self.line += memchr_iter(b'\n', chunk).count();
+            if let Some(newline) = memrchr(b'\n', chunk) {
+                self.line_start = chunk_start + newline + 1;
+            }
+            chunk_start += chunk.len();
+        }
+        let mut end = offset;
+        for chunk in self.text.chunks(offset..self.text.len()) {
+            match memchr(b'\n', chunk) {
+                Some(newline) => {
+                    end += newline;
+                    break;
+                }
+                None => end += chunk.len(),
+            }
+        }
+        // No newline before the line's end.
+        self.counted_to = end;
+        Line {
+            number: self.line,
+            range: self.line_start..end,
+        }
+    }
+}
+
+fn candidate(text: &Snapshot, query: &Query, line: Line, start: usize) -> Candidate {
+    let Line { number, range } = line;
     let boundary = |offset| {
         if text.is_char_boundary(offset) {
             offset
@@ -96,14 +164,17 @@ fn candidate(text: &Snapshot, query: &Query, line: usize, start: usize) -> Candi
         range.start
     };
     let to = boundary((from + MAX_LABEL).min(range.end));
-    let label = String::from_utf8_lossy(&text.bytes_in(from..to))
-        .trim()
-        .to_owned();
+    let label = match String::from_utf8(text.bytes_in(from..to)) {
+        Ok(label) if label.trim().len() == label.len() => label,
+        Ok(label) => label.trim().to_owned(),
+        Err(invalid) => String::from_utf8_lossy(invalid.as_bytes()).trim().to_owned(),
+    };
     Candidate {
         matches: query.ranges_in(&label),
         label,
-        annotation: (line + 1).to_string(),
-        ..Candidate::new(start.to_string())
+        annotation: (number + 1).to_string(),
+        value: start.to_string(),
+        ..Candidate::default()
     }
 }
 

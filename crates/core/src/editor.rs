@@ -15,7 +15,7 @@ use remacs_text::Text;
 use crate::buffer::{Buffer, FileEdits};
 use crate::command::{CommandResult, Commands};
 use crate::completion::Completions;
-use crate::decoration::Span;
+use crate::decoration::{Span, split_by_line};
 use crate::echo::{EchoMessage, MessageKind, MessageLog};
 use crate::gutter::{GutterMark, LineExtra, TextControls};
 use crate::history::History;
@@ -42,6 +42,9 @@ pub const SCRATCH_BUFFER: &str = "*scratch*";
 const ABORT_KEY: &str = "C-g";
 /// Like Emacs, consecutive self-inserts undo together, at most this many at a time.
 const MAX_AMALGAMATED_INSERTS: usize = 20;
+/// Text off screen, in the middles of long lines, that decorating the visible lines at
+/// once may cover; beyond it each line is decorated alone.
+const MAX_UNSHOWN_DECORATED_BYTES: usize = 16 * 1024;
 
 /// Called from any thread when background work has results; the UI then calls
 /// [`Editor::refresh`] on its own thread.
@@ -1067,6 +1070,29 @@ impl Editor {
             .iter()
             .map(|decorate| decorate(self.window_buffer(), range.clone()))
             .collect()
+    }
+
+    /// Faces for each of the sorted `lines` (byte ranges) of the window buffer, one list
+    /// per decorator, as [`Editor::decorations`] gives them for each line alone; asks each
+    /// decorator once for all of them unless that would cover far more text, as lines
+    /// cut short of their very long middles do.
+    pub fn decorations_by_line(&self, lines: &[Range<usize>]) -> Vec<Vec<Vec<Span>>> {
+        let (Some(first), Some(last)) = (lines.first(), lines.last()) else {
+            return Vec::new();
+        };
+        let all = first.start..last.end;
+        let shown: usize = lines.iter().map(Range::len).sum();
+        if all.len() > 2 * shown + MAX_UNSHOWN_DECORATED_BYTES {
+            return lines.iter().map(|line| self.decorations(line.clone())).collect();
+        }
+        let layers = self.decorations(all);
+        let mut by_line: Vec<Vec<Vec<Span>>> = vec![Vec::with_capacity(layers.len()); lines.len()];
+        for layer in &layers {
+            for (line, spans) in by_line.iter_mut().zip(split_by_line(layer, lines)) {
+                line.push(spans);
+            }
+        }
+        by_line
     }
 
     pub fn status_segments(&self) -> Vec<StatusSegment> {

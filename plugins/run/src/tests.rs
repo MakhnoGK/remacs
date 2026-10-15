@@ -708,7 +708,11 @@ fn the_gutter_marks_entry_points_and_its_menu_runs_them() {
     let script = root.join("hello.mjs");
     write(&script, "console.log('hello')\n");
     editor.visit_file(&script).unwrap();
-    editor.refresh();
+    wait_until(&mut editor, |editor| {
+        editor
+            .gutter_marks(0..10)
+            .is_some_and(|marks| !marks.is_empty())
+    });
     let marks = editor.gutter_marks(0..10).unwrap();
     assert_eq!(
         marks

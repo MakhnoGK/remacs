@@ -12,7 +12,9 @@ sequence of pieces pointing into either, kept in a persistent B-tree.
   parallel with `pread` so indexing leaves no resident pages behind.
 - **Piece tree**: B-tree (≤ 32 items per node) with byte/newline summaries. Nodes are
   `Arc`-shared and copied only along the edited path: clone O(1), edit O(log n).
-- **Add buffer**: 64 KiB chunks, frozen once full; a clone copies at most one chunk.
+- **Add buffer**: 64 KiB chunks, frozen once full. The open chunk is shared too and
+  copied only when appended to while a snapshot holds it: a clone copies nothing, a key
+  typed at most one chunk (#36).
 - **Snapshot** (`Send + Sync`) = sources + tree; background readers (syntax, LSP) use it.
 - **Undo/redo**: linear stacks of tree snapshots, grouped by undo boundaries that the
   command loop sets after each command. `is_modified` compares roots with the saved one.

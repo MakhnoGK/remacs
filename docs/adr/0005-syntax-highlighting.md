@@ -12,8 +12,9 @@ Status: accepted, 2026-10-04 (M4, step 1)
   by comparing chunks, shared ones by address, so its cost follows pieces, not bytes. It
   works the same for typing, undo and anything else. The UI-side tree is edited at once
   (`Tree::edit`), so highlights never drift while the incremental reparse runs.
-- **Highlighting is on demand**, like jit-lock: a `Decorator` gets the bytes of one visible
-  line and queries the tree for just that range. No highlight cache.
+- **Highlighting is on demand**, like jit-lock: a frame asks each `Decorator` once for the
+  visible lines' bytes and cuts the faces to each line (`Editor::decorations_by_line`);
+  lines cut short of long middles are asked for one at a time. No highlight cache.
 - Capture precedence follows tree-sitter-highlight: for one node the last pattern wins, a
   nested node draws over its parent, a capture without a face keeps the parent's.
 - Buffers over 16 MiB are not parsed.

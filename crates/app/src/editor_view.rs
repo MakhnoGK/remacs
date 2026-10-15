@@ -22,7 +22,7 @@ use remacs_core::{
     Action, BreakpointIcon, ChangedLines, Code, CommandError, EchoMessage, Editor, FrameRequest,
     GutterIcon, GutterMark, Icon, Key, LineChange, LineExtra, MessageKind, Minibuffer,
     MouseSelection, Outline, Pane, PaneBody, PaneButton, Popup, Preview, ScreenButton, ScreenMouse,
-    ScreenPointer, ScreenSize, Scroll, StatusItem, StatusSegment, Tabs, describe_sequence,
+    ScreenPointer, ScreenSize, Scroll, Span, StatusItem, StatusSegment, Tabs, describe_sequence,
 };
 use remacs_echo::VIEW_MESSAGES;
 use remacs_frame::TEXT_CONFIGURED;
@@ -40,7 +40,7 @@ use crate::frame;
 use crate::highlights::{Highlights, combine, face_style, region_style};
 use crate::key_input::{to_key, to_modifiers};
 use crate::menu_bar::{self, RunCommand};
-use crate::minibuffer_view::{is_problem_list, render_minibuffer, render_scrim};
+use crate::minibuffer_view::{draws_input, is_problem_list, render_minibuffer, render_scrim};
 use crate::opening::open;
 use crate::outline_view::{
     COMMIT_HEIGHT, OutlineScrolled, fits_history, fitting_commits, fitting_rows, max_outline_lines,
@@ -149,6 +149,8 @@ pub struct EditorView {
     prompts: PromptsSettings,
     /// How far the minibuffer input is scrolled sideways.
     input_scroll: ScrollHandle,
+    /// The buffer the window title names.
+    titled_buffer: String,
     /// Faces of code shown in popups and side panels, by mode and text, parsed when first
     /// drawn.
     code_faces: RefCell<HashMap<&'static str, HashMap<String, Highlights>>>,
@@ -355,6 +357,7 @@ impl EditorView {
             problems: ui.problems,
             prompts: ui.prompts,
             input_scroll: ScrollHandle::new(),
+            titled_buffer: String::new(),
             code_faces: RefCell::default(),
             showing_rows: false,
             refresh_timer: None,
@@ -1158,11 +1161,14 @@ impl EditorView {
         display_width(text.chunks(line_start..buffer.point()).flatten().copied())
     }
 
-    /// Each decorator's faces on the `visible` bytes, mapped onto their display text.
-    fn face_layers(&self, visible: Range<usize>, display_line: &DisplayLine) -> Vec<Highlights> {
+    /// Each decorator's `decorations` of the `visible` bytes, mapped onto their display text.
+    fn face_layers(
+        visible: &Range<usize>,
+        decorations: Vec<Vec<Span>>,
+        display_line: &DisplayLine,
+    ) -> Vec<Highlights> {
         let to_line = |offset: usize| offset.clamp(visible.start, visible.end) - visible.start;
-        self.editor
-            .decorations(visible.clone())
+        decorations
             .into_iter()
             .map(|spans| {
                 spans
@@ -1195,11 +1201,15 @@ impl EditorView {
         Some(column_of(region.start)..end)
     }
 
-    /// The row of `line`, its gutter mark in `mark_slot` when the gutter has a column for
+    /// The row of `line`, shown as `display_line` with the decorators' faces on its
+    /// `visible` bytes, its gutter mark in `mark_slot` when the gutter has a column for
     /// marks, and whether the line goes on past its right edge.
+    #[allow(clippy::too_many_arguments)]
     fn render_line(
         &self,
         line: usize,
+        (mut display_line, visible): (DisplayLine, Range<usize>),
+        decorations: Vec<Vec<Span>>,
         metrics: Metrics,
         gutter_width: Pixels,
         mark_slot: Option<Div>,
@@ -1210,8 +1220,7 @@ impl EditorView {
         let row_height = px(code_font.line_height);
         let buffer = self.editor.window_buffer();
         let is_current = line == buffer.point_line();
-        let (mut display_line, visible) = self.display_line(line);
-        let mut layers = self.face_layers(visible, &display_line);
+        let mut layers = Self::face_layers(&visible, decorations, &display_line);
         if let Some(columns) = self.region_columns(line) {
             layers.push(vec![(display_line.cell_range(columns), region_style())]);
         }
@@ -1593,11 +1602,18 @@ impl EditorView {
             .into_iter()
             .map(|extra| (extra.line, extra))
             .collect();
+        let shown: Vec<_> = (first_line..last_line)
+            .map(|line| self.display_line(line))
+            .collect();
+        let visible: Vec<_> = shown.iter().map(|(_, visible)| visible.clone()).collect();
+        let decorations = self.editor.decorations_by_line(&visible);
         let (lines, continued): (Vec<_>, Vec<_>) = (first_line..last_line)
-            .map(|line| {
+            .zip(shown)
+            .zip(decorations)
+            .map(|((line, shown), decorations)| {
                 let slot = mark_slots.as_mut().and_then(|slots| slots.remove(&line));
                 let extra = extras.remove(&line);
-                self.render_line(line, metrics, gutter_width, slot, extra)
+                self.render_line(line, shown, decorations, metrics, gutter_width, slot, extra)
             })
             .unzip();
         self.more_on_right = continued.contains(&true);
@@ -2024,7 +2040,11 @@ impl EditorView {
 
 impl Render for EditorView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        window.set_window_title(&format!("{} — Remacs", self.editor.window_buffer().name()));
+        // Setting it also updates the Window menu and lays out the title bar again.
+        if self.titled_buffer != self.editor.window_buffer().name() {
+            self.titled_buffer = self.editor.window_buffer().name().to_owned();
+            window.set_window_title(&format!("{} — Remacs", self.titled_buffer));
+        }
         if self.applied_glass != Some(self.glass) {
             window.set_background_appearance(self.glass.window_background());
             window.set_background_blur_radius(self.glass.window_blur());
@@ -2154,7 +2174,9 @@ impl Render for EditorView {
         let pane = self.render_pane(pane, window, cx);
         let prompt = self.render_prompt(cx);
         // gpui scrolls the input to the cursor only once it has laid it out.
-        if self.editor.minibuffer().is_some() && self.input_scroll.bounds().size.width == px(0.0) {
+        if self.editor.minibuffer().is_some_and(draws_input)
+            && self.input_scroll.bounds().size.width == px(0.0)
+        {
             window.request_animation_frame();
         }
         let (row, row_popups) = self.render_bottom_row(hints, window, cx);
