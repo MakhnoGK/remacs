@@ -12,6 +12,7 @@ imara-diff.workspace = true
 notify.workspace = true
 remacs-core.workspace = true
 remacs-text.workspace = true
+serde.workspace = true
 trash.workspace = true
 
 [dev-dependencies]

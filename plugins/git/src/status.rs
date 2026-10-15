@@ -13,6 +13,7 @@ use crate::details::Details;
 use crate::diff::FileDiff;
 use crate::history::Log;
 use crate::operation::Operation;
+use crate::untracked::Listing;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Snapshot {
@@ -29,6 +30,8 @@ pub struct Snapshot {
     pub details: Option<Details>,
     /// Of the files a status buffer shows unfolded.
     pub diffs: HashMap<DiffKey, FileDiff>,
+    /// Of the untracked directories a status buffer shows unfolded.
+    pub listings: HashMap<PathBuf, Listing>,
     /// Read while a status buffer shows the tree; shared, as it rarely changes.
     pub history: Option<Arc<Log>>,
     /// A rebase or merge stopped part way.
@@ -120,6 +123,12 @@ impl Snapshot {
                 state: FileState::Untracked,
                 lines: None,
             })
+    }
+
+    /// Untracked itself, or inside an untracked directory.
+    pub fn is_untracked(&self, relative: &Path) -> bool {
+        self.status(relative)
+            .is_some_and(|status| status.state == FileState::Untracked)
     }
 
     pub fn is_unborn(&self) -> bool {

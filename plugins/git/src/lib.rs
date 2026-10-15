@@ -6,6 +6,7 @@ mod buffer_changes;
 mod command;
 mod commands;
 mod commit;
+mod commit_view;
 mod conflict;
 mod conflict_view;
 mod details;
@@ -19,10 +20,12 @@ mod moves;
 mod operation;
 mod repositories;
 mod resolve;
+mod settings;
 mod stash;
 mod status;
 mod status_view;
 mod sync;
+mod untracked;
 
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -66,6 +69,15 @@ const COMMANDS: &[Command] = &[
     Command::new("git-history-search", "Show the commits whose messages hold some words", history_view::search),
     Command::new("git-history-next-page", "Scroll the history to older commits", history_view::next_page),
     Command::new("git-history-previous-page", "Scroll the history to newer commits", history_view::previous_page),
+    Command::new("git-history-next-commit", "Select the next older commit of the history", history_view::next_commit),
+    Command::new("git-history-previous-commit", "Select the next newer commit of the history", history_view::previous_commit),
+    Command::new("git-history-open-commit", "Show what the selected commit of the history changed", history_view::open_commit),
+    Command::new("git-history-all-files", "Show the commits of every file in the history again", history_view::all_files),
+    Command::new("git-log-file", "Show the commits that changed the visited file", history_view::file_log),
+    Command::new(commit_view::TOGGLE, "Fold or unfold the part at point, or show the file's diff", commit_view::toggle),
+    Command::new("git-commit-toggle-all", "Hide every file's diff when one is shown, else show them all", commit_view::toggle_all),
+    Command::new(commit_view::VISIT, "Visit the file at point in the working tree, at the diff line", commit_view::visit),
+    Command::new("git-commit-open-file", "Show the file at point as the commit left it", commit_view::open_file),
     Command::new("git-keep-ours", "Resolve the conflict to what was there: the upstream when rebasing", resolve::keep_ours),
     Command::new("git-keep-theirs", "Resolve the conflict to what comes in: your commit when rebasing", resolve::keep_theirs),
     Command::new("git-keep-both", "Resolve the conflict to both sides, one after the other", resolve::keep_both),
@@ -99,13 +111,26 @@ const CONFLICT_BINDINGS: &[(&str, &str)] = &[
     ("p", "git-previous-conflict"),
 ];
 
-const BINDINGS: &[(&str, &str)] = &[("C-x g", "git-status")];
+const BINDINGS: &[(&str, &str)] = &[("C-x g", "git-status"), ("C-x v l", "git-log-file")];
+
+const COMMIT_BINDINGS: &[(&str, &str)] = &[
+    ("TAB", commit_view::TOGGLE),
+    ("S-TAB", "git-commit-toggle-all"),
+    ("RET", commit_view::VISIT),
+    ("o", "git-commit-open-file"),
+    ("q", "git-quit"),
+    ("n", "next-line"),
+    ("p", "previous-line"),
+];
 
 #[rustfmt::skip]
 const MENU_ITEMS: &[MenuItem] = &[
     MenuItem::new("Git", "status", "Status", "git-status"),
     MenuItem::new("Git", "status", "Expand All Changes", "git-expand-all").enabled_when(status_shown),
     MenuItem::new("Git", "status", "Collapse All Changes", "git-collapse-all").enabled_when(status_shown),
+    MenuItem::new("Git", "history", "File History", "git-log-file").enabled_when(history_view::visits_file),
+    MenuItem::new("Git", "history", "All Files' History", "git-history-all-files").enabled_when(status_shown),
+    MenuItem::new("Git", "history", "Show Selected Commit", "git-history-open-commit").enabled_when(status_shown),
     MenuItem::new("Git", "changes", "Commit…", "git-commit").enabled_when(status_shown),
     MenuItem::new("Git", "changes", "Stash…", "git-stash").enabled_when(status_shown),
     MenuItem::new("Git", "branches", "Switch Branch…", "git-branch").enabled_when(status_shown),
@@ -142,6 +167,9 @@ const STATUS_BINDINGS: &[(&str, &str)] = &[
     ("/", "git-history-search"),
     ("C-M-v", "git-history-next-page"),
     ("C-M-V", "git-history-previous-page"),
+    ("M-n", "git-history-next-commit"),
+    ("M-p", "git-history-previous-commit"),
+    ("M-RET", "git-history-open-commit"),
     ("C-c C-c", "git-continue"),
     ("C-c C-k", resolve::ABORT_COMMAND),
     ("n", "next-line"),
@@ -173,7 +201,20 @@ impl Plugin for GitPlugin {
             active: |editor| editor.buffer_has_keys() && editor.buffer().mode() == GIT_MODE,
             keymap: status_keymap,
         });
+        let mut commit_keymap = Keymap::default();
+        for &(keys, command) in COMMIT_BINDINGS {
+            commit_keymap.bind(keys, command);
+        }
+        registry.minor_keymaps.push(MinorKeymap {
+            active: |editor| {
+                editor.buffer_has_keys() && editor.buffer().mode() == commit_view::COMMIT_MODE
+            },
+            keymap: commit_keymap,
+        });
         registry.version_controls.push(Rc::new(Git));
+        registry
+            .settings_hooks
+            .push(Rc::new(settings::read_settings));
         registry
             .post_command_hooks
             .push(Rc::new(repositories::track));
@@ -182,6 +223,7 @@ impl Plugin for GitPlugin {
             .post_command_hooks
             .push(Rc::new(buffer_changes::sync));
         registry.outlines.push(Rc::new(status_view::outline));
+        registry.outlines.push(Rc::new(commit_view::outline));
         registry
             .status_providers
             .push(Rc::new(status_view::branch_status));

@@ -2,6 +2,8 @@
 
 use std::path::PathBuf;
 
+use remacs_core::{FileState, LineCounts};
+
 /// A file's diff: the header Git needs to apply any of it, then the hunks.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FileDiff {
@@ -10,6 +12,8 @@ pub struct FileDiff {
     pub hunks: Vec<Hunk>,
     /// Git compared the file as binary, so there are no hunks.
     pub binary: bool,
+    /// The file's size, when it was too large to compare.
+    pub too_large: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,6 +38,49 @@ impl Hunk {
 }
 
 impl FileDiff {
+    /// What the diff did to the file, as its header says.
+    pub fn state(&self) -> FileState {
+        match () {
+            _ if self.header.contains("\nnew file mode") => FileState::Added,
+            _ if self.header.contains("\ndeleted file mode") => FileState::Deleted,
+            _ if self.original().is_some() => FileState::Renamed,
+            _ => FileState::Modified,
+        }
+    }
+
+    /// Where a renamed file came from.
+    pub fn original(&self) -> Option<PathBuf> {
+        self.header
+            .lines()
+            .find_map(|line| line.strip_prefix("rename from "))
+            .map(PathBuf::from)
+    }
+
+    /// Lines added and removed; none for a binary file.
+    pub fn line_counts(&self) -> Option<LineCounts> {
+        if self.binary || self.too_large.is_some() {
+            return None;
+        }
+        let count = |sign: char| {
+            let lines = self.hunks.iter().flat_map(|hunk| &hunk.lines);
+            lines.filter(|line| line.starts_with(sign)).count() as u64
+        };
+        Some(LineCounts {
+            added: count('+'),
+            removed: count('-'),
+        })
+    }
+
+    /// What is said in place of the hunks when there are none.
+    pub fn summary(&self) -> String {
+        match self.too_large {
+            Some(bytes) => format!("Large file, {}, not shown", size(bytes)),
+            None if self.binary => "Binary file".into(),
+            None if self.header.contains("\nnew file mode") => "Empty file".into(),
+            None => "No changes to show".into(),
+        }
+    }
+
     /// A patch of hunk `index` alone, for `git apply`.
     pub fn patch(&self, index: usize) -> Option<String> {
         let hunk = self.hunks.get(index)?;
@@ -45,6 +92,22 @@ impl FileDiff {
             patch.push('\n');
         }
         Some(patch)
+    }
+}
+
+/// `840 B`, `12.5 KB`, `3.2 MB`.
+fn size(bytes: u64) -> String {
+    const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit + 1 < UNITS.len() {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} B")
+    } else {
+        format!("{value:.1} {}", UNITS[unit])
     }
 }
 

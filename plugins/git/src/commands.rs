@@ -58,10 +58,11 @@ pub fn toggle(editor: &mut Editor) -> CommandResult {
         Line::Heading(section) => view.toggle_section(*section),
         Line::File(section, path) if section.has_diffs() => view.toggle_file(*section, path),
         Line::File(..) => return Err("No diff to show".into()),
-        Line::Diff { section, path, .. } | Line::NoDiff(section, path) => {
-            let file = Line::File(*section, path.clone());
+        Line::Diff { .. } | Line::NoDiff(..) | Line::MoreFiles(_) => {
+            let (section, path) = line.file().ok_or("Nothing here")?;
+            let file = Line::File(section, path.to_path_buf());
             let file_line = view.lines.iter().position(|each| *each == file);
-            view.toggle_file(*section, path);
+            view.toggle_file(section, path);
             if let Some(file_line) = file_line {
                 editor.set_point_at(file_line, 0);
             }
@@ -139,9 +140,14 @@ pub fn stage(editor: &mut Editor) -> CommandResult {
                 .map(|file| file.path);
             git_job(args(["add", "--"], paths))
         }
-        Line::File(Section::Unstaged | Section::Untracked | Section::Unmerged, path) => {
-            git_job(args(["add", "--all", "--"], [path.clone()]))
+        Line::File(Section::Unstaged | Section::Untracked | Section::Unmerged, path)
+        | Line::Diff {
+            section: Section::Untracked,
+            path,
+            ..
         }
+        | Line::NoDiff(Section::Untracked, path)
+        | Line::MoreFiles(path) => git_job(args(["add", "--all", "--"], [path.clone()])),
         Line::Diff {
             section: Section::Unstaged,
             path,
@@ -238,7 +244,14 @@ pub fn discard(editor: &mut Editor) -> CommandResult {
                 job,
             )
         }
-        Line::File(Section::Untracked, path) => {
+        Line::File(Section::Untracked, path)
+        | Line::Diff {
+            section: Section::Untracked,
+            path,
+            ..
+        }
+        | Line::NoDiff(Section::Untracked, path)
+        | Line::MoreFiles(path) => {
             let (_, job) = untracked(vec![path.clone()]);
             (
                 format!("Move {} to the Trash?", file_name(path)),

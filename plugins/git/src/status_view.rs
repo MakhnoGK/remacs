@@ -18,6 +18,7 @@ use crate::history_view::{self, HistoryState};
 use crate::integrate;
 use crate::monitor::Wants;
 use crate::repositories::Repositories;
+use crate::settings::GitSettings;
 use crate::stash::StashContents;
 use crate::status::{DiffKey, Head, Snapshot};
 
@@ -74,11 +75,11 @@ impl Section {
         }
     }
 
-    /// Whether its files have a diff to unfold.
+    /// Whether its files have a diff to unfold: an untracked file's is all added lines.
     pub fn has_diffs(self) -> bool {
         matches!(
             self,
-            Section::Resolved | Section::Staged | Section::Unstaged
+            Section::Resolved | Section::Staged | Section::Unstaged | Section::Untracked
         )
     }
 
@@ -102,6 +103,8 @@ pub enum Line {
     },
     /// In place of a diff that has no lines, e.g. a binary file's.
     NoDiff(Section, PathBuf),
+    /// After the files an unfolded untracked directory lists, those left out.
+    MoreFiles(PathBuf),
     /// By its place in the list.
     Stash(usize),
     /// A file of an unfolded stash, by the stash's id.
@@ -126,6 +129,7 @@ impl Line {
             Line::File(section, path)
             | Line::Diff { section, path, .. }
             | Line::NoDiff(section, path) => Some((*section, path)),
+            Line::MoreFiles(directory) => Some((Section::Untracked, directory)),
             _ => None,
         }
     }
@@ -285,6 +289,27 @@ pub fn section_files(snapshot: &Snapshot, section: Section) -> Vec<SectionFile> 
     files
 }
 
+/// A file of `section`, or one an unfolded untracked directory lists.
+fn section_file(snapshot: &Snapshot, section: Section, path: &Path) -> Option<SectionFile> {
+    let listed = || {
+        snapshot
+            .listings
+            .values()
+            .any(|listing| listing.files.iter().any(|file| file == path))
+    };
+    section_files(snapshot, section)
+        .into_iter()
+        .find(|file| file.path == path)
+        .or_else(|| {
+            (section == Section::Untracked && listed()).then(|| SectionFile {
+                path: path.to_path_buf(),
+                state: FileState::Untracked,
+                lines: None,
+                original: None,
+            })
+        })
+}
+
 /// A letter of `git status --short` as a state.
 fn side_state(letter: u8) -> FileState {
     match letter {
@@ -298,6 +323,10 @@ fn side_state(letter: u8) -> FileState {
 /// What the status buffers want read of each working tree.
 pub fn wants(editor: &Editor) -> HashMap<PathBuf, Wants> {
     let mut wants: HashMap<PathBuf, Wants> = HashMap::new();
+    let settings = editor
+        .find_plugin_state::<GitSettings>()
+        .cloned()
+        .unwrap_or_default();
     for view in editor
         .buffers()
         .iter()
@@ -305,6 +334,7 @@ pub fn wants(editor: &Editor) -> HashMap<PathBuf, Wants> {
     {
         let wanted = wants.entry(view.root.clone()).or_default();
         wanted.details = true;
+        wanted.settings = settings.clone();
         wanted.history = Some(view.history.wants());
         let mut diffs: Vec<DiffKey> = view
             .open
@@ -394,27 +424,25 @@ fn layout(view: &StatusView, snapshot: &Snapshot) -> (Vec<Line>, Vec<String>) {
             continue;
         }
         for file in files {
-            lines.push(Line::File(section, file.path.clone()));
-            texts.push(format!("{} {}", file.state.letter(), file.path.display()));
-            let open = view.open.contains(&(section, file.path.clone()));
-            let key = DiffKey {
-                staged: section.is_staged(),
-                path: file.path.clone(),
-            };
-            if let Some(diff) = snapshot.diffs.get(&key).filter(|_| open) {
-                let path = &file.path;
-                push_diff(
-                    &mut lines,
-                    &mut texts,
-                    Some(diff),
-                    Line::NoDiff(section, path.clone()),
-                    |hunk, line| Line::Diff {
-                        section,
+            push_file(&mut lines, &mut texts, view, snapshot, section, &file);
+            let listing = snapshot
+                .listings
+                .get(&file.path)
+                .filter(|_| view.open.contains(&(section, file.path.clone())));
+            if let Some(listing) = listing {
+                for path in &listing.files {
+                    let listed = SectionFile {
                         path: path.clone(),
-                        hunk,
-                        line,
-                    },
-                );
+                        state: FileState::Untracked,
+                        lines: None,
+                        original: None,
+                    };
+                    push_file(&mut lines, &mut texts, view, snapshot, section, &listed);
+                }
+                if listing.more > 0 {
+                    lines.push(Line::MoreFiles(file.path.clone()));
+                    texts.push(format!("{} more files", listing.more));
+                }
             }
         }
     }
@@ -436,6 +464,39 @@ fn layout(view: &StatusView, snapshot: &Snapshot) -> (Vec<Line>, Vec<String>) {
         }
     }
     (lines, texts)
+}
+
+/// A file's line and, unfolded, its diff.
+fn push_file(
+    lines: &mut Vec<Line>,
+    texts: &mut Vec<String>,
+    view: &StatusView,
+    snapshot: &Snapshot,
+    section: Section,
+    file: &SectionFile,
+) {
+    let path = &file.path;
+    lines.push(Line::File(section, path.clone()));
+    texts.push(format!("{} {}", file.state.letter(), path.display()));
+    let key = DiffKey {
+        staged: section.is_staged(),
+        path: path.clone(),
+    };
+    let open = view.open.contains(&(section, path.clone()));
+    if let Some(diff) = snapshot.diffs.get(&key).filter(|_| open) {
+        push_diff(
+            lines,
+            texts,
+            Some(diff),
+            Line::NoDiff(section, path.clone()),
+            |hunk, line| Line::Diff {
+                section,
+                path: path.clone(),
+                hunk,
+                line,
+            },
+        );
+    }
 }
 
 /// An unfolded stash's files, each with its diff.
@@ -470,16 +531,16 @@ fn push_stash(
 
 /// A diff's hunks, `diff_line` making the line of a hunk's header or of one of its lines;
 /// `empty` in place of a diff without lines.
-fn push_diff(
-    lines: &mut Vec<Line>,
+pub fn push_diff<L>(
+    lines: &mut Vec<L>,
     texts: &mut Vec<String>,
     diff: Option<&FileDiff>,
-    empty: Line,
-    diff_line: impl Fn(usize, Option<usize>) -> Line,
+    empty: L,
+    diff_line: impl Fn(usize, Option<usize>) -> L,
 ) {
     let Some(diff) = diff.filter(|diff| !diff.hunks.is_empty()) else {
         lines.push(empty);
-        texts.push(no_diff_text(diff).into());
+        texts.push(no_diff_text(diff));
         return;
     };
     let mut shown = 0;
@@ -497,12 +558,8 @@ fn push_diff(
     }
 }
 
-fn no_diff_text(diff: Option<&FileDiff>) -> &'static str {
-    if diff.is_some_and(|diff| diff.binary) {
-        "Binary file"
-    } else {
-        "No changes to show"
-    }
+fn no_diff_text(diff: Option<&FileDiff>) -> String {
+    diff.map_or_else(|| "No changes to show".into(), FileDiff::summary)
 }
 
 /// The window's status buffer as an outline, if it is one.
@@ -592,9 +649,7 @@ fn row(view: &StatusView, snapshot: &Snapshot, line: &Line) -> Option<OutlineRow
             },
         },
         Line::File(section, path) => {
-            let file = section_files(snapshot, *section)
-                .into_iter()
-                .find(|file| file.path == *path)?;
+            let file = section_file(snapshot, *section, path)?;
             let is_directory = snapshot.untracked_directories.contains(path);
             let name = path
                 .file_name()
@@ -630,10 +685,14 @@ fn row(view: &StatusView, snapshot: &Snapshot, line: &Line) -> Option<OutlineRow
                 staged: section.is_staged(),
                 path: path.clone(),
             };
-            OutlineRow::Diff(DiffRow::Context(
-                no_diff_text(Some(snapshot.diffs.get(&key)?)).into(),
-            ))
+            OutlineRow::Diff(DiffRow::Context(no_diff_text(Some(
+                snapshot.diffs.get(&key)?,
+            ))))
         }
+        Line::MoreFiles(directory) => OutlineRow::Item {
+            name: "…".into(),
+            description: format!("{} more files", snapshot.listings.get(directory)?.more),
+        },
         Line::Stash(index) => {
             let stash = snapshot.details.as_ref()?.stashes.get(*index)?;
             OutlineRow::Item {
@@ -669,14 +728,14 @@ fn row(view: &StatusView, snapshot: &Snapshot, line: &Line) -> Option<OutlineRow
             let diff = view.open_stashes.get(stash)?.diffs.get(path);
             match diff.filter(|diff| !diff.hunks.is_empty()) {
                 Some(diff) => hunk_row(diff, *hunk, *line)?,
-                None => OutlineRow::Diff(DiffRow::Context(no_diff_text(diff).into())),
+                None => OutlineRow::Diff(DiffRow::Context(no_diff_text(diff))),
             }
         }
     })
 }
 
 /// A hunk's header, or one of its lines.
-fn hunk_row(diff: &FileDiff, hunk: usize, line: Option<usize>) -> Option<OutlineRow> {
+pub fn hunk_row(diff: &FileDiff, hunk: usize, line: Option<usize>) -> Option<OutlineRow> {
     let hunk = diff.hunks.get(hunk)?;
     Some(OutlineRow::Diff(match line {
         None => DiffRow::Hunk(hunk.header.clone()),

@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use remacs_core::{
     DiffRow, Editor, FactValue, FileState, FileStatus, LineChange, LineCounts, OutlineRow,
-    parse_sequence,
+    Settings, parse_sequence,
 };
 use remacs_dired::{DiredPlugin, list_directory};
 use remacs_editing::EditingPlugin;
@@ -458,6 +458,53 @@ fn the_status_shows_the_branch_and_the_changes_by_section() {
 }
 
 #[test]
+fn untracked_files_unfold_into_added_lines_and_directories_into_their_files() {
+    let repository = Repository::new("untracked");
+    repository.write("draft.md", "one\n");
+    repository.write("notes/a.md", "alpha\n");
+    repository.write("notes/deep/b.md", "beta\n");
+    repository.write("big.txt", "0123456789ab");
+    repository.write("data.bin", "\0\x01");
+    let mut editor = editor();
+    let settings = [(
+        "git.toml",
+        "untracked-max-bytes = 10\nuntracked-max-files = 1\n",
+    )]
+    .map(|(name, text)| (PathBuf::from(name), text.to_owned()));
+    editor.set_settings(Settings::from_files(settings));
+    editor.visit_file(&repository.0.join("lib.rs")).unwrap();
+    editor.run_command("git-status");
+    wait_until(&mut editor, "the untracked files", |editor| {
+        editor
+            .outline(0..100)
+            .is_some_and(|outline| outline.rows.len() == 5)
+    });
+
+    let unfold = |editor: &mut Editor, row: &str, shown: &str| {
+        go_to_row(editor, row);
+        press(editor, "TAB");
+        wait_until(editor, shown, |editor| {
+            rows(editor).contains(&shown.to_owned())
+        });
+    };
+    unfold(&mut editor, "? ./draft.md", "+one");
+    assert!(rows(&editor).contains(&"@@ -0,0 +1 @@".to_owned()));
+    unfold(&mut editor, "? ./big.txt", " Large file, 12 B, not shown");
+    unfold(&mut editor, "? ./data.bin", " Binary file");
+    unfold(&mut editor, "? ./notes/", "? notes/a.md");
+    assert!(rows(&editor).contains(&"… 1 more files".to_owned()));
+    unfold(&mut editor, "? notes/a.md", "+alpha");
+
+    go_to_row(&mut editor, "+alpha");
+    press(&mut editor, "s");
+    wait_for_status(
+        &mut editor,
+        &repository,
+        "A  notes/a.md\n?? big.txt\n?? data.bin\n?? draft.md\n?? notes/deep/b.md\n",
+    );
+}
+
+#[test]
 fn upstream_and_base_say_how_far_the_branch_is() {
     let repository = Repository::new("base");
     let _remote = Remote::for_repository(&repository);
@@ -683,6 +730,116 @@ fn the_history_shows_all_branches_or_the_current_one_and_searches_messages() {
         history(editor).len() == 1
     });
     assert_eq!(history(&editor), ["[feature] Grow the feature"]);
+}
+
+#[test]
+fn a_commit_of_the_history_shows_its_message_files_and_diffs() {
+    let repository = Repository::new("commit-view");
+    commit(&repository, "lib.rs", "one\ntwo\n", "Grow lib");
+    repository.write("src/new.rs", "fresh\n");
+    repository.write("lib.rs", "one\ntwo\nthree\n");
+    repository.git(&["add", "."]);
+    repository.git(&[
+        "commit",
+        "-q",
+        "-m",
+        "Add new\n\nWhy it was added.\nAnd more.",
+    ]);
+    let mut editor = status_buffer(&repository);
+    wait_until(&mut editor, "the history", |editor| {
+        history(editor).len() == 3
+    });
+
+    press(&mut editor, "M-n");
+    press(&mut editor, "M-n");
+    let selected = |editor: &Editor| editor.outline(0..100).unwrap().history.unwrap().selected;
+    assert_eq!(selected(&editor), Some(1));
+    press(&mut editor, "M-p");
+    press(&mut editor, "M-RET");
+    assert_eq!(editor.window_buffer().mode(), "Git Commit");
+    assert_eq!(facts(&editor)[0].split(" · ").nth(1), Some("Add new"));
+    assert!(facts(&editor)[2].starts_with("Parent: ") && facts(&editor)[2].ends_with("Grow lib"));
+    assert_eq!(
+        rows(&editor),
+        [
+            "v Message 2",
+            " Why it was added.",
+            " And more.",
+            "v Files 2",
+            "M ./lib.rs +1 -0",
+            "A src/new.rs +1 -0",
+        ]
+    );
+    assert_eq!(
+        rows(&editor)[editor.window_buffer().point_line()],
+        "v Files 2"
+    );
+
+    go_to_row(&mut editor, "M ./lib.rs +1 -0");
+    press(&mut editor, "TAB");
+    go_to_row(&mut editor, "+three");
+    press(&mut editor, "o");
+    assert_eq!(
+        editor.window_buffer().name(),
+        "lib.rs @ ".to_owned() + &short_head(&repository)
+    );
+    let text = editor.window_buffer().text().snapshot();
+    assert_eq!(text.bytes_in(0..text.len()), b"one\ntwo\nthree\n");
+    assert_eq!(editor.window_buffer().point_line(), 2);
+
+    editor.switch_to_buffer(&format!("Commit {}", short_head(&repository)));
+    press(&mut editor, "RET");
+    assert_eq!(
+        editor.window_buffer().path(),
+        Some(repository.0.join("lib.rs").as_path())
+    );
+    assert_eq!(editor.window_buffer().point_line(), 2);
+}
+
+#[test]
+fn the_log_of_a_file_shows_its_commits_and_opens_them_at_the_file() {
+    let repository = Repository::new("file-log");
+    commit(&repository, "lib.rs", "one\ntwo\n", "Grow lib");
+    commit(&repository, "other.rs", "x\n", "Add other");
+    let mut editor = editor();
+    editor.visit_file(&repository.0.join("lib.rs")).unwrap();
+    press(&mut editor, "C-x v l");
+    assert_eq!(editor.window_buffer().mode(), "Git");
+    wait_until(&mut editor, "the file's history", |editor| {
+        editor
+            .outline(0..100)
+            .and_then(|outline| outline.history)
+            .is_some_and(|history| history.commits.len() == 2)
+    });
+    assert_eq!(history(&editor), ["Grow lib", "First"]);
+    let log = editor.outline(0..100).unwrap().history.unwrap();
+    assert_eq!(log.file.as_ref().unwrap().label, "lib.rs");
+
+    editor.run_action(&log.commits[0].open);
+    assert_eq!(editor.window_buffer().mode(), "Git Commit");
+    assert_eq!(rows(&editor)[..2], ["v Files 1", "M ./lib.rs +1 -0"]);
+    assert!(rows(&editor).contains(&"+two".to_owned()));
+
+    press(&mut editor, "q");
+    let clear = editor
+        .outline(0..100)
+        .unwrap()
+        .history
+        .unwrap()
+        .file
+        .unwrap()
+        .action;
+    editor.run_action(&clear);
+    wait_until(&mut editor, "every file's history", |editor| {
+        history(editor).len() == 3
+    });
+}
+
+fn short_head(repository: &Repository) -> String {
+    repository
+        .git(&["rev-parse", "--short=7", "HEAD"])
+        .trim()
+        .to_owned()
 }
 
 fn candidates(editor: &Editor) -> Vec<String> {

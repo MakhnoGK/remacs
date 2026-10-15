@@ -130,8 +130,12 @@ pub struct History {
     pub scopes: Vec<Button>,
     /// What the commit messages were searched for, if they were.
     pub search: Option<String>,
+    /// The file whose commits alone are shown, if one is; a click shows them all again.
+    pub file: Option<Button>,
     /// From the first one scrolled to, more than fit.
     pub commits: Vec<CommitRow>,
+    /// Of `commits`, the one the keys act on; kept in sight.
+    pub selected: Option<usize>,
     /// Whether newer commits were scrolled past.
     pub scrolled: bool,
     /// Said in place of the commits when there are none.
@@ -151,6 +155,8 @@ pub struct CommitRow {
     pub date: String,
     /// Abbreviated.
     pub id: String,
+    /// Run by a click: shows what the commit changed.
+    pub open: Action,
 }
 
 /// A commit's row of the graph. Lanes are columns counted from the left; colors index

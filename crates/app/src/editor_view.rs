@@ -1785,6 +1785,15 @@ impl EditorView {
             };
             scrolled.history_shift = COMMIT_HEIGHT * history_shown;
             history.commits.truncate(fitting + 1);
+            // The selected commit is scrolled into sight for the next frame.
+            if let Some(selected) = history
+                .selected
+                .filter(|&selected| fitting > 0 && selected >= fitting)
+            {
+                let (scroll, rows) = (history.scroll.clone(), (selected + 1 - fitting) as isize);
+                let action: Action = Rc::new(move |editor| scroll(editor, rows));
+                self.run_action(&action, cx);
+            }
         }
         let hints = outline.hints;
         let toolbar = std::mem::take(&mut outline.toolbar);

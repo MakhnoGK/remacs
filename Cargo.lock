@@ -4101,6 +4101,7 @@ dependencies = [
  "remacs-files",
  "remacs-minibuffer",
  "remacs-text",
+ "serde",
  "trash",
 ]
 

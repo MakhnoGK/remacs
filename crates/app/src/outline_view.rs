@@ -494,7 +494,9 @@ fn render_history(
     let History {
         scopes,
         search,
+        file,
         commits,
+        selected,
         empty,
         ..
     } = history;
@@ -537,6 +539,7 @@ fn render_history(
                     clickable(segment(&scope.label, scope.selected), scope.action, cx)
                 }),
             ))
+            .children(file.map(|file| clickable(file_chip(file.label), file.action, cx)))
             .child(div().flex_1())
             .child(
                 div()
@@ -559,7 +562,8 @@ fn render_history(
         let commits = div().flex().flex_col().children(
             commits
                 .into_iter()
-                .map(|commit| render_commit(commit, indent)),
+                .enumerate()
+                .map(|(index, commit)| render_commit(commit, indent, selected == Some(index), cx)),
         );
         fade_scrolled(
             scrolled_by(commits, shift),
@@ -584,7 +588,30 @@ fn render_history(
         .child(list)
 }
 
-fn render_commit(commit: CommitRow, indent: f32) -> Div {
+/// The file a history shows the commits of, with what clears it.
+fn file_chip(path: String) -> Div {
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(6.0))
+        .h(px(22.0))
+        .px(px(8.0))
+        .rounded(px(6.0))
+        .bg(rgba(glass::CHIP))
+        .font_family(font::mono())
+        .text_size(px(font::SMALL_SIZE))
+        .text_color(rgb(color::FG_BODY))
+        .child(div().max_w(px(220.0)).truncate().child(path))
+        .child(div().text_color(rgb(color::FG_FAINT)).child("×"))
+}
+
+fn render_commit(
+    commit: CommitRow,
+    indent: f32,
+    selected: bool,
+    cx: &mut Context<EditorView>,
+) -> Div {
     let CommitRow {
         graph,
         refs,
@@ -592,8 +619,9 @@ fn render_commit(commit: CommitRow, indent: f32) -> Div {
         author,
         date,
         id,
+        open,
     } = commit;
-    div()
+    let row = div()
         .relative()
         .flex()
         .flex_none()
@@ -602,7 +630,10 @@ fn render_commit(commit: CommitRow, indent: f32) -> Div {
         .h(px(COMMIT_HEIGHT))
         .pl(px(indent))
         .pr(px(12.0))
-        .whitespace_nowrap()
+        .rounded(px(8.0))
+        .when(selected, |row| row.bg(rgba(glass::SELECTION)))
+        .whitespace_nowrap();
+    clickable(row, open, cx)
         .child(
             canvas(
                 |_, _, _| {},

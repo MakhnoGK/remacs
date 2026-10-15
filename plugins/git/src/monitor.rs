@@ -12,9 +12,9 @@ use crate::command::{git, output};
 use crate::diff::parse_diff;
 use crate::history::{HistoryCache, HistoryWants};
 use crate::ignore_rules::IgnoreRules;
-use crate::moves;
+use crate::settings::GitSettings;
 use crate::status::{Counted, DiffKey, Snapshot, parse_status};
-use crate::{conflict, details, operation};
+use crate::{conflict, details, moves, operation, untracked};
 
 /// Changes arriving this close together cause one read.
 const SETTLE_TIME: Duration = Duration::from_millis(100);
@@ -54,8 +54,10 @@ pub enum Update {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Wants {
     pub details: bool,
+    /// An untracked directory's is the list of its files.
     pub diffs: Vec<DiffKey>,
     pub history: Option<HistoryWants>,
+    pub settings: GitSettings,
 }
 
 /// Changes the repository, run in its root; the error is said to the user.
@@ -338,6 +340,19 @@ fn read(
         snapshot.history = Some(history.read(root, history_wants, &snapshot)?);
     }
     for key in &wants.diffs {
+        let settings = &wants.settings;
+        if snapshot.untracked_directories.contains(&key.path) {
+            let listing = untracked::list(root, &key.path, settings.untracked_max_files)?;
+            snapshot.listings.insert(key.path.clone(), listing);
+            continue;
+        }
+        if !key.staged && snapshot.is_untracked(&key.path) {
+            // Gone since it was listed, it is left out until the status is read again.
+            if let Ok(diff) = untracked::diff(root, &key.path, settings.untracked_max_bytes) {
+                snapshot.diffs.insert(key.clone(), diff);
+            }
+            continue;
+        }
         let Some(entry) = snapshot.files.get(&key.path) else {
             continue;
         };

@@ -2,7 +2,7 @@
 //! like `git log --graph`.
 
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use remacs_core::{GraphEdge, GraphNode, GraphRow};
@@ -24,6 +24,8 @@ pub struct HistoryWants {
     pub all: bool,
     /// Only those whose message holds this, ignoring case.
     pub search: Option<String>,
+    /// Only those that changed this file, relative to the root, followed through renames.
+    pub file: Option<PathBuf>,
     pub count: usize,
 }
 
@@ -112,7 +114,10 @@ fn read(root: &Path, wants: &HistoryWants, base: Option<&str>) -> io::Result<Log
     if wants.all {
         command.args(["--branches", "--remotes", "--tags"]);
     }
-    command.args(["HEAD", "--"]);
+    if wants.file.is_some() {
+        command.arg("--follow");
+    }
+    command.args(["HEAD", "--"]).args(&wants.file);
     let commits = parse_log(&String::from_utf8_lossy(&output(&mut command)?));
     let base_tip = base.and_then(|base| {
         let names = [format!("refs/heads/{base}"), format!("refs/remotes/{base}")];
@@ -121,8 +126,9 @@ fn read(root: &Path, wants: &HistoryWants, base: Option<&str>) -> io::Result<Log
             .find(|commit| commit.refs.iter().any(|name| names.contains(name)))
             .map(|commit| commit.id.as_str())
     });
-    // Found by their messages, commits are not each other's parents.
-    let graph = layout(&commits, base_tip, wants.search.is_none());
+    // Found by their messages or files, commits are not each other's parents.
+    let connected = wants.search.is_none() && wants.file.is_none();
+    let graph = layout(&commits, base_tip, connected);
     Ok(Log {
         wants: wants.clone(),
         complete: commits.len() < wants.count,
