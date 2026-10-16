@@ -160,9 +160,9 @@ fn face(cell: &Cell, colors: &Colors) -> CellFace {
         background = None;
     }
     if flags.contains(Flags::INVERSE) {
-        let text = remacs_theme::color::FG_BODY;
+        let text = remacs_theme::color::fg_body();
         (foreground, background) = (
-            Some(background.unwrap_or(ConsoleColor::Rgb(0x000000))),
+            Some(background.unwrap_or(ConsoleColor::Rgb(remacs_theme::color::bg_main()))),
             Some(foreground.unwrap_or(ConsoleColor::Rgb(text))),
         );
     }

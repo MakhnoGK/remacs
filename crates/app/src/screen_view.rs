@@ -93,7 +93,7 @@ pub fn render_screen(
         .font_family(font::mono())
         .text_size(px(font::code().size))
         .line_height(cell.height)
-        .text_color(rgb(color::FG_BODY))
+        .text_color(rgb(color::fg_body()))
         .children(
             rows.iter()
                 .enumerate()
@@ -116,9 +116,9 @@ pub fn render_screen(
                     .absolute()
                     .inset_0()
                     .rounded(px(10.0))
-                    .bg(rgba(0xffffff0f))
+                    .bg(rgba(glass::ink(0x0f)))
                     .border_1()
-                    .border_color(rgba(color::WARNING << 8 | 0x66)),
+                    .border_color(rgba(color::warning() << 8 | 0x66)),
             )
         })
 }
@@ -164,7 +164,7 @@ fn render_run(run: &CellRun, left: Pixels, top: Pixels, cell: Cell) -> Div {
 
 /// The text's color and the background's, the highlight over the cell's own.
 fn colors(face: &CellFace) -> (Hsla, Option<Hsla>) {
-    let foreground = face.foreground.map_or(color::FG_BODY, console_color);
+    let foreground = face.foreground.map_or(color::fg_body(), console_color);
     let mut text = hsla(foreground);
     if face.dim {
         text.a = 0.6;
@@ -174,13 +174,15 @@ fn colors(face: &CellFace) -> (Hsla, Option<Hsla>) {
         .map(|background| hsla(console_color(background)));
     match face.highlight {
         None => (text, background),
-        Some(CellHighlight::Selection) => (text, Some(rgba(glass::SELECTION).into())),
+        Some(CellHighlight::Selection) => (text, Some(rgba(glass::selection()).into())),
         Some(CellHighlight::SearchMatch) => (
-            hsla(color::FG_ON_WARNING),
-            Some(rgba(color::WARNING << 8 | 0x3d).into()),
+            hsla(color::fg_on_warning()),
+            Some(rgba(color::warning() << 8 | 0x3d).into()),
         ),
-        Some(CellHighlight::SearchCurrent) => (hsla(color::BG_MAIN), Some(hsla(color::WARNING))),
-        Some(CellHighlight::Link) => (hsla(color::LINK), background),
+        Some(CellHighlight::SearchCurrent) => {
+            (hsla(color::bg_main()), Some(hsla(color::warning())))
+        }
+        Some(CellHighlight::Link) => (hsla(color::link()), background),
     }
 }
 
@@ -203,19 +205,19 @@ fn render_cursor(cursor: ScreenCursor, rows: &[ScreenRow], cell: Cell) -> Div {
             .top(glyph_top)
             .w(px(2.0))
             .h(cell.glyph)
-            .bg(rgb(color::FG_MAIN)),
+            .bg(rgb(color::fg_main())),
         CursorShape::Underline => quad
             .top(glyph_top + cell.glyph - px(2.0))
             .w(cell.width)
             .h(px(2.0))
-            .bg(rgb(color::FG_MAIN)),
+            .bg(rgb(color::fg_main())),
         CursorShape::Hollow => quad
             .top(glyph_top)
             .w(cell.width)
             .h(cell.glyph)
             .rounded(px(cursor::radius()))
             .border_1()
-            .border_color(rgba(color::FG_MAIN << 8 | 0x99)),
+            .border_color(rgba(color::fg_main() << 8 | 0x99)),
     }
 }
 
@@ -267,9 +269,9 @@ fn render_mark(
 ) -> Div {
     let top = cell.height * row as f32;
     let (glyph, tone) = match mark.exit {
-        None => ("", color::FG_DIM),
-        Some(0) => ("✓", color::VC_ADDED),
-        Some(_) => ("✗", color::ERROR),
+        None => ("", color::fg_dim()),
+        Some(0) => ("✓", color::vc_added()),
+        Some(_) => ("✗", color::error()),
     };
     let badge = div()
         .id(("command-mark", row))
@@ -293,7 +295,7 @@ fn render_mark(
                 .top(top + px(6.0))
                 .rounded_full()
                 .border_1()
-                .border_color(rgba(0xffffff4d)),
+                .border_color(rgba(glass::ink(0x4d))),
             Some(_) => badge.bg(rgba(tone << 8 | 0x2e)),
         })
         .child(glyph)
@@ -320,7 +322,7 @@ fn render_mark(
             .font_family(font::mono())
             .text_size(px(9.0))
             .line_height(px(10.0))
-            .text_color(rgb(color::DANGER))
+            .text_color(rgb(color::danger()))
             .child(code.to_string())
     });
     let tip = hovered.then(|| {
@@ -336,7 +338,7 @@ fn render_mark(
             .whitespace_nowrap()
             .font_family(font::mono())
             .text_size(px(font::STATUS_SIZE))
-            .text_color(rgb(color::FG_BODY))
+            .text_color(rgb(color::fg_body()))
             .child(mark.detail.clone())
     });
     div()
@@ -348,7 +350,7 @@ fn render_mark(
 
 /// The shell starting, or why it could not, in place of the rows.
 fn render_notice(notice: ScreenNotice) -> Div {
-    let accent = tone_color(notice.tone, color::FG_DIM);
+    let accent = tone_color(notice.tone, color::fg_dim());
     let danger = notice.tone == Tone::Danger;
     div()
         .size_full()
@@ -364,16 +366,16 @@ fn render_notice(notice: ScreenNotice) -> Div {
                 .p(px(18.0))
                 .rounded(px(12.0))
                 .when(danger, |card| {
-                    card.bg(rgba(color::ERROR << 8 | 0x14))
+                    card.bg(rgba(color::error() << 8 | 0x14))
                         .border_1()
-                        .border_color(rgba(color::ERROR << 8 | 0x59))
+                        .border_color(rgba(color::error() << 8 | 0x59))
                 })
                 .font_family(font::UI)
                 .child(
                     div()
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_size(px(font::UI_SIZE + 2.0))
-                        .text_color(rgb(if danger { accent } else { color::FG_MAIN }))
+                        .text_color(rgb(if danger { accent } else { color::fg_main() }))
                         .child(notice.title),
                 )
                 .child(
@@ -381,7 +383,7 @@ fn render_notice(notice: ScreenNotice) -> Div {
                         .font_family(font::mono())
                         .text_size(px(font::STATUS_SIZE))
                         .line_height(px(18.0))
-                        .text_color(rgb(color::FG_DIM))
+                        .text_color(rgb(color::fg_dim()))
                         .child(notice.detail),
                 ),
         )
@@ -389,7 +391,7 @@ fn render_notice(notice: ScreenNotice) -> Div {
 
 /// That the program ended, over the bottom of the rows.
 fn render_banner(banner: ScreenBanner) -> Div {
-    let tone = tone_color(banner.tone, color::FG_DIM);
+    let tone = tone_color(banner.tone, color::fg_dim());
     div()
         .absolute()
         .left_0()
@@ -406,7 +408,7 @@ fn render_banner(banner: ScreenBanner) -> Div {
                 .px(px(12.0))
                 .font_family(font::UI)
                 .text_size(px(font::STATUS_SIZE))
-                .text_color(rgb(color::FG_BODY))
+                .text_color(rgb(color::fg_body()))
                 .child(div().size(px(8.0)).rounded_full().bg(rgb(tone)))
                 .child(banner.text)
                 .children(banner.keys.iter().map(|&(keys, label)| {
@@ -414,7 +416,7 @@ fn render_banner(banner: ScreenBanner) -> Div {
                         .flex()
                         .items_center()
                         .gap(px(5.0))
-                        .text_color(rgb(color::FG_DIM))
+                        .text_color(rgb(color::fg_dim()))
                         .children(key_caps(keys))
                         .child(label)
                 })),
@@ -446,13 +448,13 @@ fn render_search(search: ScreenSearch) -> Div {
                 .pr(px(12.0))
                 .font_family(font::UI)
                 .text_size(px(font::UI_SIZE))
-                .child(div().text_color(rgb(color::FG_DIM)).child("I-search:"))
+                .child(div().text_color(rgb(color::fg_dim())).child("I-search:"))
                 .child(
                     div()
                         .flex()
                         .items_center()
                         .font_family(font::mono())
-                        .text_color(rgb(color::FG_MAIN))
+                        .text_color(rgb(color::fg_main()))
                         .child(search.input)
                         .child(
                             div()
@@ -460,7 +462,7 @@ fn render_search(search: ScreenSearch) -> Div {
                                 .w(px(8.0))
                                 .h(px(17.0))
                                 .rounded(px(1.0))
-                                .bg(rgb(color::FG_MAIN)),
+                                .bg(rgb(color::fg_main())),
                         ),
                 )
                 .child(div().flex_1())
@@ -468,7 +470,7 @@ fn render_search(search: ScreenSearch) -> Div {
                     div()
                         .font_family(font::mono())
                         .text_size(px(font::STATUS_SIZE))
-                        .text_color(rgb(color::WARNING))
+                        .text_color(rgb(color::warning()))
                         .child(found),
                 )
                 .children(search.hints.iter().map(|&(keys, label)| {
@@ -477,7 +479,7 @@ fn render_search(search: ScreenSearch) -> Div {
                         .items_center()
                         .gap(px(5.0))
                         .text_size(px(font::STATUS_SIZE))
-                        .text_color(rgb(color::FG_DIM))
+                        .text_color(rgb(color::fg_dim()))
                         .children(key_caps(keys))
                         .child(label)
                 })),

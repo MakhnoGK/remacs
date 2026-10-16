@@ -189,9 +189,9 @@ pub fn render_outline(
                             .truncate()
                             .text_size(px(font::STATUS_SIZE))
                             .text_color(rgb(if selected {
-                                color::FG_ALT
+                                color::fg_alt()
                             } else {
-                                color::FG_FAINT
+                                color::fg_faint()
                             }))
                             .child(directory),
                     )
@@ -200,7 +200,7 @@ pub fn render_outline(
                             div()
                                 .flex_none()
                                 .text_size(px(font::STATUS_SIZE))
-                                .text_color(rgb(tone_color(tone, color::FG_DIM)))
+                                .text_color(rgb(tone_color(tone, color::fg_dim())))
                                 .child(note),
                         ),
                         None => row.children(lines.map(|lines| line_counts(lines, selected))),
@@ -217,9 +217,9 @@ pub fn render_outline(
                             .font_family(font::mono())
                             .text_size(px(font::STATUS_SIZE))
                             .text_color(rgb(if selected {
-                                color::FG_ALT
+                                color::fg_alt()
                             } else {
-                                color::FG_DIM
+                                color::fg_dim()
                             }))
                             .child(name),
                     )
@@ -228,7 +228,7 @@ pub fn render_outline(
                             .flex_1()
                             .min_w_0()
                             .truncate()
-                            .text_color(rgb(color::FG_BODY))
+                            .text_color(rgb(color::fg_body()))
                             .child(description),
                     ),
                 line,
@@ -258,9 +258,9 @@ pub fn render_outline(
         .p(px(PANE_PADDING))
         .gap(px(ROW_GAP))
         .overflow_hidden()
-        .bg(rgba(glass::PANE))
+        .bg(rgba(glass::pane()))
         .border_1()
-        .border_color(rgba(glass::PANE_BORDER))
+        .border_color(rgba(glass::pane_border()))
         .rounded(px(12.0))
         .font_family(font::UI)
         .text_size(px(font::UI_SIZE))
@@ -268,7 +268,7 @@ pub fn render_outline(
         .child(fade_scrolled(
             rows,
             scrolled.rows,
-            over(glass::PANE, glass::window_tint()),
+            over(glass::pane(), glass::window_tint()),
         ));
     let panes = div()
         .absolute()
@@ -296,7 +296,7 @@ fn render_banner(banner: Banner, cx: &mut Context<EditorView>) -> Div {
     } = banner;
     let parts = parts.into_iter().map(|part| match part {
         BannerPart::Chip(chip) => ref_chip(chip),
-        BannerPart::Word(word) => div().text_color(rgb(color::FG_DIM)).child(word),
+        BannerPart::Word(word) => div().text_color(rgb(color::fg_dim())).child(word),
     });
     let buttons: Vec<Div> = buttons
         .into_iter()
@@ -314,24 +314,24 @@ fn render_banner(banner: Banner, cx: &mut Context<EditorView>) -> Div {
         .pl(px(14.0))
         .pr(px(8.0))
         .rounded(px(10.0))
-        .bg(rgba(color::WARNING << 8 | 0x1a))
+        .bg(rgba(color::warning() << 8 | 0x1a))
         .border_1()
-        .border_color(rgba(color::WARNING << 8 | 0x52))
+        .border_color(rgba(color::warning() << 8 | 0x52))
         .font_family(font::UI)
         .text_size(px(font::UI_SIZE))
-        .text_color(rgb(color::FG_BODY))
+        .text_color(rgb(color::fg_body()))
         .whitespace_nowrap()
         .child(
             svg()
                 .path(BRANCH_ICON)
                 .flex_none()
                 .size(px(16.0))
-                .text_color(rgb(color::WARNING)),
+                .text_color(rgb(color::warning())),
         )
         .child(
             div()
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(rgb(color::FG_MAIN))
+                .text_color(rgb(color::fg_main()))
                 .child(title),
         )
         .children(parts)
@@ -340,9 +340,9 @@ fn render_banner(banner: Banner, cx: &mut Context<EditorView>) -> Div {
                 .px(px(8.0))
                 .py(px(2.0))
                 .rounded(px(5.0))
-                .bg(rgba(color::WARNING << 8 | 0x29))
+                .bg(rgba(color::warning() << 8 | 0x29))
                 .text_size(px(font::STATUS_SIZE))
-                .text_color(rgb(color::FG_ON_WARNING))
+                .text_color(rgb(color::fg_on_warning()))
                 .child(step)
         }))
         .children(commit.map(|(id, subject)| {
@@ -356,7 +356,7 @@ fn render_banner(banner: Banner, cx: &mut Context<EditorView>) -> Div {
                         .flex_none()
                         .font_family(font::mono())
                         .text_size(px(font::STATUS_SIZE))
-                        .text_color(rgb(color::FG_FAINT))
+                        .text_color(rgb(color::fg_faint()))
                         .child(id),
                 )
                 .child(div().min_w_0().truncate().child(subject))
@@ -366,7 +366,7 @@ fn render_banner(banner: Banner, cx: &mut Context<EditorView>) -> Div {
             div()
                 .flex_none()
                 .text_size(px(font::STATUS_SIZE))
-                .text_color(rgb(tone_color(state_tone, color::FG_DIM)))
+                .text_color(rgb(tone_color(state_tone, color::fg_dim())))
                 .child(state),
         )
         .children(buttons)
@@ -382,10 +382,18 @@ fn render_banner_button(button: BannerButton, cx: &mut Context<EditorView>) -> D
         action,
     } = button;
     let (background, border, text) = match tone {
-        _ if !enabled => (glass::DISABLED, 0xffffff14, color::FG_MUTED),
-        Tone::Danger => (glass::CONTROL, color::ERROR << 8 | 0x4d, color::FG_FLAGGED),
-        Tone::Accent => (glass::SELECTION, color::ACCENT << 8 | 0x73, color::FG_MAIN),
-        _ => (glass::CONTROL, glass::CONTROL_BORDER, color::FG_MAIN),
+        _ if !enabled => (glass::disabled(), glass::ink(0x14), color::fg_muted()),
+        Tone::Danger => (
+            glass::control(),
+            color::error() << 8 | 0x4d,
+            color::fg_flagged(),
+        ),
+        Tone::Accent => (
+            glass::selection(),
+            color::accent() << 8 | 0x73,
+            color::fg_main(),
+        ),
+        _ => (glass::control(), glass::control_border(), color::fg_main()),
     };
     let element = div()
         .flex()
@@ -400,7 +408,7 @@ fn render_banner_button(button: BannerButton, cx: &mut Context<EditorView>) -> D
         .text_size(px(font::STATUS_SIZE))
         .text_color(rgb(text))
         .when(enabled, |element| {
-            element.shadow(vec![shadow(0x00000080, 1.0, 2.0, 0.0)])
+            element.shadow(vec![shadow(glass::shadow(0x80), 1.0, 2.0, 0.0)])
         })
         .child(label);
     if enabled {
@@ -423,9 +431,9 @@ pub fn render_toolbar(buttons: Vec<ToolbarButton>, cx: &mut Context<EditorView>)
                 action,
             } = button;
             let text = if enabled {
-                color::FG_BODY
+                color::fg_body()
             } else {
-                color::FG_MUTED
+                color::fg_muted()
             };
             let element = div()
                 .flex()
@@ -434,10 +442,10 @@ pub fn render_toolbar(buttons: Vec<ToolbarButton>, cx: &mut Context<EditorView>)
                 .h(px(26.0))
                 .px(px(10.0))
                 .rounded(px(7.0))
-                .bg(rgba(glass::CONTROL))
+                .bg(rgba(glass::control()))
                 .border_1()
-                .border_color(rgba(glass::CONTROL_BORDER))
-                .shadow(vec![shadow(0x00000099, 1.0, 2.0, 0.0)])
+                .border_color(rgba(glass::control_border()))
+                .shadow(vec![shadow(glass::shadow(0x99), 1.0, 2.0, 0.0)])
                 .font_family(font::UI)
                 .text_size(px(font::STATUS_SIZE))
                 .text_color(rgb(text))
@@ -447,11 +455,11 @@ pub fn render_toolbar(buttons: Vec<ToolbarButton>, cx: &mut Context<EditorView>)
                     div()
                         .px(px(5.0))
                         .rounded(px(4.0))
-                        .bg(rgba(glass::SELECTION))
+                        .bg(rgba(glass::selection()))
                         .font_family(font::mono())
                         .text_size(px(font::SMALL_SIZE))
                         .line_height(px(16.0))
-                        .text_color(rgb(color::FG_MAIN))
+                        .text_color(rgb(color::fg_main()))
                         .child(count.to_string())
                 }));
             if enabled {
@@ -515,7 +523,7 @@ fn render_history(
     let indent = (FIRST_LANE_X + LANE_WIDTH * (lanes - 1) as f32 + 28.0).max(MIN_COMMIT_INDENT);
     let search_hint = match search {
         Some(search) => div()
-            .text_color(rgb(color::FG_ALT))
+            .text_color(rgb(color::fg_alt()))
             .child(format!("“{search}”")),
         None => div().child("Search history"),
     };
@@ -531,7 +539,7 @@ fn render_history(
             .child(
                 div()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(rgb(color::FG_MAIN))
+                    .text_color(rgb(color::fg_main()))
                     .child("History"),
             )
             .child(segmented().children(
@@ -548,7 +556,7 @@ fn render_history(
                     .gap(px(6.0))
                     .px(px(8.0))
                     .text_size(px(font::STATUS_SIZE))
-                    .text_color(rgb(color::FG_FAINT))
+                    .text_color(rgb(color::fg_faint()))
                     .child(kbd("/", false))
                     .child(search_hint),
             );
@@ -556,7 +564,7 @@ fn render_history(
         div()
             .pl(px(12.0))
             .pt(px(8.0))
-            .text_color(rgb(color::FG_FAINT))
+            .text_color(rgb(color::fg_faint()))
             .child(empty)
     } else {
         let commits = div().flex().flex_col().children(
@@ -598,12 +606,12 @@ fn file_chip(path: String) -> Div {
         .h(px(22.0))
         .px(px(8.0))
         .rounded(px(6.0))
-        .bg(rgba(glass::CHIP))
+        .bg(rgba(glass::chip()))
         .font_family(font::mono())
         .text_size(px(font::SMALL_SIZE))
-        .text_color(rgb(color::FG_BODY))
+        .text_color(rgb(color::fg_body()))
         .child(div().max_w(px(220.0)).truncate().child(path))
-        .child(div().text_color(rgb(color::FG_FAINT)).child("×"))
+        .child(div().text_color(rgb(color::fg_faint())).child("×"))
 }
 
 fn render_commit(
@@ -631,7 +639,7 @@ fn render_commit(
         .pl(px(indent))
         .pr(px(12.0))
         .rounded(px(8.0))
-        .when(selected, |row| row.bg(rgba(glass::SELECTION)))
+        .when(selected, |row| row.bg(rgba(glass::selection())))
         .whitespace_nowrap();
     clickable(row, open, cx)
         .child(
@@ -655,7 +663,7 @@ fn render_commit(
                 .items_center()
                 .gap(px(6.0))
                 .overflow_hidden()
-                .text_color(rgb(color::FG_MAIN))
+                .text_color(rgb(color::fg_main()))
                 .children(refs.into_iter().map(ref_chip))
                 .child(div().min_w_0().truncate().child(subject)),
         )
@@ -665,7 +673,7 @@ fn render_commit(
                 .w(px(112.0))
                 .truncate()
                 .text_size(px(font::STATUS_SIZE))
-                .text_color(rgb(color::FG_DIM))
+                .text_color(rgb(color::fg_dim()))
                 .child(author),
         )
         .child(
@@ -674,7 +682,7 @@ fn render_commit(
                 .w(px(84.0))
                 .text_right()
                 .text_size(px(font::STATUS_SIZE))
-                .text_color(rgb(color::FG_FAINT))
+                .text_color(rgb(color::fg_faint()))
                 .child(date),
         )
         .child(
@@ -684,7 +692,7 @@ fn render_commit(
                 .text_right()
                 .font_family(font::mono())
                 .text_size(px(font::STATUS_SIZE))
-                .text_color(rgb(color::FG_LINE_NUMBER))
+                .text_color(rgb(color::fg_line_number()))
                 .child(id),
         )
 }
@@ -726,11 +734,11 @@ fn paint_graph(graph: &GraphRow, bounds: Bounds<Pixels>, window: &mut Window) {
     let lane_color = color::graph(graph.color);
     match graph.node {
         GraphNode::Head => {
-            paint_dot(window, center, 6.0, color::BG_MAIN, lane_color);
+            paint_dot(window, center, 6.0, color::bg_main(), lane_color);
             paint_dot(window, center, 1.5, lane_color, lane_color);
         }
-        GraphNode::Merge => paint_dot(window, center, 5.5, color::BG_MAIN, lane_color),
-        GraphNode::Commit => paint_dot(window, center, 4.5, lane_color, color::BG_MAIN),
+        GraphNode::Merge => paint_dot(window, center, 5.5, color::bg_main(), lane_color),
+        GraphNode::Commit => paint_dot(window, center, 4.5, lane_color, color::bg_main()),
     }
 }
 
@@ -761,7 +769,7 @@ fn render_facts(facts: Vec<Fact>, cx: &mut Context<EditorView>) -> Div {
         .pb(px(10.0))
         .mb(px(6.0))
         .border_b_1()
-        .border_color(rgba(0xffffff0f))
+        .border_color(rgba(glass::ink(0x0f)))
         .children(facts.into_iter().map(|fact| {
             let value = match fact.value {
                 FactValue::Ref(chip) => ref_chip(chip),
@@ -769,13 +777,13 @@ fn render_facts(facts: Vec<Fact>, cx: &mut Context<EditorView>) -> Div {
                     .flex_none()
                     .font_family(font::mono())
                     .text_size(px(font::STATUS_SIZE))
-                    .text_color(rgb(color::FG_BODY))
+                    .text_color(rgb(color::fg_body()))
                     .child(text),
             };
             let (note_size, note_color) = if fact.note_is_title {
-                (font::UI_SIZE, color::FG_BODY)
+                (font::UI_SIZE, color::fg_body())
             } else {
-                (font::STATUS_SIZE, color::FG_DIM)
+                (font::STATUS_SIZE, color::fg_dim())
             };
             div()
                 .flex()
@@ -789,7 +797,7 @@ fn render_facts(facts: Vec<Fact>, cx: &mut Context<EditorView>) -> Div {
                         .flex_none()
                         .w(px(64.0))
                         .text_size(px(font::STATUS_SIZE))
-                        .text_color(rgb(color::FG_FAINT))
+                        .text_color(rgb(color::fg_faint()))
                         .child(fact.label),
                 )
                 .child(value)
@@ -812,10 +820,10 @@ fn render_facts(facts: Vec<Fact>, cx: &mut Context<EditorView>) -> Div {
                             .px(px(10.0))
                             .rounded(px(6.0))
                             .border_1()
-                            .border_color(rgba(glass::CONTROL_BORDER))
-                            .bg(rgba(glass::CONTROL))
+                            .border_color(rgba(glass::control_border()))
+                            .bg(rgba(glass::control()))
                             .text_size(px(font::STATUS_SIZE))
-                            .shadow(vec![shadow(0x00000080, 1.0, 2.0, 0.0)])
+                            .shadow(vec![shadow(glass::shadow(0x80), 1.0, 2.0, 0.0)])
                             .child(button.label),
                         button.action,
                         cx,
@@ -827,11 +835,27 @@ fn render_facts(facts: Vec<Fact>, cx: &mut Context<EditorView>) -> Div {
 /// A branch or tag, colored by what it is.
 pub fn ref_chip(chip: RefChip) -> Div {
     let (background, foreground, border) = match chip.kind {
-        RefKind::Head => (rgba(0x2fafff33), color::FG_REF_HEAD, rgba(0x2fafff73)),
-        RefKind::Main => (rgba(0xb6a0ff29), color::FG_REF_MAIN, rgba(0x00000000)),
-        RefKind::Branch => (rgba(0x6ae4b924), color::FG_REF_BRANCH, rgba(0x00000000)),
-        RefKind::Remote => (rgba(0x00000000), color::FG_REF_REMOTE, rgba(0xffffff29)),
-        RefKind::Tag => (rgba(glass::CHIP), color::FG_BODY, rgba(0x00000000)),
+        RefKind::Head => (
+            rgba(color::accent() << 8 | 0x33),
+            color::fg_ref_head(),
+            rgba(color::accent() << 8 | 0x73),
+        ),
+        RefKind::Main => (
+            rgba(color::keyword() << 8 | 0x29),
+            color::fg_ref_main(),
+            rgba(0x00000000),
+        ),
+        RefKind::Branch => (
+            rgba(color::type_name() << 8 | 0x24),
+            color::fg_ref_branch(),
+            rgba(0x00000000),
+        ),
+        RefKind::Remote => (
+            rgba(0x00000000),
+            color::fg_ref_remote(),
+            rgba(glass::ink(0x29)),
+        ),
+        RefKind::Tag => (rgba(glass::chip()), color::fg_body(), rgba(0x00000000)),
     };
     div()
         .flex()
@@ -851,8 +875,8 @@ pub fn ref_chip(chip: RefChip) -> Div {
 
 fn render_heading(title: &str, count: usize, open: bool, tone: Tone, selected: bool) -> Div {
     let count_color = match tone {
-        Tone::Faint => color::FG_LINE_NUMBER,
-        tone => tone_color(tone, color::FG_LINE_NUMBER),
+        Tone::Faint => color::fg_line_number(),
+        tone => tone_color(tone, color::fg_line_number()),
     };
     div()
         .flex()
@@ -862,12 +886,12 @@ fn render_heading(title: &str, count: usize, open: bool, tone: Tone, selected: b
         .h(px(HEADING_HEIGHT))
         .px(px(10.0))
         .rounded(px(8.0))
-        .when(selected, |heading| heading.bg(rgba(glass::SELECTION)))
+        .when(selected, |heading| heading.bg(rgba(glass::selection())))
         .text_size(px(font::SMALL_SIZE))
         .text_color(rgb(if selected {
-            color::FG_ALT
+            color::fg_alt()
         } else {
-            color::FG_FAINT
+            color::fg_faint()
         }))
         .child(
             svg()
@@ -878,7 +902,7 @@ fn render_heading(title: &str, count: usize, open: bool, tone: Tone, selected: b
                 })
                 .flex_none()
                 .size(px(10.0))
-                .text_color(rgb(color::FG_FAINT)),
+                .text_color(rgb(color::fg_faint())),
         )
         .child(
             div()
@@ -899,8 +923,12 @@ fn row_frame(selected: bool) -> Div {
         .rounded(px(8.0))
         .whitespace_nowrap()
         .when(selected, |row| {
-            row.bg(rgba(glass::SELECTION))
-                .shadow(vec![shadow(0x00000073, 1.0, 3.0, 0.0)])
+            row.bg(rgba(glass::selection())).shadow(vec![shadow(
+                glass::shadow(0x73),
+                1.0,
+                3.0,
+                0.0,
+            )])
         })
 }
 
@@ -926,9 +954,9 @@ fn diff_frame(lines: Vec<AnyElement>) -> Div {
         .py(px(4.0))
         .rounded(px(8.0))
         .overflow_hidden()
-        .bg(rgba(glass::WELL))
+        .bg(rgba(glass::well()))
         .border_1()
-        .border_color(rgba(0xffffff0f))
+        .border_color(rgba(glass::ink(0x0f)))
         .font_family(font::mono())
         .text_size(px(font::STATUS_SIZE))
         .line_height(px(DIFF_LINE_HEIGHT))
@@ -943,10 +971,10 @@ fn render_diff_line(
     cx: &mut Context<EditorView>,
 ) -> AnyElement {
     let (prefix, text, foreground, background) = match diff {
-        DiffRow::Hunk(text) => ("", text, color::DOCSTRING, Some(rgba(0xffffff0a))),
-        DiffRow::Context(text) => ("", text, color::FG_KBD, None),
-        DiffRow::Added(text) => ("+", text, color::FG_ADDED, Some(rgba(glass::ADDED))),
-        DiffRow::Removed(text) => ("-", text, color::FG_REMOVED, Some(rgba(glass::REMOVED))),
+        DiffRow::Hunk(text) => ("", text, color::docstring(), Some(rgba(glass::ink(0x0a)))),
+        DiffRow::Context(text) => ("", text, color::fg_kbd(), None),
+        DiffRow::Added(text) => ("+", text, color::fg_added(), Some(rgba(glass::added()))),
+        DiffRow::Removed(text) => ("-", text, color::fg_removed(), Some(rgba(glass::removed()))),
     };
     let row = div()
         .flex()
@@ -956,7 +984,7 @@ fn render_diff_line(
         .overflow_hidden()
         .text_color(rgb(foreground))
         .when_some(background, |row, background| row.bg(background))
-        .when(selected, |row| row.bg(rgba(glass::SELECTION)))
+        .when(selected, |row| row.bg(rgba(glass::selection())))
         .child(div().flex_none().w(px(16.0)).text_center().child(prefix))
         .child(text);
     clicks(row, line, activate, cx).into_any_element()

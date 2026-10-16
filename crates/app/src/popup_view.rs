@@ -230,14 +230,15 @@ fn render_notes(notes: &[Note], placement: &Placement, view: &PopupView) -> AnyE
                 .px(px(NOTE_PADDING_X))
                 .py(px(NOTE_PADDING_Y))
                 .when(index > 0, |note| {
-                    note.border_t_1().border_color(rgba(glass::NOTE_SEPARATOR))
+                    note.border_t_1()
+                        .border_color(rgba(glass::note_separator()))
                 })
                 .child(
                     div()
                         .flex()
                         .flex_none()
                         .pt(px(4.0))
-                        .child(icon(note.icon, color::FG_MAIN)),
+                        .child(icon(note.icon, color::fg_main())),
                 )
                 .child(
                     div()
@@ -255,15 +256,15 @@ fn render_notes(notes: &[Note], placement: &Placement, view: &PopupView) -> AnyE
                                 div()
                                     .text_size(px(font::SMALL_SIZE))
                                     .line_height(px(NOTE_SOURCE_LINE_HEIGHT))
-                                    .text_color(rgb(color::FG_NOTE_SOURCE))
+                                    .text_color(rgb(color::fg_note_source()))
                                     .child(note.source.clone()),
                             )
                         }),
                 )
         }));
     let panel = panel()
-        .bg(rgba(glass::NOTE))
-        .border_color(rgba(glass::NOTE_BORDER))
+        .bg(rgba(glass::note()))
+        .border_color(rgba(glass::note_border()))
         .max_w(width)
         .max_h(if fits_above { above } else { below }.min(view.notes_max_height))
         .overflow_hidden()
@@ -275,7 +276,7 @@ fn render_notes(notes: &[Note], placement: &Placement, view: &PopupView) -> AnyE
         .flex()
         .flex_col()
         .font_family(font::UI)
-        .text_color(rgb(color::FG_MAIN))
+        .text_color(rgb(color::fg_main()))
         .child(panel);
     placement.place(container, !fits_above).into_any_element()
 }
@@ -303,10 +304,10 @@ fn render_note_line(line: &str, code_chars: usize) -> Div {
                     .when(last, |chip| {
                         chip.pr(px(CHIP_PADDING)).rounded_r(px(CHIP_RADIUS))
                     })
-                    .bg(rgba(glass::NOTE_CODE))
+                    .bg(rgba(glass::note_code()))
                     .font_family(font::mono())
                     .text_size(px(font::STATUS_SIZE))
-                    .text_color(rgb(color::FG_NOTE_CODE))
+                    .text_color(rgb(color::fg_note_code()))
                     .child(text.to_owned()),
             }
         }))
@@ -452,9 +453,9 @@ fn render_hover(
             .px(px(HOVER_SIGNATURE_PADDING_X))
             .py(px(8.0))
             .rounded(px(8.0))
-            .bg(rgba(glass::FIELD))
+            .bg(rgba(glass::field()))
             .border_1()
-            .border_color(rgba(0xffffff0f))
+            .border_color(rgba(glass::ink(0x0f)))
             .text_size(px(font::MONO_SIZE))
             .line_height(px(font::LINE_HEIGHT))
             .into_any_element()
@@ -475,7 +476,7 @@ fn render_hover(
                     .justify_between()
                     .gap(px(12.0))
                     .text_size(px(font::SMALL_SIZE))
-                    .text_color(rgb(color::FG_DIM))
+                    .text_color(rgb(color::fg_dim()))
                     .child(
                         div()
                             .min_w_0()
@@ -497,7 +498,7 @@ fn render_hover(
         .flex()
         .flex_col()
         .font_family(font::UI)
-        .text_color(rgb(color::FG_MAIN))
+        .text_color(rgb(color::fg_main()))
         .child(panel);
     placement.place(container, fits_below).into_any_element()
 }
@@ -551,7 +552,7 @@ fn render_list_popup(popup: &Popup, placement: &Placement, view: &PopupView) -> 
         .flex()
         .gap(px(PANEL_GAP))
         .font_family(font::UI)
-        .text_color(rgb(color::FG_MAIN))
+        .text_color(rgb(color::fg_main()))
         .children(children);
     placement.place(container, below).into_any_element()
 }
@@ -596,8 +597,12 @@ fn render_row(row: &Candidate, selected: bool) -> impl IntoElement {
         .px(px(ROW_PADDING))
         .rounded(px(6.0))
         .when(selected, |row| {
-            row.bg(rgba(glass::SELECTION))
-                .shadow(vec![shadow(0x00000073, 1.0, 3.0, 0.0)])
+            row.bg(rgba(glass::selection())).shadow(vec![shadow(
+                glass::shadow(0x73),
+                1.0,
+                3.0,
+                0.0,
+            )])
         })
         .font_family(font::mono())
         .child(match row.kind {
@@ -628,18 +633,18 @@ fn render_row(row: &Candidate, selected: bool) -> impl IntoElement {
 /// A letter on a tint of the color code of its kind takes, like `f` for a field.
 fn render_badge(kind: SymbolKind) -> impl IntoElement {
     let (letter, tint) = match kind {
-        SymbolKind::Function => ("λ", color::FUNCTION),
-        SymbolKind::Method => ("m", color::FUNCTION),
-        SymbolKind::Field => ("f", color::TYPE),
-        SymbolKind::Variable => ("v", color::STRING),
-        SymbolKind::Constant => ("c", color::CONSTANT),
-        SymbolKind::EnumMember => ("e", color::CONSTANT),
-        SymbolKind::Type => ("t", color::TYPE),
-        SymbolKind::Interface => ("i", color::TYPE),
-        SymbolKind::Module => ("n", color::KEYWORD),
-        SymbolKind::Keyword => ("k", color::KEYWORD),
-        SymbolKind::Snippet => ("s", color::BUILTIN),
-        SymbolKind::Text => ("w", color::FG_DIM),
+        SymbolKind::Function => ("λ", color::function()),
+        SymbolKind::Method => ("m", color::function()),
+        SymbolKind::Field => ("f", color::type_name()),
+        SymbolKind::Variable => ("v", color::string()),
+        SymbolKind::Constant => ("c", color::constant()),
+        SymbolKind::EnumMember => ("e", color::constant()),
+        SymbolKind::Type => ("t", color::type_name()),
+        SymbolKind::Interface => ("i", color::type_name()),
+        SymbolKind::Module => ("n", color::keyword()),
+        SymbolKind::Keyword => ("k", color::keyword()),
+        SymbolKind::Snippet => ("s", color::builtin()),
+        SymbolKind::Text => ("w", color::fg_dim()),
     };
     div()
         .flex()
@@ -684,7 +689,7 @@ fn render_documentation(
                 div()
                     .flex_none()
                     .text_size(px(font::SMALL_SIZE))
-                    .text_color(rgb(color::FG_DIM))
+                    .text_color(rgb(color::fg_dim()))
                     .child(title),
             )
         })
@@ -815,7 +820,7 @@ fn render_block(index: usize, block: &DocBlock, view: &PopupView) -> AnyElement 
                 .flex_none()
                 .text_size(px(font::UI_SIZE))
                 .line_height(px(BODY_LINE_HEIGHT))
-                .text_color(rgb(color::FG_BODY))
+                .text_color(rgb(color::fg_body()))
                 .child(StyledText::new(text).with_highlights(code))
                 .into_any_element()
         }
@@ -824,10 +829,10 @@ fn render_block(index: usize, block: &DocBlock, view: &PopupView) -> AnyElement 
             .px(px(CODE_BLOCK_PADDING_X))
             .py(px(6.0))
             .rounded(px(6.0))
-            .bg(rgba(glass::FIELD))
+            .bg(rgba(glass::field()))
             .text_size(px(font::STATUS_SIZE))
             .line_height(px(18.0))
-            .text_color(rgb(color::FG_ALT))
+            .text_color(rgb(color::fg_alt()))
             .into_any_element(),
     }
 }
@@ -835,8 +840,8 @@ fn render_block(index: usize, block: &DocBlock, view: &PopupView) -> AnyElement 
 /// The text without its backticks, and the ranges they quoted as code.
 fn code_spans(text: &str) -> (String, Vec<(std::ops::Range<usize>, HighlightStyle)>) {
     let style = HighlightStyle {
-        color: Some(hsla(color::FG_ALT)),
-        background_color: Some(rgba(0xffffff12).into()),
+        color: Some(hsla(color::fg_alt())),
+        background_color: Some(rgba(glass::ink(0x12)).into()),
         ..Default::default()
     };
     let mut plain = String::with_capacity(text.len());
@@ -858,9 +863,9 @@ fn render_hints(hints: &'static [(&'static str, &'static str)]) -> Div {
         .gap(px(14.0))
         .pt(px(8.0))
         .border_t_1()
-        .border_color(rgba(0xffffff0f))
+        .border_color(rgba(glass::ink(0x0f)))
         .text_size(px(font::STATUS_SIZE))
-        .text_color(rgb(color::FG_DIM))
+        .text_color(rgb(color::fg_dim()))
         .children(hints.iter().map(|&(keys, action)| {
             div()
                 .flex()

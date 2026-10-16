@@ -99,12 +99,12 @@ impl EventListener for Listener {
 }
 
 /// The color a program asking for one by index gets: the theme's, the text's for the
-/// foreground and black for the glass.
+/// foreground and the theme's background for the glass.
 fn palette(index: usize) -> Rgb {
     let rgb = match index {
-        0..16 => remacs_theme::color::ANSI[index],
-        256 | 258 => remacs_theme::color::FG_BODY,
-        _ => 0x000000,
+        0..16 => remacs_theme::color::ansi(index),
+        256 | 258 => remacs_theme::color::fg_body(),
+        _ => remacs_theme::color::bg_main(),
     };
     Rgb {
         r: (rgb >> 16) as u8,

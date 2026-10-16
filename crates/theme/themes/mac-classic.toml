@@ -1,0 +1,138 @@
+# Mac Classic, light: TextMate's theme by Chris Thomas (textmate/themes.tmbundle), on
+# light glass. The syntax colors, the selection and the line highlight are TextMate's.
+
+name = "Mac Classic"
+appearance = "light"
+# A light tint lets a dark desktop through as gray, which takes contrast from the text.
+opacity = 0.92
+
+# Terminal's Basic profile; white is darkened to stay readable on the light glass.
+ansi = [
+    "#000000", "#990000", "#00a600", "#999900", "#0000b2", "#b200b2", "#00a6b2", "#bfbfbf",
+    "#666666", "#e50000", "#00d900", "#b3b300", "#0000ff", "#e500e5", "#00b8c7", "#a6a6a6",
+]
+
+[colors]
+bg-main = "#ffffff"
+bg-popup = "#f2f2f2"
+bg-kbd-selected = "#b3d4ff"
+
+fg-main = "#000000"
+fg-body = "#1d1d1f"
+fg-kbd = "#3c3c43"
+fg-alt = "#0b4fb3"
+fg-dim = "#6e6e73"
+fg-faint = "#7c7c80"
+fg-placeholder = "#a1a1a6"
+fg-line-number = "#a6a6a6"
+fg-muted = "#b8b8bd"
+fg-directory = "#0040c0"
+
+accent = "#007aff"
+accent-on-selection = "#003d99"
+
+error = "#d01b1b"
+danger = "#c41a16"
+fg-flagged = "#b3261e"
+bg-danger = "#d93025"
+bg-danger-kbd = "#b3261e"
+fg-on-danger = "#ffffff"
+warning = "#b36b00"
+fg-on-warning = "#6b4100"
+info = "#007c80"
+fg-note-source = "#00676b"
+fg-note-code = "#004548"
+
+fg-added = "#1a7f37"
+fg-removed = "#cf222e"
+
+vc-added = "#1a7f37"
+vc-modified = "#0969da"
+vc-removed = "#cf222e"
+vc-added-on-selection = "#116329"
+vc-removed-on-selection = "#a40e26"
+
+fg-ref-head = "#0550ae"
+fg-ref-main = "#6639ba"
+fg-ref-branch = "#116329"
+fg-ref-remote = "#57606a"
+
+link = "#1c02ff"
+
+# keyword, storage
+keyword = "#0000ff"
+# support.class, support.type
+type-name = "#6d79de"
+# entity.name.function
+function = "#0000a2"
+# constant
+constant = "#c5060b"
+# constant.language
+builtin = "#585cf6"
+docstring = "#0066ff"
+string = "#036a07"
+comment = "#0066ff"
+
+[styles]
+keyword = ["bold"]
+type-name = []
+function = ["bold"]
+constant = ["bold"]
+builtin = ["bold"]
+docstring = ["italic"]
+string = []
+comment = ["italic"]
+
+[glass]
+line-highlight = "#00000012"
+region = "#4d97ff54"
+
+vc-added-mark = "#1a7f37b3"
+vc-modified-mark = "#0969dab3"
+vc-removed-mark = "#cf222ebf"
+
+surface = "#fafafad1"
+surface-border = "#0000001f"
+
+note = "#eaf7f7e0"
+note-border = "#007c8059"
+note-separator = "#007c8026"
+note-code = "#007c801a"
+
+scrim = "#00000014"
+
+modal = "#fbfbfbe6"
+modal-border = "#00000024"
+modal-scrim = "#00000033"
+
+pill = "#f5f5f5b3"
+pill-border = "#0000001a"
+
+pane = "#0000000a"
+pane-border = "#00000017"
+well = "#0000000d"
+well-border = "#00000012"
+card-border = "#00000024"
+card-footer = "#0000000a"
+divider = "#0000001a"
+key-on-control = "#0000001a"
+added = "#d8f3dcd9"
+removed = "#ffe1e0d9"
+
+field = "#ffffffcc"
+control = "#00000010"
+control-border = "#0000001a"
+chip = "#0000000f"
+selection = "#4d97ff47"
+segment = "#ffffffe6"
+disabled = "#00000008"
+
+# Lines, hovers and tints over the glass.
+[ink]
+color = "#000000"
+strength = 1.0
+
+# Light surfaces cast softer shadows.
+[shadow]
+color = "#000000"
+strength = 0.45

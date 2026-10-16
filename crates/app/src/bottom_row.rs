@@ -40,7 +40,6 @@ const PREFIX_ROW_HEIGHT: f32 = 26.0;
 /// Of the window, kept clear above the prefix's keys.
 const PREFIX_TOP_ROOM: f32 = 240.0;
 const MIN_PREFIX_ROWS: usize = 3;
-const DIVIDER: u32 = 0xffffff12;
 
 /// The view's keys and how many of them fit under it.
 #[derive(Clone, Copy)]
@@ -166,7 +165,7 @@ pub fn render_prefix_echo(pending: &[Key]) -> Div {
                     .w(px(7.0))
                     .h(px(14.0))
                     .rounded(px(1.0))
-                    .bg(rgba(color::FG_MAIN << 8 | 0xd9)),
+                    .bg(rgba(color::fg_main() << 8 | 0xd9)),
             ),
     )
 }
@@ -187,13 +186,13 @@ pub fn render_message_echo(
     let cut = message.text.contains('\n') || full_width + overhead > room;
     let whole_key = whole_key.filter(|_| cut);
     let border = match message.kind {
-        MessageKind::Error => rgba(color::ERROR << 8 | 0x66),
-        _ => rgba(glass::PILL_BORDER),
+        MessageKind::Error => rgba(color::error() << 8 | 0x66),
+        _ => rgba(glass::pill_border()),
     };
     pill()
         .min_w_0()
         .border_color(border)
-        .when(open, |pill| pill.bg(rgba(glass::SELECTION)))
+        .when(open, |pill| pill.bg(rgba(glass::selection())))
         .font_family(theme_font::UI)
         .cursor_pointer()
         .on_mouse_down(
@@ -217,7 +216,7 @@ pub fn render_message_echo(
                         .flex_1()
                         .min_w_0()
                         .truncate()
-                        .text_color(rgb(color::FG_BODY))
+                        .text_color(rgb(color::fg_body()))
                         .child(text),
                 ),
         )
@@ -263,11 +262,11 @@ pub fn render_hints(
             .px(px(ITEM_PADDING))
             .rounded(px(6.0))
             .bg(if listed {
-                rgba(glass::SELECTION)
+                rgba(glass::selection())
             } else {
-                rgba(glass::CONTROL)
+                rgba(glass::control())
             })
-            .text_color(rgb(color::FG_MAIN))
+            .text_color(rgb(color::fg_main()))
             .cursor_pointer()
             .on_mouse_down(
                 MouseButton::Left,
@@ -310,7 +309,7 @@ pub fn render_hints_list(fitted: &FittedHints, title: &str) -> Option<impl IntoE
         .gap(px(1.0))
         .font_family(theme_font::UI)
         .text_size(px(theme_font::STATUS_SIZE))
-        .text_color(rgb(color::FG_BODY))
+        .text_color(rgb(color::fg_body()))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(section_heading(title))
         .children(rows);
@@ -356,14 +355,14 @@ pub fn render_message_card(
             div()
                 .font_family(theme_font::mono())
                 .text_size(px(theme_font::STATUS_SIZE))
-                .text_color(rgb(color::FG_DIM))
+                .text_color(rgb(color::fg_dim()))
                 .child(command)
         }));
     let header = card_heading(title).child(
         div()
             .font_family(theme_font::mono())
             .text_size(px(theme_font::STATUS_SIZE))
-            .text_color(rgb(color::FG_PLACEHOLDER))
+            .text_color(rgb(color::fg_placeholder()))
             .child(message.clock()),
     );
     let body = div()
@@ -375,7 +374,7 @@ pub fn render_message_card(
         .font_family(theme_font::mono())
         .text_size(px(theme_font::STATUS_SIZE))
         .line_height(px(CARD_LINE_HEIGHT))
-        .text_color(rgb(color::FG_BODY))
+        .text_color(rgb(color::fg_body()))
         .child(message.text.clone());
     let key = |keys: &str, label: &'static str| {
         div()
@@ -393,9 +392,9 @@ pub fn render_message_card(
         .h(px(36.0))
         .px(px(14.0))
         .border_t_1()
-        .border_color(rgba(DIVIDER))
+        .border_color(rgba(glass::ink(0x12)))
         .text_size(px(theme_font::STATUS_SIZE))
-        .text_color(rgb(color::FG_DIM))
+        .text_color(rgb(color::fg_dim()))
         .children(keys.all_messages.map(|keys| key(keys, "All messages")))
         .child(key(keys.copy, "Copy"))
         .child(key(keys.close, "Close"));
@@ -436,12 +435,12 @@ pub fn render_prefix_keys(
         .take(if more > 0 { capacity - 1 } else { capacity })
         .map(|&(key, binding)| {
             let label = match binding {
-                Binding::Command(command) => div().text_color(rgb(color::FG_BODY)).child(command),
+                Binding::Command(command) => div().text_color(rgb(color::fg_body())).child(command),
                 _ => {
                     let mut sequence = pending.to_vec();
                     sequence.push(key);
                     div()
-                        .text_color(rgb(color::FG_DIRECTORY))
+                        .text_color(rgb(color::fg_directory()))
                         .child(format!("{} …", describe_sequence(&sequence)))
                 }
             };
@@ -469,7 +468,7 @@ pub fn render_prefix_keys(
                 .items_center()
                 .h(px(PREFIX_ROW_HEIGHT))
                 .px(px(ITEM_PADDING))
-                .text_color(rgb(color::FG_DIM))
+                .text_color(rgb(color::fg_dim()))
                 .child(format!("and {} more", more + 1))
                 .into_any_element(),
         );
@@ -499,7 +498,7 @@ pub fn render_prefix_keys(
     let header = card_heading(title).child(
         div()
             .text_size(px(theme_font::STATUS_SIZE))
-            .text_color(rgb(color::FG_PLACEHOLDER))
+            .text_color(rgb(color::fg_placeholder()))
             .child(format!("{count} keys")),
     );
     let footer = div()
@@ -509,9 +508,9 @@ pub fn render_prefix_keys(
         .h(px(34.0))
         .px(px(16.0))
         .border_t_1()
-        .border_color(rgba(DIVIDER))
+        .border_color(rgba(glass::ink(0x12)))
         .text_size(px(theme_font::STATUS_SIZE))
-        .text_color(rgb(color::FG_DIM))
+        .text_color(rgb(color::fg_dim()))
         .children(key_caps(cancel_key))
         .child("Cancel");
     glass_surface(glass::HINT_RADIUS)
@@ -532,8 +531,8 @@ pub fn render_prefix_keys(
 fn kind_mark(kind: MessageKind) -> Option<Div> {
     let mark_color = match kind {
         MessageKind::Info => return None,
-        MessageKind::Done => color::VC_ADDED,
-        MessageKind::Error => color::ERROR,
+        MessageKind::Done => color::vc_added(),
+        MessageKind::Error => color::error(),
     };
     Some(
         div()
@@ -553,9 +552,9 @@ fn card_heading(title: Div) -> Div {
         .h(px(40.0))
         .px(px(14.0))
         .border_b_1()
-        .border_color(rgba(DIVIDER))
+        .border_color(rgba(glass::ink(0x12)))
         .text_size(px(theme_font::UI_SIZE))
-        .text_color(rgb(color::FG_MAIN))
+        .text_color(rgb(color::fg_main()))
         .child(title)
 }
 
@@ -566,7 +565,7 @@ fn section_heading(title: &str) -> Div {
         .h(px(24.0))
         .px(px(ITEM_PADDING))
         .text_size(px(theme_font::SMALL_SIZE))
-        .text_color(rgb(color::FG_PLACEHOLDER))
+        .text_color(rgb(color::fg_placeholder()))
         .child(title.to_uppercase())
 }
 

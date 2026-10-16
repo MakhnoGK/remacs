@@ -50,7 +50,7 @@ pub fn render_dialog(dialog: Dialog, cx: &mut Context<EditorView>) -> Div {
                     div()
                         .text_size(px(font::STATUS_SIZE))
                         .line_height(px(17.0))
-                        .text_color(rgb(color::FG_DIM))
+                        .text_color(rgb(color::fg_dim()))
                         .child(explanation),
                 ),
         );
@@ -70,7 +70,7 @@ pub fn render_dialog(dialog: Dialog, cx: &mut Context<EditorView>) -> Div {
         .px(px(6.0))
         .pb(px(4.0))
         .border_t_1()
-        .border_color(rgba(0xffffff0f))
+        .border_color(rgba(glass::ink(0x0f)))
         .child(render_button(no_label.into(), "n", false, cx))
         .child(render_button(yes_label, "y", destructive, cx));
     modal(DIALOG_WIDTH)
@@ -88,12 +88,12 @@ fn warning_icon() -> Div {
         .justify_center()
         .size(px(34.0))
         .rounded(px(9.0))
-        .bg(rgba(color::ERROR << 8 | 0x24))
+        .bg(rgba(color::error() << 8 | 0x24))
         .child(
             svg()
                 .path(TRASH_ICON)
                 .size(px(16.0))
-                .text_color(rgb(color::DANGER)),
+                .text_color(rgb(color::danger())),
         )
 }
 
@@ -122,8 +122,8 @@ fn render_button(
     let yes = key == "y";
     let key_cap = kbd(key, false).when(destructive, |key_cap| {
         key_cap
-            .bg(rgb(color::BG_DANGER_KBD))
-            .text_color(rgb(color::FG_ON_DANGER))
+            .bg(rgb(color::bg_danger_kbd()))
+            .text_color(rgb(color::fg_on_danger()))
     });
     div()
         .flex()
@@ -134,14 +134,14 @@ fn render_button(
         .pr(px(8.0))
         .rounded(px(8.0))
         .border_1()
-        .border_color(rgba(0xffffff14))
-        .bg(rgba(glass::CONTROL))
-        .shadow(vec![shadow(0x00000080, 1.0, 2.0, 0.0)])
+        .border_color(rgba(glass::ink(0x14)))
+        .bg(rgba(glass::control()))
+        .shadow(vec![shadow(glass::shadow(0x80), 1.0, 2.0, 0.0)])
         .text_size(px(font::UI_SIZE))
         .when(destructive, |button| {
             button
-                .bg(rgb(color::BG_DANGER))
-                .border_color(rgba(color::ERROR << 8 | 0x66))
+                .bg(rgb(color::bg_danger()))
+                .border_color(rgba(color::error() << 8 | 0x66))
         })
         .on_mouse_down(
             MouseButton::Left,

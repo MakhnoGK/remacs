@@ -130,7 +130,7 @@ fn render_bar(
                 .path(CHEVRON_ICON)
                 .flex_none()
                 .size(px(10.0))
-                .text_color(rgb(color::FG_MUTED))
+                .text_color(rgb(color::fg_muted()))
                 .into_any_element()
         });
         [Some(render_crumb(crumb, cx)), chevron]
@@ -164,7 +164,7 @@ fn render_bar(
                 div()
                     .font_family(font::UI)
                     .text_size(px(font::STATUS_SIZE))
-                    .text_color(rgb(color::FG_FAINT))
+                    .text_color(rgb(color::fg_faint()))
                     .child("Sort"),
             )
             .child(segmented().children(options))
@@ -176,8 +176,8 @@ fn render_bar(
 fn render_notice(notice: Notice) -> Div {
     let notice_kbd = |key| {
         kbd(key, false)
-            .bg(rgba(0x00000059))
-            .text_color(rgb(color::FG_ON_WARNING))
+            .bg(rgba(glass::field()))
+            .text_color(rgb(color::fg_on_warning()))
     };
     div()
         .flex()
@@ -188,12 +188,12 @@ fn render_notice(notice: Notice) -> Div {
         .pl(px(10.0))
         .pr(px(6.0))
         .rounded(px(8.0))
-        .bg(rgba(color::WARNING << 8 | 0x1a))
+        .bg(rgba(color::warning() << 8 | 0x1a))
         .border_1()
-        .border_color(rgba(color::WARNING << 8 | 0x4d))
+        .border_color(rgba(color::warning() << 8 | 0x4d))
         .font_family(font::UI)
         .text_size(px(font::STATUS_SIZE))
-        .text_color(rgb(color::FG_ON_WARNING))
+        .text_color(rgb(color::fg_on_warning()))
         .child(modified_dot())
         .child(notice.label)
         .children(notice.keys.iter().map(|&(keys, label)| {
@@ -217,13 +217,13 @@ fn render_crumb(crumb: Button, cx: &mut Context<EditorView>) -> AnyElement {
         .border_1()
         .border_color(rgba(0x00000000))
         .text_size(px(font::MONO_SIZE))
-        .text_color(rgb(color::FG_DIM))
+        .text_color(rgb(color::fg_dim()))
         .when(crumb.selected, |crumb| {
             crumb
-                .bg(rgba(glass::CONTROL))
-                .border_color(rgba(glass::CONTROL_BORDER))
-                .text_color(rgb(color::FG_MAIN))
-                .shadow(vec![shadow(0x00000099, 1.0, 2.0, 0.0)])
+                .bg(rgba(glass::control()))
+                .border_color(rgba(glass::control_border()))
+                .text_color(rgb(color::fg_main()))
+                .shadow(vec![shadow(glass::shadow(0x99), 1.0, 2.0, 0.0)])
         })
         // On a long path the outer directories give way, so the sort controls stay.
         .map(|element| {
@@ -261,7 +261,7 @@ fn render_header(columns: &[Column]) -> Div {
         .font_family(font::UI)
         .font_weight(FontWeight::SEMIBOLD)
         .text_size(px(font::SMALL_SIZE))
-        .text_color(rgb(color::FG_FAINT))
+        .text_color(rgb(color::fg_faint()))
         .child(div().flex_none().w(px(MARK_WIDTH)))
         .child(div().flex_none().w(px(ICON_WIDTH)))
         .children(
@@ -291,34 +291,34 @@ fn render_row(
     let highlighted = selected && row.field.is_none();
     let flagged = row.mark == Some(Mark::Flagged);
     let primary_color = match row.face {
-        _ if flagged => color::FG_FLAGGED,
-        RowFace::Normal => color::FG_MAIN,
-        RowFace::Directory => color::FG_DIRECTORY,
-        RowFace::Dim => color::FG_FAINT,
+        _ if flagged => color::fg_flagged(),
+        RowFace::Normal => color::fg_main(),
+        RowFace::Directory => color::fg_directory(),
+        RowFace::Dim => color::fg_faint(),
     };
     let mark_tint = row.mark.map(|mark| match mark {
-        Mark::Marked => color::ACCENT,
-        Mark::Flagged => color::ERROR,
+        Mark::Marked => color::accent(),
+        Mark::Flagged => color::error(),
     });
     let icon_color = match (selected, row.face) {
-        (true, _) => color::FG_ALT,
-        (false, RowFace::Directory) => color::FG_DIRECTORY,
-        (false, _) => color::FG_FAINT,
+        (true, _) => color::fg_alt(),
+        (false, RowFace::Directory) => color::fg_directory(),
+        (false, _) => color::fg_faint(),
     };
     let mut field = row.field;
     let state = row.state;
     let cells = row.cells.into_iter().zip(columns).map(|(text, column)| {
         let (family, size, text_color) = match column.style {
             CellStyle::Primary => (font::mono(), font::MONO_SIZE, primary_color),
-            CellStyle::Figure => (font::mono(), font::STATUS_SIZE, color::FG_DIM),
-            CellStyle::Label => (font::UI.into(), font::STATUS_SIZE, color::FG_FAINT),
-            CellStyle::Faint => (font::mono(), font::STATUS_SIZE, color::FG_LINE_NUMBER),
+            CellStyle::Figure => (font::mono(), font::STATUS_SIZE, color::fg_dim()),
+            CellStyle::Label => (font::UI.into(), font::STATUS_SIZE, color::fg_faint()),
+            CellStyle::Faint => (font::mono(), font::STATUS_SIZE, color::fg_line_number()),
             CellStyle::State => {
                 return state_letter(state, highlighted).w(px(column.width.unwrap_or_default()));
             }
         };
         let text_color = if highlighted && column.style != CellStyle::Primary {
-            color::FG_ALT
+            color::fg_alt()
         } else {
             text_color
         };
@@ -351,8 +351,12 @@ fn render_row(
             row.bg(rgba(tint << 8 | 0x14))
         })
         .when(highlighted, |row| {
-            row.bg(rgba(glass::SELECTION))
-                .shadow(vec![shadow(0x00000073, 1.0, 3.0, 0.0)])
+            row.bg(rgba(glass::selection())).shadow(vec![shadow(
+                glass::shadow(0x73),
+                1.0,
+                3.0,
+                0.0,
+            )])
         })
         .on_mouse_down(
             MouseButton::Left,
@@ -412,20 +416,20 @@ fn render_field(
         .whitespace_nowrap()
         .rounded(px(6.0))
         .border_1()
-        .border_color(rgba(0xffffff14))
-        .bg(rgba(glass::FIELD))
+        .border_color(rgba(glass::ink(0x14)))
+        .bg(rgba(glass::field()))
         .font_family(font::mono())
         .text_size(px(font::MONO_SIZE))
         .text_color(rgb(text_color))
         .when(edited, |input| {
             input
-                .border_color(rgba(color::WARNING << 8 | 0x80))
-                .bg(rgba(color::WARNING << 8 | 0x14))
+                .border_color(rgba(color::warning() << 8 | 0x80))
+                .bg(rgba(color::warning() << 8 | 0x14))
         })
         .when(at_point.is_some(), |input| {
             input
-                .border_color(rgba(color::ACCENT << 8 | 0xbf))
-                .shadow(vec![shadow(color::ACCENT << 8 | 0x33, 0.0, 0.0, 3.0)])
+                .border_color(rgba(color::accent() << 8 | 0xbf))
+                .shadow(vec![shadow(color::accent() << 8 | 0x33, 0.0, 0.0, 3.0)])
         })
         .child(content);
     div()
@@ -440,7 +444,7 @@ fn render_field(
                 .flex_none()
                 .font_family(font::UI)
                 .text_size(px(font::STATUS_SIZE))
-                .text_color(rgb(color::FG_FAINT))
+                .text_color(rgb(color::fg_faint()))
                 .child(format!("was {original}"))
         }))
 }

@@ -1,5 +1,7 @@
 //! Built-in plugin: the application and its window, like Emacs frames, and their menus.
 
+mod theme;
+
 use remacs_config::{config_dir, home};
 use remacs_core::{
     APP_MENU, Command, CommandResult, Editor, FrameRequest, Menu, MenuItem, Plugin, Registry,
@@ -11,6 +13,7 @@ pub struct FramePlugin;
 
 const ABOUT: &str = "about-remacs";
 const OPEN_SETTINGS: &str = "open-settings";
+const SELECT_THEME: &str = "select-theme";
 const HIDE: &str = "hide-remacs";
 const HIDE_OTHERS: &str = "hide-others";
 const SHOW_ALL: &str = "show-all";
@@ -28,6 +31,7 @@ const VIEW_MENU: &str = "View";
 const COMMANDS: &[Command] = &[
     Command::new(ABOUT, "Show the version of remacs", |editor| request(editor, FrameRequest::About)),
     Command::new(OPEN_SETTINGS, "List the settings files", open_settings),
+    Command::new(SELECT_THEME, "Choose the theme, kept in ui.toml", theme::select_theme),
     Command::new(HIDE, "Hide remacs", |editor| request(editor, FrameRequest::Hide)),
     Command::new(HIDE_OTHERS, "Hide the other applications", |editor| request(editor, FrameRequest::HideOthers)),
     Command::new(SHOW_ALL, "Show the hidden applications", |editor| request(editor, FrameRequest::ShowAll)),
@@ -57,7 +61,7 @@ const MENUS: &[Menu] = &[
     Menu { title: APP_MENU, groups: &["about", "settings", "hide", "quit"], trailing: false },
     Menu { title: "File", groups: &["open", "save", "close"], trailing: false },
     Menu { title: "Edit", groups: &["undo", "clipboard", "selection", "find", "code"], trailing: false },
-    Menu { title: VIEW_MENU, groups: &["commands", "panels", "text-size"], trailing: false },
+    Menu { title: VIEW_MENU, groups: &["commands", "panels", "text-size", "theme"], trailing: false },
     Menu { title: "Go", groups: &["buffer", "definitions", "problems"], trailing: false },
     Menu { title: "Git", groups: &["status", "history", "changes", "branches", "sync"], trailing: false },
     Menu { title: "Run", groups: &["run", "compile", "debug", "step", "breakpoints"], trailing: false },
@@ -79,6 +83,7 @@ const MENU_ITEMS: &[MenuItem] = &[
     MenuItem::new(VIEW_MENU, "text-size", "Zoom In", TEXT_LARGER),
     MenuItem::new(VIEW_MENU, "text-size", "Zoom Out", TEXT_SMALLER),
     MenuItem::new(VIEW_MENU, "text-size", "Actual Size", TEXT_CONFIGURED),
+    MenuItem::new(VIEW_MENU, "theme", "Theme…", SELECT_THEME),
 ];
 
 impl Plugin for FramePlugin {

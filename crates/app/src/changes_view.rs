@@ -35,13 +35,13 @@ pub fn render_changes(changes: Changes, cx: &mut Context<EditorView>) -> Div {
                 .flex_1()
                 .text_size(px(font::UI_SIZE))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(rgb(color::FG_MAIN))
+                .text_color(rgb(color::fg_main()))
                 .child("Pending changes"),
         )
         .child(
             div()
                 .text_size(px(font::STATUS_SIZE))
-                .text_color(rgb(color::FG_FAINT))
+                .text_color(rgb(color::fg_faint()))
                 .child(summary),
         );
     let edits = div().flex().flex_col().gap(px(4.0)).children(
@@ -89,15 +89,15 @@ fn render_edit(before: String, after: String) -> Div {
         .h(px(EDIT_HEIGHT))
         .px(px(10.0))
         .rounded(px(8.0))
-        .bg(rgba(glass::PANE))
+        .bg(rgba(glass::pane()))
         .font_family(font::mono())
         .text_size(px(font::STATUS_SIZE))
-        .text_color(rgb(color::FG_MAIN))
+        .text_color(rgb(color::fg_main()))
         .child(
             div()
                 .min_w_0()
                 .truncate()
-                .text_color(rgb(color::FG_DIM))
+                .text_color(rgb(color::fg_dim()))
                 .child(before),
         )
         .child(
@@ -105,7 +105,7 @@ fn render_edit(before: String, after: String) -> Div {
                 .path(ARROW_ICON)
                 .flex_none()
                 .size(px(12.0))
-                .text_color(rgb(color::FG_FAINT)),
+                .text_color(rgb(color::fg_faint())),
         )
         .child(div().min_w_0().truncate().child(after))
 }
@@ -119,7 +119,7 @@ fn render_elsewhere(elsewhere: Elsewhere) -> Vec<Div> {
             div()
                 .px(px(10.0))
                 .font_family(font::UI)
-                .text_color(rgb(color::FG_FAINT))
+                .text_color(rgb(color::fg_faint()))
                 .child("Checking other files…"),
         ],
         Elsewhere::Files(files) => files.into_iter().flat_map(render_file_diff).collect(),
@@ -131,37 +131,37 @@ fn render_elsewhere(elsewhere: Elsewhere) -> Vec<Div> {
         .font_family(font::UI)
         .font_weight(FontWeight::SEMIBOLD)
         .text_size(px(font::SMALL_SIZE))
-        .text_color(rgb(color::FG_FAINT))
+        .text_color(rgb(color::fg_faint()))
         .child("ALSO UPDATES");
     let code = div()
         .flex()
         .flex_col()
         .py(px(6.0))
         .rounded(px(8.0))
-        .bg(rgba(glass::WELL))
+        .bg(rgba(glass::well()))
         .border_1()
-        .border_color(rgba(0xffffff0f))
+        .border_color(rgba(glass::ink(0x0f)))
         .overflow_hidden()
         .whitespace_nowrap()
         .font_family(font::mono())
         .text_size(px(font::STATUS_SIZE))
         .line_height(px(DIFF_LINE_HEIGHT))
-        .text_color(rgb(color::FG_KBD))
+        .text_color(rgb(color::fg_kbd()))
         .children(lines);
     vec![title, code]
 }
 
 fn render_file_diff(file: FileDiff) -> Vec<Div> {
     let header = diff_line("", file.name)
-        .text_color(rgb(color::DOCSTRING))
-        .bg(rgba(0xffffff0a));
+        .text_color(rgb(color::docstring()))
+        .bg(rgba(glass::ink(0x0a)));
     let lines = file.lines.into_iter().map(|line| match line {
         DiffLine::Removed(text) => diff_line("-", text)
-            .bg(rgba(glass::REMOVED))
-            .text_color(rgb(color::FG_REMOVED)),
+            .bg(rgba(glass::removed()))
+            .text_color(rgb(color::fg_removed())),
         DiffLine::Added(text) => diff_line("+", text)
-            .bg(rgba(glass::ADDED))
-            .text_color(rgb(color::FG_ADDED)),
+            .bg(rgba(glass::added()))
+            .text_color(rgb(color::fg_added())),
     });
     std::iter::once(header).chain(lines).collect()
 }

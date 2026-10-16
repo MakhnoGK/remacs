@@ -1,4 +1,5 @@
 use std::ops::RangeInclusive;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -8,10 +9,10 @@ use gpui::{
     App, FontWeight, SharedString, TextStrokes, WeakEntity, WindowBackgroundAppearance,
     set_family_weight, set_text_strokes,
 };
-use remacs_config::{Section, Settings, SettingsError, config_dir, home, watch};
+use remacs_config::{Section, Settings, SettingsError, config_dir, home, themes_dir, watch};
 use remacs_core::Editor;
 use remacs_theme::font::{self, CodeFont};
-use remacs_theme::{cursor, glass};
+use remacs_theme::{DEFAULT, Theme, cursor, glass};
 use serde::Deserialize;
 
 use crate::editor_view::EditorView;
@@ -67,15 +68,20 @@ pub struct ReadSettings {
 /// Reads the settings and applies the process-wide part of `ui`; the view and the
 /// plugins apply the rest.
 pub fn read_settings() -> ReadSettings {
-    let (settings, mut errors) = home()
-        .map(|home| Settings::load(&config_dir(&home)))
+    let home = home();
+    let (settings, mut errors) = home
+        .as_deref()
+        .map(|home| Settings::load(&config_dir(home)))
         .unwrap_or_default();
-    let ui = settings
+    let mut ui = settings
         .section::<UiSettings>()
         .unwrap_or_else(|(error, defaults)| {
             errors.push(error);
             defaults
         });
+    let theme = read_theme(&ui.theme.name, home.as_deref(), &mut errors);
+    remacs_theme::install(&theme);
+    glass::set_window_opacity(*ui.glass.opacity.get_or_insert(theme.opacity));
     let code_font = ui.font.code_font();
     set_family_weight(Some((
         SharedString::from(Arc::clone(&code_font.family)),
@@ -83,7 +89,6 @@ pub fn read_settings() -> ReadSettings {
     )));
     font::set_code(code_font);
     set_text_strokes(ui.font.strokes.into());
-    glass::set_window_opacity(ui.glass.opacity);
     glass::set_blurs(ui.glass.blur > 0);
     cursor::set_radius(ui.cursor.radius);
     ReadSettings {
@@ -91,6 +96,23 @@ pub fn read_settings() -> ReadSettings {
         ui,
         errors,
     }
+}
+
+/// The theme `ui.toml` names, else the default one, the error reported.
+fn read_theme(name: &str, home: Option<&Path>, errors: &mut Vec<SettingsError>) -> Theme {
+    let dir = home.map(themes_dir);
+    Theme::load(name, dir.as_deref()).unwrap_or_else(|error| {
+        let ui_file = || {
+            let config = home.map(config_dir).unwrap_or_default();
+            config.join(format!("{}.toml", UiSettings::NAME))
+        };
+        errors.push(SettingsError {
+            file: error.file.unwrap_or_else(ui_file),
+            line: error.line,
+            message: error.message,
+        });
+        Theme::built_in(DEFAULT)
+    })
 }
 
 /// Shows the first error; all go to stderr.
@@ -103,23 +125,31 @@ pub fn report(errors: &[SettingsError], editor: &mut Editor) {
     }
 }
 
-/// Applies the settings again whenever their files change, for as long as `view` lives.
+/// Applies the settings again whenever their files or the themes change, for as long as
+/// `view` lives.
 pub fn watch_settings(view: WeakEntity<EditorView>, cx: &mut App) {
     let Some(home) = home() else {
         return;
     };
     let (changed, mut changes) = mpsc::unbounded();
-    let watcher = match watch(&config_dir(&home), move || {
-        let _ = changed.unbounded_send(());
-    }) {
-        Ok(watcher) => watcher,
+    let watchers = [config_dir(&home), themes_dir(&home)]
+        .iter()
+        .map(|dir| {
+            let changed = changed.clone();
+            watch(dir, move || {
+                let _ = changed.unbounded_send(());
+            })
+        })
+        .collect::<Result<Vec<_>, _>>();
+    let watchers = match watchers {
+        Ok(watchers) => watchers,
         Err(error) => {
             eprintln!("remacs: settings are not watched: {error}");
             return;
         }
     };
     cx.spawn(async move |cx| {
-        let _watcher = watcher;
+        let _watchers = watchers;
         while changes.next().await.is_some() {
             cx.background_executor().timer(SETTLE_TIME).await;
             while changes.try_recv().is_ok() {}
@@ -139,6 +169,7 @@ pub fn watch_settings(view: WeakEntity<EditorView>, cx: &mut App) {
 #[derive(Debug, Default, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct UiSettings {
+    pub theme: ThemeSettings,
     pub font: FontSettings,
     pub zoom: ZoomSettings,
     pub cursor: CursorSettings,
@@ -168,6 +199,9 @@ impl Section for UiSettings {
     const NAME: &str = "ui";
 
     fn check(&self) -> Result<(), String> {
+        if self.theme.name.trim().is_empty() {
+            return Err("theme.name is empty".to_owned());
+        }
         let font = &self.font;
         if font.family.trim().is_empty() {
             return Err("font.family is empty".to_owned());
@@ -223,13 +257,8 @@ impl Section for UiSettings {
             &SCROLL_LINES_PER_NOTCH,
         )?;
         let glass = &self.glass;
-        if !GLASS_OPACITIES.contains(&glass.opacity) {
-            return Err(format!(
-                "glass.opacity {} is outside {}..={}",
-                glass.opacity,
-                GLASS_OPACITIES.start(),
-                GLASS_OPACITIES.end()
-            ));
+        if let Some(opacity) = glass.opacity {
+            check_range("glass.opacity", opacity, &GLASS_OPACITIES)?;
         }
         if !GLASS_BLURS.contains(&glass.blur) {
             return Err(format!(
@@ -305,6 +334,22 @@ fn check_range<T: PartialOrd + std::fmt::Display>(
         range.start(),
         range.end()
     ))
+}
+
+/// The look of the whole interface.
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct ThemeSettings {
+    /// A built-in theme, or a file `<name>.toml` in the themes directory.
+    pub name: String,
+}
+
+impl Default for ThemeSettings {
+    fn default() -> Self {
+        Self {
+            name: DEFAULT.to_owned(),
+        }
+    }
 }
 
 /// The font of code.
@@ -514,8 +559,9 @@ impl Default for MouseSettings {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct GlassSettings {
-    /// Of the window's tint: 0.0 shows the desktop as it is, 1.0 hides it.
-    pub opacity: f32,
+    /// Of the window's tint: 0.0 shows the desktop as it is, 1.0 hides it. Left out, the
+    /// theme's, filled in once the theme is read.
+    pub opacity: Option<f32>,
     /// Pixels the desktop behind the window is blurred by; 0 leaves it sharp and the
     /// surfaces over the editor unblurred.
     pub blur: u32,
@@ -525,7 +571,7 @@ impl GlassSettings {
     /// Opaque when the tint hides the desktop, so the window server neither blends nor
     /// blurs what is behind the window.
     pub fn window_background(&self) -> WindowBackgroundAppearance {
-        if self.opacity >= *GLASS_OPACITIES.end() {
+        if self.opacity.unwrap_or(*GLASS_OPACITIES.end()) >= *GLASS_OPACITIES.end() {
             WindowBackgroundAppearance::Opaque
         } else {
             WindowBackgroundAppearance::Transparent
@@ -544,7 +590,7 @@ impl GlassSettings {
 impl Default for GlassSettings {
     fn default() -> Self {
         Self {
-            opacity: 0.8,
+            opacity: None,
             blur: 60,
         }
     }
@@ -755,7 +801,8 @@ mod tests {
     #[test]
     fn reads_every_setting() {
         let settings = parse(
-            "[font]\nfamily = \"Menlo\"\nsize = 15\nline-height = 1.5\nweight = \"light\"\n\
+            "[theme]\nname = \"mac-classic\"\n\
+             [font]\nfamily = \"Menlo\"\nsize = 15\nline-height = 1.5\nweight = \"light\"\n\
              strokes = \"thin\"\n\
              ligatures = false\n\
              [zoom]\nstep = 2\nmin-size = 10\nmax-size = 24\nwheel-step = 50\n\
@@ -818,10 +865,11 @@ mod tests {
         assert_eq!(
             settings.glass,
             GlassSettings {
-                opacity: 0.5,
+                opacity: Some(0.5),
                 blur: 0
             }
         );
+        assert_eq!(settings.theme.name, "mac-classic");
         assert_eq!(settings.mouse.drag_scroll_interval, 60);
         assert_eq!(settings.scroll.animation_duration, 0);
         assert_eq!(settings.scroll.lines_per_notch, 5);
@@ -851,7 +899,10 @@ mod tests {
 
     #[test]
     fn an_opaque_tint_makes_the_window_opaque_and_unblurred() {
-        let glass = |opacity| GlassSettings { opacity, blur: 30 };
+        let glass = |opacity| GlassSettings {
+            opacity: Some(opacity),
+            blur: 30,
+        };
         assert_eq!(
             glass(1.0).window_background(),
             WindowBackgroundAppearance::Opaque
@@ -889,6 +940,7 @@ mod tests {
         assert!(parse("[scroll]\nlines-per-notch = 0\n").is_err());
         assert!(parse("[glass]\nopacity = 1.5\n").is_err());
         assert!(parse("[glass]\nblur = 65\n").is_err());
+        assert!(parse("[theme]\nname = \" \"\n").is_err());
         assert!(parse("[echo]\nlines = 1\n").is_err());
         assert!(parse("[echo]\nhide-after = 60001\n").is_err());
         assert!(parse("[prompts]\ninput-margin = -1\n").is_err());

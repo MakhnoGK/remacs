@@ -4157,6 +4157,8 @@ dependencies = [
  "remacs-config",
  "remacs-core",
  "remacs-dired",
+ "remacs-theme",
+ "serde",
 ]
 
 [[package]]
@@ -4361,6 +4363,10 @@ dependencies = [
 [[package]]
 name = "remacs-theme"
 version = "0.1.0"
+dependencies = [
+ "serde",
+ "toml 1.1.6+spec-1.1.0",
+]
 
 [[package]]
 name = "remacs-tools"

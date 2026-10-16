@@ -1,0 +1,131 @@
+# Modus Vivendi, dark, on dark glass.
+
+name = "Modus Vivendi"
+appearance = "dark"
+opacity = 0.8
+
+# The colors programs name with ANSI escape codes, normal then bright; black is lifted to
+# stay readable on the dark glass.
+ansi = [
+    "#595959", "#ff5f59", "#44bc44", "#fec43f", "#2fafff", "#feacd0", "#00d3d0", "#dcdcdc",
+    "#7f7f7f", "#ff7f86", "#44df44", "#ffe08a", "#79a8ff", "#f78fe7", "#6ae4b9", "#ffffff",
+]
+
+[colors]
+bg-main = "#000000"
+bg-popup = "#1e1e1e"
+bg-kbd-selected = "#3a5296"
+
+fg-main = "#ffffff"
+fg-body = "#dcdcdc"
+fg-kbd = "#c8c8c8"
+fg-alt = "#c6daff"
+fg-dim = "#989898"
+fg-faint = "#8a8a8a"
+fg-placeholder = "#7a7a7a"
+fg-line-number = "#6b6b6b"
+fg-muted = "#5a5a5a"
+fg-directory = "#79a8ff"
+
+accent = "#2fafff"
+accent-on-selection = "#9cd7ff"
+
+error = "#ff5f59"
+danger = "#ff7f86"
+fg-flagged = "#ff9a95"
+bg-danger = "#9d1f1f"
+bg-danger-kbd = "#7a1616"
+fg-on-danger = "#ffdede"
+warning = "#fec43f"
+fg-on-warning = "#ffe08a"
+info = "#00d3d0"
+fg-note-source = "#7fd8d6"
+fg-note-code = "#c8f5f4"
+
+fg-added = "#a0e0a0"
+fg-removed = "#ffbfbf"
+
+vc-added = "#44bc44"
+vc-modified = "#79a8ff"
+vc-removed = "#ff7f86"
+vc-added-on-selection = "#9cf09c"
+vc-removed-on-selection = "#ffb8bc"
+
+fg-ref-head = "#bfe6ff"
+fg-ref-main = "#d6ccff"
+fg-ref-branch = "#b2f2da"
+fg-ref-remote = "#a8a8a8"
+
+link = "#79a8ff"
+
+keyword = "#b6a0ff"
+type-name = "#6ae4b9"
+function = "#feacd0"
+constant = "#00bcff"
+builtin = "#f78fe7"
+docstring = "#9ac8e0"
+string = "#79a8ff"
+comment = "#989898"
+
+[styles]
+keyword = []
+type-name = []
+function = []
+constant = []
+builtin = []
+docstring = []
+string = []
+comment = []
+
+[glass]
+line-highlight = "#1d2433"
+region = "#2f447f"
+
+vc-added-mark = "#44bc44b3"
+vc-modified-mark = "#79a8ffb3"
+vc-removed-mark = "#ff5f59bf"
+
+surface = "#1c1c1eb8"
+surface-border = "#ffffff1f"
+
+note = "#0b2324c7"
+note-border = "#00d3d073"
+note-separator = "#00d3d02e"
+note-code = "#00d3d024"
+
+scrim = "#00000040"
+
+modal = "#1e1e20cc"
+modal-border = "#ffffff24"
+modal-scrim = "#00000059"
+
+pill = "#1e1e1e8c"
+pill-border = "#ffffff1a"
+
+pane = "#ffffff0a"
+pane-border = "#ffffff17"
+well = "#00000066"
+well-border = "#ffffff12"
+card-border = "#ffffff24"
+card-footer = "#ffffff0a"
+divider = "#ffffff1a"
+key-on-control = "#0000004d"
+added = "#00381fd9"
+removed = "#4f1119d9"
+
+field = "#00000059"
+control = "#ffffff14"
+control-border = "#ffffff1a"
+chip = "#ffffff1a"
+selection = "#2f447fe6"
+segment = "#ffffff1f"
+disabled = "#ffffff0a"
+
+# Lines, hovers and tints over the glass.
+[ink]
+color = "#ffffff"
+strength = 1.0
+
+[shadow]
+color = "#000000"
+strength = 1.0

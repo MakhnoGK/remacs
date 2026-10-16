@@ -54,10 +54,10 @@ pub fn render_scrim(modal: bool) -> impl IntoElement {
     let scrim = div().absolute().inset_0();
     if modal {
         scrim
-            .bg(rgba(glass::MODAL_SCRIM))
+            .bg(rgba(glass::modal_scrim()))
             .glass_blur(glass::MODAL_SCRIM_BLUR, 1.0)
     } else {
-        scrim.bg(rgba(glass::SCRIM))
+        scrim.bg(rgba(glass::scrim()))
     }
 }
 
@@ -81,13 +81,15 @@ fn panel_on(surface: Div, width: f32) -> Div {
         .w(px(width))
         .p(px(8.0))
         .font_family(font::UI)
-        .text_color(rgb(color::FG_MAIN))
+        .text_color(rgb(color::fg_main()))
 }
 
 /// Whether the prompt shows the editable input, which dialogs, titled prompts and
 /// questions leave out.
 pub fn draws_input(minibuffer: &Minibuffer) -> bool {
-    minibuffer.dialog().is_none() && minibuffer.prompt().title.is_none() && !minibuffer.is_question()
+    minibuffer.dialog().is_none()
+        && minibuffer.prompt().title.is_none()
+        && !minibuffer.is_question()
 }
 
 /// `input_scroll` keeps the input's sideways scroll between frames; it keeps
@@ -191,7 +193,7 @@ fn render_title((title, note): &(String, String)) -> Div {
             div()
                 .flex_none()
                 .text_size(px(font::STATUS_SIZE))
-                .text_color(rgb(color::FG_DIM))
+                .text_color(rgb(color::fg_dim()))
                 .child(note.clone()),
         )
 }
@@ -206,7 +208,7 @@ fn render_summary(parts: &[BannerPart]) -> Div {
         .px(px(10.0))
         .pb(px(10.0))
         .text_size(px(font::STATUS_SIZE))
-        .text_color(rgb(color::FG_DIM))
+        .text_color(rgb(color::fg_dim()))
         .children(parts.iter().map(|part| match part {
             BannerPart::Chip(chip) => ref_chip(chip.clone()),
             BannerPart::Word(word) => div().child(word.clone()),
@@ -275,7 +277,7 @@ fn render_switches(minibuffer: &Minibuffer, cx: &mut Context<EditorView>) -> Div
                 .min_w_0()
                 .truncate()
                 .text_size(px(font::UI_SIZE))
-                .text_color(rgb(color::FG_BODY))
+                .text_color(rgb(color::fg_body()))
                 .child(minibuffer.subject().to_owned()),
         )
 }
@@ -336,13 +338,13 @@ fn render_chips(
                         .items_center()
                         .gap(px(6.0))
                         .text_size(px(font::STATUS_SIZE))
-                        .text_color(rgb(color::FG_DIM))
+                        .text_color(rgb(color::fg_dim()))
                         .child(
                             div()
                                 .size(px(9.0))
                                 .rounded_full()
                                 .border(px(1.6))
-                                .border_color(rgb(color::INFO)),
+                                .border_color(rgb(color::info())),
                         )
                         .child(footnote),
                 )
@@ -352,7 +354,7 @@ fn render_chips(
                     div()
                         .flex_none()
                         .text_size(px(font::STATUS_SIZE))
-                        .text_color(rgb(color::FG_FAINT))
+                        .text_color(rgb(color::fg_faint()))
                         .child(minibuffer.subject().to_owned()),
                 )
             })
@@ -368,7 +370,7 @@ fn render_outcome((summary, chain): (String, CommitChain)) -> impl IntoElement {
             .rounded_full()
             .bg(rgb(color_hex))
             .border_2()
-            .border_color(rgb(color::BG_POPUP))
+            .border_color(rgb(color::bg_popup()))
     };
     let line = |from: u32, to: u32| {
         div().w(px(36.0)).h(px(2.0)).bg(linear_gradient(
@@ -379,7 +381,7 @@ fn render_outcome((summary, chain): (String, CommitChain)) -> impl IntoElement {
     };
     // A remote's commit, like a merge base, is grey; what comes in is the base's color.
     let base_color = match chain.base.kind {
-        RefKind::Remote => color::FG_LINE_NUMBER,
+        RefKind::Remote => color::fg_line_number(),
         _ => color::graph(1),
     };
     let (incoming_color, tip_color) = (color::graph(1), color::graph(0));
@@ -407,7 +409,7 @@ fn render_outcome((summary, chain): (String, CommitChain)) -> impl IntoElement {
             div()
                 .px(px(10.0))
                 .text_size(px(font::STATUS_SIZE))
-                .text_color(rgb(color::FG_DIM))
+                .text_color(rgb(color::fg_dim()))
                 .child(note)
         }))
 }
@@ -447,7 +449,7 @@ fn render_field(
         .gap(px(10.0))
         .h(px(FIELD_HEIGHT))
         .px(px(12.0))
-        .bg(rgba(glass::FIELD))
+        .bg(rgba(glass::field()))
         .rounded(px(8.0))
         .border_1()
         .border_color(field_border(
@@ -468,10 +470,10 @@ fn render_field(
                 .h(px(24.0))
                 .px(px(8.0))
                 .rounded(px(6.0))
-                .bg(rgba(glass::CHIP))
+                .bg(rgba(glass::chip()))
                 .font_family(typed_font(parse_sequence(minibuffer.label()).is_some()))
                 .text_size(px(font::STATUS_SIZE))
-                .text_color(rgb(color::FG_ALT))
+                .text_color(rgb(color::fg_alt()))
                 .child(minibuffer.label().to_owned()),
         )
         .when(!prompt.prefix.is_empty(), |field| {
@@ -480,7 +482,7 @@ fn render_field(
                     .flex_none()
                     .font_family(font::mono())
                     .text_size(px(font::INPUT_SIZE))
-                    .text_color(rgb(color::FG_DIM))
+                    .text_color(rgb(color::fg_dim()))
                     .child(prompt.prefix.clone()),
             )
         })
@@ -494,9 +496,9 @@ fn render_field(
                 .font_family(font::mono())
                 .text_size(px(font::STATUS_SIZE))
                 .text_color(rgb(if length > message.subject_limit {
-                    color::WARNING
+                    color::warning()
                 } else {
-                    color::FG_DIM
+                    color::fg_dim()
                 }))
                 .child(format!("{length}/{}", message.subject_limit))
                 .into_any_element()
@@ -505,7 +507,7 @@ fn render_field(
                 .flex_none()
                 .font_family(typed_font(prompt.count == Count::Position))
                 .text_size(px(font::STATUS_SIZE))
-                .text_color(rgb(color::FG_DIM))
+                .text_color(rgb(color::fg_dim()))
                 .child(match minibuffer.note() {
                     Some(note) => note.to_owned(),
                     None => count_text(minibuffer),
@@ -534,13 +536,13 @@ fn render_severity_counts(candidates: &[Candidate]) -> impl IntoElement {
                 .h(px(26.0))
                 .px(px(9.0))
                 .rounded(px(6.0))
-                .bg(rgba(glass::CONTROL))
+                .bg(rgba(glass::control()))
                 .border_1()
-                .border_color(rgba(0xffffff12))
+                .border_color(rgba(glass::ink(0x12)))
                 .font_family(font::mono())
                 .text_size(px(font::STATUS_SIZE))
-                .text_color(rgb(color::FG_KBD))
-                .child(icon(severity, color::FG_KBD))
+                .text_color(rgb(color::fg_kbd()))
+                .child(icon(severity, color::fg_kbd()))
                 .child(count(severity).to_string())
         }))
 }
@@ -588,7 +590,7 @@ fn render_input(
         .when(input.text().is_empty(), |field| {
             field.child(
                 div()
-                    .text_color(rgb(color::FG_PLACEHOLDER))
+                    .text_color(rgb(color::fg_placeholder()))
                     .child(minibuffer.prompt().placeholder),
             )
         })
@@ -596,7 +598,11 @@ fn render_input(
 
 /// Lit while it is the one being typed in.
 fn field_border(active: bool) -> gpui::Rgba {
-    rgba(if active { 0x2fafff59 } else { 0xffffff0f })
+    rgba(if active {
+        color::accent() << 8 | 0x59
+    } else {
+        glass::ink(0x0f)
+    })
 }
 
 /// A message's description under its subject: a few lines, scrolled to the cursor.
@@ -641,19 +647,19 @@ fn render_description(minibuffer: &Minibuffer) -> Option<impl IntoElement> {
         .h(px(DESCRIPTION_LINE_HEIGHT * DESCRIPTION_LINES as f32 + 16.0))
         .py(px(8.0))
         .px(px(12.0))
-        .bg(rgba(glass::FIELD))
+        .bg(rgba(glass::field()))
         .rounded(px(8.0))
         .border_1()
         .border_color(field_border(active))
         .font_family(font::mono())
         .text_size(px(font::MONO_SIZE))
         .line_height(px(DESCRIPTION_LINE_HEIGHT))
-        .text_color(rgb(color::FG_BODY))
+        .text_color(rgb(color::fg_body()))
         .children(lines)
         .when(text.is_empty() && !active, |field| {
             field.child(
                 div()
-                    .text_color(rgb(color::FG_PLACEHOLDER))
+                    .text_color(rgb(color::fg_placeholder()))
                     .child(placeholder),
             )
         });
@@ -734,7 +740,7 @@ fn render_group_title(title: &str, summary: Option<String>, is_name: bool) -> im
         .pb(px(4.0))
         .text_size(px(font::SMALL_SIZE))
         .font_weight(FontWeight::SEMIBOLD)
-        .text_color(rgb(color::FG_FAINT))
+        .text_color(rgb(color::fg_faint()))
         .child(title)
         .children(summary)
 }
@@ -748,8 +754,12 @@ fn candidate_row(index: usize, selected: bool, cx: &mut Context<EditorView>) -> 
         .px(px(10.0))
         .rounded(px(8.0))
         .when(selected, |row| {
-            row.bg(rgba(glass::SELECTION))
-                .shadow(vec![shadow(0x00000073, 1.0, 3.0, 0.0)])
+            row.bg(rgba(glass::selection())).shadow(vec![shadow(
+                glass::shadow(0x73),
+                1.0,
+                3.0,
+                0.0,
+            )])
         })
         .on_mouse_down(
             MouseButton::Left,
@@ -762,18 +772,18 @@ fn candidate_row(index: usize, selected: bool, cx: &mut Context<EditorView>) -> 
 
 pub(crate) fn secondary_color(selected: bool) -> u32 {
     if selected {
-        color::FG_ALT
+        color::fg_alt()
     } else {
-        color::FG_DIM
+        color::fg_dim()
     }
 }
 
 fn match_style(selected: bool) -> HighlightStyle {
     HighlightStyle {
         color: Some(hsla(if selected {
-            color::ACCENT_ON_SELECTION
+            color::accent_on_selection()
         } else {
-            color::ACCENT
+            color::accent()
         })),
         ..Default::default()
     }
@@ -842,8 +852,8 @@ fn render_step(
     cx: &mut Context<EditorView>,
 ) -> AnyElement {
     let action_color = match tone {
-        Tone::Plain => color::FG_BODY,
-        tone => tone_color(tone, color::FG_BODY),
+        Tone::Plain => color::fg_body(),
+        tone => tone_color(tone, color::fg_body()),
     };
     candidate_row(index, selected, cx)
         .gap(px(12.0))
@@ -858,9 +868,9 @@ fn render_step(
                 .h(px(24.0))
                 .px(px(8.0))
                 .rounded(px(6.0))
-                .bg(rgba(glass::CONTROL))
+                .bg(rgba(glass::control()))
                 .border_1()
-                .border_color(rgba(0xffffff14))
+                .border_color(rgba(glass::ink(0x14)))
                 .font_family(font::mono())
                 .text_size(px(font::STATUS_SIZE))
                 .text_color(rgb(action_color))
@@ -879,9 +889,9 @@ fn render_step(
                 .font_family(font::mono())
                 .text_size(px(font::STATUS_SIZE))
                 .text_color(rgb(if selected {
-                    color::FG_ALT
+                    color::fg_alt()
                 } else {
-                    color::FG_LINE_NUMBER
+                    color::fg_line_number()
                 }))
                 .child(candidate.label.clone()),
         )
@@ -918,10 +928,10 @@ fn render_entry(
                     .px(px(6.0))
                     .py(px(2.0))
                     .rounded(px(5.0))
-                    .bg(rgba(0xffffff0f))
+                    .bg(rgba(glass::ink(0x0f)))
                     .font_family(font::mono())
                     .text_size(px(font::STATUS_SIZE))
-                    .text_color(rgb(color::FG_ALT))
+                    .text_color(rgb(color::fg_alt()))
                     .child(candidate.label.clone()),
             )
             .child(
@@ -936,7 +946,7 @@ fn render_entry(
                 div()
                     .flex_none()
                     .text_size(px(font::STATUS_SIZE))
-                    .text_color(rgb(color::FG_FAINT))
+                    .text_color(rgb(color::fg_faint()))
                     .child(detail),
             )
             .on_mouse_down(
@@ -956,9 +966,9 @@ fn render_entry(
             .into_any_element();
     }
     let (border, background) = if in_list {
-        (0x2fafff61, 0x2fafff14)
+        (color::accent() << 8 | 0x61, color::accent() << 8 | 0x14)
     } else {
-        (0xffffff14, 0xffffff08)
+        (glass::ink(0x14), glass::ink(0x08))
     };
     let (destructive, actions): (Vec<EntryAction>, Vec<EntryAction>) = expansion
         .actions
@@ -975,19 +985,19 @@ fn render_entry(
             .pl(px(10.0))
             .pr(px(5.0))
             .rounded(px(7.0))
-            .bg(rgba(glass::CONTROL))
+            .bg(rgba(glass::control()))
             .border_1()
             .border_color(rgba(if action.destructive {
-                0xff5f594d
+                color::error() << 8 | 0x4d
             } else {
-                0xffffff14
+                glass::ink(0x14)
             }))
-            .shadow(vec![shadow(0x00000080, 1.0, 2.0, 0.0)])
+            .shadow(vec![shadow(glass::shadow(0x80), 1.0, 2.0, 0.0)])
             .text_size(px(font::STATUS_SIZE))
             .text_color(rgb(if action.destructive {
-                color::FG_FLAGGED
+                color::fg_flagged()
             } else {
-                color::FG_MAIN
+                color::fg_main()
             }))
             .child(action.label)
             .child(kbd(action.key, false).h(px(18.0)))
@@ -1026,7 +1036,7 @@ fn render_entry(
                     .flex_col()
                     .py(px(4.0))
                     .rounded(px(8.0))
-                    .bg(rgba(glass::FIELD))
+                    .bg(rgba(glass::field()))
                     .children(list_items(expansion.items.clone(), MAX_LISTED_ITEMS, 26.0)),
             )
         })
@@ -1037,9 +1047,9 @@ fn render_entry(
 /// A message whose `quoted` parts, as diagnostics write code, are set in the code font.
 fn render_message(candidate: &Candidate, selected: bool) -> impl IntoElement {
     let (code_color, code_background) = if selected {
-        (color::FG_MAIN, 0xffffff1f)
+        (color::fg_main(), glass::ink(0x1f))
     } else {
-        (color::FG_ALT, 0xffffff12)
+        (color::fg_alt(), glass::ink(0x12))
     };
     let mut message = div()
         .flex()
@@ -1099,9 +1109,9 @@ fn render_candidate(
         .font_family(font::mono())
         .text_size(px(font::MONO_SIZE))
         .text_color(rgb(if candidate.dim {
-            color::FG_DIM
+            color::fg_dim()
         } else {
-            color::FG_MAIN
+            color::fg_main()
         }))
         .when(is_command, |name| name.w(px(COMMAND_NAME_WIDTH)))
         .child(label);
@@ -1154,9 +1164,9 @@ fn render_candidate(
 
 fn render_tag(tag: &'static str, selected: bool) -> impl IntoElement {
     let (background, foreground) = if selected {
-        (0xffffff1f, color::FG_MAIN)
+        (glass::ink(0x1f), color::fg_main())
     } else {
-        (0x2fafff24, color::FG_ALT)
+        (color::accent() << 8 | 0x24, color::fg_alt())
     };
     div()
         .flex_none()
@@ -1178,9 +1188,9 @@ fn render_hints(hints: &'static [(&'static str, &'static str)]) -> impl IntoElem
         .px(px(10.0))
         .pb(px(4.0))
         .border_t_1()
-        .border_color(rgba(0xffffff0f))
+        .border_color(rgba(glass::ink(0x0f)))
         .text_size(px(font::STATUS_SIZE))
-        .text_color(rgb(color::FG_DIM))
+        .text_color(rgb(color::fg_dim()))
         .children(hints.iter().map(|&(keys, action)| {
             div()
                 .flex()

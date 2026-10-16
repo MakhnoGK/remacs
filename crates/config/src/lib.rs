@@ -25,6 +25,11 @@ pub fn config_dir(home: &Path) -> PathBuf {
     home.join("config")
 }
 
+/// The directory of the user's themes, one file each.
+pub fn themes_dir(home: &Path) -> PathBuf {
+    home.join("themes")
+}
+
 /// The directory of what lasts between sessions, e.g. the minibuffer history.
 pub fn state_dir(home: &Path) -> PathBuf {
     home.join("state")

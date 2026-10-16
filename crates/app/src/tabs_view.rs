@@ -74,14 +74,14 @@ fn render_tab(tab: Tab, cx: &mut Context<EditorView>) -> Div {
         action,
     } = tab;
     let (background, border, text) = match state {
-        _ if selected => (glass::SELECTION, 0xffffff24, color::FG_MAIN),
+        _ if selected => (glass::selection(), glass::ink(0x24), color::fg_main()),
         TabState::Exited(code) if code != 0 => (
-            color::ERROR << 8 | 0x1a,
-            color::ERROR << 8 | 0x66,
-            color::FG_FLAGGED,
+            color::error() << 8 | 0x1a,
+            color::error() << 8 | 0x66,
+            color::fg_flagged(),
         ),
-        TabState::Exited(_) => (0xffffff0d, 0xffffff17, color::FG_FAINT),
-        _ => (0xffffff0d, 0xffffff17, color::FG_BODY),
+        TabState::Exited(_) => (glass::ink(0x0d), glass::ink(0x17), color::fg_faint()),
+        _ => (glass::ink(0x0d), glass::ink(0x17), color::fg_body()),
     };
     let chip = div()
         .relative()
@@ -108,9 +108,9 @@ fn render_tab(tab: Tab, cx: &mut Context<EditorView>) -> Div {
         })
         .when(activity || bell, |chip| {
             chip.child(corner_dot(if bell {
-                color::WARNING
+                color::warning()
             } else {
-                color::ACCENT
+                color::accent()
             }))
         });
     clickable(chip, action, cx)
@@ -121,16 +121,16 @@ fn running_dot() -> Div {
         .flex_none()
         .size(px(7.0))
         .rounded_full()
-        .bg(rgb(color::VC_ADDED))
+        .bg(rgb(color::vc_added()))
         .border_2()
-        .border_color(rgba(color::VC_ADDED << 8 | 0x2e))
+        .border_color(rgba(color::vc_added() << 8 | 0x2e))
 }
 
 fn exit_badge(code: i32) -> Div {
     let (background, text) = if code == 0 {
-        (0xffffff14, color::FG_DIM)
+        (glass::ink(0x14), color::fg_dim())
     } else {
-        (color::ERROR << 8 | 0x38, color::FG_FLAGGED)
+        (color::error() << 8 | 0x38, color::fg_flagged())
     };
     div()
         .flex()
@@ -154,7 +154,7 @@ fn corner_dot(tone: u32) -> Div {
         .rounded_full()
         .bg(rgb(tone))
         .border_2()
-        .border_color(rgba(0x101012f2))
+        .border_color(rgba(color::bg_main() << 8 | 0xf2))
 }
 
 fn render_overflow(hidden: usize, list: &'static str, cx: &mut Context<EditorView>) -> Div {
@@ -166,19 +166,19 @@ fn render_overflow(hidden: usize, list: &'static str, cx: &mut Context<EditorVie
         .h(px(CHIP_HEIGHT))
         .px(px(9.0))
         .rounded(px(7.0))
-        .bg(rgba(color::ACCENT << 8 | 0x1f))
+        .bg(rgba(color::accent() << 8 | 0x1f))
         .border_1()
-        .border_color(rgba(color::ACCENT << 8 | 0x66))
+        .border_color(rgba(color::accent() << 8 | 0x66))
         .font_family(font::mono())
         .text_size(px(font::STATUS_SIZE))
-        .text_color(rgb(color::FG_MAIN))
+        .text_color(rgb(color::fg_main()))
         .cursor_pointer()
         .child(format!("+{hidden}"))
         .child(
             svg()
                 .path(CHEVRON_DOWN_ICON)
                 .size(px(9.0))
-                .text_color(rgb(color::FG_MAIN)),
+                .text_color(rgb(color::fg_main())),
         );
     clickable(chip, command_action(list), cx)
 }
@@ -193,13 +193,13 @@ fn render_add(add: &'static str, cx: &mut Context<EditorView>) -> Div {
         .rounded(px(7.0))
         .border_1()
         .border_dashed()
-        .border_color(rgba(0xffffff2e))
+        .border_color(rgba(glass::ink(0x2e)))
         .cursor_pointer()
         .child(
             svg()
                 .path(PLUS_ICON)
                 .size(px(12.0))
-                .text_color(rgb(color::FG_DIM)),
+                .text_color(rgb(color::fg_dim())),
         );
     clickable(button, command_action(add), cx)
 }

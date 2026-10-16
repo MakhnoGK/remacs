@@ -27,7 +27,7 @@ use remacs_core::{
 use remacs_echo::VIEW_MESSAGES;
 use remacs_frame::TEXT_CONFIGURED;
 use remacs_theme::font::CodeFont;
-use remacs_theme::{color, font, glass};
+use remacs_theme::{Appearance, color, font, glass};
 
 use crate::bottom_row::{
     CardKeys, FittedHints, Hints, PrefixKeys, echo_room, fit_hints, render_hints,
@@ -47,7 +47,7 @@ use crate::outline_view::{
     render_outline, render_toolbar, row_height,
 };
 use crate::pane_view::{
-    PANE_BOTTOM, PANE_GAP, PANE_TINT, PaneChrome, render_button, render_pane, screen_bounds,
+    PANE_BOTTOM, PANE_GAP, PaneChrome, render_button, render_pane, screen_bounds,
 };
 use crate::popup_view::{DocumentationScroll, Placement, PopupView, render_popup};
 use crate::preview_view::render_preview;
@@ -66,7 +66,7 @@ use crate::text_zoom::TextZoom;
 use crate::transition::{Retained, Side};
 use crate::widgets::{
     Edge, SCROLL_FADE_SIZE, Scrolled, block_cursor, code_font_features, cursor_text_style,
-    edge_fade, hsla, icon, modified_dot, over, pill, pill_separator, tone_color,
+    edge_fade, icon, modified_dot, over, pill, pill_separator, tone_color,
 };
 
 /// Minified files can hold megabytes on one line; lay out only what can be on screen.
@@ -124,6 +124,8 @@ pub struct EditorView {
     /// change.
     glass: GlassSettings,
     applied_glass: Option<GlassSettings>,
+    /// The theme's appearance macOS last drew its own parts in.
+    applied_appearance: Option<Appearance>,
     /// Where the lines or rows are drawn, following the viewport's first line.
     vertical: SmoothScroll,
     /// Where the text is drawn sideways, following the viewport's first column.
@@ -343,6 +345,7 @@ impl EditorView {
             scroll: ui.scroll,
             glass: ui.glass,
             applied_glass: None,
+            applied_appearance: None,
             vertical: SmoothScroll::default(),
             sideways: SmoothScroll::default(),
             scrolled_buffer: String::new(),
@@ -1251,13 +1254,13 @@ impl EditorView {
         let (hidden_start, continues) = (display_line.has_hidden_start(), display_line.continues);
         let content = StyledText::new(display_line.text).with_highlights(combine(&layers));
         let number_color = if is_current {
-            color::FG_MAIN
+            color::fg_main()
         } else {
-            color::FG_LINE_NUMBER
+            color::fg_line_number()
         };
         // The text fades into what the row is drawn on.
         let under = if is_current {
-            hsla(color::BG_HL_LINE)
+            over(glass::line_highlight(), glass::window_tint())
         } else {
             rgba(glass::window_tint()).into()
         };
@@ -1268,9 +1271,9 @@ impl EditorView {
             .h(row_height)
             .mx(px(ROW_MARGIN))
             .rounded(px(ROW_RADIUS))
-            .when(is_current, |row| row.bg(rgb(color::BG_HL_LINE)))
+            .when(is_current, |row| row.bg(rgba(glass::line_highlight())))
             .when_some(band, |row, tone| {
-                let band = tone_color(tone, color::FG_MAIN);
+                let band = tone_color(tone, color::fg_main());
                 row.bg(rgba((band << 8) | 0x26))
                     .border_1()
                     .border_color(rgba((band << 8) | 0x4d))
@@ -1314,7 +1317,7 @@ impl EditorView {
                                 div()
                                     .ml(metrics.char_width * 4.0)
                                     .text_size(px(font::STATUS_SIZE))
-                                    .text_color(rgb(color::FG_FAINT))
+                                    .text_color(rgb(color::fg_faint()))
                                     .child(note)
                             }))),
                     )
@@ -1419,7 +1422,7 @@ impl EditorView {
         };
         let screen = screen.and_then(|(name, height)| {
             let bounds = screen_bounds(window.viewport_size(), height);
-            let under = over(PANE_TINT, glass::window_tint());
+            let under = over(glass::pane(), glass::window_tint());
             self.render_screen_in(&name, bounds, under, window, cx)
         });
         let shown = self.surfaces.pane.shown(transition)?;
@@ -1504,7 +1507,7 @@ impl EditorView {
                     .font_weight(gpui::FontWeight::MEDIUM)
                     .child(buffer.name().to_owned()),
             )
-            .child(div().text_color(rgb(color::FG_DIM)).child("— Remacs"))
+            .child(div().text_color(rgb(color::fg_dim())).child("— Remacs"))
     }
 
     /// The gutter's mark slots for `lines`, mapped by line, when some plugin may mark the
@@ -1824,9 +1827,9 @@ impl EditorView {
     /// One without a command is a plain label, like the mode.
     fn render_segment(segment: StatusSegment, cx: &mut Context<Self>) -> impl IntoElement {
         let text_color = match (segment.active, segment.command, segment.code) {
-            (true, ..) => color::FG_MAIN,
-            (false, Some(_), _) | (false, None, true) => color::FG_KBD,
-            (false, None, false) => color::FG_FAINT,
+            (true, ..) => color::fg_main(),
+            (false, Some(_), _) | (false, None, true) => color::fg_kbd(),
+            (false, None, false) => color::fg_faint(),
         };
         div()
             .flex()
@@ -1835,7 +1838,7 @@ impl EditorView {
             .h(px(24.0))
             .px(px(8.0))
             .rounded(px(6.0))
-            .when(segment.active, |button| button.bg(rgba(glass::SELECTION)))
+            .when(segment.active, |button| button.bg(rgba(glass::selection())))
             .font_family(if segment.code {
                 font::mono()
             } else {
@@ -2050,6 +2053,11 @@ impl Render for EditorView {
             window.set_background_blur_radius(self.glass.window_blur());
             self.applied_glass = Some(self.glass);
         }
+        let appearance = remacs_theme::appearance();
+        if self.applied_appearance != Some(appearance) {
+            frame::set_appearance(appearance);
+            self.applied_appearance = Some(appearance);
+        }
         let window_name = self.editor.window_buffer().name().to_owned();
         self.showing_screen = self.editor.is_screen(&window_name);
         let shown_pane = (!self.showing_screen).then(|| self.editor.pane()).flatten();
@@ -2204,7 +2212,7 @@ impl Render for EditorView {
             .bg(rgba(glass::window_tint()))
             .font_family(font::mono())
             .font_features(code_font_features())
-            .text_color(rgb(color::FG_MAIN))
+            .text_color(rgb(color::fg_main()))
             .line_height(px(font::LINE_HEIGHT))
             .child(body)
             .children(pane)
@@ -2274,40 +2282,40 @@ fn above_pane(rows: impl IntoElement, height: Pixels) -> AnyElement {
 fn gutter_glyph(mark: GutterIcon) -> AnyElement {
     let dot = || div().flex_none().size(px(12.0)).rounded_full();
     match mark {
-        GutterIcon::Run => icon(Icon::Run, color::VC_ADDED).into_any_element(),
+        GutterIcon::Run => icon(Icon::Run, color::vc_added()).into_any_element(),
         GutterIcon::ExecutionPoint => svg()
             .path(EXECUTION_POINT_ICON)
             .w(px(15.0))
             .h(px(12.0))
-            .text_color(rgb(color::WARNING))
+            .text_color(rgb(color::warning()))
             .into_any_element(),
         GutterIcon::Breakpoint(BreakpointIcon::Plain) => {
-            dot().bg(rgb(color::ERROR)).into_any_element()
+            dot().bg(rgb(color::error())).into_any_element()
         }
         GutterIcon::Breakpoint(BreakpointIcon::Conditional) => dot()
-            .bg(rgb(color::ERROR))
+            .bg(rgb(color::error()))
             .flex()
             .items_center()
             .justify_center()
             .font_family(font::mono())
             .text_size(px(9.0))
             .font_weight(gpui::FontWeight::BOLD)
-            .text_color(rgb(color::FG_MAIN))
+            .text_color(rgb(color::fg_main()))
             .child("?")
             .into_any_element(),
         GutterIcon::Breakpoint(BreakpointIcon::Log) => svg()
             .path(LOGPOINT_ICON)
             .size(px(12.0))
-            .text_color(rgb(color::ERROR))
+            .text_color(rgb(color::error()))
             .into_any_element(),
         GutterIcon::Breakpoint(BreakpointIcon::Disabled) => dot()
             .border(px(1.5))
-            .border_color(rgb(color::FG_DIM))
+            .border_color(rgb(color::fg_dim()))
             .into_any_element(),
         GutterIcon::Breakpoint(BreakpointIcon::Unverified) => dot()
             .border(px(1.5))
             .border_dashed()
-            .border_color(rgb(color::ERROR))
+            .border_color(rgb(color::error()))
             .opacity(0.85)
             .into_any_element(),
     }
@@ -2340,9 +2348,9 @@ fn render_line_change(
             .h(line_height * lines.len() as f32 - px(2.0 * CHANGE_BAR_GAP))
     };
     let color = match changed.change {
-        LineChange::Added => color::VC_ADDED_MARK,
-        LineChange::Modified => color::VC_MODIFIED_MARK,
-        LineChange::Removed => color::VC_REMOVED_MARK,
+        LineChange::Added => glass::vc_added_mark(),
+        LineChange::Modified => glass::vc_modified_mark(),
+        LineChange::Removed => glass::vc_removed_mark(),
     };
     Some(
         mark.absolute()

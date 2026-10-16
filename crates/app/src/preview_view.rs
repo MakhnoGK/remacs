@@ -31,7 +31,7 @@ pub fn render_preview(preview: Preview, code_faces: &dyn Fn(&Code) -> Highlights
         .gap(px(10.0))
         .h(px(HEADER_HEIGHT))
         .px(px(PADDING))
-        .child(icon(preview_icon, color::FG_FAINT))
+        .child(icon(preview_icon, color::fg_faint()))
         .child(
             div()
                 .min_w_0()
@@ -47,7 +47,7 @@ pub fn render_preview(preview: Preview, code_faces: &dyn Fn(&Code) -> Highlights
                 .flex_none()
                 .font_family(font::UI)
                 .text_size(px(font::STATUS_SIZE))
-                .text_color(rgb(color::FG_FAINT))
+                .text_color(rgb(color::fg_faint()))
                 .child(kind),
         );
     pane()
@@ -65,9 +65,9 @@ pub fn pane() -> Div {
         .w(px(PREVIEW_WIDTH))
         .p(px(PADDING))
         .gap(px(PADDING))
-        .bg(rgba(glass::PANE))
+        .bg(rgba(glass::pane()))
         .border_1()
-        .border_color(rgba(glass::PANE_BORDER))
+        .border_color(rgba(glass::pane_border()))
         .rounded(px(12.0))
         .overflow_hidden()
 }
@@ -82,9 +82,9 @@ fn render_body(body: PreviewBody, code_faces: &dyn Fn(&Code) -> Highlights) -> D
         .overflow_hidden()
         .py(px(PADDING))
         .rounded(px(8.0))
-        .bg(rgba(glass::WELL))
+        .bg(rgba(glass::well()))
         .border_1()
-        .border_color(rgba(0xffffff0f))
+        .border_color(rgba(glass::ink(0x0f)))
         .whitespace_nowrap()
         .font_family(font::mono())
         .text_size(px(font::STATUS_SIZE))
@@ -99,7 +99,7 @@ fn render_body(body: PreviewBody, code_faces: &dyn Fn(&Code) -> Highlights) -> D
             .items_center()
             .justify_center()
             .font_family(font::UI)
-            .text_color(rgb(color::FG_FAINT))
+            .text_color(rgb(color::fg_faint()))
             .child(message),
     }
 }
@@ -118,7 +118,7 @@ fn numbered_lines<'a>(text: &'a str, faces: &'a Highlights) -> impl Iterator<Ite
                     .w(px(LINE_NUMBER_WIDTH))
                     .pr(px(14.0))
                     .text_right()
-                    .text_color(rgb(color::FG_LINE_NUMBER))
+                    .text_color(rgb(color::fg_line_number()))
                     .child((index + 1).to_string()),
             )
             .child(StyledText::new(line.to_owned()).with_highlights(faces_in(faces, range)))
@@ -140,13 +140,13 @@ pub fn faces_in(faces: &Highlights, line: Range<usize>) -> Highlights {
 
 fn render_item(item: PreviewItem) -> Div {
     let text_color = match item.face {
-        RowFace::Normal => color::FG_MAIN,
-        RowFace::Directory => color::FG_DIRECTORY,
-        RowFace::Dim => color::FG_FAINT,
+        RowFace::Normal => color::fg_main(),
+        RowFace::Directory => color::fg_directory(),
+        RowFace::Dim => color::fg_faint(),
     };
     let icon_color = match item.face {
-        RowFace::Directory => color::FG_DIRECTORY,
-        _ => color::FG_FAINT,
+        RowFace::Directory => color::fg_directory(),
+        _ => color::fg_faint(),
     };
     div()
         .flex()
@@ -170,7 +170,7 @@ fn render_details(
             .min_w_0()
             .truncate()
             .font_family(font::mono())
-            .text_color(rgb(color::FG_BODY))
+            .text_color(rgb(color::fg_body()))
             .child(value);
         (label, value)
     });
@@ -188,14 +188,14 @@ fn render_details(
         push(status.state.label(), Some(state_color(status.state, false)));
         if let Some(lines) = status.lines {
             push(" · ", None);
-            push(&format!("+{}", lines.added), Some(color::VC_ADDED));
+            push(&format!("+{}", lines.added), Some(color::vc_added()));
             push(" ", None);
-            push(&format!("−{}", lines.removed), Some(color::VC_REMOVED));
+            push(&format!("−{}", lines.removed), Some(color::vc_removed()));
         }
         let value = div()
             .flex_none()
             .font_family(font::mono())
-            .text_color(rgb(color::FG_BODY))
+            .text_color(rgb(color::fg_body()))
             .child(StyledText::new(text).with_highlights(faces));
         (name, value)
     });
@@ -206,7 +206,7 @@ fn render_details(
         .px(px(2.0))
         .font_family(font::UI)
         .text_size(px(font::STATUS_SIZE))
-        .text_color(rgb(color::FG_FAINT))
+        .text_color(rgb(color::fg_faint()))
         .children(
             plain
                 .chain(version)
@@ -218,7 +218,7 @@ fn render_details(
                         .gap(px(12.0))
                         .p(px(PADDING))
                         .when(index > 0, |row| {
-                            row.border_t_1().border_color(rgba(0xffffff0f))
+                            row.border_t_1().border_color(rgba(glass::ink(0x0f)))
                         })
                         .child(div().flex_none().child(label))
                         .child(value)

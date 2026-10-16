@@ -20,8 +20,6 @@ pub const PANE_BOTTOM: f32 = 56.0;
 /// Between the text and the pane.
 pub const PANE_GAP: f32 = 8.0;
 const PANE_SIDE: f32 = 16.0;
-/// Over the window's glass.
-pub const PANE_TINT: u32 = 0xffffff0a;
 const TOOLBAR_HEIGHT: f32 = 44.0;
 const COLUMN_HEADER_HEIGHT: f32 = 30.0;
 const ROW_HEIGHT: f32 = 22.0;
@@ -93,16 +91,16 @@ pub fn render_pane(
         .flex()
         .flex_col()
         .rounded(px(12.0))
-        .bg(rgba(PANE_TINT))
+        .bg(rgba(glass::pane()))
         .border_1()
         .border_color(rgba(if focused {
-            color::ACCENT << 8 | 0x80
+            color::accent() << 8 | 0x80
         } else {
-            0xffffff1f
+            glass::ink(0x1f)
         }))
         .when(focused, |pane| {
             pane.shadow(vec![gpui::BoxShadow {
-                color: rgba(color::ACCENT << 8 | 0x14).into(),
+                color: rgba(color::accent() << 8 | 0x14).into(),
                 offset: point(px(0.0), px(0.0)),
                 blur_radius: px(0.0),
                 spread_radius: px(3.0),
@@ -122,7 +120,7 @@ fn render_toolbar(pane: &Pane, chrome: &PaneChrome, cx: &mut Context<EditorView>
     let state = render_state(pane.state.clone());
     let subtitle = div()
         .font_family(font::mono())
-        .text_color(rgb(color::FG_DIM))
+        .text_color(rgb(color::fg_dim()))
         .child(pane.subtitle.clone());
     let toolbar = div()
         .flex()
@@ -133,7 +131,7 @@ fn render_toolbar(pane: &Pane, chrome: &PaneChrome, cx: &mut Context<EditorView>
         .pl(px(10.0))
         .pr(px(10.0))
         .border_b_1()
-        .border_color(rgba(0xffffff12))
+        .border_color(rgba(glass::ink(0x12)))
         .whitespace_nowrap()
         .children(switch.map(|switch| switch.mr(px(4.0))));
     let toolbar = match pane.tabs.as_ref() {
@@ -157,7 +155,7 @@ fn render_toolbar(pane: &Pane, chrome: &PaneChrome, cx: &mut Context<EditorView>
                 div()
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_size(px(font::UI_SIZE))
-                    .text_color(rgb(color::FG_MAIN))
+                    .text_color(rgb(color::fg_main()))
                     .child(pane.title.clone()),
             )
             .child(subtitle)
@@ -190,7 +188,7 @@ fn render_switch(chrome: &PaneChrome, cx: &mut Context<EditorView>) -> Div {
 }
 
 fn render_state((state, tone): (String, Tone)) -> Div {
-    let state_color = tone_color(tone, color::FG_DIM);
+    let state_color = tone_color(tone, color::fg_dim());
     div()
         .flex()
         .items_center()
@@ -212,7 +210,7 @@ fn separator() -> Div {
         .w(px(1.0))
         .h(px(18.0))
         .mx(px(4.0))
-        .bg(rgba(0xffffff1a))
+        .bg(rgba(glass::ink(0x1a)))
 }
 
 pub fn render_button(button: PaneButton, cx: &mut Context<EditorView>) -> Div {
@@ -224,10 +222,10 @@ pub fn render_button(button: PaneButton, cx: &mut Context<EditorView>) -> Div {
         .pl(px(8.0))
         .pr(px(6.0))
         .rounded(px(7.0))
-        .bg(rgba(glass::CONTROL))
+        .bg(rgba(glass::control()))
         .border_1()
-        .border_color(rgba(glass::CONTROL_BORDER))
-        .text_color(rgb(color::FG_BODY))
+        .border_color(rgba(glass::control_border()))
+        .text_color(rgb(color::fg_body()))
         .when(!button.enabled, |element| element.opacity(0.35))
         .child(button.label)
         .children(key_caps(button.keys));
@@ -259,9 +257,9 @@ fn render_column(column: &PaneColumn, rows_fit: usize, cx: &mut Context<EditorVi
         .text_size(px(font::SMALL_SIZE))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(rgb(if focused {
-            color::FG_ALT
+            color::fg_alt()
         } else {
-            color::FG_FAINT
+            color::fg_faint()
         }))
         .child(title.to_uppercase())
         .children((!keys.is_empty()).then(|| kbd(keys, false)))
@@ -288,9 +286,9 @@ fn render_column(column: &PaneColumn, rows_fit: usize, cx: &mut Context<EditorVi
                 .rounded(px(8.0))
                 .border_1()
                 .border_dashed()
-                .border_color(rgba(0xffffff1f))
+                .border_color(rgba(glass::ink(0x1f)))
                 .line_height(px(18.0))
-                .text_color(rgb(color::FG_FAINT))
+                .text_color(rgb(color::fg_faint()))
                 .child(empty.clone()),
         )
     } else {
@@ -308,7 +306,7 @@ fn render_column(column: &PaneColumn, rows_fit: usize, cx: &mut Context<EditorVi
         .min_w_0()
         .overflow_hidden()
         .border_r_1()
-        .border_color(rgba(0xffffff12))
+        .border_color(rgba(glass::ink(0x12)))
         .map(|column| match width {
             Some(width) => column.flex_none().w(px(width)),
             None => column.flex_1(),
@@ -331,9 +329,9 @@ fn render_row(row: &PaneRow, selected: bool, cx: &mut Context<EditorView>) -> Di
         ref action,
     } = row;
     let name_color = match tone {
-        Tone::Faint => color::FG_PLACEHOLDER,
-        _ if value.is_some() => color::FUNCTION,
-        _ => color::FG_BODY,
+        Tone::Faint => color::fg_placeholder(),
+        _ if value.is_some() => color::function(),
+        _ => color::fg_body(),
     };
     let expander = match open {
         Some(true) => "▾",
@@ -354,17 +352,17 @@ fn render_row(row: &PaneRow, selected: bool, cx: &mut Context<EditorView>) -> Di
         .overflow_hidden()
         .font_family(font::mono())
         .text_size(px(font::STATUS_SIZE))
-        .when(selected, |row| row.bg(rgba(glass::SELECTION)))
-        .when(current && !selected, |row| row.bg(rgba(0xffffff0f)))
+        .when(selected, |row| row.bg(rgba(glass::selection())))
+        .when(current && !selected, |row| row.bg(rgba(glass::ink(0x0f))))
         .child(
             div()
                 .flex_none()
                 .w(px(12.0))
                 .text_size(px(10.0))
                 .text_color(rgb(if selected {
-                    color::FG_ALT
+                    color::fg_alt()
                 } else {
-                    color::FG_FAINT
+                    color::fg_faint()
                 }))
                 .child(expander),
         )
@@ -378,7 +376,7 @@ fn render_row(row: &PaneRow, selected: bool, cx: &mut Context<EditorView>) -> Di
             row.child(
                 div()
                     .flex_none()
-                    .text_color(rgb(color::FG_FAINT))
+                    .text_color(rgb(color::fg_faint()))
                     .child(kind.clone()),
             )
         })
@@ -387,7 +385,7 @@ fn render_row(row: &PaneRow, selected: bool, cx: &mut Context<EditorView>) -> Di
                 .flex()
                 .min_w_0()
                 .gap(px(6.0))
-                .child(div().text_color(rgb(color::FG_FAINT)).child("="))
+                .child(div().text_color(rgb(color::fg_faint())).child("="))
                 .child(
                     div()
                         .truncate()
@@ -401,7 +399,7 @@ fn render_row(row: &PaneRow, selected: bool, cx: &mut Context<EditorView>) -> Di
                 .px(px(6.0))
                 .rounded(px(4.0))
                 .text_size(px(font::SMALL_SIZE))
-                .text_color(rgb(tone_color(*tone, color::FG_DIM)))
+                .text_color(rgb(tone_color(*tone, color::fg_dim())))
                 .child(tag.clone())
         }))
         .when(!detail.is_empty(), |row| {
@@ -412,9 +410,9 @@ fn render_row(row: &PaneRow, selected: bool, cx: &mut Context<EditorView>) -> Di
                     .flex_none()
                     .text_size(px(font::SMALL_SIZE))
                     .text_color(rgb(if selected {
-                        color::FG_ALT
+                        color::fg_alt()
                     } else {
-                        color::FG_FAINT
+                        color::fg_faint()
                     }))
                     .child(detail.clone()),
             )
@@ -429,10 +427,10 @@ fn render_row(row: &PaneRow, selected: bool, cx: &mut Context<EditorView>) -> Di
 fn value_color(value: &str) -> u32 {
     let first = value.chars().next().unwrap_or_default();
     if first == '"' || first == '\'' || first == '`' {
-        color::STRING
+        color::string()
     } else if first.is_ascii_digit() || (first == '-' && value.len() > 1) {
-        color::CONSTANT
+        color::constant()
     } else {
-        color::FG_BODY
+        color::fg_body()
     }
 }
