@@ -204,9 +204,7 @@ fn render_notes(notes: &[Note], placement: &Placement, view: &PopupView) -> AnyE
         .notes_max_width
         .min(placement.window_width - px(2.0 * WINDOW_MARGIN));
     let text_width = width - px(NOTES_INSETS_X);
-    let code_chars =
-        ((text_width - px(2.0 * CHIP_PADDING)) / view.small_mono_width).floor() as usize;
-    let code_chars = code_chars.max(1);
+    let code_chars = chip_chars(text_width, view);
     let height = notes_height(notes, text_width, code_chars, view).min(view.notes_max_height);
     let (below, above) = (placement.room_below(), placement.room_above());
     let fits_above = above >= height || above >= below;
@@ -246,11 +244,11 @@ fn render_notes(notes: &[Note], placement: &Placement, view: &PopupView) -> AnyE
                         .flex_col()
                         .min_w_0()
                         .gap(px(NOTE_LINE_GAP))
-                        .children(
-                            note.message
-                                .lines()
-                                .map(|line| render_note_line(line, code_chars)),
-                        )
+                        .children(note.message.lines().map(|line| {
+                            render_text_line(line, code_chars, &NOTE_CHIP)
+                                .text_size(px(font::UI_SIZE))
+                                .line_height(px(NOTE_LINE_HEIGHT))
+                        }))
                         .when(!note.source.is_empty(), |text| {
                             text.child(
                                 div()
@@ -281,17 +279,32 @@ fn render_notes(notes: &[Note], placement: &Placement, view: &PopupView) -> AnyE
     placement.place(container, !fits_above).into_any_element()
 }
 
+/// Colors of code quoted in a line of text.
+struct ChipColors {
+    background: fn() -> u32,
+    text: fn() -> u32,
+}
+
+const NOTE_CHIP: ChipColors = ChipColors {
+    background: glass::note_code,
+    text: color::fg_note_code,
+};
+
+const DOCUMENTATION_CHIP: ChipColors = ChipColors {
+    background: || glass::ink(0x12),
+    text: color::fg_alt,
+};
+
 /// Wraps between words, and inside a word wider than the line; quoted code is a chip in
 /// the code font, which text highlights cannot give, that wraps between its words like
 /// the text, each line of it a strip. A code word longer than `code_chars`, what fits on a
 /// line, is broken into pieces that fit.
-fn render_note_line(line: &str, code_chars: usize) -> Div {
+fn render_text_line(line: &str, code_chars: usize, chip: &ChipColors) -> Div {
+    let (background, text_color) = ((chip.background)(), (chip.text)());
     div()
         .flex()
         .flex_wrap()
         .items_center()
-        .text_size(px(font::UI_SIZE))
-        .line_height(px(NOTE_LINE_HEIGHT))
         .children(line_pieces(line, code_chars).into_iter().map(|piece| {
             match piece {
                 Piece::Word(word) => div().max_w_full().child(word.to_owned()),
@@ -304,13 +317,19 @@ fn render_note_line(line: &str, code_chars: usize) -> Div {
                     .when(last, |chip| {
                         chip.pr(px(CHIP_PADDING)).rounded_r(px(CHIP_RADIUS))
                     })
-                    .bg(rgba(glass::note_code()))
+                    .bg(rgba(background))
                     .font_family(font::mono())
                     .text_size(px(font::STATUS_SIZE))
-                    .text_color(rgb(color::fg_note_code()))
+                    .text_color(rgb(text_color))
                     .child(text.to_owned()),
             }
         }))
+}
+
+/// Characters of quoted code that fit on a line of text `text_width` wide.
+fn chip_chars(text_width: Pixels, view: &PopupView) -> usize {
+    let chars = ((text_width - px(2.0 * CHIP_PADDING)) / view.small_mono_width).floor();
+    (chars as usize).max(1)
 }
 
 /// About how tall the notes are drawn with messages `text_width` wide, known before they
@@ -487,7 +506,14 @@ fn render_hover(
             )
         })
         .when(!documentation.is_empty(), |panel| {
-            panel.child(render_body(signature, &documentation.blocks, 10.0, view))
+            let code_chars = chip_chars(width - px(HOVER_INSETS.panel), view);
+            panel.child(render_body(
+                signature,
+                &documentation.blocks,
+                10.0,
+                code_chars,
+                view,
+            ))
         })
         .when(!hints.is_empty(), |panel| {
             panel.child(render_hints(hints).gap(px(18.0)).pt(px(10.0)))
@@ -530,7 +556,9 @@ fn render_list_popup(popup: &Popup, placement: &Placement, view: &PopupView) -> 
             max_width,
             view,
         );
-        let panel = render_documentation(&documentation, popup.hints, room, view).w(width);
+        let code_chars = chip_chars(width - px(DOCUMENTATION_INSETS.panel), view);
+        let panel =
+            render_documentation(&documentation, popup.hints, room, code_chars, view).w(width);
         (width, panel.into_any_element())
     });
     let (left, children) = match documentation {
@@ -664,6 +692,7 @@ fn render_documentation(
     documentation: &Documentation,
     hints: &'static [(&'static str, &'static str)],
     room: Pixels,
+    code_chars: usize,
     view: &PopupView,
 ) -> Div {
     let title = [documentation.container.as_str(), &documentation.kind]
@@ -694,7 +723,13 @@ fn render_documentation(
             )
         })
         .when(!documentation.is_empty(), |panel| {
-            panel.child(render_body(signature, &documentation.blocks, 8.0, view))
+            panel.child(render_body(
+                signature,
+                &documentation.blocks,
+                8.0,
+                code_chars,
+                view,
+            ))
         })
         .when(!hints.is_empty(), |panel| panel.child(render_hints(hints)))
 }
@@ -763,6 +798,7 @@ fn render_body(
     signature: Option<AnyElement>,
     blocks: &[DocBlock],
     gap: f32,
+    code_chars: usize,
     view: &PopupView,
 ) -> Stateful<Div> {
     let mut sections: Vec<AnyElement> = signature.into_iter().collect();
@@ -778,10 +814,10 @@ fn render_body(
                 .children(
                     blocks
                         .next_if(|(_, next)| !matches!(next, DocBlock::Heading(_)))
-                        .map(|(index, next)| render_block(index, next, view)),
+                        .map(|(index, next)| render_block(index, next, code_chars, view)),
                 )
                 .into_any_element(),
-            block => render_block(index, block, view),
+            block => render_block(index, block, code_chars, view),
         };
         sections.push(section);
     }
@@ -811,17 +847,21 @@ fn render_heading(heading: &str) -> impl IntoElement {
         .child(StyledText::new(text).with_highlights(code))
 }
 
-fn render_block(index: usize, block: &DocBlock, view: &PopupView) -> AnyElement {
+/// Text that quotes code wraps a word at a time to hold its chips; other text is one run.
+fn render_block(index: usize, block: &DocBlock, code_chars: usize, view: &PopupView) -> AnyElement {
     match block {
         DocBlock::Heading(heading) => render_heading(heading).into_any_element(),
         DocBlock::Text(text) => {
-            let (text, code) = code_spans(text);
-            div()
+            let paragraph = if text.contains('`') {
+                render_text_line(text, code_chars, &DOCUMENTATION_CHIP)
+            } else {
+                div().child(text.clone())
+            };
+            paragraph
                 .flex_none()
                 .text_size(px(font::UI_SIZE))
                 .line_height(px(BODY_LINE_HEIGHT))
                 .text_color(rgb(color::fg_body()))
-                .child(StyledText::new(text).with_highlights(code))
                 .into_any_element()
         }
         DocBlock::Code(code) => code_box("documentation-code", index, code, view)
