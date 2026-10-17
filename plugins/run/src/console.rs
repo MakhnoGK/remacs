@@ -17,6 +17,10 @@ pub const CONSOLE_MODE: &str = "Run";
 /// for every line.
 const TRIM_SLACK_DIVISOR: usize = 10;
 
+/// Below this many appended bytes the text is never rebuilt to free redrawn lines: a
+/// rebuilt text takes a fresh add chunk of this size anyway.
+const COMPACT_MIN_APPENDED: usize = 64 * 1024;
+
 /// What a console buffer keeps besides its text.
 pub struct Console {
     pub session: u64,
@@ -28,6 +32,9 @@ pub struct Console {
     styles: Vec<(Range<usize>, ConsoleStyle)>,
     /// A carriage return came: the next text replaces the last line.
     redraw_line: bool,
+    /// Bytes appended since the text was last built: the add buffer keeps lines a
+    /// carriage return redrew until the text is rebuilt.
+    appended: usize,
     /// Where the `file:line` last visited by `compile-next-error` starts, like Emacs's
     /// current error.
     pub location: Option<usize>,
@@ -43,6 +50,7 @@ pub fn new_buffer(name: String, session: u64, cwd: &Path, root: &Path) -> Buffer
         parser: Parser::default(),
         styles: Vec::new(),
         redraw_line: false,
+        appended: 0,
         location: None,
     });
     buffer
@@ -56,6 +64,7 @@ pub fn clear(buffer: &mut Buffer) {
         console.parser = Parser::default();
         console.styles.clear();
         console.redraw_line = false;
+        console.appended = 0;
         console.location = None;
     }
 }
@@ -80,7 +89,9 @@ pub fn append_output(buffer: &mut Buffer, bytes: &[u8], max_lines: usize) {
             }
         }
     }
-    trim(buffer, max_lines);
+    if !trim(buffer, max_lines) {
+        compact(buffer);
+    }
 }
 
 /// Appends a line of its own, e.g. the command run, after the output so far.
@@ -129,6 +140,7 @@ fn insert(buffer: &mut Buffer, text: &str, style: ConsoleStyle) {
     let Some(console) = buffer.local_mut::<Console>() else {
         return;
     };
+    console.appended += end - start;
     if style == ConsoleStyle::default() || start == end {
         return;
     }
@@ -148,14 +160,33 @@ fn truncate(buffer: &mut Buffer, len: usize) {
     }
 }
 
-/// Drops the oldest lines once there are a tenth more than `max_lines`.
-fn trim(buffer: &mut Buffer, max_lines: usize) {
+/// Drops the oldest lines once there are a tenth more than `max_lines`; true if it did.
+fn trim(buffer: &mut Buffer, max_lines: usize) -> bool {
     let text = buffer.text();
     let line_count = text.line_count();
     if line_count <= max_lines + max_lines / TRIM_SLACK_DIVISOR {
-        return;
+        return false;
     }
     let cut = text.line_start(line_count - max_lines).unwrap_or(0);
+    rebuild(buffer, cut);
+    true
+}
+
+/// Rebuilds the text once the bytes appended to it are twice its length, freeing the
+/// lines redrawn in place, which trimming by lines never sees.
+fn compact(buffer: &mut Buffer) {
+    let len = buffer.text().len();
+    let appended = buffer
+        .local::<Console>()
+        .map_or(0, |console| console.appended);
+    if appended > COMPACT_MIN_APPENDED.max(2 * len) {
+        rebuild(buffer, 0);
+    }
+}
+
+/// Builds the text anew from `cut` on, with nothing in its add buffer.
+fn rebuild(buffer: &mut Buffer, cut: usize) {
+    let text = buffer.text();
     let kept = buffer.contents(cut..text.len());
     let point = buffer.point().saturating_sub(cut);
     buffer.replace_text(Text::from(kept.as_str()));
@@ -165,6 +196,7 @@ fn trim(buffer: &mut Buffer, max_lines: usize) {
             *range = range.start.saturating_sub(cut)..range.end.saturating_sub(cut);
             range.start < range.end
         });
+        console.appended = 0;
         console.location = console
             .location
             .and_then(|location| location.checked_sub(cut));

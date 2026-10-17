@@ -8,7 +8,7 @@ mod chooser;
 mod commands;
 mod compile;
 mod configuration;
-mod console;
+pub mod console;
 mod discovery;
 mod entry_points;
 mod launch;
