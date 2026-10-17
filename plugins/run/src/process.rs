@@ -5,10 +5,10 @@ use std::io::{self, Read, Write};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{ChildStdin, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, SyncSender};
+use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::thread;
 use std::time::Duration;
+use std::{mem, thread};
 
 use std::path::Path;
 use std::rc::Rc;
@@ -84,7 +84,9 @@ struct Control {
 enum Input {
     /// No step is running yet: kept for the next one.
     Waiting(Vec<u8>),
-    Open(ChildStdin),
+    /// To the thread writing the running step's stdin, so that a program not reading it
+    /// never holds the UI up; it hangs up once a write fails.
+    Open(Sender<Vec<u8>>),
     /// Closed by `C-d`, or the steps are over.
     Closed,
 }
@@ -154,7 +156,7 @@ impl Program for Process {
                 kept.extend_from_slice(input);
                 true
             }
-            Input::Open(stdin) => stdin.write_all(input).and_then(|()| stdin.flush()).is_ok(),
+            Input::Open(writer) => writer.send(input.to_vec()).is_ok(),
             Input::Closed => false,
         };
         if !written {
@@ -243,11 +245,10 @@ fn run_step(
     *lock(&control.group) = Some(group);
     {
         let mut input = lock(&control.stdin);
-        if let (Input::Waiting(kept), Some(mut stdin)) = (&*input, child.stdin.take()) {
-            *input = match stdin.write_all(kept) {
-                Ok(()) => Input::Open(stdin),
-                Err(_) => Input::Closed,
-            };
+        if let (Input::Waiting(kept), Some(stdin)) = (&mut *input, child.stdin.take()) {
+            let writer = write_in_background(stdin, send.clone(), Arc::clone(notifier));
+            let _ = writer.send(mem::take(kept));
+            *input = Input::Open(writer);
         }
     }
     if control.stopping.load(Ordering::Relaxed) {
@@ -269,4 +270,93 @@ fn run_step(
     *lock(&control.group) = None;
     *lock(&control.stdin) = Input::default();
     Ok(Exit::of(status))
+}
+
+/// Writes what is sent to `stdin` until the sender is dropped, which closes it, or a
+/// write fails: the console then says so, as the line it echoed never arrived.
+fn write_in_background(
+    mut stdin: ChildStdin,
+    send: SyncSender<Event>,
+    notifier: Notifier,
+) -> Sender<Vec<u8>> {
+    let (writer, typed) = mpsc::channel::<Vec<u8>>();
+    thread::Builder::new()
+        .name("run-input".into())
+        .spawn(move || {
+            let failed = typed.iter().any(|input| {
+                stdin
+                    .write_all(&input)
+                    .and_then(|()| stdin.flush())
+                    .is_err()
+            });
+            // Hung up first, so that input typed after the message is refused.
+            drop(typed);
+            if failed {
+                let message = b"The program does not read its input\n".to_vec();
+                let _ = send.send(Event::Output(message));
+                notifier();
+            }
+        })
+        .expect("spawning a process input thread");
+    writer
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Instant;
+
+    use super::*;
+
+    /// `command` run by `sh`, its input open.
+    fn started(command: &str) -> Process {
+        let process = Process::start(
+            Launch {
+                program: "/bin/sh".into(),
+                args: vec!["-c".into(), command.into()],
+                cwd: std::env::temp_dir(),
+                env: Vec::new(),
+                before: Vec::new(),
+                shown: None,
+            },
+            16,
+            Arc::new(|| {}),
+        );
+        while !matches!(*lock(&process.control.stdin), Input::Open(_)) {
+            thread::sleep(Duration::from_millis(1));
+        }
+        process
+    }
+
+    #[test]
+    fn input_a_program_does_not_read_leaves_the_console_free() {
+        let process = started("sleep 10");
+        let started = Instant::now();
+        // Far past the pipe's 64 KB, which `sleep` never reads.
+        assert!(process.write_input(&vec![b'x'; 1 << 20]));
+        let took = started.elapsed();
+        process.stop(Duration::ZERO);
+        assert!(took < Duration::from_millis(10), "{took:?}");
+    }
+
+    #[test]
+    fn input_to_a_closed_input_is_said_lost() {
+        let process = started("exec 0<&-; echo closed; sleep 10");
+        let started = Instant::now();
+        let mut output = Vec::new();
+        let mut sent = false;
+        while !output.ends_with(b"does not read its input\n") {
+            if !sent && output.ends_with(b"closed\n") {
+                // Accepted, as the write happens later; the console then hears it failed.
+                assert!(process.write_input(b"lost\n"));
+                sent = true;
+            }
+            assert!(started.elapsed() < Duration::from_secs(5), "{output:?}");
+            match process.try_event() {
+                Some(Event::Output(bytes)) => output.extend(bytes),
+                _ => thread::sleep(Duration::from_millis(1)),
+            }
+        }
+        assert!(!process.write_input(b"more\n"));
+        process.stop(Duration::ZERO);
+    }
 }
