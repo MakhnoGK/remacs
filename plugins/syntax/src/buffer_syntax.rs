@@ -6,40 +6,63 @@ use remacs_core::{Buffer, Editor, Span, SyntaxContext};
 use remacs_text::{Edit, Snapshot};
 use tree_sitter::{InputEdit, Point, Tree};
 
-use crate::Grammar;
 use crate::highlighter::Highlighter;
-use crate::parser_thread::{ParseSlot, ParserThread, Request};
+use crate::parser_thread::{Layer, ParseSlot, ParserThread, Request};
+use crate::{Grammar, Injections};
 
 /// Larger texts stay unparsed: a full parse would take seconds and its tree hundreds of MiB.
 const MAX_PARSED_BYTES: usize = 16 << 20;
 
-/// A buffer's syntax tree. Edits are applied to it as they happen, so its positions match
-/// the text at once; the parser thread then replaces it with a fresh parse.
+/// A buffer's syntax trees: its own and those of the languages injected into it. Edits
+/// are applied to them as they happen, so their positions match the text at once; the
+/// parser thread then replaces them with a fresh parse.
 struct BufferSyntax {
     grammar: &'static Grammar,
-    /// The text `tree` matches.
+    grammars: &'static [Grammar],
+    injections: Option<&'static Injections>,
+    /// The text the trees match.
     snapshot: Snapshot,
     tree: Option<Tree>,
     highlighter: Option<Arc<Highlighter>>,
+    layers: Vec<Layer>,
+    /// The text the layers were found in.
+    layers_snapshot: Option<Snapshot>,
     slot: ParseSlot,
 }
 
 impl BufferSyntax {
-    fn new(grammar: &'static Grammar, snapshot: Snapshot) -> Self {
+    fn new(
+        grammar: &'static Grammar,
+        grammars: &'static [Grammar],
+        injections: Option<&'static Injections>,
+        snapshot: Snapshot,
+    ) -> Self {
         Self {
             grammar,
+            grammars,
+            injections,
             snapshot,
             tree: None,
             highlighter: None,
+            layers: Vec::new(),
+            layers_snapshot: None,
             slot: ParseSlot::default(),
         }
     }
 
     fn request(&self) -> Request {
+        let edited = self.layers_snapshot.as_ref().and_then(|layers_snapshot| {
+            let edit = self.snapshot.edit_from(layers_snapshot)?;
+            Some(edit.start..edit.new_end)
+        });
         Request {
             grammar: self.grammar,
+            grammars: self.grammars,
+            injections: self.injections,
             snapshot: self.snapshot.clone(),
             tree: self.tree.clone(),
+            layers: self.layers.clone(),
+            edited,
             slot: Arc::clone(&self.slot),
         }
     }
@@ -48,12 +71,19 @@ impl BufferSyntax {
     /// when the text changed and needs parsing again.
     fn update(&mut self, text: Snapshot) -> Option<Request> {
         self.take_parse();
-        let edit = text.edit_from(&self.snapshot);
-        if let (Some(edit), Some(tree)) = (edit, &mut self.tree) {
-            tree.edit(&input_edit(edit, &self.snapshot, &text));
-        }
+        let edit = text.edit_from(&self.snapshot)?;
+        self.edit(&input_edit(edit, &self.snapshot, &text));
         self.snapshot = text;
-        edit.map(|_| self.request())
+        Some(self.request())
+    }
+
+    fn edit(&mut self, edit: &InputEdit) {
+        if let Some(tree) = &mut self.tree {
+            tree.edit(edit);
+        }
+        for layer in &mut self.layers {
+            layer.edit(edit);
+        }
     }
 
     fn take_parse(&mut self) {
@@ -65,17 +95,22 @@ impl BufferSyntax {
         else {
             return;
         };
-        let mut tree = parse.tree;
-        if let Some(edit) = self.snapshot.edit_from(&parse.snapshot) {
-            tree.edit(&input_edit(edit, &parse.snapshot, &self.snapshot));
-        }
-        self.tree = Some(tree);
+        self.tree = Some(parse.tree);
         self.highlighter = parse.highlighter;
+        self.layers = parse.layers;
+        if let Some(edit) = self.snapshot.edit_from(&parse.snapshot) {
+            self.edit(&input_edit(edit, &parse.snapshot, &self.snapshot));
+        }
+        self.layers_snapshot = Some(parse.snapshot);
     }
 }
 
-/// Keeps the window buffer's tree current; runs after every command.
-pub(crate) fn sync(editor: &mut Editor, grammars: &'static [Grammar]) {
+/// Keeps the window buffer's trees current; runs after every command.
+pub(crate) fn sync(
+    editor: &mut Editor,
+    grammars: &'static [Grammar],
+    injections: &'static [Injections],
+) {
     let buffer = editor.window_buffer_mut();
     let grammar = grammars
         .iter()
@@ -88,7 +123,13 @@ pub(crate) fn sync(editor: &mut Editor, grammars: &'static [Grammar]) {
     let text = buffer.text().snapshot();
     let request = match buffer.local_mut::<BufferSyntax>() {
         Some(syntax) if ptr::eq(syntax.grammar, grammar) => syntax.update(text),
-        _ => Some(buffer.set_local(BufferSyntax::new(grammar, text)).request()),
+        _ => {
+            let injected = injections
+                .iter()
+                .find(|injections| injections.host == grammar.mode);
+            let syntax = BufferSyntax::new(grammar, grammars, injected, text);
+            Some(buffer.set_local(syntax).request())
+        }
     };
     if let Some(request) = request {
         let notifier = editor.notifier();
@@ -102,10 +143,23 @@ pub(crate) fn highlight(buffer: &Buffer, range: Range<usize>) -> Vec<Span> {
     let Some(syntax) = buffer.local::<BufferSyntax>() else {
         return Vec::new();
     };
-    match (&syntax.tree, &syntax.highlighter) {
-        (Some(tree), Some(highlighter)) => highlighter.spans(tree, &syntax.snapshot, range),
-        _ => Vec::new(),
+    let mut spans = match (&syntax.tree, &syntax.highlighter) {
+        (Some(tree), Some(highlighter)) => highlighter.spans(tree, &syntax.snapshot, range.clone()),
+        _ => return Vec::new(),
+    };
+    let mut injected = false;
+    for layer in &syntax.layers {
+        if let Some(highlighter) = &layer.highlighter {
+            let layer_spans = highlighter.spans(&layer.tree, &syntax.snapshot, range.clone());
+            injected |= !layer_spans.is_empty();
+            spans.extend(layer_spans);
+        }
     }
+    // The host leaves injected code unhighlighted, so the spans do not overlap.
+    if injected {
+        spans.sort_by_key(|span| span.range.start);
+    }
+    spans
 }
 
 /// The buffer's tree, while it matches the text.

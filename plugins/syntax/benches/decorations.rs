@@ -16,7 +16,7 @@ const GRAMMARS: &[Grammar] = &[Grammar {
     language: tree_sitter_rust::LANGUAGE,
     highlights: &[tree_sitter_rust::HIGHLIGHTS_QUERY],
 }];
-static SYNTAX: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS);
+static SYNTAX: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS, &[]);
 
 /// A real file of the repo, repeated to about 9 000 lines.
 const SOURCE: &str = include_str!("../../../crates/app/src/editor_view.rs");

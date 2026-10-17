@@ -2,12 +2,14 @@
 //! grammars and language servers.
 
 mod grammars;
+mod injections;
 mod modes;
 mod servers;
 
 use remacs_core::{Plugin, Registry};
 
 pub use grammars::GRAMMARS;
+pub use injections::INJECTIONS;
 pub use modes::PRETTIER_MODES;
 pub use servers::SERVERS;
 
@@ -25,8 +27,12 @@ impl Plugin for LanguagesPlugin {
 mod tests {
     use std::collections::HashSet;
     use std::path::Path;
+    use std::thread;
+    use std::time::{Duration, Instant};
 
-    use remacs_core::{Mode, Modes};
+    use remacs_core::{Buffer, Editor, Face, Mode, Modes};
+    use remacs_syntax::SyntaxPlugin;
+    use remacs_text::Text;
     use tree_sitter::{Language, Query};
 
     use super::*;
@@ -43,6 +49,74 @@ mod tests {
             Query::new(&language, &grammar.highlights.concat())
                 .unwrap_or_else(|error| panic!("{mode}: {error}"));
         }
+    }
+
+    #[test]
+    fn scripts_and_styles_in_html_are_highlighted_as_their_languages() {
+        static SYNTAX: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS, INJECTIONS);
+        let page = "<style>a { color: red; }</style>\n\
+                    <script>let a = 1;</script>\n\
+                    <script type=\"module\">export const b = 2;</script>\n\
+                    <script lang=\"ts\">interface Card { id: number }</script>\n\
+                    <script type=\"application/json\">{\"on\": true}</script>\n\
+                    <script type=\"text/template\">let c = 3;</script>\n";
+        let mut editor = Editor::new(&[&SYNTAX]);
+        editor.add_buffer(Buffer::new("page.html", Text::from(page), "HTML"));
+        let faces = |editor: &Editor| -> Vec<(String, Face)> {
+            let buffer = editor.window_buffer();
+            let spans = editor.decorations(0..buffer.text().len()).concat();
+            spans
+                .into_iter()
+                .map(|span| (buffer.contents(span.range), span.face))
+                .collect()
+        };
+        let wait_for = |editor: &mut Editor, shows: (&str, Face), shown: bool| {
+            let start = Instant::now();
+            while faces(editor).contains(&(shows.0.into(), shows.1)) != shown {
+                assert!(
+                    start.elapsed() < Duration::from_secs(5),
+                    "{shows:?}: {:?}",
+                    faces(editor)
+                );
+                thread::sleep(Duration::from_millis(5));
+                editor.refresh();
+            }
+            faces(editor)
+        };
+        let shown = wait_for(&mut editor, ("true", Face::Constant), true);
+        for expected in [
+            ("a", Face::Function),
+            ("let", Face::Keyword),
+            ("export", Face::Keyword),
+            ("interface", Face::Keyword),
+            ("number", Face::Type),
+            ("\"on\"", Face::String),
+        ] {
+            assert!(
+                shown.contains(&(expected.0.into(), expected.1)),
+                "{expected:?} in {shown:?}"
+            );
+        }
+        // The template stays text.
+        assert!(!shown.contains(&("3".into(), Face::Constant)), "{shown:?}");
+
+        // Its type changed, it is a script; another style shows; a script deleted goes.
+        let template = page.find("text/template").unwrap();
+        let buffer = editor.window_buffer_mut();
+        buffer.delete(template..template + "text/template".len());
+        buffer.set_point(template);
+        buffer.insert("module");
+        wait_for(&mut editor, ("3", Face::Constant), true);
+        let end = editor.window_buffer().text().len();
+        editor.window_buffer_mut().set_point(end);
+        editor
+            .window_buffer_mut()
+            .insert("<style>late { }</style>\n");
+        wait_for(&mut editor, ("late", Face::Function), true);
+        let json = page.find("<script type=\"application/json\">").unwrap();
+        let json_end = page[json..].find('\n').unwrap() + json;
+        editor.window_buffer_mut().delete(json..json_end);
+        wait_for(&mut editor, ("true", Face::Constant), false);
     }
 
     #[test]

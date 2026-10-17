@@ -141,7 +141,7 @@ fn flatten(
 }
 
 /// Lets query predicates (`#match?`, `#eq?`) read node text straight from the pieces.
-struct Chunks<'a>(&'a Snapshot);
+pub(crate) struct Chunks<'a>(pub &'a Snapshot);
 
 impl<'a> TextProvider<&'a [u8]> for Chunks<'a> {
     type I = std::vec::IntoIter<&'a [u8]>;

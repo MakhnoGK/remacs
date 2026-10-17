@@ -23,7 +23,11 @@ const GRAMMARS: &[Grammar] = &[
         highlights: &[tree_sitter_html::HIGHLIGHTS_QUERY],
     },
 ];
-static SYNTAX: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS);
+const INJECTIONS: &[Injections] = &[Injections {
+    host: "HTML",
+    query: tree_sitter_html::INJECTIONS_QUERY,
+}];
+static SYNTAX: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS, INJECTIONS);
 
 fn rust_editor(source: &str) -> Editor {
     let mut editor = Editor::new(&[&SYNTAX]);
@@ -84,6 +88,37 @@ fn edits_shift_highlights_before_the_reparse() {
     editor.window_buffer_mut().undo();
     editor.refresh();
     assert_eq!(faces(&editor)[1], ("main".into(), Face::Function));
+}
+
+#[test]
+fn scripts_in_html_are_highlighted_as_javascript_and_follow_edits() {
+    let mut editor = Editor::new(&[&SYNTAX]);
+    let page = "<p>a</p>\n<script>\nlet n = 1;\n</script>\n<script>let m = 2;</script>\n";
+    editor.add_buffer(Buffer::new("page.html", Text::from(page), "HTML"));
+    let shown = wait_for(&mut editor, ("let", Face::Keyword));
+    let scripts: Vec<_> = shown
+        .iter()
+        .filter(|(_, face)| matches!(face, Face::Keyword | Face::Constant))
+        .map(|(text, face)| (text.as_str(), *face))
+        .collect();
+    assert_eq!(
+        scripts,
+        [
+            ("let", Face::Keyword),
+            ("1", Face::Constant),
+            ("let", Face::Keyword),
+            ("2", Face::Constant),
+        ]
+    );
+    assert!(shown.contains(&("p".into(), Face::Function)));
+
+    let second = page.rfind("let").unwrap();
+    editor.window_buffer_mut().set_point(second);
+    editor.window_buffer_mut().insert("const k = true; ");
+    wait_for(&mut editor, ("const", Face::Keyword));
+    let shown = faces(&editor);
+    assert!(shown.contains(&("true".into(), Face::Constant)));
+    assert!(shown.contains(&("2".into(), Face::Constant)));
 }
 
 #[test]

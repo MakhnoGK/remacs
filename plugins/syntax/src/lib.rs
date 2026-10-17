@@ -41,22 +41,35 @@ pub struct Grammar {
     pub highlights: &'static [&'static str],
 }
 
+/// Where a host mode's text holds code of other languages, e.g. scripts in HTML: each
+/// `@injection.content` capture of `query` is parsed with the grammar whose mode is the
+/// pattern's `#set! injection.language`, ignoring case. All the ranges of one language
+/// make one tree.
+pub struct Injections {
+    pub host: &'static str,
+    pub query: &'static str,
+}
+
 pub struct SyntaxPlugin {
     grammars: &'static [Grammar],
+    injections: &'static [Injections],
 }
 
 impl SyntaxPlugin {
-    pub const fn new(grammars: &'static [Grammar]) -> Self {
-        Self { grammars }
+    pub const fn new(grammars: &'static [Grammar], injections: &'static [Injections]) -> Self {
+        Self {
+            grammars,
+            injections,
+        }
     }
 }
 
 impl Plugin for SyntaxPlugin {
     fn register(&self, registry: &mut Registry) {
-        let grammars = self.grammars;
-        registry
-            .post_command_hooks
-            .push(Rc::new(move |editor| buffer_syntax::sync(editor, grammars)));
+        let (grammars, injections) = (self.grammars, self.injections);
+        registry.post_command_hooks.push(Rc::new(move |editor| {
+            buffer_syntax::sync(editor, grammars, injections)
+        }));
         registry.decorators.push(Rc::new(buffer_syntax::highlight));
         let matching_pairs = Rc::new(Cell::new(SyntaxSettings::default().matching_pairs));
         registry.settings_hooks.push(Rc::new({

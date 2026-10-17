@@ -28,5 +28,5 @@ Status: accepted, 2026-10-04 (M4, step 1)
 
 ## Open
 
-- Injections (`<script>`/`<style>` in HTML, JS template strings) are not highlighted.
+- Injections: `<script>`/`<style>` in HTML since ADR 0068; JS template strings not yet.
 - `#is-not? local` predicates are ignored (no locals tracking).
