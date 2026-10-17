@@ -37,7 +37,7 @@ mod tests {
     use tree_sitter::{Language, Query};
 
     use super::*;
-    use crate::modes::MODES;
+    use crate::modes::{JAVASCRIPT, MODES, PYTHON, RUBY, RUST, TYPESCRIPT};
 
     #[test]
     fn every_mode_has_a_grammar_whose_queries_compile() {
@@ -156,6 +156,53 @@ mod tests {
         let json_end = page[json..].find('\n').unwrap() + json;
         editor.window_buffer_mut().delete(json..json_end);
         wait_for(&mut editor, ("true", Face::Constant), false);
+    }
+
+    /// The faces of `source` in `mode` once parsed, merged by face.
+    fn highlighted(mode: &'static str, source: &str) -> Vec<(String, Face)> {
+        static SYNTAX: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS, INJECTIONS);
+        let mut editor = Editor::new(&[&SYNTAX]);
+        editor.add_buffer(Buffer::new("code", Text::from(source), mode));
+        let start = Instant::now();
+        loop {
+            editor.refresh();
+            let buffer = editor.window_buffer();
+            let spans = editor.decorations(0..buffer.text().len()).concat();
+            if !spans.is_empty() {
+                return spans
+                    .into_iter()
+                    .map(|span| (buffer.contents(span.range), span.face))
+                    .collect();
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(5),
+                "{mode} never parsed"
+            );
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn interpolations_are_code_rather_than_string() {
+        let cases = [
+            (JAVASCRIPT, "let s = `hi ${name}!`;\n", ["`hi ", "!`"]),
+            (TYPESCRIPT, "let s = `hi ${name}!`;\n", ["`hi ", "!`"]),
+            (PYTHON, "s = f\"hi {name}!\"\n", ["f\"hi ", "!\""]),
+            (RUBY, "s = \"hi #{name}!\"\n", ["\"hi ", "!\""]),
+            (
+                RUST,
+                "fn f() { println!(\"hi {name}!\"); }\n",
+                ["\"hi ", "!\""],
+            ),
+        ];
+        for (mode, source, strings) in cases {
+            let faces = highlighted(mode, source);
+            let shown: Vec<_> = (faces.iter())
+                .filter(|(_, face)| *face == Face::String)
+                .map(|(text, _)| text.as_str())
+                .collect();
+            assert_eq!(shown, strings, "{mode}: {faces:?}");
+        }
     }
 
     #[test]

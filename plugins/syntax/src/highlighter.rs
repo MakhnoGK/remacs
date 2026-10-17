@@ -46,21 +46,44 @@ const FACES: &[(&str, Face)] = &[
     ("markup.link", Face::Constant),
 ];
 
-/// A compiled highlight query and the face of each of its captures.
+/// Code interpolated into strings (`${…}`, `#{…}`, f-strings' `{…}`) is captured so,
+/// and drawn in the default color rather than the string's.
+const CODE_CAPTURES: &[&str] = &["embedded", "none"];
+
+/// Strings whose `{…}` placeholders hold code, like Rust's format strings.
+const FORMAT_STRING_CAPTURE: &str = "string.format";
+
+/// How a capture draws its node.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Paint {
+    /// In the face of the node around it.
+    Inherit,
+    /// In the default color, whatever is around it.
+    Plain,
+    Face(Face),
+}
+
+/// A compiled highlight query and how each of its captures is drawn.
 pub(crate) struct Highlighter {
     query: Query,
-    faces: Vec<Option<Face>>,
+    paints: Vec<Paint>,
+    format_string: Option<u32>,
 }
 
 impl Highlighter {
     pub fn new(language: &Language, queries: &[&str]) -> Result<Self, QueryError> {
         let query = Query::new(language, &queries.concat())?;
-        let faces = query
+        let paints = query
             .capture_names()
             .iter()
-            .map(|name| face_for(name))
+            .map(|name| paint_for(name))
             .collect();
-        Ok(Self { query, faces })
+        let format_string = query.capture_index_for_name(FORMAT_STRING_CAPTURE);
+        Ok(Self {
+            query,
+            paints,
+            format_string,
+        })
     }
 
     /// Faces for `range`, sorted and non-overlapping. As in tree-sitter-highlight, a node
@@ -70,11 +93,18 @@ impl Highlighter {
         let mut cursor = QueryCursor::new();
         cursor.set_byte_range(range.clone());
         let mut matches = cursor.captures(&self.query, tree.root_node(), Chunks(text));
-        let mut captures: Vec<(Range<usize>, usize, Option<Face>)> = Vec::new();
+        let mut captures: Vec<(Range<usize>, usize, Paint)> = Vec::new();
         while let Some((matched, index)) = matches.next() {
             let capture = matched.captures()[*index];
-            let face = self.faces[capture.index as usize];
-            captures.push((capture.node.byte_range(), matched.pattern_index, face));
+            let (node, pattern) = (capture.node.byte_range(), matched.pattern_index);
+            if Some(capture.index) == self.format_string {
+                let start = node.start;
+                captures.extend(
+                    placeholders(&text.bytes_in(node.clone()))
+                        .map(|held| (start + held.start..start + held.end, pattern, Paint::Plain)),
+                );
+            }
+            captures.push((node, pattern, self.paints[capture.index as usize]));
         }
         captures.sort_by_key(|(range, pattern, _)| (range.start, Reverse(range.end), *pattern));
         captures.dedup_by(|later, earlier| {
@@ -100,12 +130,36 @@ fn face_for(capture_name: &str) -> Option<Face> {
     })
 }
 
-/// Turns nested ranges, outer ones first, into flat spans within `bounds`; a range
-/// without a face shows the face of the range around it.
-fn flatten(
-    nested: impl Iterator<Item = (Range<usize>, Option<Face>)>,
-    bounds: Range<usize>,
-) -> Vec<Span> {
+fn paint_for(capture_name: &str) -> Paint {
+    if CODE_CAPTURES.contains(&capture_name) {
+        return Paint::Plain;
+    }
+    face_for(capture_name).map_or(Paint::Inherit, Paint::Face)
+}
+
+/// The `{…}` placeholders of a format string, `{{` and `}}` being literal braces.
+fn placeholders(string: &[u8]) -> impl Iterator<Item = Range<usize>> {
+    let mut offset = 0;
+    std::iter::from_fn(move || {
+        loop {
+            let open = offset
+                + string
+                    .get(offset..)?
+                    .iter()
+                    .position(|&byte| byte == b'{')?;
+            if string.get(open + 1) == Some(&b'{') {
+                offset = open + 2;
+                continue;
+            }
+            let close = open + string[open..].iter().position(|&byte| byte == b'}')?;
+            offset = close + 1;
+            return Some(open..offset);
+        }
+    })
+}
+
+/// Turns nested ranges, outer ones first, into flat spans within `bounds`.
+fn flatten(nested: impl Iterator<Item = (Range<usize>, Paint)>, bounds: Range<usize>) -> Vec<Span> {
     let mut spans: Vec<Span> = Vec::new();
     let mut emit = |range: Range<usize>, face: Option<Face>| {
         let range = range.start.max(bounds.start)..range.end.min(bounds.end);
@@ -122,7 +176,7 @@ fn flatten(
     // Ends and faces of the ranges around the position, innermost last.
     let mut open: Vec<(usize, Option<Face>)> = Vec::new();
     let mut position = bounds.start;
-    for (range, face) in nested {
+    for (range, paint) in nested {
         while let Some(&(end, outer_face)) = open.last().filter(|(end, _)| *end <= range.start) {
             emit(position..end, outer_face);
             position = position.max(end);
@@ -131,7 +185,12 @@ fn flatten(
         let outer_face = open.last().and_then(|&(_, face)| face);
         emit(position..range.start, outer_face);
         position = position.max(range.start);
-        open.push((range.end, face.or(outer_face)));
+        let face = match paint {
+            Paint::Inherit => outer_face,
+            Paint::Plain => None,
+            Paint::Face(face) => Some(face),
+        };
+        open.push((range.end, face));
     }
     while let Some((end, face)) = open.pop() {
         emit(position..end, face);
@@ -170,10 +229,12 @@ mod tests {
     #[test]
     fn inner_ranges_draw_over_outer_ones() {
         let nested = [
-            (0..10, Some(Face::String)),
-            (2..4, Some(Face::Constant)),
-            (5..6, None),
-            (12..14, Some(Face::Keyword)),
+            (0..10, Paint::Face(Face::String)),
+            (2..4, Paint::Face(Face::Constant)),
+            (5..6, Paint::Inherit),
+            (7..9, Paint::Plain),
+            (7..8, Paint::Inherit),
+            (12..14, Paint::Face(Face::Keyword)),
         ];
         let spans: Vec<_> = flatten(nested.into_iter(), 1..13)
             .into_iter()
@@ -184,9 +245,16 @@ mod tests {
             [
                 (1..2, Face::String),
                 (2..4, Face::Constant),
-                (4..10, Face::String),
+                (4..7, Face::String),
+                (9..10, Face::String),
                 (12..13, Face::Keyword),
             ]
         );
+    }
+
+    #[test]
+    fn placeholders_skip_escaped_braces() {
+        let found: Vec<_> = placeholders(br#""{{a}} {b} {0:>8} {}" {"#).collect();
+        assert_eq!(found, [7..10, 11..17, 18..20]);
     }
 }
