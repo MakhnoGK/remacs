@@ -16,6 +16,7 @@ serde.workspace = true
 trash.workspace = true
 
 [dev-dependencies]
+dhat.workspace = true
 remacs-dired.workspace = true
 remacs-editing.workspace = true
 remacs-files.workspace = true

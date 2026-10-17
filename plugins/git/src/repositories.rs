@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use remacs_core::Editor;
 
@@ -17,8 +18,9 @@ pub struct Repositories {
 
 pub struct Repository {
     pub monitor: Monitor,
-    /// `None` until first read.
-    pub snapshot: Option<Snapshot>,
+    /// `None` until first read. Shared with the views drawing it, as its diffs can be
+    /// megabytes.
+    pub snapshot: Option<Arc<Snapshot>>,
     /// Counts the snapshots read, so views know when to redraw.
     pub generation: u64,
     wants: Wants,
@@ -84,8 +86,8 @@ pub fn track(editor: &mut Editor) {
         for update in repository.monitor.updates() {
             match update {
                 Update::Status(mut snapshot) => {
-                    carry_resolved(repository.snapshot.as_ref(), &mut snapshot);
-                    repository.snapshot = Some(*snapshot);
+                    carry_resolved(repository.snapshot.as_deref(), &mut snapshot);
+                    repository.snapshot = Some(Arc::new(*snapshot));
                     repository.generation += 1;
                 }
                 Update::Failed(message) => said = Some((message, true)),

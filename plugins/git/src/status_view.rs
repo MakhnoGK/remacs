@@ -351,28 +351,23 @@ pub fn wants(editor: &Editor) -> HashMap<PathBuf, Wants> {
     wants
 }
 
-/// Draws the status buffers whose trees were read again or whose folds changed. Runs
-/// after every command.
+/// Draws the window's status buffer if its tree was read again or its folds changed;
+/// a hidden one waits until it is shown. Runs after every command.
 pub fn sync(editor: &mut Editor) {
-    let Some(repositories) = editor.find_plugin_state::<Repositories>() else {
+    let Some(view) = editor.window_buffer().local::<StatusView>() else {
         return;
     };
-    let mut stale: Vec<(usize, u64, Snapshot)> = Vec::new();
-    for (index, buffer) in editor.buffers().iter().enumerate() {
-        let Some(view) = buffer.local::<StatusView>() else {
-            continue;
-        };
-        let Some(repository) = repositories.get(&view.root) else {
-            continue;
-        };
-        if let Some(snapshot) = &repository.snapshot
-            && view.drawn != Some(repository.generation)
-        {
-            stale.push((index, repository.generation, snapshot.clone()));
-        }
-    }
-    for (index, generation, snapshot) in stale {
-        draw(&mut editor.buffers_mut()[index], &snapshot, generation);
+    let Some(repository) = editor
+        .find_plugin_state::<Repositories>()
+        .and_then(|repositories| repositories.get(&view.root))
+    else {
+        return;
+    };
+    if let Some(snapshot) = repository.snapshot.clone()
+        && view.drawn != Some(repository.generation)
+    {
+        let generation = repository.generation;
+        draw(editor.window_buffer_mut(), &snapshot, generation);
     }
 }
 
@@ -567,7 +562,7 @@ pub fn outline(editor: &Editor, range: Range<usize>) -> Option<Outline> {
     let view = editor.window_buffer().local::<StatusView>()?;
     let snapshot = editor
         .find_plugin_state::<Repositories>()
-        .and_then(|repositories| repositories.get(&view.root)?.snapshot.as_ref());
+        .and_then(|repositories| repositories.get(&view.root)?.snapshot.as_deref());
     let rows = match snapshot {
         Some(snapshot) => view
             .lines
@@ -902,5 +897,5 @@ fn window_snapshot(editor: &Editor) -> Option<&Snapshot> {
         .find_plugin_state::<Repositories>()?
         .get(&view.root)?
         .snapshot
-        .as_ref()
+        .as_deref()
 }

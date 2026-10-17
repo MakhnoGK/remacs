@@ -1,5 +1,6 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use remacs_core::{Buffer, CommandResult, Dialog, Editor, Icon, ListItem};
 use remacs_text::Text;
@@ -345,7 +346,7 @@ fn view_root(editor: &Editor) -> Result<(PathBuf, usize), &'static str> {
 }
 
 /// The working tree, its status as shown and what the line at point stands for.
-fn at_point(editor: &Editor) -> Result<(PathBuf, Snapshot, Line), &'static str> {
+fn at_point(editor: &Editor) -> Result<(PathBuf, Arc<Snapshot>, Line), &'static str> {
     let (root, snapshot) = shown_status(editor)?;
     let point_line = editor.window_buffer().point_line();
     let view = editor
@@ -357,7 +358,7 @@ fn at_point(editor: &Editor) -> Result<(PathBuf, Snapshot, Line), &'static str> 
 }
 
 /// The working tree of the status buffer and its status as shown.
-pub fn shown_status(editor: &Editor) -> Result<(PathBuf, Snapshot), &'static str> {
+pub fn shown_status(editor: &Editor) -> Result<(PathBuf, Arc<Snapshot>), &'static str> {
     let (root, _) = view_root(editor)?;
     let snapshot = editor
         .find_plugin_state::<Repositories>()

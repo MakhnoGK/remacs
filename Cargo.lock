@@ -4226,6 +4226,7 @@ dependencies = [
 name = "remacs-git"
 version = "0.1.0"
 dependencies = [
+ "dhat",
  "ignore",
  "imara-diff",
  "notify",
