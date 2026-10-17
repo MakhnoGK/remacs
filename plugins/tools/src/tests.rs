@@ -404,3 +404,15 @@ fn versions_are_ordered_by_their_numbers() {
             .ends_with("js-debug-dap-v1.140.0.tar.gz")
     );
 }
+
+#[test]
+fn a_command_filling_its_stderr_pipe_still_finishes() {
+    let child = Process::new("sh")
+        .args(["-c", "head -c 200000 /dev/zero >&2"])
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let not_cancelled = std::sync::atomic::AtomicBool::new(false);
+    let output = crate::install::run(child, &not_cancelled, || {}).unwrap();
+    assert_eq!(output.stderr.len(), 200_000);
+}

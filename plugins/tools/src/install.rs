@@ -5,6 +5,7 @@
 
 use std::collections::BTreeMap;
 use std::fs::{self, File};
+use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
@@ -406,23 +407,33 @@ fn download_asset(
 }
 
 /// Waits for `child`, calling `tick` meanwhile; kills it once `cancelled`.
+/// Only its stderr is collected.
 pub fn run(
     mut child: Child,
     cancelled: &AtomicBool,
     mut tick: impl FnMut(),
 ) -> Result<Output, String> {
+    // Drained while it runs: a child blocks once it fills the pipe nobody reads.
+    let stderr = child.stderr.take().map(|mut pipe| {
+        thread::spawn(move || {
+            let mut bytes = Vec::new();
+            let _ = pipe.read_to_end(&mut bytes);
+            bytes
+        })
+    });
     loop {
         if cancelled.load(Ordering::Relaxed) {
             let _ = child.kill();
             let _ = child.wait();
             return Err("cancelled".into());
         }
-        if child
-            .try_wait()
-            .map_err(|error| error.to_string())?
-            .is_some()
-        {
-            return child.wait_with_output().map_err(|error| error.to_string());
+        if let Some(status) = child.try_wait().map_err(|error| error.to_string())? {
+            let stderr = stderr.map_or_else(Vec::new, |reader| reader.join().unwrap_or_default());
+            return Ok(Output {
+                status,
+                stdout: Vec::new(),
+                stderr,
+            });
         }
         tick();
         thread::sleep(POLL_INTERVAL);
