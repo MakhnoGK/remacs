@@ -124,6 +124,8 @@ pub(crate) struct MetalRenderer {
     path_intermediate_texture: Option<metal::Texture>,
     path_intermediate_msaa_texture: Option<metal::Texture>,
     path_sample_count: u32,
+    /// `ZED_MEASUREMENTS`, which already prints each frame's CPU time: print its GPU time too.
+    measure_gpu: bool,
 }
 
 #[repr(C)]
@@ -302,6 +304,8 @@ impl MetalRenderer {
             path_intermediate_texture: None,
             path_intermediate_msaa_texture: None,
             path_sample_count: PATH_SAMPLE_COUNT,
+            measure_gpu: std::env::var("ZED_MEASUREMENTS")
+                .is_ok_and(|value| value == "1" || value == "true"),
         }
     }
 
@@ -406,11 +410,20 @@ impl MetalRenderer {
                 Ok(command_buffer) => {
                     let instance_buffer_pool = self.instance_buffer_pool.clone();
                     let instance_buffer = Cell::new(Some(instance_buffer));
-                    let block = ConcreteBlock::new(move |_| {
-                        if let Some(instance_buffer) = instance_buffer.take() {
-                            instance_buffer_pool.lock().release(instance_buffer);
-                        }
-                    });
+                    let measure_gpu = self.measure_gpu;
+                    let blurs = scene.backdrop_blurs.len();
+                    let block =
+                        ConcreteBlock::new(move |command_buffer: &metal::CommandBufferRef| {
+                            if measure_gpu {
+                                eprintln!(
+                                    "gpu frame: {:?}, {blurs} blurs",
+                                    gpu_duration(command_buffer)
+                                );
+                            }
+                            if let Some(instance_buffer) = instance_buffer.take() {
+                                instance_buffer_pool.lock().release(instance_buffer);
+                            }
+                        });
                     let block = block.copy();
                     command_buffer.add_completed_handler(&block);
 
@@ -1548,6 +1561,18 @@ fn sampled_region(
         origin: point(DevicePixels(left), DevicePixels(top)),
         size: size(DevicePixels(right - left), DevicePixels(bottom - top)),
     })
+}
+
+/// How long the GPU ran a completed command buffer.
+fn gpu_duration(command_buffer: &metal::CommandBufferRef) -> std::time::Duration {
+    // SAFETY: both are read-only properties of a live command buffer (macOS 10.15+).
+    let (start, end): (f64, f64) = unsafe {
+        (
+            msg_send![command_buffer, GPUStartTime],
+            msg_send![command_buffer, GPUEndTime],
+        )
+    };
+    std::time::Duration::from_secs_f64((end - start).max(0.0))
 }
 
 /// `MPSImageGaussianBlur`, clamping at the edges of its source so the backdrop does not darken
