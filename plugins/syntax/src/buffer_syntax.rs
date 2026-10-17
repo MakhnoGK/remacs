@@ -121,12 +121,17 @@ pub(crate) fn sync(
         return;
     };
     let text = buffer.text().snapshot();
+    let injected = injections
+        .iter()
+        .find(|injections| injections.host == grammar.mode);
     let request = match buffer.local_mut::<BufferSyntax>() {
-        Some(syntax) if ptr::eq(syntax.grammar, grammar) => syntax.update(text),
+        Some(syntax)
+            if ptr::eq(syntax.grammar, grammar)
+                && syntax.injections.map(ptr::from_ref) == injected.map(ptr::from_ref) =>
+        {
+            syntax.update(text)
+        }
         _ => {
-            let injected = injections
-                .iter()
-                .find(|injections| injections.host == grammar.mode);
             let syntax = BufferSyntax::new(grammar, grammars, injected, text);
             Some(buffer.set_local(syntax).request())
         }

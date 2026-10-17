@@ -5,8 +5,6 @@ use std::path::{Path, PathBuf};
 
 use lsp_types::Uri;
 
-use crate::embedded;
-
 /// The `file://` URI of an absolute path.
 pub(crate) fn from_path(path: &Path) -> Uri {
     let mut uri = String::from("file://");
@@ -46,7 +44,7 @@ pub(crate) fn to_path(uri: &Uri) -> Option<PathBuf> {
 /// The file a URI names: a file of embedded code is found in, for its document's.
 pub(crate) fn to_file(uri: &Uri) -> Option<PathBuf> {
     let path = to_path(uri)?;
-    Some(embedded::file_of(&path).unwrap_or(path))
+    Some(remacs_core::embedded_file(&path).unwrap_or(path))
 }
 
 #[cfg(test)]

@@ -9,7 +9,9 @@ mod color;
 mod completion;
 mod definition;
 mod document;
-mod embedded;
+/// Public for the benchmarks only.
+#[doc(hidden)]
+pub mod embedded;
 mod file_rename;
 mod hover;
 mod markdown;

@@ -1,7 +1,8 @@
 use std::fs;
 use std::path::PathBuf;
+use std::rc::Rc;
 
-use remacs_core::{Buffer, Editor, Settings, parse_sequence};
+use remacs_core::{Buffer, Editor, Embedded, Plugin, Registry, Settings, parse_sequence};
 use remacs_editing::EditingPlugin;
 use remacs_text::Text;
 
@@ -83,6 +84,62 @@ fn edits_for_a_changed_buffer_and_failures_are_not_applied() {
     let failed = Failure::Failed("prettier: Unexpected token".into());
     deliver(&mut editor, request.id, Err(failed));
     assert_eq!(editor.echo().as_deref(), Some("prettier: Unexpected token"));
+}
+
+const PAGE: &str = "<p>x</p>\n<style>a{color:red}</style>\n";
+
+/// Tells the code in `PAGE`'s `<style>`.
+struct StylePlugin;
+
+impl Plugin for StylePlugin {
+    fn register(&self, registry: &mut Registry) {
+        let style = PAGE.find("a{").unwrap()..PAGE.find("</style>").unwrap();
+        registry.embedded_probes.push(Rc::new(move |_| {
+            Some(vec![Embedded {
+                mode: "CSS",
+                ranges: vec![style.clone()],
+            }])
+        }));
+    }
+}
+
+#[test]
+fn a_region_of_embedded_code_is_its_language_s_and_its_edits_stay_in_it() {
+    let mut editor = Editor::new(&[&EditingPlugin, &FormatPlugin, &StylePlugin]);
+    let path = PathBuf::from("/project/page.html");
+    editor.add_buffer(Buffer::new("page.html", Text::from(PAGE), "HTML").with_file(path));
+    let (start, end) = (PAGE.find("a{").unwrap(), PAGE.find("</style>").unwrap());
+    let select_style = |editor: &mut Editor| {
+        let buffer = editor.window_buffer_mut();
+        buffer.set_mark(start);
+        buffer.activate_mark();
+        buffer.set_point(end);
+        press(editor, "C-c C-f");
+        take_requests(editor, |_| true).remove(0)
+    };
+
+    let request = select_style(&mut editor);
+    assert_eq!(request.mode, "CSS");
+    assert_eq!(
+        request.path,
+        PathBuf::from("/project/page.html.remacs-embedded.CSS")
+    );
+    let text = request.text.bytes_in(0..request.text.len());
+    assert_eq!(String::from_utf8(text).unwrap().trim(), "a{color:red}");
+    deliver(
+        &mut editor,
+        request.id,
+        Ok(vec![(start + 1..start + 1, " ".into())]),
+    );
+    assert!(contents(&editor).contains("<style>a {color:red}</style>"));
+
+    let request = select_style(&mut editor);
+    deliver(&mut editor, request.id, Ok(vec![(0..3, String::new())]));
+    assert!(contents(&editor).starts_with("<p>x</p>"));
+    assert_eq!(
+        editor.echo().as_deref(),
+        Some("Not formatted: the edits reach outside the embedded code")
+    );
 }
 
 /// An editor visiting a file holding `UGLY`, formatting on save turned on.

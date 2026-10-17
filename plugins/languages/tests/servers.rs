@@ -227,6 +227,10 @@ fn ask_at<T>(
     editor.visit_file(file).unwrap();
     let source = fs::read_to_string(file).unwrap();
     let point = source.find(symbol).unwrap() + 1;
+    // Until the file is parsed, code in another language is not told from the file's.
+    refresh_until(&mut editor, "parsing", |editor| {
+        editor.embedded(editor.window_buffer()).is_some()
+    });
     let started = Instant::now();
     loop {
         assert!(
@@ -727,10 +731,29 @@ fn typescript_updates_imports_of_files_moved_in_dired() {
 
 /// Formats the whole file and returns the buffer once it changed.
 fn format(file: &Path) -> String {
+    format_region(file, None)
+}
+
+/// Formats `region` of the file, all of it without one, and returns the buffer once it
+/// changed. Code of another language in the region is waited for until it is told.
+fn format_region(file: &Path, region: Option<(&str, &str)>) -> String {
     let mut editor = Editor::new(PLUGINS);
     editor.visit_file(file).unwrap();
     let source = fs::read_to_string(file).unwrap();
-    editor.run_command("format-buffer");
+    match region {
+        Some((region, mode)) => {
+            let start = source.find(region).unwrap();
+            refresh_until(&mut editor, "the embedded code", |editor| {
+                editor.language_at(editor.window_buffer(), start) == mode
+            });
+            let buffer = editor.window_buffer_mut();
+            buffer.set_mark(start);
+            buffer.activate_mark();
+            buffer.set_point(start + region.len());
+            editor.run_command("format");
+        }
+        None => editor.run_command("format-buffer"),
+    }
     let contents = |editor: &Editor| {
         let buffer = editor.window_buffer();
         buffer.contents(0..buffer.text().len())
@@ -806,10 +829,20 @@ fn prettier_formats_projects_that_use_it_with_their_config() {
             ("index.ts", "const a={b:\"c\"};\n"),
             ("broken.ts", "const = ;\n"),
             ("style.css", "a{color:red}\n"),
+            (
+                "page.html",
+                "<script>\nconst a={b:\"c\"};\n</script>\n<p>x</p>\n",
+            ),
         ],
     );
     assert_eq!(format(&root.join("index.ts")), "const a = { b: 'c' }\n");
     assert_eq!(format(&root.join("style.css")), "a {\n  color: red;\n}\n");
+    // Prettier formats no ranges of CSS, in a file of its own or not.
+    let script = format_region(&root.join("page.html"), Some(("const a", "JavaScript")));
+    assert_eq!(
+        script,
+        "<script>\nconst a = { b: 'c' }\n</script>\n<p>x</p>\n"
+    );
 
     let mut editor = Editor::new(PLUGINS);
     editor.visit_file(&root.join("broken.ts")).unwrap();
@@ -897,6 +930,39 @@ fn files_are_formatted_after_each_save_when_turned_on() {
         ],
     );
     save_formatted(&rust.join("src/main.rs"), "fn main() {}\n");
+}
+
+/// A region in `<style>` or `<script>` is formatted by its language's server, which also
+/// explains and finds the code there (#42, stage 4).
+#[test]
+#[ignore]
+fn servers_of_embedded_languages_format_and_explain_their_code() {
+    let web = project(
+        "html-embedded-format",
+        &[
+            ("package.json", "{}\n"),
+            (
+                "index.html",
+                "<style>\na{color:red}\n</style>\n<script>\nconst a={b:1}\nfunction helper() {}\nhelper();\n\"a\".toUpperCase();\n</script>\n<p>hi</p>\n",
+            ),
+        ],
+    );
+    let page = web.join("index.html");
+    let css = format_region(&page, Some(("a{color:red}", "CSS")));
+    assert!(
+        css.contains("<style>\na {\n    color: red\n}\n</style>"),
+        "{css}"
+    );
+    let script = format_region(&page, Some(("const a={b:1}", "JavaScript")));
+    assert!(
+        script.contains("<script>\nconst a = { b: 1 }\n"),
+        "{script}"
+    );
+
+    assert_eq!(documentation(&page, "toUpperCase").kind, "method");
+    let (path, line) = definition(&page, "helper();");
+    assert_eq!(path, page.canonicalize().unwrap());
+    assert_eq!(line, "function helper() {}");
 }
 
 /// Whether completion after `before` offers `wanted` within `wait`.

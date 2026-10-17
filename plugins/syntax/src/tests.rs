@@ -1,7 +1,8 @@
+use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 
-use remacs_core::{Buffer, Editor, Face, SyntaxContext};
+use remacs_core::{Buffer, Editor, Face, Settings, SyntaxContext};
 use remacs_text::Text;
 
 use super::*;
@@ -119,6 +120,26 @@ fn scripts_in_html_are_highlighted_as_javascript_and_follow_edits() {
     let shown = faces(&editor);
     assert!(shown.contains(&("true".into(), Face::Constant)));
     assert!(shown.contains(&("2".into(), Face::Constant)));
+}
+
+#[test]
+fn embedded_languages_turn_off_and_on_with_the_settings() {
+    let mut editor = Editor::new(&[&SYNTAX]);
+    let page = "<script>let n = 1;</script>\n";
+    editor.add_buffer(Buffer::new("page.html", Text::from(page), "HTML"));
+    wait_for(&mut editor, ("let", Face::Keyword));
+    let settings =
+        |text: &str| Settings::from_files([(PathBuf::from("syntax.toml"), text.to_owned())]);
+
+    editor.set_settings(settings("embedded-languages = false\n"));
+    editor.refresh();
+    wait_for(&mut editor, ("script", Face::Function));
+    assert_eq!(editor.embedded(editor.window_buffer()), Some(Vec::new()));
+    assert!(!faces(&editor).contains(&("let".into(), Face::Keyword)));
+
+    editor.set_settings(settings(""));
+    editor.refresh();
+    wait_for(&mut editor, ("let", Face::Keyword));
 }
 
 #[test]

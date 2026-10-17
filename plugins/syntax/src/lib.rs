@@ -14,17 +14,21 @@ use serde::Deserialize;
 pub use tree_sitter_language::LanguageFn;
 
 /// `syntax.toml`.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct SyntaxSettings {
     /// Whether the bracket or tag at point is highlighted with the one it pairs with.
     pub matching_pairs: bool,
+    /// Whether code of other languages in a file, like CSS in HTML's `<style>`, is parsed
+    /// as its own language, for its highlighting, comments, pairs, servers and formatting.
+    pub embedded_languages: bool,
 }
 
 impl Default for SyntaxSettings {
     fn default() -> Self {
         Self {
             matching_pairs: true,
+            embedded_languages: true,
         }
     }
 }
@@ -67,20 +71,25 @@ impl SyntaxPlugin {
 impl Plugin for SyntaxPlugin {
     fn register(&self, registry: &mut Registry) {
         let (grammars, injections) = (self.grammars, self.injections);
-        registry.post_command_hooks.push(Rc::new(move |editor| {
-            buffer_syntax::sync(editor, grammars, injections)
-        }));
-        registry.decorators.push(Rc::new(buffer_syntax::highlight));
-        let matching_pairs = Rc::new(Cell::new(SyntaxSettings::default().matching_pairs));
+        let settings = Rc::new(Cell::new(SyntaxSettings::default()));
         registry.settings_hooks.push(Rc::new({
-            let matching_pairs = Rc::clone(&matching_pairs);
+            let settings = Rc::clone(&settings);
+            move |editor| settings.set(editor.settings_section::<SyntaxSettings>())
+        }));
+        registry.post_command_hooks.push(Rc::new({
+            let settings = Rc::clone(&settings);
             move |editor| {
-                let settings = editor.settings_section::<SyntaxSettings>();
-                matching_pairs.set(settings.matching_pairs);
+                let injections = if settings.get().embedded_languages {
+                    injections
+                } else {
+                    &[]
+                };
+                buffer_syntax::sync(editor, grammars, injections)
             }
         }));
+        registry.decorators.push(Rc::new(buffer_syntax::highlight));
         registry.decorators.push(Rc::new(move |buffer, range| {
-            if matching_pairs.get() {
+            if settings.get().matching_pairs {
                 matching_pair::highlight(buffer, range)
             } else {
                 Vec::new()

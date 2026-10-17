@@ -14,6 +14,9 @@ use crate::document::{self, Clients};
 pub(crate) struct LspSettings {
     /// A project wanting a server that is nowhere is offered its download, once.
     offer_downloads: bool,
+    /// Code of other languages in a file, like CSS in HTML's `<style>`, goes to their
+    /// servers too.
+    embedded_code: bool,
     servers: BTreeMap<String, ServerSpec>,
 }
 
@@ -21,6 +24,7 @@ impl Default for LspSettings {
     fn default() -> Self {
         Self {
             offer_downloads: true,
+            embedded_code: true,
             servers: BTreeMap::new(),
         }
     }
@@ -33,6 +37,10 @@ impl Section for LspSettings {
 impl LspSettings {
     pub fn offer_downloads(&self) -> bool {
         self.offer_downloads
+    }
+
+    pub fn embedded_code(&self) -> bool {
+        self.embedded_code
     }
 }
 

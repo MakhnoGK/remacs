@@ -7,11 +7,11 @@ use lsp_types::{
     OptionalVersionedTextDocumentIdentifier, ResourceOp, TextDocumentEdit, TextEdit, Uri,
     WorkspaceEdit,
 };
-use remacs_core::{Editor, FileChange, FileEdits};
+use remacs_core::{Editor, FileChange, FileEdits, embedded_file};
 use remacs_text::{Snapshot, Text};
 
 use crate::position::{Encoding, from_lsp, text_of};
-use crate::{embedded, uri};
+use crate::uri;
 
 /// The edits per file, for edits that only change text.
 pub(crate) fn file_edits(
@@ -74,7 +74,7 @@ pub(crate) fn file_changes(
                     })
                     .collect();
                 // Offsets in embedded code's document are the file's.
-                let path = embedded::file_of(&path).unwrap_or(path);
+                let path = embedded_file(&path).unwrap_or(path);
                 FileChange::Edit(FileEdits { path, edits })
             }
             DocumentChangeOperation::Op(ResourceOp::Create(create)) => {

@@ -1,7 +1,7 @@
 # 0068 — Code of other languages inside a file
 
-Status: accepted, 2026-10-17 (issue #42, stages 1–3: highlighting, language at point,
-language servers)
+Status: accepted, 2026-10-17 (issue #42, stages 1–4: highlighting, language at point,
+language servers, formatting)
 
 ## Decision
 
@@ -67,7 +67,31 @@ decorated in 108 µs before, 132 µs now that they are highlighted.
 - Positions in an embedded document are read against the server's text (`text_of`);
   definitions, workspace edits and symbols name the file.
 
+## Formatting and switches (stage 4)
+
+- Measured first: formatting the whole page with the HTML server already formats its
+  `<style>` and `<script>`; a region inside them changed nothing.
+- **A region within one range of embedded code is that language's to format**: the
+  request names the code's document and mode and holds the blanked text, so prettier
+  infers the parser from the extension and a language server is asked about the document
+  it has (`first_server`, else the file's server, whose offsets are the same). Edits
+  that reach outside the code are refused with a message. The whole buffer stays the
+  file's formatter's.
+- Prettier formats no range of CSS, in a `.css` file or not; it formats script regions.
+- The blanking (`remacs_core::blank_outside`) and the document's name
+  (`Editor::embedded_document`, `embedded_file`) moved to the core, shared by the LSP and
+  format plugins.
+- `syntax.toml` `embedded-languages = false` parses files as their own language only,
+  which turns everything above off; `lsp.toml` `embedded-code = false` keeps the code
+  away from its servers.
+
+`cargo bench -p remacs-lsp --bench embedded` (600 KB page, 3 000 scripts): a typed
+character updates the scripts' document in 9 µs; blanking it all again, when the bounds
+found by the parse differ from the edited ones, took 453 ms with a check of every byte
+against every range, 112 µs with one pass over the ranges in order.
+
 ## Open
 
-- Stage 4: formatting of the embedded block; rename and references inside it.
+- References and signature help: #67. Rename in embedded code and questions asked
+  before the page is parsed: #68. Prettier and CSS regions: #69.
 - `style="…"`, `on…="…"` and injections inside injections: #65.

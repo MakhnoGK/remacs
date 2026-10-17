@@ -32,7 +32,7 @@ use crate::plugin::{Plugin, Registry};
 use crate::popup::Popup;
 use crate::screen::{Screen, ScreenMouse, ScreenPadding, ScreenPointer, ScreenSize};
 use crate::status::StatusSegment;
-use crate::syntax::{Embedded, SyntaxContext};
+use crate::syntax::{self, Embedded, SyntaxContext};
 use crate::table::{Action, Table};
 use crate::vc::{ChangedLines, FileStatus, VersionControl};
 use crate::viewport::Viewport;
@@ -188,6 +188,15 @@ impl Editor {
             .embedded_probes
             .iter()
             .find_map(|probe| probe(buffer))
+    }
+
+    /// The document servers and formatters are given for `file`'s code in `mode`, named
+    /// with the mode's first extension.
+    pub fn embedded_document(&self, file: &Path, mode: &'static str) -> PathBuf {
+        let extension = self
+            .mode(mode)
+            .and_then(|mode| mode.extensions.first().copied());
+        syntax::embedded_document(file, extension.unwrap_or(mode))
     }
 
     /// The mode of the language at `offset` in `buffer`: code of another language there,

@@ -33,5 +33,9 @@ remacs-minibuffer.workspace = true
 name = "position"
 harness = false
 
+[[bench]]
+name = "embedded"
+harness = false
+
 [lints]
 workspace = true

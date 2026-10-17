@@ -806,14 +806,17 @@ pub(crate) fn window_servers(editor: &Editor) -> Vec<&'static str> {
 /// The server that answers questions about `path`'s buffer, the file's URI and the text
 /// the server has.
 pub(crate) fn first_server(editor: &Editor, path: &Path) -> Option<(Rc<Client>, Uri, Snapshot)> {
-    let document = editor
+    let file = remacs_core::embedded_file(path);
+    let list = &editor
         .buffers()
         .iter()
-        .find(|buffer| buffer.path() == Some(path))?
+        .find(|buffer| buffer.path() == Some(file.as_deref().unwrap_or(path)))?
         .local::<Documents>()?
-        .list
-        .iter()
-        .find(|document| document.mirror.is_none())?;
+        .list;
+    // Without a server of its own, embedded code is the file's server's, at the same offsets.
+    let document = (list.iter())
+        .find(|document| file.is_some() && document.path == path)
+        .or_else(|| list.iter().find(|document| document.mirror.is_none()))?;
     Some((
         Rc::clone(&document.client),
         document.uri.clone(),
@@ -824,7 +827,7 @@ pub(crate) fn first_server(editor: &Editor, path: &Path) -> Option<(Rc<Client>, 
 /// The text the server of embedded code has of document `path`, whose positions refer
 /// to it rather than to the file's text.
 pub(crate) fn embedded_text(editor: &Editor, path: &Path) -> Option<Snapshot> {
-    let file = embedded::file_of(path)?;
+    let file = remacs_core::embedded_file(path)?;
     let documents = editor
         .buffers()
         .iter()
@@ -1201,6 +1204,9 @@ fn wants(editor: &Editor, index: usize, servers: &'static [LanguageServer]) -> V
             embedded: None,
         })
         .collect();
+    if clients.is_some_and(|clients| !clients.settings().embedded_code()) {
+        return wants;
+    }
     let Some(embedded) = editor.embedded(buffer) else {
         // Until its code can be told again, the documents of the code it had stay.
         let attached = buffer.local::<Documents>().map(|documents| &documents.list);
@@ -1219,9 +1225,7 @@ fn wants(editor: &Editor, index: usize, servers: &'static [LanguageServer]) -> V
         return wants;
     };
     for code in embedded {
-        let mode = editor.mode(code.mode);
-        let extension = mode.and_then(|mode| mode.extensions.first().copied());
-        let document = embedded::path(path, extension.unwrap_or(code.mode));
+        let document = editor.embedded_document(path, code.mode);
         for (server, language) in wanted(servers, clients, code.mode, &document) {
             wants.push(Want {
                 server,

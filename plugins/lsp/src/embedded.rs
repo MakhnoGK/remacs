@@ -4,28 +4,10 @@
 
 use std::collections::HashMap;
 use std::ops::Range;
-use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex, PoisonError};
 
+use remacs_core::blank_outside;
 use remacs_text::{Edit, Snapshot, Text};
-
-/// Names the document of code embedded in a file: `page.html.remacs-embedded.css`.
-const MARKER: &str = ".remacs-embedded.";
-
-/// The document of `file`'s code with `extension`, beside it.
-pub(crate) fn path(file: &Path, extension: &str) -> PathBuf {
-    let mut path = file.as_os_str().to_owned();
-    path.push(MARKER);
-    path.push(extension);
-    PathBuf::from(path)
-}
-
-/// The file whose embedded code `path` names; `None` for any other path.
-pub(crate) fn file_of(path: &Path) -> Option<PathBuf> {
-    let path = path.to_str()?;
-    let end = path.rfind(MARKER)?;
-    Some(PathBuf::from(&path[..end]))
-}
 
 /// What a server's problems with embedded code are listed under: one checker per server
 /// and language, so they do not replace the problems the server has with the file itself.
@@ -40,7 +22,7 @@ pub(crate) fn checker(server: &'static str, mode: &'static str) -> &'static str 
 }
 
 /// A buffer's text as the server of one embedded language has it.
-pub(crate) struct Mirror {
+pub struct Mirror {
     pub mode: &'static str,
     /// Where the language's code is, in the buffer's text.
     pub ranges: Vec<Range<usize>>,
@@ -51,7 +33,7 @@ pub(crate) struct Mirror {
 
 impl Mirror {
     pub fn new(mode: &'static str, buffer: Snapshot, ranges: Vec<Range<usize>>) -> Self {
-        let text = Text::from(blank(&buffer, 0..buffer.len(), &ranges).as_str());
+        let text = Text::from(blank_outside(&buffer, 0..buffer.len(), &ranges).as_str());
         Self {
             mode,
             ranges,
@@ -69,11 +51,14 @@ impl Mirror {
         match buffer.edit_from(&self.basis) {
             Some(edit) if shifted(&self.ranges, edit) == ranges => {
                 self.text.delete(edit.start..edit.old_end);
-                let inserted = blank(buffer, edit.start..edit.new_end, &ranges);
+                let inserted = blank_outside(buffer, edit.start..edit.new_end, &ranges);
                 self.text.insert(edit.start, &inserted);
             }
             None if ranges == self.ranges => {}
-            _ => self.text = Text::from(blank(buffer, 0..buffer.len(), &ranges).as_str()),
+            _ => {
+                let blanked = blank_outside(buffer, 0..buffer.len(), &ranges);
+                self.text = Text::from(blanked.as_str());
+            }
         }
         self.basis = buffer.clone();
         self.ranges = ranges;
@@ -90,21 +75,6 @@ impl Mirror {
             .iter()
             .any(|code| code.start <= range.start && range.end <= code.end)
     }
-}
-
-/// `range` of `text` with every byte outside `ranges` a space, but for line ends.
-fn blank(text: &Snapshot, range: Range<usize>, ranges: &[Range<usize>]) -> String {
-    let start = range.start;
-    let mut bytes = text.bytes_in(range);
-    for (offset, byte) in (start..).zip(&mut bytes) {
-        let kept =
-            *byte == b'\n' || *byte == b'\r' || ranges.iter().any(|code| code.contains(&offset));
-        if !kept {
-            *byte = b' ';
-        }
-    }
-    // Whole characters are kept or blanked, since the code's bounds fall between them.
-    String::from_utf8(bytes).expect("blanking keeps the text UTF-8")
 }
 
 /// `ranges` moved by `edit` as tree-sitter moves a tree's included ranges.
@@ -129,23 +99,13 @@ mod tests {
     }
 
     #[test]
-    fn the_mirror_keeps_the_code_and_the_lines_and_follows_edits() {
+    fn the_mirror_follows_edits_and_moved_code() {
         let page = "<p>é</p>\n<style>a{}</style>\n";
         let code = page.find("a{}").unwrap();
         let mut buffer = Text::from(page);
         let style = |range: Range<usize>| Vec::from([range]);
         let mut mirror = Mirror::new("CSS", buffer.snapshot(), style(code..code + 3));
-        let blanked = contents(&mirror.update(&buffer.snapshot(), style(code..code + 3)));
-        assert_eq!(blanked.len(), page.len());
-        assert_eq!(
-            blanked,
-            format!(
-                "{}\n{}a{{}}{}\n",
-                " ".repeat(9),
-                " ".repeat(7),
-                " ".repeat(8)
-            )
-        );
+        assert_eq!(contents(&mirror.text()).trim(), "a{}");
 
         buffer.insert(code + 2, "b:0");
         let typed = contents(&mirror.update(&buffer.snapshot(), style(code..code + 6)));
@@ -161,14 +121,7 @@ mod tests {
     }
 
     #[test]
-    fn embedded_documents_name_their_file() {
-        let embedded = path(Path::new("/w/page.html"), "css");
-        assert_eq!(embedded, Path::new("/w/page.html.remacs-embedded.css"));
-        assert_eq!(
-            file_of(&embedded).as_deref(),
-            Some(Path::new("/w/page.html"))
-        );
-        assert_eq!(file_of(Path::new("/w/page.html")), None);
+    fn each_server_and_language_has_its_checker() {
         assert_eq!(checker("css", "CSS"), "css (CSS)");
         assert!(std::ptr::eq(checker("css", "CSS"), checker("css", "CSS")));
     }

@@ -11,9 +11,10 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use remacs_core::{
-    Command, CommandResult, Editor, MenuItem, Plugin, Registry, Section, visiting_file,
+    Command, CommandResult, Editor, Embedded, MenuItem, Plugin, Registry, Section, blank_outside,
+    visiting_file,
 };
-use remacs_text::Snapshot;
+use remacs_text::{Snapshot, Text};
 use serde::Deserialize;
 
 pub use diff::edits;
@@ -101,7 +102,11 @@ struct State {
 }
 
 struct Asked {
-    request: Request,
+    /// The file and its text when asked: the request's, unless it is of embedded code.
+    file: PathBuf,
+    basis: Snapshot,
+    /// Where the embedded code asked about is, which the edits must stay within.
+    code: Option<Embedded>,
     /// Asked after a save, which is made again with the edits.
     after_save: bool,
 }
@@ -149,7 +154,9 @@ fn toggle_format_on_save(editor: &mut Editor) -> CommandResult {
     Ok(())
 }
 
-/// Asks to format buffer `index`, its region `range` or all of it.
+/// Asks to format buffer `index`, its region `range` or all of it. A region within code of
+/// another language, like CSS in HTML's `<style>`, is that language's to format, in the
+/// document of the code alone.
 fn ask(
     editor: &mut Editor,
     index: usize,
@@ -157,11 +164,23 @@ fn ask(
     after_save: bool,
 ) -> CommandResult {
     let buffer = &editor.buffers()[index];
-    let path = buffer
+    let file = buffer
         .path()
         .ok_or("The buffer visits no file")?
         .to_path_buf();
-    let (mode, text) = (buffer.mode(), buffer.text().snapshot());
+    let basis = buffer.text().snapshot();
+    let code = range.as_ref().and_then(|range| {
+        let embedded = editor.embedded(buffer)?;
+        embedded.into_iter().find(|code| code.holds_range(range))
+    });
+    let (path, mode, text) = match &code {
+        Some(code) => {
+            let blanked = blank_outside(&basis, 0..basis.len(), &code.ranges);
+            let path = editor.embedded_document(&file, code.mode);
+            (path, code.mode, Text::from(blanked.as_str()).snapshot())
+        }
+        None => (file.clone(), buffer.mode(), basis.clone()),
+    };
     let state = editor.plugin_state::<State>();
     state.next_id += 1;
     let request = Request {
@@ -172,7 +191,9 @@ fn ask(
         range,
     };
     let asked = Asked {
-        request: request.clone(),
+        file,
+        basis,
+        code,
         after_save,
     };
     state.pending.insert(request.id, asked);
@@ -216,7 +237,9 @@ pub fn take_requests(editor: &mut Editor, accepts: impl Fn(&Request) -> bool) ->
 /// unless the text changed since it was asked for; after a save, saves again.
 pub fn deliver(editor: &mut Editor, id: u64, formatted: Formatted) {
     let Some(Asked {
-        request,
+        file,
+        basis,
+        code,
         after_save,
     }) = editor.plugin_state::<State>().pending.remove(&id)
     else {
@@ -229,14 +252,19 @@ pub fn deliver(editor: &mut Editor, id: u64, formatted: Formatted) {
             return editor.set_error(message);
         }
     };
+    if let Some(code) = &code
+        && !edits.iter().all(|(edit, _)| code.holds_range(edit))
+    {
+        return editor.set_error("Not formatted: the edits reach outside the embedded code");
+    }
     let Some(buffer) = editor
         .buffers_mut()
         .iter_mut()
-        .find(|buffer| buffer.path() == Some(&request.path))
+        .find(|buffer| buffer.path() == Some(&file))
     else {
         return;
     };
-    if buffer.text().snapshot().edit_from(&request.text).is_some() {
+    if buffer.text().snapshot().edit_from(&basis).is_some() {
         // Typing after a save is left alone; the next save formats it.
         if !after_save {
             editor.set_message("Not formatted: the buffer changed meanwhile");
