@@ -1,5 +1,7 @@
 //! One file's `git diff`, and patches of single hunks for `git apply`.
 
+use std::io::{self, BufRead};
+use std::mem;
 use std::path::PathBuf;
 
 use remacs_core::{FileState, LineCounts};
@@ -12,7 +14,8 @@ pub struct FileDiff {
     pub hunks: Vec<Hunk>,
     /// Git compared the file as binary, so there are no hunks.
     pub binary: bool,
-    /// The file's size, when it was too large to compare.
+    /// The file's size, when it was too large to compare; in a commit, the diff's, when
+    /// it was too large to keep.
     pub too_large: Option<u64>,
 }
 
@@ -96,7 +99,7 @@ impl FileDiff {
 }
 
 /// `840 B`, `12.5 KB`, `3.2 MB`.
-fn size(bytes: u64) -> String {
+pub fn size(bytes: u64) -> String {
     const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
     let mut value = bytes as f64;
     let mut unit = 0;
@@ -137,19 +140,72 @@ pub fn parse_diff(output: &str) -> Option<FileDiff> {
 
 /// Reads a diff of several files, Git's paths unquoted, into each file's path and diff.
 pub fn split_patch(output: &str) -> Vec<(PathBuf, FileDiff)> {
-    let mut starts: Vec<usize> = output
-        .match_indices("diff --git ")
-        .map(|(start, _)| start)
-        .filter(|&start| start == 0 || output.as_bytes()[start - 1] == b'\n')
-        .collect();
-    starts.push(output.len());
-    starts
-        .windows(2)
-        .filter_map(|bounds| {
-            let file = &output[bounds[0]..bounds[1]];
-            Some((patched_path(file)?, parse_diff(file)?))
-        })
-        .collect()
+    read_patch(&mut output.as_bytes(), u64::MAX).expect("reading from memory")
+}
+
+/// Like [`split_patch`], reading the diff as Git prints it. Files' diffs are kept up to
+/// `max_bytes` in all; a file whose diff does not fit what is left keeps its header only,
+/// the diff's size as `too_large`.
+pub fn read_patch(
+    printed: &mut dyn BufRead,
+    max_bytes: u64,
+) -> io::Result<Vec<(PathBuf, FileDiff)>> {
+    let (mut files, mut left) = (Vec::new(), max_bytes);
+    let mut file = PatchFile::default();
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        let ended = printed.read_until(b'\n', &mut line)? == 0;
+        if ended || line.starts_with(b"diff --git ") {
+            files.extend(mem::take(&mut file).finish(&mut left));
+            if ended {
+                return Ok(files);
+            }
+        }
+        file.push(&line, left);
+    }
+}
+
+/// A file of a patch as it is read.
+#[derive(Default)]
+struct PatchFile {
+    text: String,
+    /// The whole diff's, what was left out included.
+    bytes: u64,
+    /// Where the first hunk starts in `text`.
+    hunks: Option<usize>,
+    cut: bool,
+}
+
+impl PatchFile {
+    fn push(&mut self, line: &[u8], left: u64) {
+        self.bytes += line.len() as u64;
+        if self.cut {
+            return;
+        }
+        if self.hunks.is_none() && line.starts_with(b"@@") {
+            self.hunks = Some(self.text.len());
+        }
+        if let Some(hunks) = self.hunks
+            && self.bytes > left
+        {
+            self.text.truncate(hunks);
+            self.cut = true;
+            return;
+        }
+        self.text.push_str(&String::from_utf8_lossy(line));
+    }
+
+    fn finish(self, left: &mut u64) -> Option<(PathBuf, FileDiff)> {
+        let path = patched_path(&self.text)?;
+        let mut diff = parse_diff(&self.text)?;
+        if self.cut {
+            diff.too_large = Some(self.bytes);
+        } else {
+            *left = left.saturating_sub(self.bytes);
+        }
+        Some((path, diff))
+    }
 }
 
 /// The path after `+++ b/`, or `--- a/` for a deleted file; else, for a binary file, the
@@ -252,6 +308,19 @@ Binary files a/i m.png and b/i m.png differ\n"
         assert_eq!(files[1].1.hunks[0].lines, ["-x"]);
         assert!(files[2].1.binary);
         assert!(split_patch("").is_empty());
+    }
+
+    #[test]
+    fn a_file_whose_diff_does_not_fit_what_is_left_keeps_its_header_only() {
+        let small = "diff --git a/s.rs b/s.rs\n--- a/s.rs\n+++ b/s.rs\n@@ -1 +1 @@\n-a\n+b\n";
+        let patch = format!("{DIFF}{small}");
+        let files = read_patch(&mut patch.as_bytes(), small.len() as u64).unwrap();
+        let (big, kept) = (&files[0].1, &files[1].1);
+        assert_eq!(files[0].0, PathBuf::from("src/buffer.rs"));
+        assert!(big.hunks.is_empty() && big.header.ends_with("+++ b/src/buffer.rs\n"));
+        assert_eq!(big.too_large, Some(DIFF.len() as u64));
+        assert_eq!(kept.hunks[0].lines, ["-a", "+b"]);
+        assert_eq!(kept.too_large, None);
     }
 
     #[test]

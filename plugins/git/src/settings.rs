@@ -9,6 +9,8 @@ pub struct GitSettings {
     pub untracked_max_bytes: u64,
     /// Files an unfolded untracked directory lists at most.
     pub untracked_max_files: usize,
+    /// A commit's diffs kept at most; a file whose diff does not fit is summarized.
+    pub commit_max_bytes: u64,
 }
 
 impl Default for GitSettings {
@@ -16,6 +18,7 @@ impl Default for GitSettings {
         Self {
             untracked_max_bytes: 1024 * 1024,
             untracked_max_files: 500,
+            commit_max_bytes: 8 * 1024 * 1024,
         }
     }
 }

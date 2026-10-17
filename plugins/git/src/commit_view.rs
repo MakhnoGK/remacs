@@ -4,6 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::hash::Hash;
+use std::io;
 use std::ops::Range;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
@@ -16,9 +17,11 @@ use remacs_core::{
 };
 use remacs_text::Text;
 
-use crate::command::{git, output};
-use crate::diff::{FileDiff, split_patch};
+use crate::command::{git, output, read_output};
+use crate::diff::{FileDiff, read_patch, size};
 use crate::history_view::ago;
+use crate::reads;
+use crate::settings::GitSettings;
 use crate::status_view::{SHORT_ID, directory_label, hunk_row, push_diff};
 
 pub const COMMIT_MODE: &str = "Git Commit";
@@ -94,9 +97,31 @@ pub struct CommitView {
 }
 
 /// Shows commit `id` of the working tree at `root` in a buffer of its own, `file`
-/// unfolded if it is one of the commit's.
+/// unfolded if it is one of the commit's; read in the background, a large one taking
+/// seconds.
 pub fn open(editor: &mut Editor, root: &Path, id: &str, file: Option<&Path>) -> CommandResult {
-    let existing = editor
+    if switch_to_shown(editor, root, id) {
+        return Ok(());
+    }
+    let max_bytes = editor.plugin_state::<GitSettings>().commit_max_bytes;
+    let (root, id) = (root.to_path_buf(), id.to_owned());
+    let file = file.map(Path::to_path_buf);
+    let read_root = root.clone();
+    reads::spawn(
+        editor,
+        format!("Reading commit {}…", short(&id)),
+        move || read(&read_root, &id, max_bytes),
+        move |editor, commit| {
+            show(editor, &root, commit, file.as_deref());
+            Ok(())
+        },
+    );
+    Ok(())
+}
+
+/// Switches to the buffer showing commit `id` of `root`, if there is one.
+fn switch_to_shown(editor: &mut Editor, root: &Path, id: &str) -> bool {
+    let shown = editor
         .buffers()
         .iter()
         .find(|buffer| {
@@ -105,11 +130,14 @@ pub fn open(editor: &mut Editor, root: &Path, id: &str, file: Option<&Path>) -> 
                 .is_some_and(|view| view.root == root && view.commit.id == id)
         })
         .map(|buffer| buffer.name().to_owned());
-    if let Some(name) = existing {
-        editor.switch_to_buffer(&name);
-        return Ok(());
+    shown.is_some_and(|name| editor.switch_to_buffer(&name))
+}
+
+fn show(editor: &mut Editor, root: &Path, commit: Commit, file: Option<&Path>) {
+    // Opened again while it was read.
+    if switch_to_shown(editor, root, &commit.id) {
+        return;
     }
-    let commit = read(root, id)?;
     let focus = file.and_then(|file| commit.files.iter().position(|(path, _)| path == file));
     let name = format!("Commit {}", short(&commit.id));
     let mut buffer = Buffer::new(name, Text::default(), COMMIT_MODE)
@@ -129,20 +157,31 @@ pub fn open(editor: &mut Editor, root: &Path, id: &str, file: Option<&Path>) -> 
     });
     editor.add_buffer(buffer);
     editor.set_point_at(first_file.unwrap_or_default(), 0);
-    Ok(())
 }
 
-fn read(root: &Path, id: &str) -> Result<Commit, String> {
-    let printed = output(
+/// The commit, its files' diffs kept up to `max_bytes`.
+fn read(root: &Path, id: &str, max_bytes: u64) -> Result<Commit, String> {
+    let (fields, files) = read_output(
         git(root)
             .args(["-c", "core.quotePath=false", "show", FORMAT, DATE])
             .args(["--patch", "-M", "--diff-merges=first-parent"])
             .args(["--no-color", "--no-ext-diff", "--no-textconv", id, "--"]),
+        |printed| -> io::Result<_> {
+            let mut fields = Vec::with_capacity(FIELDS);
+            while fields.len() < FIELDS {
+                let mut field = Vec::new();
+                printed.read_until(b'\0', &mut field)?;
+                if field.pop() != Some(b'\0') {
+                    break;
+                }
+                fields.push(String::from_utf8_lossy(&field).into_owned());
+            }
+            Ok((fields, read_patch(printed, max_bytes)?))
+        },
     )
+    .and_then(|read| read)
     .map_err(|error| format!("git show: {error}"))?;
-    let printed = String::from_utf8_lossy(&printed);
-    let fields: Vec<&str> = printed.splitn(FIELDS + 1, '\0').collect();
-    let &[id, parents, author, time, date, message, patch] = &fields[..] else {
+    let [id, parents, author, time, date, message] = &fields[..] else {
         return Err("git show printed no commit".into());
     };
     let mut message = message.trim().lines();
@@ -159,7 +198,7 @@ fn read(root: &Path, id: &str) -> Result<Commit, String> {
         date: date.to_owned(),
         subject,
         body,
-        files: split_patch(patch),
+        files,
     })
 }
 
@@ -315,7 +354,14 @@ fn row(view: &CommitView, line: CommitLine) -> Option<OutlineRow> {
         }
         CommitLine::Diff { file, hunk, line } => hunk_row(&commit.files.get(file)?.1, hunk, line)?,
         CommitLine::NoDiff(file) => {
-            OutlineRow::Diff(DiffRow::Context(commit.files.get(file)?.1.summary()))
+            let diff = &commit.files.get(file)?.1;
+            OutlineRow::Diff(DiffRow::Context(match diff.too_large {
+                Some(bytes) => format!(
+                    "Diff of {} not shown, past git.toml commit-max-bytes",
+                    size(bytes)
+                ),
+                None => diff.summary(),
+            }))
         }
     })
 }
@@ -452,9 +498,7 @@ pub fn visit(editor: &mut Editor) -> CommandResult {
         return Err("Not in the working tree any more; o shows it as committed".into());
     }
     editor.visit_file(&path)?;
-    if let Some(line) = target {
-        editor.set_point_at(line.saturating_sub(1), 0);
-    }
+    go_to_line(editor, target);
     Ok(())
 }
 
@@ -478,30 +522,50 @@ pub fn open_file(editor: &mut Editor) -> CommandResult {
         path.file_name().unwrap_or(path.as_os_str()).display()
     );
     let path = path.clone();
-    if !editor.switch_to_buffer(&name) {
-        let mut spec = revision.into_bytes();
-        spec.push(b':');
-        spec.extend_from_slice(path.as_os_str().as_encoded_bytes());
-        let contents = output(
-            git(&root)
-                .arg("show")
-                .arg(OsStr::from_bytes(&spec))
-                .arg("--"),
-        )
-        .map_err(|error| format!("git show: {error}"))?;
-        let mode = editor.mode_for(Some(&root.join(&path)));
-        let directory = root.join(&path).parent().unwrap_or(&root).to_path_buf();
-        let buffer = Buffer::new(
-            name,
-            Text::from(String::from_utf8_lossy(&contents).as_ref()),
-            mode,
-        )
-        .with_directory(directory)
-        .read_only();
-        editor.add_buffer(buffer);
+    if editor.switch_to_buffer(&name) {
+        go_to_line(editor, target);
+        return Ok(());
     }
-    if let Some(line) = target {
+    let mut spec = revision.into_bytes();
+    spec.push(b':');
+    spec.extend_from_slice(path.as_os_str().as_encoded_bytes());
+    let read_root = root.clone();
+    reads::spawn(
+        editor,
+        format!("Reading {name}…"),
+        move || {
+            output(
+                git(&read_root)
+                    .arg("show")
+                    .arg(OsStr::from_bytes(&spec))
+                    .arg("--"),
+            )
+            .map_err(|error| format!("git show: {error}"))
+        },
+        move |editor, contents| {
+            // Opened again while it was read.
+            if !editor.switch_to_buffer(&name) {
+                let mode = editor.mode_for(Some(&root.join(&path)));
+                let directory = root.join(&path).parent().unwrap_or(&root).to_path_buf();
+                let buffer = Buffer::new(
+                    name,
+                    Text::from(String::from_utf8_lossy(&contents).as_ref()),
+                    mode,
+                )
+                .with_directory(directory)
+                .read_only();
+                editor.add_buffer(buffer);
+            }
+            go_to_line(editor, target);
+            Ok(())
+        },
+    );
+    Ok(())
+}
+
+/// Puts point at the start of `line`, from 1.
+fn go_to_line(editor: &mut Editor, line: Option<usize>) {
+    if let Some(line) = line {
         editor.set_point_at(line.saturating_sub(1), 0);
     }
-    Ok(())
 }

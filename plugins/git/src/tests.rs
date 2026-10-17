@@ -789,7 +789,7 @@ fn a_commit_of_the_history_shows_its_message_files_and_diffs() {
     assert_eq!(selected(&editor), Some(1));
     press(&mut editor, "M-p");
     press(&mut editor, "M-RET");
-    assert_eq!(editor.window_buffer().mode(), "Git Commit");
+    wait_for_commit(&mut editor);
     assert_eq!(facts(&editor)[0].split(" · ").nth(1), Some("Add new"));
     assert!(facts(&editor)[2].starts_with("Parent: ") && facts(&editor)[2].ends_with("Grow lib"));
     assert_eq!(
@@ -812,10 +812,10 @@ fn a_commit_of_the_history_shows_its_message_files_and_diffs() {
     press(&mut editor, "TAB");
     go_to_row(&mut editor, "+three");
     press(&mut editor, "o");
-    assert_eq!(
-        editor.window_buffer().name(),
-        "lib.rs @ ".to_owned() + &short_head(&repository)
-    );
+    let name = "lib.rs @ ".to_owned() + &short_head(&repository);
+    wait_until(&mut editor, "the file at the commit", |editor| {
+        editor.window_buffer().name() == name
+    });
     let text = editor.window_buffer().text().snapshot();
     assert_eq!(text.bytes_in(0..text.len()), b"one\ntwo\nthree\n");
     assert_eq!(editor.window_buffer().point_line(), 2);
@@ -849,7 +849,7 @@ fn the_log_of_a_file_shows_its_commits_and_opens_them_at_the_file() {
     assert_eq!(log.file.as_ref().unwrap().label, "lib.rs");
 
     editor.run_action(&log.commits[0].open);
-    assert_eq!(editor.window_buffer().mode(), "Git Commit");
+    wait_for_commit(&mut editor);
     assert_eq!(rows(&editor)[..2], ["v Files 1", "M ./lib.rs +1 -0"]);
     assert!(rows(&editor).contains(&"+two".to_owned()));
 
@@ -865,6 +865,12 @@ fn the_log_of_a_file_shows_its_commits_and_opens_them_at_the_file() {
     editor.run_action(&clear);
     wait_until(&mut editor, "every file's history", |editor| {
         history(editor).len() == 3
+    });
+}
+
+fn wait_for_commit(editor: &mut Editor) {
+    wait_until(editor, "the commit", |editor| {
+        editor.window_buffer().mode() == "Git Commit"
     });
 }
 

@@ -1,4 +1,4 @@
-use std::io::{self, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
@@ -19,6 +19,25 @@ pub fn git(root: &Path) -> Command {
 /// What the command prints; its first line of errors when it fails.
 pub fn output(command: &mut Command) -> io::Result<Vec<u8>> {
     finished(command.output()?)
+}
+
+/// Like [`output`], `read` taking what the command prints as it prints it, so that none
+/// of it has to be kept whole.
+pub fn read_output<T>(
+    command: &mut Command,
+    read: impl FnOnce(&mut dyn BufRead) -> T,
+) -> io::Result<T> {
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    // The reader is dropped before the wait, so a command printing past what `read` took
+    // stops instead of blocking.
+    let read = read(&mut BufReader::new(
+        child.stdout.take().expect("stdout is piped"),
+    ));
+    finished(child.wait_with_output()?)?;
+    Ok(read)
 }
 
 /// Like [`output`], with `input` written to the command.

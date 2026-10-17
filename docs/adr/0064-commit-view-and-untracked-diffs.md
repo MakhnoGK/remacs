@@ -8,10 +8,13 @@ Status: accepted, 2026-10-15 (issues #31, #33)
   outline like the status (user, 2026-10-15), like Emacs magit-revision: facts (the id and
   subject, the author and date, each parent with an Open button), the message's body under
   a Message heading, then its files, each unfolding into its diff against the first parent
-  (`git show -M --diff-merges=first-parent`). Read once when opened; one buffer per commit.
+  (`git show -M --diff-merges=first-parent`). Read once when opened, on a thread of its
+  own, the buffer showing once read (#56); one buffer per commit. Diffs are kept up to
+  `git.toml` `commit-max-bytes` in all; a file whose diff does not fit what is left says
+  its size instead, so a vendored lockfile leaves the other files' diffs shown.
 - **Keys in it**: TAB folds, S-TAB all diffs, RET visits the working-tree file at the diff
   line, `o` shows the file as the commit left it (as before it, for a file it deleted) in a
-  read-only buffer `<name> @ <id>`, `q` goes back.
+  read-only buffer `<name> @ <id>`, also read in the background, `q` goes back.
 - **The history opens commits**: a click on one, or M-RET on the selected one. M-n / M-p
   select the next older / newer commit; the app scrolls the history to keep it in sight.
 - **A file's log is the status history filtered to it** (user, 2026-10-15):

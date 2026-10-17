@@ -18,6 +18,7 @@ mod integrate;
 mod monitor;
 mod moves;
 mod operation;
+mod reads;
 mod repositories;
 mod resolve;
 mod settings;
@@ -219,6 +220,7 @@ impl Plugin for GitPlugin {
             .post_command_hooks
             .push(Rc::new(repositories::track));
         registry.post_command_hooks.push(Rc::new(status_view::sync));
+        registry.post_command_hooks.push(Rc::new(reads::pick_up));
         registry
             .post_command_hooks
             .push(Rc::new(buffer_changes::sync));
