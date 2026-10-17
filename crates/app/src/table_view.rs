@@ -162,8 +162,8 @@ fn render_bar(
         .when(!options.is_empty(), |bar| {
             bar.child(
                 div()
-                    .font_family(font::UI)
-                    .text_size(px(font::STATUS_SIZE))
+                    .font_family(font::ui())
+                    .text_size(px(font::status_size()))
                     .text_color(rgb(color::fg_faint()))
                     .child("Sort"),
             )
@@ -191,8 +191,8 @@ fn render_notice(notice: Notice) -> Div {
         .bg(rgba(color::warning() << 8 | 0x1a))
         .border_1()
         .border_color(rgba(color::warning() << 8 | 0x4d))
-        .font_family(font::UI)
-        .text_size(px(font::STATUS_SIZE))
+        .font_family(font::ui())
+        .text_size(px(font::status_size()))
         .text_color(rgb(color::fg_on_warning()))
         .child(modified_dot())
         .child(notice.label)
@@ -216,7 +216,7 @@ fn render_crumb(crumb: Button, cx: &mut Context<EditorView>) -> AnyElement {
         .rounded(px(6.0))
         .border_1()
         .border_color(rgba(0x00000000))
-        .text_size(px(font::MONO_SIZE))
+        .text_size(px(font::mono_size()))
         .text_color(rgb(color::fg_dim()))
         .when(crumb.selected, |crumb| {
             crumb
@@ -258,9 +258,9 @@ fn render_header(columns: &[Column]) -> Div {
         .gap(px(CELL_GAP))
         .h(px(HEADER_HEIGHT))
         .px(px(12.0))
-        .font_family(font::UI)
+        .font_family(font::ui())
         .font_weight(FontWeight::SEMIBOLD)
-        .text_size(px(font::SMALL_SIZE))
+        .text_size(px(font::small_size()))
         .text_color(rgb(color::fg_faint()))
         .child(div().flex_none().w(px(MARK_WIDTH)))
         .child(div().flex_none().w(px(ICON_WIDTH)))
@@ -309,10 +309,10 @@ fn render_row(
     let state = row.state;
     let cells = row.cells.into_iter().zip(columns).map(|(text, column)| {
         let (family, size, text_color) = match column.style {
-            CellStyle::Primary => (font::mono(), font::MONO_SIZE, primary_color),
-            CellStyle::Figure => (font::mono(), font::STATUS_SIZE, color::fg_dim()),
-            CellStyle::Label => (font::UI.into(), font::STATUS_SIZE, color::fg_faint()),
-            CellStyle::Faint => (font::mono(), font::STATUS_SIZE, color::fg_line_number()),
+            CellStyle::Primary => (font::mono(), font::mono_size(), primary_color),
+            CellStyle::Figure => (font::mono(), font::status_size(), color::fg_dim()),
+            CellStyle::Label => (font::ui(), font::status_size(), color::fg_faint()),
+            CellStyle::Faint => (font::mono(), font::status_size(), color::fg_line_number()),
             CellStyle::State => {
                 return state_letter(state, highlighted).w(px(column.width.unwrap_or_default()));
             }
@@ -419,7 +419,7 @@ fn render_field(
         .border_color(rgba(glass::ink(0x14)))
         .bg(rgba(glass::field()))
         .font_family(font::mono())
-        .text_size(px(font::MONO_SIZE))
+        .text_size(px(font::mono_size()))
         .text_color(rgb(text_color))
         .when(edited, |input| {
             input
@@ -442,8 +442,8 @@ fn render_field(
         .children(field.original.map(|original| {
             div()
                 .flex_none()
-                .font_family(font::UI)
-                .text_size(px(font::STATUS_SIZE))
+                .font_family(font::ui())
+                .text_size(px(font::status_size()))
                 .text_color(rgb(color::fg_faint()))
                 .child(format!("was {original}"))
         }))

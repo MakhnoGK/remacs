@@ -7,7 +7,7 @@ use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
     App, FontWeight, SharedString, TextStrokes, WeakEntity, WindowBackgroundAppearance,
-    set_family_weight, set_text_strokes,
+    set_family_weights, set_text_strokes,
 };
 use remacs_config::{Section, Settings, SettingsError, config_dir, home, themes_dir, watch};
 use remacs_core::Editor;
@@ -19,6 +19,8 @@ use crate::editor_view::EditorView;
 use crate::transition::{Side, Transition};
 
 const FONT_SIZES: RangeInclusive<f32> = 6.0..=72.0;
+/// Rows on surfaces keep their heights, which larger text would not fit.
+const UI_FONT_SIZES: RangeInclusive<f32> = 10.0..=16.0;
 const LINE_HEIGHTS: RangeInclusive<f32> = 1.0..=3.0;
 const FONT_WEIGHTS: RangeInclusive<f32> = 100.0..=900.0;
 /// Points.
@@ -85,11 +87,18 @@ pub fn read_settings() -> ReadSettings {
     remacs_theme::install(&theme);
     glass::set_window_opacity(*ui.glass.opacity.get_or_insert(theme.opacity));
     let code_font = ui.font.code_font();
-    set_family_weight(Some((
-        SharedString::from(Arc::clone(&code_font.family)),
-        FontWeight(code_font.weight),
-    )));
+    set_family_weights(vec![
+        (
+            SharedString::from(Arc::clone(&code_font.family)),
+            FontWeight(code_font.weight),
+        ),
+        (
+            SharedString::from(ui.ui_font.family.clone()),
+            FontWeight(ui.ui_font.weight.value()),
+        ),
+    ]);
     font::set_code(code_font);
+    font::set_ui(&ui.ui_font.family, ui.ui_font.size);
     set_text_strokes(ui.font.strokes.into());
     glass::set_blurs(ui.glass.blur > 0);
     cursor::set_radius(ui.cursor.radius);
@@ -173,6 +182,7 @@ pub fn watch_settings(view: WeakEntity<EditorView>, cx: &mut App) {
 pub struct UiSettings {
     pub theme: ThemeSettings,
     pub font: FontSettings,
+    pub ui_font: UiFontSettings,
     pub zoom: ZoomSettings,
     pub cursor: CursorSettings,
     pub mouse: MouseSettings,
@@ -226,6 +236,12 @@ impl Section for UiSettings {
             ));
         }
         check_range("font.weight", font.weight.value(), &FONT_WEIGHTS)?;
+        let ui_font = &self.ui_font;
+        if ui_font.family.trim().is_empty() {
+            return Err("ui-font.family is empty".to_owned());
+        }
+        check_range("ui-font.size", ui_font.size, &UI_FONT_SIZES)?;
+        check_range("ui-font.weight", ui_font.weight.value(), &FONT_WEIGHTS)?;
         let zoom = &self.zoom;
         check_range("zoom.step", zoom.step, &ZOOM_STEPS)?;
         check_range("zoom.min-size", zoom.min_size, &FONT_SIZES)?;
@@ -382,6 +398,25 @@ impl FontSettings {
             line_height: (self.size * self.line_height).round(),
             weight: self.weight.value(),
             ligatures: self.ligatures,
+        }
+    }
+}
+
+/// The font of the interface's own text: the mode line, menus, popups' prose, chips.
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct UiFontSettings {
+    pub family: String,
+    pub size: f32,
+    pub weight: Weight,
+}
+
+impl Default for UiFontSettings {
+    fn default() -> Self {
+        Self {
+            family: font::DEFAULT_UI.to_owned(),
+            size: font::DEFAULT_UI_SIZE,
+            weight: Weight::default(),
         }
     }
 }
@@ -834,6 +869,7 @@ mod tests {
              [font]\nfamily = \"Menlo\"\nsize = 15\nline-height = 1.5\nweight = \"light\"\n\
              strokes = \"thin\"\n\
              ligatures = false\n\
+             [ui-font]\nfamily = \"Helvetica Neue\"\nsize = 14\nweight = \"medium\"\n\
              [zoom]\nstep = 2\nmin-size = 10\nmax-size = 24\nwheel-step = 50\n\
              [cursor]\nheight = \"font\"\nradius = 2.5\n[mouse]\ndrag-scroll-interval = 60\n\
              [scroll]\nanimation-duration = 0\nlines-per-notch = 5\n[glass]\nopacity = 0.5\nblur = 0\n\
@@ -916,6 +952,14 @@ mod tests {
         assert_eq!(settings.font.code_font().weight, 300.0);
         assert_eq!(settings.font.strokes, Strokes::Thin);
         assert!(!settings.font.code_font().ligatures);
+        assert_eq!(
+            settings.ui_font,
+            UiFontSettings {
+                family: "Helvetica Neue".to_owned(),
+                size: 14.0,
+                weight: Weight::Named(WeightName::Medium)
+            }
+        );
         assert_eq!(settings.cursor.height, CursorHeight::Font);
         assert_eq!(settings.cursor.radius, 2.5);
         assert_eq!(
@@ -971,6 +1015,9 @@ mod tests {
                 .value(),
             800.0
         );
+        assert!(parse("[ui-font]\nfamily = \"\"\n").is_err());
+        assert!(parse("[ui-font]\nsize = 18\n").is_err());
+        assert!(parse("[ui-font]\nweight = 50\n").is_err());
         assert!(parse("[cursor]\nheight = \"half\"\n").is_err());
         assert!(parse("[cursor]\nradius = 5\n").is_err());
         assert!(parse("[mouse]\ndrag-scroll-interval = 0\n").is_err());

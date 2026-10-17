@@ -114,10 +114,10 @@ pub struct EditorView {
     drag_position: Point<Pixels>,
     /// Scrolls toward the mouse while it is held past the text's top or bottom.
     drag_scroll: Option<Task<()>>,
-    /// Of the window buffer's text, and the font they were measured from.
-    metrics: Option<(CodeFont, Metrics)>,
-    /// Of screens, at the configured size, and the font they were measured from.
-    screen_metrics: Option<(CodeFont, Metrics)>,
+    /// Of the window buffer's text, and the fonts they were measured from.
+    metrics: Option<(MeasuredFonts, Metrics)>,
+    /// Of screens, at the configured size, and the fonts they were measured from.
+    screen_metrics: Option<(MeasuredFonts, Metrics)>,
     zoom: ZoomSettings,
     text_zoom: TextZoom,
     scroll: ScrollSettings,
@@ -1064,8 +1064,8 @@ impl EditorView {
                     .right(px(14.0))
                     .flex()
                     .gap(px(6.0))
-                    .font_family(font::UI)
-                    .text_size(px(font::STATUS_SIZE))
+                    .font_family(font::ui())
+                    .text_size(px(font::status_size()))
                     .children(buttons.into_iter().map(|button| render_button(button, cx))),
             );
         Some(controls.into_any_element())
@@ -1326,7 +1326,7 @@ impl EditorView {
                             .child(div().flex().child(content).children(note.map(|note| {
                                 div()
                                     .ml(metrics.char_width * 4.0)
-                                    .text_size(px(font::STATUS_SIZE))
+                                    .text_size(px(font::status_size()))
                                     .text_color(rgb(color::fg_faint()))
                                     .child(note)
                             }))),
@@ -1511,8 +1511,8 @@ impl EditorView {
             .items_center()
             .justify_center()
             .gap(px(6.0))
-            .font_family(font::UI)
-            .text_size(px(font::UI_SIZE))
+            .font_family(font::ui())
+            .text_size(px(font::ui_size()))
             .child(
                 div()
                     .font_weight(gpui::FontWeight::MEDIUM)
@@ -1853,7 +1853,7 @@ impl EditorView {
             .font_family(if segment.code {
                 font::mono()
             } else {
-                font::UI.into()
+                font::ui()
             })
             .text_color(rgb(text_color))
             .when_some(segment.command, |button, command| {
@@ -2045,7 +2045,7 @@ impl EditorView {
                     div()
                         .pl(px(8.0))
                         .pr(px(10.0))
-                        .font_family(font::UI)
+                        .font_family(font::ui())
                         .child(buffer.mode()),
                 )
             })
@@ -2238,17 +2238,22 @@ impl Render for EditorView {
     }
 }
 
-/// The metrics of `code_font`, measured again only once it changes.
+/// The code font, and the UI font's family and size.
+type MeasuredFonts = (CodeFont, Arc<str>, f32);
+
+/// The metrics of `code_font` and the UI font, measured again only once either changes.
 fn cached_metrics(
-    cache: &mut Option<(CodeFont, Metrics)>,
+    cache: &mut Option<(MeasuredFonts, Metrics)>,
     code_font: CodeFont,
     window: &Window,
 ) -> Metrics {
+    let fonts = (code_font, font::ui(), font::ui_size());
     if let Some((measured, metrics)) = cache
-        && *measured == code_font
+        && *measured == fonts
     {
         return *metrics;
     }
+    let code_font = &fonts.0;
     let text_system = window.text_system();
     let font_id = text_system.resolve_font(&font(code_font.family.clone()));
     let advance = |size: f32, character| {
@@ -2262,18 +2267,18 @@ fn cached_metrics(
         // The font's descent is negative here, unlike a laid-out line's.
         glyph_height: text_system.ascent(font_id, size) + text_system.descent(font_id, size).abs(),
         digit_width: advance(code_font.line_number_size(), '0'),
-        mono_width: advance(font::MONO_SIZE, 'm'),
-        small_mono_width: advance(font::STATUS_SIZE, 'm'),
+        mono_width: advance(font::mono_size(), 'm'),
+        small_mono_width: advance(font::status_size(), 'm'),
         // 'n' is about as wide as a letter of text on average, spaces counted.
         ui_char_width: text_system
             .advance(
-                text_system.resolve_font(&font(font::UI)),
-                px(font::UI_SIZE),
+                text_system.resolve_font(&font(fonts.1.clone())),
+                px(fonts.2),
                 'n',
             )
-            .map_or(px(font::UI_SIZE * 0.55), |advance| advance.width),
+            .map_or(px(fonts.2 * 0.55), |advance| advance.width),
     };
-    *cache = Some((code_font, metrics));
+    *cache = Some((fonts, metrics));
     metrics
 }
 

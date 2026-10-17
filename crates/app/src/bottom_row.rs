@@ -182,7 +182,7 @@ pub fn render_message_echo(
 ) -> Div {
     let text = one_line(&message.text);
     let overhead = px(2.0 * (PILL_INSET + ITEM_PADDING) + MARK_SIZE + MARK_GAP);
-    let full_width = text_width(&text, theme_font::UI, theme_font::STATUS_SIZE, window);
+    let full_width = text_width(&text, theme_font::ui(), theme_font::status_size(), window);
     let cut = message.text.contains('\n') || full_width + overhead > room;
     let whole_key = whole_key.filter(|_| cut);
     let border = match message.kind {
@@ -193,7 +193,7 @@ pub fn render_message_echo(
         .min_w_0()
         .border_color(border)
         .when(open, |pill| pill.bg(rgba(glass::selection())))
-        .font_family(theme_font::UI)
+        .font_family(theme_font::ui())
         .cursor_pointer()
         .on_mouse_down(
             MouseButton::Left,
@@ -279,7 +279,7 @@ pub fn render_hints(
     });
     Some(
         pill()
-            .font_family(theme_font::UI)
+            .font_family(theme_font::ui())
             .children(items)
             .children(chip),
     )
@@ -307,8 +307,8 @@ pub fn render_hints_list(fitted: &FittedHints, title: &str) -> Option<impl IntoE
         .flex()
         .flex_col()
         .gap(px(1.0))
-        .font_family(theme_font::UI)
-        .text_size(px(theme_font::STATUS_SIZE))
+        .font_family(theme_font::ui())
+        .text_size(px(theme_font::status_size()))
         .text_color(rgb(color::fg_body()))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(section_heading(title))
@@ -354,14 +354,14 @@ pub fn render_message_card(
         .children(message.command.map(|command| {
             div()
                 .font_family(theme_font::mono())
-                .text_size(px(theme_font::STATUS_SIZE))
+                .text_size(px(theme_font::status_size()))
                 .text_color(rgb(color::fg_dim()))
                 .child(command)
         }));
     let header = card_heading(title).child(
         div()
             .font_family(theme_font::mono())
-            .text_size(px(theme_font::STATUS_SIZE))
+            .text_size(px(theme_font::status_size()))
             .text_color(rgb(color::fg_placeholder()))
             .child(message.clock()),
     );
@@ -372,7 +372,7 @@ pub fn render_message_card(
         .px(px(14.0))
         .py(px(10.0))
         .font_family(theme_font::mono())
-        .text_size(px(theme_font::STATUS_SIZE))
+        .text_size(px(theme_font::status_size()))
         .line_height(px(CARD_LINE_HEIGHT))
         .text_color(rgb(color::fg_body()))
         .child(message.text.clone());
@@ -393,7 +393,7 @@ pub fn render_message_card(
         .px(px(14.0))
         .border_t_1()
         .border_color(rgba(glass::ink(0x12)))
-        .text_size(px(theme_font::STATUS_SIZE))
+        .text_size(px(theme_font::status_size()))
         .text_color(rgb(color::fg_dim()))
         .children(keys.all_messages.map(|keys| key(keys, "All messages")))
         .child(key(keys.copy, "Copy"))
@@ -406,7 +406,7 @@ pub fn render_message_card(
         .flex()
         .flex_col()
         .overflow_hidden()
-        .font_family(theme_font::UI)
+        .font_family(theme_font::ui())
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(header)
         .child(body)
@@ -497,7 +497,7 @@ pub fn render_prefix_keys(
         .child(div().child("then"));
     let header = card_heading(title).child(
         div()
-            .text_size(px(theme_font::STATUS_SIZE))
+            .text_size(px(theme_font::status_size()))
             .text_color(rgb(color::fg_placeholder()))
             .child(format!("{count} keys")),
     );
@@ -509,7 +509,7 @@ pub fn render_prefix_keys(
         .px(px(16.0))
         .border_t_1()
         .border_color(rgba(glass::ink(0x12)))
-        .text_size(px(theme_font::STATUS_SIZE))
+        .text_size(px(theme_font::status_size()))
         .text_color(rgb(color::fg_dim()))
         .children(key_caps(cancel_key))
         .child("Cancel");
@@ -521,8 +521,8 @@ pub fn render_prefix_keys(
         .flex()
         .flex_col()
         .overflow_hidden()
-        .font_family(theme_font::UI)
-        .text_size(px(theme_font::STATUS_SIZE))
+        .font_family(theme_font::ui())
+        .text_size(px(theme_font::status_size()))
         .child(header)
         .child(grid)
         .child(footer)
@@ -553,7 +553,7 @@ fn card_heading(title: Div) -> Div {
         .px(px(14.0))
         .border_b_1()
         .border_color(rgba(glass::ink(0x12)))
-        .text_size(px(theme_font::UI_SIZE))
+        .text_size(px(theme_font::ui_size()))
         .text_color(rgb(color::fg_main()))
         .child(title)
 }
@@ -564,7 +564,7 @@ fn section_heading(title: &str) -> Div {
         .items_center()
         .h(px(24.0))
         .px(px(ITEM_PADDING))
-        .text_size(px(theme_font::SMALL_SIZE))
+        .text_size(px(theme_font::small_size()))
         .text_color(rgb(color::fg_placeholder()))
         .child(title.to_uppercase())
 }
@@ -579,18 +579,18 @@ fn chip_label(shown: usize, hidden: usize) -> String {
 }
 
 fn chip_width(label: &str, window: &Window) -> Pixels {
-    text_width(label, theme_font::UI, theme_font::STATUS_SIZE, window) + px(2.0 * ITEM_PADDING)
+    text_width(label, theme_font::ui(), theme_font::status_size(), window) + px(2.0 * ITEM_PADDING)
 }
 
 fn hint_width(keys: &str, label: &str, window: &Window) -> Pixels {
     let caps: Vec<&str> = keys.split_whitespace().collect();
     let caps_width = caps.iter().fold(px(0.0), |sum, cap| {
-        sum + text_width(cap, theme_font::mono(), theme_font::SMALL_SIZE, window)
+        sum + text_width(cap, theme_font::mono(), theme_font::small_size(), window)
             + px(2.0 * KEY_CAP_INSET)
     });
     px(2.0 * ITEM_PADDING + ITEM_GAP * caps.len() as f32)
         + caps_width
-        + text_width(label, theme_font::UI, theme_font::STATUS_SIZE, window)
+        + text_width(label, theme_font::ui(), theme_font::status_size(), window)
 }
 
 fn text_width(text: &str, family: impl Into<SharedString>, size: f32, window: &Window) -> Pixels {

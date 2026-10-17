@@ -214,7 +214,7 @@ pub fn state_letter(state: Option<FileState>, selected: bool) -> Div {
         .flex_none()
         .text_center()
         .font_family(font::mono())
-        .text_size(px(font::STATUS_SIZE))
+        .text_size(px(font::status_size()))
         .when_some(state, |slot, state| {
             slot.text_color(rgb(state_color(state, selected)))
                 .child(state.letter())
@@ -237,7 +237,7 @@ pub fn line_counts(lines: LineCounts, selected: bool) -> Div {
         .flex_none()
         .gap(px(10.0))
         .font_family(font::mono())
-        .text_size(px(font::STATUS_SIZE))
+        .text_size(px(font::status_size()))
         .when(lines.added > 0, |counts| {
             counts.child(count(format!("+{}", lines.added), added))
         })
@@ -267,7 +267,7 @@ pub fn list_items(items: Vec<ListItem>, max: usize, row_height: f32) -> Vec<Div>
                     div()
                         .flex_none()
                         .font_family(font::mono())
-                        .text_size(px(font::MONO_SIZE))
+                        .text_size(px(font::mono_size()))
                         .child(item.label),
                 )
                 .child(
@@ -275,7 +275,7 @@ pub fn list_items(items: Vec<ListItem>, max: usize, row_height: f32) -> Vec<Div>
                         .flex_1()
                         .min_w_0()
                         .truncate()
-                        .text_size(px(font::STATUS_SIZE))
+                        .text_size(px(font::status_size()))
                         .text_color(rgb(color::fg_dim()))
                         .child(item.detail),
                 )
@@ -287,7 +287,7 @@ pub fn list_items(items: Vec<ListItem>, max: usize, row_height: f32) -> Vec<Div>
                 .min_w_0()
                 .truncate()
                 .font_family(font::mono())
-                .text_size(px(font::MONO_SIZE))
+                .text_size(px(font::mono_size()))
                 .text_color(rgb(color::fg_kbd()))
                 .child(item.label),
         )
@@ -295,7 +295,7 @@ pub fn list_items(items: Vec<ListItem>, max: usize, row_height: f32) -> Vec<Div>
             div()
                 .flex_none()
                 .font_family(font::mono())
-                .text_size(px(font::STATUS_SIZE))
+                .text_size(px(font::status_size()))
                 .text_color(rgb(color::fg_dim()))
                 .child(item.detail),
         )
@@ -304,7 +304,7 @@ pub fn list_items(items: Vec<ListItem>, max: usize, row_height: f32) -> Vec<Div>
         div()
             .px(px(10.0))
             .py(px(4.0))
-            .text_size(px(font::STATUS_SIZE))
+            .text_size(px(font::status_size()))
             .text_color(rgb(color::fg_dim()))
             .child(format!("and {hidden} more"))
     });
@@ -330,8 +330,8 @@ pub fn segment(label: &str, selected: bool) -> Div {
         .h(px(24.0))
         .px(px(10.0))
         .rounded(px(6.0))
-        .font_family(font::UI)
-        .text_size(px(font::STATUS_SIZE))
+        .font_family(font::ui())
+        .text_size(px(font::status_size()))
         .text_color(rgb(color::fg_dim()))
         .when(selected, |segment| {
             segment
@@ -390,8 +390,8 @@ pub fn toggle_chip(label: &str, on: bool) -> Div {
         .bg(background)
         .border_1()
         .border_color(border)
-        .font_family(font::UI)
-        .text_size(px(font::STATUS_SIZE))
+        .font_family(font::ui())
+        .text_size(px(font::status_size()))
         .text_color(rgb(text))
         .when(on, |chip| {
             chip.child(svg().path(CHECK_ICON).size(px(10.0)).text_color(rgb(text)))
@@ -498,7 +498,7 @@ pub fn pill() -> Div {
         .border_1()
         .border_color(rgba(glass::pill_border()))
         .shadow(vec![shadow(glass::shadow(0x59), 4.0, 14.0, 0.0)])
-        .text_size(px(font::STATUS_SIZE))
+        .text_size(px(font::status_size()))
         .text_color(rgb(color::fg_faint()))
 }
 
@@ -525,7 +525,7 @@ pub fn kbd(key: &str, selected: bool) -> Div {
         .border_color(rgba(glass::control_border()))
         .shadow(vec![shadow(glass::shadow(0x99), 1.0, 0.0, 0.0)])
         .font_family(font::mono())
-        .text_size(px(font::SMALL_SIZE))
+        .text_size(px(font::small_size()))
         .text_color(rgb(foreground))
         .child(key.to_owned())
 }

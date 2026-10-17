@@ -107,8 +107,8 @@ pub fn render_pane(
             }])
         })
         .overflow_hidden()
-        .font_family(font::UI)
-        .text_size(px(font::STATUS_SIZE))
+        .font_family(font::ui())
+        .text_size(px(font::status_size()))
         .child(toolbar)
         .child(body)
 }
@@ -154,7 +154,7 @@ fn render_toolbar(pane: &Pane, chrome: &PaneChrome, cx: &mut Context<EditorView>
             .child(
                 div()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_size(px(font::UI_SIZE))
+                    .text_size(px(font::ui_size()))
                     .text_color(rgb(color::fg_main()))
                     .child(pane.title.clone()),
             )
@@ -199,7 +199,7 @@ fn render_state((state, tone): (String, Tone)) -> Div {
         .rounded(px(6.0))
         .bg(rgba((state_color << 8) | 0x29))
         .font_family(font::mono())
-        .text_size(px(font::SMALL_SIZE))
+        .text_size(px(font::small_size()))
         .text_color(rgb(state_color))
         .child(div().size(px(7.0)).rounded_full().bg(rgb(state_color)))
         .child(state)
@@ -254,7 +254,7 @@ fn render_column(column: &PaneColumn, rows_fit: usize, cx: &mut Context<EditorVi
         .gap(px(8.0))
         .h(px(COLUMN_HEADER_HEIGHT))
         .px(px(14.0))
-        .text_size(px(font::SMALL_SIZE))
+        .text_size(px(font::small_size()))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(rgb(if focused {
             color::fg_alt()
@@ -351,7 +351,7 @@ fn render_row(row: &PaneRow, selected: bool, cx: &mut Context<EditorView>) -> Di
         .whitespace_nowrap()
         .overflow_hidden()
         .font_family(font::mono())
-        .text_size(px(font::STATUS_SIZE))
+        .text_size(px(font::status_size()))
         .when(selected, |row| row.bg(rgba(glass::selection())))
         .when(current && !selected, |row| row.bg(rgba(glass::ink(0x0f))))
         .child(
@@ -398,7 +398,7 @@ fn render_row(row: &PaneRow, selected: bool, cx: &mut Context<EditorView>) -> Di
                 .flex_none()
                 .px(px(6.0))
                 .rounded(px(4.0))
-                .text_size(px(font::SMALL_SIZE))
+                .text_size(px(font::small_size()))
                 .text_color(rgb(tone_color(*tone, color::fg_dim())))
                 .child(tag.clone())
         }))
@@ -408,7 +408,7 @@ fn render_row(row: &PaneRow, selected: bool, cx: &mut Context<EditorView>) -> Di
                     .ml_auto()
                     .pl(px(8.0))
                     .flex_none()
-                    .text_size(px(font::SMALL_SIZE))
+                    .text_size(px(font::small_size()))
                     .text_color(rgb(if selected {
                         color::fg_alt()
                     } else {

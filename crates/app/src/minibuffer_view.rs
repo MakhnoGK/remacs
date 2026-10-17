@@ -80,7 +80,7 @@ fn panel_on(surface: Div, width: f32) -> Div {
     surface
         .w(px(width))
         .p(px(8.0))
-        .font_family(font::UI)
+        .font_family(font::ui())
         .text_color(rgb(color::fg_main()))
 }
 
@@ -185,14 +185,14 @@ fn render_title((title, note): &(String, String)) -> Div {
             div()
                 .min_w_0()
                 .truncate()
-                .text_size(px(font::UI_SIZE))
+                .text_size(px(font::ui_size()))
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(title.clone()),
         )
         .child(
             div()
                 .flex_none()
-                .text_size(px(font::STATUS_SIZE))
+                .text_size(px(font::status_size()))
                 .text_color(rgb(color::fg_dim()))
                 .child(note.clone()),
         )
@@ -207,7 +207,7 @@ fn render_summary(parts: &[BannerPart]) -> Div {
         .gap(px(8.0))
         .px(px(10.0))
         .pb(px(10.0))
-        .text_size(px(font::STATUS_SIZE))
+        .text_size(px(font::status_size()))
         .text_color(rgb(color::fg_dim()))
         .children(parts.iter().map(|part| match part {
             BannerPart::Chip(chip) => ref_chip(chip.clone()),
@@ -276,7 +276,7 @@ fn render_switches(minibuffer: &Minibuffer, cx: &mut Context<EditorView>) -> Div
             div()
                 .min_w_0()
                 .truncate()
-                .text_size(px(font::UI_SIZE))
+                .text_size(px(font::ui_size()))
                 .text_color(rgb(color::fg_body()))
                 .child(minibuffer.subject().to_owned()),
         )
@@ -337,7 +337,7 @@ fn render_chips(
                         .flex_none()
                         .items_center()
                         .gap(px(6.0))
-                        .text_size(px(font::STATUS_SIZE))
+                        .text_size(px(font::status_size()))
                         .text_color(rgb(color::fg_dim()))
                         .child(
                             div()
@@ -353,7 +353,7 @@ fn render_chips(
                 chips.child(div().flex_1()).child(
                     div()
                         .flex_none()
-                        .text_size(px(font::STATUS_SIZE))
+                        .text_size(px(font::status_size()))
                         .text_color(rgb(color::fg_faint()))
                         .child(minibuffer.subject().to_owned()),
                 )
@@ -408,7 +408,7 @@ fn render_outcome((summary, chain): (String, CommitChain)) -> impl IntoElement {
         .children(chain.note.map(|note| {
             div()
                 .px(px(10.0))
-                .text_size(px(font::STATUS_SIZE))
+                .text_size(px(font::status_size()))
                 .text_color(rgb(color::fg_dim()))
                 .child(note)
         }))
@@ -457,10 +457,10 @@ fn render_field(
         ));
     if minibuffer.is_question() {
         return field
-            .text_size(px(font::INPUT_SIZE))
+            .text_size(px(font::input_size()))
             .child(prompt.label.clone());
     }
-    let typed_font = |typed: bool| if typed { font::mono() } else { font::UI.into() };
+    let typed_font = |typed: bool| if typed { font::mono() } else { font::ui() };
     field
         .child(
             div()
@@ -472,7 +472,7 @@ fn render_field(
                 .rounded(px(6.0))
                 .bg(rgba(glass::chip()))
                 .font_family(typed_font(parse_sequence(minibuffer.label()).is_some()))
-                .text_size(px(font::STATUS_SIZE))
+                .text_size(px(font::status_size()))
                 .text_color(rgb(color::fg_alt()))
                 .child(minibuffer.label().to_owned()),
         )
@@ -481,7 +481,7 @@ fn render_field(
                 div()
                     .flex_none()
                     .font_family(font::mono())
-                    .text_size(px(font::INPUT_SIZE))
+                    .text_size(px(font::input_size()))
                     .text_color(rgb(color::fg_dim()))
                     .child(prompt.prefix.clone()),
             )
@@ -494,7 +494,7 @@ fn render_field(
             div()
                 .flex_none()
                 .font_family(font::mono())
-                .text_size(px(font::STATUS_SIZE))
+                .text_size(px(font::status_size()))
                 .text_color(rgb(if length > message.subject_limit {
                     color::warning()
                 } else {
@@ -506,7 +506,7 @@ fn render_field(
             div()
                 .flex_none()
                 .font_family(typed_font(prompt.count == Count::Position))
-                .text_size(px(font::STATUS_SIZE))
+                .text_size(px(font::status_size()))
                 .text_color(rgb(color::fg_dim()))
                 .child(match minibuffer.note() {
                     Some(note) => note.to_owned(),
@@ -540,7 +540,7 @@ fn render_severity_counts(candidates: &[Candidate]) -> impl IntoElement {
                 .border_1()
                 .border_color(rgba(glass::ink(0x12)))
                 .font_family(font::mono())
-                .text_size(px(font::STATUS_SIZE))
+                .text_size(px(font::status_size()))
                 .text_color(rgb(color::fg_kbd()))
                 .child(icon(severity, color::fg_kbd()))
                 .child(count(severity).to_string())
@@ -583,7 +583,7 @@ fn render_input(
         .track_scroll(scroll)
         .whitespace_nowrap()
         .font_family(font::mono())
-        .text_size(px(font::INPUT_SIZE))
+        .text_size(px(font::input_size()))
         .child(part(0..cursor.start))
         .child(cursor_with_margin)
         .child(part(cursor.end..line.text.len()))
@@ -652,7 +652,7 @@ fn render_description(minibuffer: &Minibuffer) -> Option<impl IntoElement> {
         .border_1()
         .border_color(field_border(active))
         .font_family(font::mono())
-        .text_size(px(font::MONO_SIZE))
+        .text_size(px(font::mono_size()))
         .line_height(px(DESCRIPTION_LINE_HEIGHT))
         .text_color(rgb(color::fg_body()))
         .children(lines)
@@ -738,7 +738,7 @@ fn render_group_title(title: &str, summary: Option<String>, is_name: bool) -> im
         .pt(px(12.0))
         .px(px(10.0))
         .pb(px(4.0))
-        .text_size(px(font::SMALL_SIZE))
+        .text_size(px(font::small_size()))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(rgb(color::fg_faint()))
         .child(title)
@@ -825,7 +825,7 @@ fn render_problem(
             row.child(
                 div()
                     .flex_none()
-                    .text_size(px(font::STATUS_SIZE))
+                    .text_size(px(font::status_size()))
                     .text_color(rgb(secondary))
                     .child(source.into_owned()),
             )
@@ -836,7 +836,7 @@ fn render_problem(
                 .w(px(POSITION_WIDTH))
                 .text_right()
                 .font_family(font::mono())
-                .text_size(px(font::STATUS_SIZE))
+                .text_size(px(font::status_size()))
                 .text_color(rgb(secondary))
                 .child(candidate.annotation.clone()),
         )
@@ -872,7 +872,7 @@ fn render_step(
                 .border_1()
                 .border_color(rgba(glass::ink(0x14)))
                 .font_family(font::mono())
-                .text_size(px(font::STATUS_SIZE))
+                .text_size(px(font::status_size()))
                 .text_color(rgb(action_color))
                 .child(action)
                 .child(
@@ -887,7 +887,7 @@ fn render_step(
                 .flex_none()
                 .w(px(64.0))
                 .font_family(font::mono())
-                .text_size(px(font::STATUS_SIZE))
+                .text_size(px(font::status_size()))
                 .text_color(rgb(if selected {
                     color::fg_alt()
                 } else {
@@ -900,7 +900,7 @@ fn render_step(
                 .flex_1()
                 .min_w_0()
                 .truncate()
-                .text_size(px(font::UI_SIZE))
+                .text_size(px(font::ui_size()))
                 .child(candidate.annotation.clone()),
         )
         .into_any_element()
@@ -930,7 +930,7 @@ fn render_entry(
                     .rounded(px(5.0))
                     .bg(rgba(glass::ink(0x0f)))
                     .font_family(font::mono())
-                    .text_size(px(font::STATUS_SIZE))
+                    .text_size(px(font::status_size()))
                     .text_color(rgb(color::fg_alt()))
                     .child(candidate.label.clone()),
             )
@@ -939,13 +939,13 @@ fn render_entry(
                     .flex_1()
                     .min_w_0()
                     .truncate()
-                    .text_size(px(font::UI_SIZE))
+                    .text_size(px(font::ui_size()))
                     .child(candidate.annotation.clone()),
             )
             .child(
                 div()
                     .flex_none()
-                    .text_size(px(font::STATUS_SIZE))
+                    .text_size(px(font::status_size()))
                     .text_color(rgb(color::fg_faint()))
                     .child(detail),
             )
@@ -993,7 +993,7 @@ fn render_entry(
                 glass::ink(0x14)
             }))
             .shadow(vec![shadow(glass::shadow(0x80), 1.0, 2.0, 0.0)])
-            .text_size(px(font::STATUS_SIZE))
+            .text_size(px(font::status_size()))
             .text_color(rgb(if action.destructive {
                 color::fg_flagged()
             } else {
@@ -1058,7 +1058,7 @@ fn render_message(candidate: &Candidate, selected: bool) -> impl IntoElement {
         .items_center()
         .overflow_hidden()
         .whitespace_nowrap()
-        .text_size(px(font::UI_SIZE));
+        .text_size(px(font::ui_size()));
     let mut start = 0;
     for (index, part) in candidate.label.split('`').enumerate() {
         let range = start..start + part.len();
@@ -1077,7 +1077,7 @@ fn render_message(candidate: &Candidate, selected: bool) -> impl IntoElement {
                         .rounded(px(4.0))
                         .bg(rgba(code_background))
                         .font_family(font::mono())
-                        .text_size(px(font::STATUS_SIZE))
+                        .text_size(px(font::status_size()))
                         .text_color(rgb(code_color))
                 })
                 .child(text),
@@ -1107,7 +1107,7 @@ fn render_candidate(
         .min_w_0()
         .truncate()
         .font_family(font::mono())
-        .text_size(px(font::MONO_SIZE))
+        .text_size(px(font::mono_size()))
         .text_color(rgb(if candidate.dim {
             color::fg_dim()
         } else {
@@ -1125,7 +1125,7 @@ fn render_candidate(
         }))
         .children(candidate.icon.map(|file| icon(file, secondary)))
         .when_some(candidate.verb, |row, verb| {
-            row.child(div().flex_none().text_size(px(font::UI_SIZE)).child(verb))
+            row.child(div().flex_none().text_size(px(font::ui_size())).child(verb))
         })
         .child(name)
         .when(candidate.modified, |row| row.child(modified_dot()))
@@ -1134,7 +1134,7 @@ fn render_candidate(
                 .flex_1()
                 .min_w_0()
                 .truncate()
-                .text_size(px(font::STATUS_SIZE))
+                .text_size(px(font::status_size()))
                 .text_color(rgb(secondary))
                 .child(candidate.annotation.clone()),
         )
@@ -1145,7 +1145,7 @@ fn render_candidate(
             row.child(
                 div()
                     .flex_none()
-                    .text_size(px(font::STATUS_SIZE))
+                    .text_size(px(font::status_size()))
                     .text_color(rgb(secondary))
                     .child(detail.into_owned()),
             )
@@ -1174,7 +1174,7 @@ fn render_tag(tag: &'static str, selected: bool) -> impl IntoElement {
         .py(px(2.0))
         .rounded(px(5.0))
         .bg(rgba(background))
-        .text_size(px(font::SMALL_SIZE))
+        .text_size(px(font::small_size()))
         .text_color(rgb(foreground))
         .child(tag)
 }
@@ -1189,7 +1189,7 @@ fn render_hints(hints: &'static [(&'static str, &'static str)]) -> impl IntoElem
         .pb(px(4.0))
         .border_t_1()
         .border_color(rgba(glass::ink(0x0f)))
-        .text_size(px(font::STATUS_SIZE))
+        .text_size(px(font::status_size()))
         .text_color(rgb(color::fg_dim()))
         .children(hints.iter().map(|&(keys, action)| {
             div()

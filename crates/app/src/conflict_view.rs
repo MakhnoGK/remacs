@@ -70,7 +70,7 @@ pub fn render_conflict(
         .flex_1()
         .min_w_0()
         .gap(px(8.0))
-        .font_family(font::UI)
+        .font_family(font::ui())
         .child(header)
         .child(
             div()
@@ -119,7 +119,7 @@ fn render_header(view: &ConflictView, cx: &mut Context<EditorView>) -> Div {
         .h(px(32.0))
         .pl(px(12.0))
         .pr(px(4.0))
-        .text_size(px(font::STATUS_SIZE))
+        .text_size(px(font::status_size()))
         .child(
             svg()
                 .path(FILE_ICON)
@@ -129,7 +129,7 @@ fn render_header(view: &ConflictView, cx: &mut Context<EditorView>) -> Div {
         .child(
             div()
                 .font_family(font::mono())
-                .text_size(px(font::MONO_SIZE))
+                .text_size(px(font::mono_size()))
                 .text_color(rgb(color::fg_main()))
                 .child(view.name.clone()),
         )
@@ -183,7 +183,7 @@ fn numbered<'a>(
                     .pr(px(16.0))
                     .text_right()
                     .font_family(font::mono())
-                    .text_size(px(font::STATUS_SIZE))
+                    .text_size(px(font::status_size()))
                     .text_color(rgb(if resolved {
                         color::vc_added()
                     } else {
@@ -196,7 +196,7 @@ fn numbered<'a>(
                     .flex_1()
                     .min_w_0()
                     .font_family(font::mono())
-                    .text_size(px(font::MONO_SIZE))
+                    .text_size(px(font::mono_size()))
                     .text_color(rgb(color::fg_main()))
                     .child(StyledText::new(line.clone()).with_highlights(faces_in(faces, range))),
             );
@@ -212,7 +212,7 @@ fn resolved_chip(said: &str) -> Div {
         .py(px(1.0))
         .rounded(px(5.0))
         .bg(rgba(color::vc_added() << 8 | RESOLVED_CHIP_ALPHA))
-        .text_size(px(font::SMALL_SIZE))
+        .text_size(px(font::small_size()))
         .text_color(rgb(color::fg_added()))
         .child(said.to_owned())
 }
@@ -319,7 +319,7 @@ fn render_side(
             header.border_t_1().border_color(rgba(glass::divider()))
         })
         .whitespace_nowrap()
-        .text_size(px(font::STATUS_SIZE))
+        .text_size(px(font::status_size()))
         .text_color(rgb(color::fg_kbd()))
         .child(ref_chip(chip))
         .child(div().text_color(rgb(role_color)).child(role))
@@ -363,7 +363,7 @@ fn key_button(
             .border_1()
             .border_color(rgba(glass::control_border()))
             .shadow(vec![shadow(glass::shadow(0x66), 1.0, 2.0, 0.0)])
-            .text_size(px(font::STATUS_SIZE))
+            .text_size(px(font::status_size()))
             .text_color(rgb(color::fg_main()))
             .child(label)
             .children(key.map(|key| {

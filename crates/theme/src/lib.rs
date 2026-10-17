@@ -295,10 +295,14 @@ pub mod syntax {
         type Read = Style;
 
         fn bits(self) -> u32 {
-            [(self.bold, BOLD), (self.italic, ITALIC), (self.underline, UNDERLINE)]
-                .into_iter()
-                .filter(|(on, _)| *on)
-                .fold(0, |bits, (_, bit)| bits | bit)
+            [
+                (self.bold, BOLD),
+                (self.italic, ITALIC),
+                (self.underline, UNDERLINE),
+            ]
+            .into_iter()
+            .filter(|(on, _)| *on)
+            .fold(0, |bits, (_, bit)| bits | bit)
         }
 
         fn read(bits: u32) -> Style {
@@ -502,18 +506,49 @@ pub mod cursor {
 }
 
 pub mod font {
+    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::{Arc, LazyLock, PoisonError, RwLock};
 
-    pub const UI: &str = "SF Pro Text";
-
-    pub const UI_SIZE: f32 = 13.0;
-    pub const STATUS_SIZE: f32 = 12.0;
-    pub const INPUT_SIZE: f32 = 14.0;
-    pub const SMALL_SIZE: f32 = 11.0;
-    /// Of monospace text on surfaces, e.g. prompts and tables.
-    pub const MONO_SIZE: f32 = 13.0;
+    pub const DEFAULT_UI: &str = "SF Pro Text";
+    pub const DEFAULT_UI_SIZE: f32 = 13.0;
     /// Of text on surfaces.
     pub const LINE_HEIGHT: f32 = 22.0;
+
+    static UI: LazyLock<RwLock<Arc<str>>> = LazyLock::new(|| RwLock::new(Arc::from(DEFAULT_UI)));
+    /// As `f32` bits; set from the config.
+    static UI_SIZE: AtomicU32 = AtomicU32::new(DEFAULT_UI_SIZE.to_bits());
+
+    /// The family of the interface's own text, set from the config.
+    pub fn ui() -> Arc<str> {
+        Arc::clone(&UI.read().unwrap_or_else(PoisonError::into_inner))
+    }
+
+    /// Of the interface's text, set from the config; the other sizes follow it.
+    pub fn ui_size() -> f32 {
+        f32::from_bits(UI_SIZE.load(Ordering::Relaxed))
+    }
+
+    pub fn status_size() -> f32 {
+        ui_size() - 1.0
+    }
+
+    pub fn input_size() -> f32 {
+        ui_size() + 1.0
+    }
+
+    pub fn small_size() -> f32 {
+        ui_size() - 2.0
+    }
+
+    /// Of monospace text on surfaces, e.g. prompts and tables.
+    pub fn mono_size() -> f32 {
+        ui_size()
+    }
+
+    pub fn set_ui(family: &str, size: f32) {
+        *UI.write().unwrap_or_else(PoisonError::into_inner) = Arc::from(family);
+        UI_SIZE.store(size.to_bits(), Ordering::Relaxed);
+    }
 
     /// The font of code, set from the config. Its family is the monospace one everywhere;
     /// its size and line height are the window buffer's text's.

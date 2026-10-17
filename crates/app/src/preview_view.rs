@@ -37,7 +37,7 @@ pub fn render_preview(preview: Preview, code_faces: &dyn Fn(&Code) -> Highlights
                 .min_w_0()
                 .truncate()
                 .font_family(font::mono())
-                .text_size(px(font::MONO_SIZE))
+                .text_size(px(font::mono_size()))
                 .child(title),
         )
         .children(version.map(|(_, status)| state_letter(Some(status.state), false)))
@@ -45,8 +45,8 @@ pub fn render_preview(preview: Preview, code_faces: &dyn Fn(&Code) -> Highlights
         .child(
             div()
                 .flex_none()
-                .font_family(font::UI)
-                .text_size(px(font::STATUS_SIZE))
+                .font_family(font::ui())
+                .text_size(px(font::status_size()))
                 .text_color(rgb(color::fg_faint()))
                 .child(kind),
         );
@@ -87,7 +87,7 @@ fn render_body(body: PreviewBody, code_faces: &dyn Fn(&Code) -> Highlights) -> D
         .border_color(rgba(glass::ink(0x0f)))
         .whitespace_nowrap()
         .font_family(font::mono())
-        .text_size(px(font::STATUS_SIZE))
+        .text_size(px(font::status_size()))
         .line_height(px(CODE_LINE_HEIGHT));
     match body {
         PreviewBody::Code(code) => {
@@ -98,7 +98,7 @@ fn render_body(body: PreviewBody, code_faces: &dyn Fn(&Code) -> Highlights) -> D
         PreviewBody::Message(message) => frame
             .items_center()
             .justify_center()
-            .font_family(font::UI)
+            .font_family(font::ui())
             .text_color(rgb(color::fg_faint()))
             .child(message),
     }
@@ -204,8 +204,8 @@ fn render_details(
         .flex_col()
         .flex_none()
         .px(px(2.0))
-        .font_family(font::UI)
-        .text_size(px(font::STATUS_SIZE))
+        .font_family(font::ui())
+        .text_size(px(font::status_size()))
         .text_color(rgb(color::fg_faint()))
         .children(
             plain

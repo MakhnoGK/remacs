@@ -42,13 +42,13 @@ pub fn render_dialog(dialog: Dialog, cx: &mut Context<EditorView>) -> Div {
                 .gap(px(4.0))
                 .child(
                     div()
-                        .text_size(px(15.0))
+                        .text_size(px(font::ui_size() + 2.0))
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(title),
                 )
                 .child(
                     div()
-                        .text_size(px(font::STATUS_SIZE))
+                        .text_size(px(font::status_size()))
                         .line_height(px(17.0))
                         .text_color(rgb(color::fg_dim()))
                         .child(explanation),
@@ -137,7 +137,7 @@ fn render_button(
         .border_color(rgba(glass::ink(0x14)))
         .bg(rgba(glass::control()))
         .shadow(vec![shadow(glass::shadow(0x80), 1.0, 2.0, 0.0)])
-        .text_size(px(font::UI_SIZE))
+        .text_size(px(font::ui_size()))
         .when(destructive, |button| {
             button
                 .bg(rgb(color::bg_danger()))

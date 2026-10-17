@@ -17,7 +17,7 @@ Status: accepted, 2026-10-06 (issue #2)
   are parsed only when their section is asked for.
 - **Errors never stop remacs**: a section that does not parse or check falls back to its
   defaults, and the first error is shown in the echo area as `ui.toml:3: …`.
-- **`ui.toml` first**, for the code font only; UI font settings come later:
+- **`ui.toml` first**, for the code font, then the UI font (#26):
 
   ```toml
   [font]
@@ -27,6 +27,11 @@ Status: accepted, 2026-10-06 (issue #2)
   weight = "regular"  # thin … black, or 100 to 900; bold is as much heavier
   strokes = "thick"   # thick | thin
 
+  [ui-font]           # the mode line, menus, popups' prose, chips
+  family = "SF Pro Text"
+  size = 13           # 10 to 16; status, small and input sizes follow it
+  weight = "regular"  # as [font]'s; medium and bold UI text are as much heavier
+
   [cursor]
   height = "line"     # line: the whole row; font: ascent and descent, centered
   radius = 1          # pixels the block's corners are rounded by, 0 to 4
@@ -34,9 +39,12 @@ Status: accepted, 2026-10-06 (issue #2)
 
 - **The code font is process-wide** (`remacs_theme::font::code`, `set_code`): its family
   is the monospace font everywhere, its size and line height are the window buffer's.
-  Surfaces (prompts, tables, popups) keep their own sizes, `font::MONO_SIZE` and
+  Surfaces (prompts, tables, popups) keep their own sizes, `font::mono_size()` and
   `font::LINE_HEIGHT`. A global rather than state passed down, as many render helpers
-  have no view or context.
+  have no view or context. The UI font is process-wide the same way (`font::ui`,
+  `ui_size`, `set_ui`); code, terminals and tables stay monospace. Row heights stay
+  fixed, so its size is capped at 16. Both fonts' weights go through gpui's
+  `set_family_weights`, one entry per family.
 - **The editor's cursor is a block drawn under the text**, not a highlight background, so
   its height can differ from the line's; the character under it keeps its inverted color.
   Tables, prompts and terminals draw the same quad (`widgets::block_cursor`), with the

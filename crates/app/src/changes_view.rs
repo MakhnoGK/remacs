@@ -29,18 +29,18 @@ pub fn render_changes(changes: Changes, cx: &mut Context<EditorView>) -> Div {
         .gap(px(10.0))
         .h(px(HEADER_HEIGHT))
         .px(px(8.0))
-        .font_family(font::UI)
+        .font_family(font::ui())
         .child(
             div()
                 .flex_1()
-                .text_size(px(font::UI_SIZE))
+                .text_size(px(font::ui_size()))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(rgb(color::fg_main()))
                 .child("Pending changes"),
         )
         .child(
             div()
-                .text_size(px(font::STATUS_SIZE))
+                .text_size(px(font::status_size()))
                 .text_color(rgb(color::fg_faint()))
                 .child(summary),
         );
@@ -91,7 +91,7 @@ fn render_edit(before: String, after: String) -> Div {
         .rounded(px(8.0))
         .bg(rgba(glass::pane()))
         .font_family(font::mono())
-        .text_size(px(font::STATUS_SIZE))
+        .text_size(px(font::status_size()))
         .text_color(rgb(color::fg_main()))
         .child(
             div()
@@ -118,7 +118,7 @@ fn render_elsewhere(elsewhere: Elsewhere) -> Vec<Div> {
         Elsewhere::Checking => vec![
             div()
                 .px(px(10.0))
-                .font_family(font::UI)
+                .font_family(font::ui())
                 .text_color(rgb(color::fg_faint()))
                 .child("Checking other files…"),
         ],
@@ -128,9 +128,9 @@ fn render_elsewhere(elsewhere: Elsewhere) -> Vec<Div> {
         .pt(px(10.0))
         .px(px(10.0))
         .pb(px(2.0))
-        .font_family(font::UI)
+        .font_family(font::ui())
         .font_weight(FontWeight::SEMIBOLD)
-        .text_size(px(font::SMALL_SIZE))
+        .text_size(px(font::small_size()))
         .text_color(rgb(color::fg_faint()))
         .child("ALSO UPDATES");
     let code = div()
@@ -144,7 +144,7 @@ fn render_elsewhere(elsewhere: Elsewhere) -> Vec<Div> {
         .overflow_hidden()
         .whitespace_nowrap()
         .font_family(font::mono())
-        .text_size(px(font::STATUS_SIZE))
+        .text_size(px(font::status_size()))
         .line_height(px(DIFF_LINE_HEIGHT))
         .text_color(rgb(color::fg_kbd()))
         .children(lines);

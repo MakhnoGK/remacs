@@ -187,7 +187,7 @@ pub fn render_outline(
                             .flex_1()
                             .min_w_0()
                             .truncate()
-                            .text_size(px(font::STATUS_SIZE))
+                            .text_size(px(font::status_size()))
                             .text_color(rgb(if selected {
                                 color::fg_alt()
                             } else {
@@ -199,7 +199,7 @@ pub fn render_outline(
                         Some((note, tone)) => row.child(
                             div()
                                 .flex_none()
-                                .text_size(px(font::STATUS_SIZE))
+                                .text_size(px(font::status_size()))
                                 .text_color(rgb(tone_color(tone, color::fg_dim())))
                                 .child(note),
                         ),
@@ -215,7 +215,7 @@ pub fn render_outline(
                         div()
                             .flex_none()
                             .font_family(font::mono())
-                            .text_size(px(font::STATUS_SIZE))
+                            .text_size(px(font::status_size()))
                             .text_color(rgb(if selected {
                                 color::fg_alt()
                             } else {
@@ -262,8 +262,8 @@ pub fn render_outline(
         .border_1()
         .border_color(rgba(glass::pane_border()))
         .rounded(px(12.0))
-        .font_family(font::UI)
-        .text_size(px(font::UI_SIZE))
+        .font_family(font::ui())
+        .text_size(px(font::ui_size()))
         .children(facts)
         .child(fade_scrolled(
             rows,
@@ -317,8 +317,8 @@ fn render_banner(banner: Banner, cx: &mut Context<EditorView>) -> Div {
         .bg(rgba(color::warning() << 8 | 0x1a))
         .border_1()
         .border_color(rgba(color::warning() << 8 | 0x52))
-        .font_family(font::UI)
-        .text_size(px(font::UI_SIZE))
+        .font_family(font::ui())
+        .text_size(px(font::ui_size()))
         .text_color(rgb(color::fg_body()))
         .whitespace_nowrap()
         .child(
@@ -341,7 +341,7 @@ fn render_banner(banner: Banner, cx: &mut Context<EditorView>) -> Div {
                 .py(px(2.0))
                 .rounded(px(5.0))
                 .bg(rgba(color::warning() << 8 | 0x29))
-                .text_size(px(font::STATUS_SIZE))
+                .text_size(px(font::status_size()))
                 .text_color(rgb(color::fg_on_warning()))
                 .child(step)
         }))
@@ -355,7 +355,7 @@ fn render_banner(banner: Banner, cx: &mut Context<EditorView>) -> Div {
                     div()
                         .flex_none()
                         .font_family(font::mono())
-                        .text_size(px(font::STATUS_SIZE))
+                        .text_size(px(font::status_size()))
                         .text_color(rgb(color::fg_faint()))
                         .child(id),
                 )
@@ -365,7 +365,7 @@ fn render_banner(banner: Banner, cx: &mut Context<EditorView>) -> Div {
         .child(
             div()
                 .flex_none()
-                .text_size(px(font::STATUS_SIZE))
+                .text_size(px(font::status_size()))
                 .text_color(rgb(tone_color(state_tone, color::fg_dim())))
                 .child(state),
         )
@@ -405,7 +405,7 @@ fn render_banner_button(button: BannerButton, cx: &mut Context<EditorView>) -> D
         .bg(rgba(background))
         .border_1()
         .border_color(rgba(border))
-        .text_size(px(font::STATUS_SIZE))
+        .text_size(px(font::status_size()))
         .text_color(rgb(text))
         .when(enabled, |element| {
             element.shadow(vec![shadow(glass::shadow(0x80), 1.0, 2.0, 0.0)])
@@ -446,8 +446,8 @@ pub fn render_toolbar(buttons: Vec<ToolbarButton>, cx: &mut Context<EditorView>)
                 .border_1()
                 .border_color(rgba(glass::control_border()))
                 .shadow(vec![shadow(glass::shadow(0x99), 1.0, 2.0, 0.0)])
-                .font_family(font::UI)
-                .text_size(px(font::STATUS_SIZE))
+                .font_family(font::ui())
+                .text_size(px(font::status_size()))
                 .text_color(rgb(text))
                 .child(icon(button_icon, text))
                 .child(label)
@@ -457,7 +457,7 @@ pub fn render_toolbar(buttons: Vec<ToolbarButton>, cx: &mut Context<EditorView>)
                         .rounded(px(4.0))
                         .bg(rgba(glass::selection()))
                         .font_family(font::mono())
-                        .text_size(px(font::SMALL_SIZE))
+                        .text_size(px(font::small_size()))
                         .line_height(px(16.0))
                         .text_color(rgb(color::fg_main()))
                         .child(count.to_string())
@@ -555,7 +555,7 @@ fn render_history(
                     .items_center()
                     .gap(px(6.0))
                     .px(px(8.0))
-                    .text_size(px(font::STATUS_SIZE))
+                    .text_size(px(font::status_size()))
                     .text_color(rgb(color::fg_faint()))
                     .child(kbd("/", false))
                     .child(search_hint),
@@ -586,8 +586,8 @@ fn render_history(
         .min_w_0()
         .gap(px(HISTORY_HEADER_GAP))
         .overflow_hidden()
-        .font_family(font::UI)
-        .text_size(px(font::UI_SIZE))
+        .font_family(font::ui())
+        .text_size(px(font::ui_size()))
         .on_scroll_wheel(cx.listener(move |view, event: &ScrollWheelEvent, _, cx| {
             cx.stop_propagation();
             view.scroll_history(event, cx);
@@ -608,7 +608,7 @@ fn file_chip(path: String) -> Div {
         .rounded(px(6.0))
         .bg(rgba(glass::chip()))
         .font_family(font::mono())
-        .text_size(px(font::SMALL_SIZE))
+        .text_size(px(font::small_size()))
         .text_color(rgb(color::fg_body()))
         .child(div().max_w(px(220.0)).truncate().child(path))
         .child(div().text_color(rgb(color::fg_faint())).child("×"))
@@ -672,7 +672,7 @@ fn render_commit(
                 .flex_none()
                 .w(px(112.0))
                 .truncate()
-                .text_size(px(font::STATUS_SIZE))
+                .text_size(px(font::status_size()))
                 .text_color(rgb(color::fg_dim()))
                 .child(author),
         )
@@ -681,7 +681,7 @@ fn render_commit(
                 .flex_none()
                 .w(px(84.0))
                 .text_right()
-                .text_size(px(font::STATUS_SIZE))
+                .text_size(px(font::status_size()))
                 .text_color(rgb(color::fg_faint()))
                 .child(date),
         )
@@ -691,7 +691,7 @@ fn render_commit(
                 .w(px(64.0))
                 .text_right()
                 .font_family(font::mono())
-                .text_size(px(font::STATUS_SIZE))
+                .text_size(px(font::status_size()))
                 .text_color(rgb(color::fg_line_number()))
                 .child(id),
         )
@@ -776,14 +776,14 @@ fn render_facts(facts: Vec<Fact>, cx: &mut Context<EditorView>) -> Div {
                 FactValue::Code(text) => div()
                     .flex_none()
                     .font_family(font::mono())
-                    .text_size(px(font::STATUS_SIZE))
+                    .text_size(px(font::status_size()))
                     .text_color(rgb(color::fg_body()))
                     .child(text),
             };
             let (note_size, note_color) = if fact.note_is_title {
-                (font::UI_SIZE, color::fg_body())
+                (font::ui_size(), color::fg_body())
             } else {
-                (font::STATUS_SIZE, color::fg_dim())
+                (font::status_size(), color::fg_dim())
             };
             div()
                 .flex()
@@ -796,7 +796,7 @@ fn render_facts(facts: Vec<Fact>, cx: &mut Context<EditorView>) -> Div {
                     div()
                         .flex_none()
                         .w(px(64.0))
-                        .text_size(px(font::STATUS_SIZE))
+                        .text_size(px(font::status_size()))
                         .text_color(rgb(color::fg_faint()))
                         .child(fact.label),
                 )
@@ -822,7 +822,7 @@ fn render_facts(facts: Vec<Fact>, cx: &mut Context<EditorView>) -> Div {
                             .border_1()
                             .border_color(rgba(glass::control_border()))
                             .bg(rgba(glass::control()))
-                            .text_size(px(font::STATUS_SIZE))
+                            .text_size(px(font::status_size()))
                             .shadow(vec![shadow(glass::shadow(0x80), 1.0, 2.0, 0.0)])
                             .child(button.label),
                         button.action,
@@ -868,7 +868,7 @@ pub fn ref_chip(chip: RefChip) -> Div {
         .border_color(border)
         .bg(background)
         .font_family(font::mono())
-        .text_size(px(font::SMALL_SIZE))
+        .text_size(px(font::small_size()))
         .text_color(rgb(foreground))
         .child(chip.name)
 }
@@ -887,7 +887,7 @@ fn render_heading(title: &str, count: usize, open: bool, tone: Tone, selected: b
         .px(px(10.0))
         .rounded(px(8.0))
         .when(selected, |heading| heading.bg(rgba(glass::selection())))
-        .text_size(px(font::SMALL_SIZE))
+        .text_size(px(font::small_size()))
         .text_color(rgb(if selected {
             color::fg_alt()
         } else {
@@ -958,7 +958,7 @@ fn diff_frame(lines: Vec<AnyElement>) -> Div {
         .border_1()
         .border_color(rgba(glass::ink(0x0f)))
         .font_family(font::mono())
-        .text_size(px(font::STATUS_SIZE))
+        .text_size(px(font::status_size()))
         .line_height(px(DIFF_LINE_HEIGHT))
         .children(lines)
 }

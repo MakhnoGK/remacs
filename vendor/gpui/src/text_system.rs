@@ -62,20 +62,23 @@ pub fn text_strokes() -> TextStrokes {
     }
 }
 
-static FAMILY_WEIGHT: RwLock<Option<(SharedString, FontWeight)>> = RwLock::new(None);
+static FAMILY_WEIGHTS: RwLock<Vec<(SharedString, FontWeight)>> = RwLock::new(Vec::new());
 
-/// Draws `family` at `weight` where text asks for the normal one, and other weights of it
-/// as much heavier or lighter; the family's nearest face is used. `None` draws every
-/// family as asked. Applies to text shaped from now on; refresh the windows after it.
-pub fn set_family_weight(family_weight: Option<(SharedString, FontWeight)>) {
-    *FAMILY_WEIGHT.write() = family_weight;
+/// Draws each family at its weight where text asks for the normal one, and other weights
+/// of it as much heavier or lighter; the family's nearest face is used. A family listed
+/// twice takes its first weight; one not listed is drawn as asked. Applies to text shaped
+/// from now on; refresh the windows after it.
+pub fn set_family_weights(family_weights: Vec<(SharedString, FontWeight)>) {
+    *FAMILY_WEIGHTS.write() = family_weights;
 }
 
-/// `font` as [`set_family_weight`] has it drawn, if that differs.
+/// `font` as [`set_family_weights`] has it drawn, if that differs.
 fn reweighted(font: &Font) -> Option<Font> {
-    let family_weight = FAMILY_WEIGHT.read();
-    let (family, weight) = family_weight.as_ref()?;
-    if font.family != *family || *weight == FontWeight::NORMAL {
+    let family_weights = FAMILY_WEIGHTS.read();
+    let (_, weight) = family_weights
+        .iter()
+        .find(|(family, _)| font.family == *family)?;
+    if *weight == FontWeight::NORMAL {
         return None;
     }
     let shifted = font.weight.0 + weight.0 - FontWeight::NORMAL.0;

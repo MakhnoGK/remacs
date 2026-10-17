@@ -248,13 +248,13 @@ fn render_notes(notes: &[Note], placement: &Placement, view: &PopupView) -> AnyE
                         .gap(px(NOTE_LINE_GAP))
                         .children(note.message.lines().map(|line| {
                             render_text_line(line, code_chars, &NOTE_CHIP)
-                                .text_size(px(font::UI_SIZE))
+                                .text_size(px(font::ui_size()))
                                 .line_height(px(NOTE_LINE_HEIGHT))
                         }))
                         .when(!note.source.is_empty(), |text| {
                             text.child(
                                 div()
-                                    .text_size(px(font::SMALL_SIZE))
+                                    .text_size(px(font::small_size()))
                                     .line_height(px(NOTE_SOURCE_LINE_HEIGHT))
                                     .text_color(rgb(color::fg_note_source()))
                                     .child(note.source.clone()),
@@ -275,7 +275,7 @@ fn render_notes(notes: &[Note], placement: &Placement, view: &PopupView) -> AnyE
         .left(placement.left(NOTES_INSET, width.into()))
         .flex()
         .flex_col()
-        .font_family(font::UI)
+        .font_family(font::ui())
         .text_color(rgb(color::fg_main()))
         .child(panel);
     placement.place(container, !fits_above).into_any_element()
@@ -321,7 +321,7 @@ fn render_text_line(line: &str, code_chars: usize, chip: &ChipColors) -> Div {
                     })
                     .bg(rgba(background))
                     .font_family(font::mono())
-                    .text_size(px(font::STATUS_SIZE))
+                    .text_size(px(font::status_size()))
                     .text_color(rgb(text_color))
                     .child(text.to_owned()),
             }
@@ -477,7 +477,7 @@ fn render_hover(
             .bg(rgba(glass::field()))
             .border_1()
             .border_color(rgba(glass::ink(0x0f)))
-            .text_size(px(font::MONO_SIZE))
+            .text_size(px(font::mono_size()))
             .line_height(px(font::LINE_HEIGHT))
             .into_any_element()
     });
@@ -496,7 +496,7 @@ fn render_hover(
                     .flex_none()
                     .justify_between()
                     .gap(px(12.0))
-                    .text_size(px(font::SMALL_SIZE))
+                    .text_size(px(font::small_size()))
                     .text_color(rgb(color::fg_dim()))
                     .child(
                         div()
@@ -525,7 +525,7 @@ fn render_hover(
         .left(placement.left(HOVER_INSET, width.into()))
         .flex()
         .flex_col()
-        .font_family(font::UI)
+        .font_family(font::ui())
         .text_color(rgb(color::fg_main()))
         .child(panel);
     placement.place(container, fits_below).into_any_element()
@@ -581,7 +581,7 @@ fn render_list_popup(popup: &Popup, placement: &Placement, view: &PopupView) -> 
         .left(left)
         .flex()
         .gap(px(PANEL_GAP))
-        .font_family(font::UI)
+        .font_family(font::ui())
         .text_color(rgb(color::fg_main()))
         .children(children);
     placement.place(container, below).into_any_element()
@@ -642,7 +642,7 @@ fn render_row(row: &Candidate, swatch: Option<u32>, selected: bool) -> impl Into
                 .flex_1()
                 .min_w_0()
                 .truncate()
-                .text_size(px(font::MONO_SIZE))
+                .text_size(px(font::mono_size()))
                 .child(label),
         )
         .when_some(row.detail.clone(), |row, detail| {
@@ -651,7 +651,7 @@ fn render_row(row: &Candidate, swatch: Option<u32>, selected: bool) -> impl Into
                     .flex_none()
                     .max_w(px(DETAIL_MAX_WIDTH))
                     .truncate()
-                    .text_size(px(font::STATUS_SIZE))
+                    .text_size(px(font::status_size()))
                     .text_color(rgb(secondary))
                     .child(detail.into_owned()),
             )
@@ -694,7 +694,7 @@ fn render_badge(kind: SymbolKind) -> impl IntoElement {
         .size(px(BADGE_SIZE))
         .rounded(px(5.0))
         .bg(rgba(tint << 8 | 0x24))
-        .text_size(px(font::SMALL_SIZE))
+        .text_size(px(font::small_size()))
         .text_color(rgb(tint))
         .child(letter)
 }
@@ -715,7 +715,7 @@ fn render_documentation(
     let signature = documentation.signature.as_ref().map(|signature| {
         code_box("documentation-signature", 0, signature, view)
             .flex_none()
-            .text_size(px(font::MONO_SIZE))
+            .text_size(px(font::mono_size()))
             .line_height(px(BODY_LINE_HEIGHT))
             .into_any_element()
     });
@@ -729,7 +729,7 @@ fn render_documentation(
             panel.child(
                 div()
                     .flex_none()
-                    .text_size(px(font::SMALL_SIZE))
+                    .text_size(px(font::small_size()))
                     .text_color(rgb(color::fg_dim()))
                     .child(title),
             )
@@ -854,7 +854,7 @@ fn render_heading(heading: &str) -> impl IntoElement {
     let (text, code) = code_spans(heading);
     div()
         .flex_none()
-        .text_size(px(font::STATUS_SIZE))
+        .text_size(px(font::status_size()))
         .font_weight(gpui::FontWeight::SEMIBOLD)
         .child(StyledText::new(text).with_highlights(code))
 }
@@ -871,7 +871,7 @@ fn render_block(index: usize, block: &DocBlock, code_chars: usize, view: &PopupV
             };
             paragraph
                 .flex_none()
-                .text_size(px(font::UI_SIZE))
+                .text_size(px(font::ui_size()))
                 .line_height(px(BODY_LINE_HEIGHT))
                 .text_color(rgb(color::fg_body()))
                 .into_any_element()
@@ -882,7 +882,7 @@ fn render_block(index: usize, block: &DocBlock, code_chars: usize, view: &PopupV
             .py(px(6.0))
             .rounded(px(6.0))
             .bg(rgba(glass::field()))
-            .text_size(px(font::STATUS_SIZE))
+            .text_size(px(font::status_size()))
             .line_height(px(18.0))
             .text_color(rgb(color::fg_alt()))
             .into_any_element(),
@@ -916,7 +916,7 @@ fn render_hints(hints: &'static [(&'static str, &'static str)]) -> Div {
         .pt(px(8.0))
         .border_t_1()
         .border_color(rgba(glass::ink(0x0f)))
-        .text_size(px(font::STATUS_SIZE))
+        .text_size(px(font::status_size()))
         .text_color(rgb(color::fg_dim()))
         .children(hints.iter().map(|&(keys, action)| {
             div()
