@@ -98,6 +98,8 @@ pub struct Candidate {
     pub group: Option<Cow<'static, str>>,
     pub icon: Option<Icon>,
     pub kind: Option<SymbolKind>,
+    /// The color the candidate names, `0xRRGGBBAA`, drawn in place of its kind.
+    pub swatch: Option<u32>,
     pub modified: bool,
     pub dim: bool,
     /// Makes the candidate a step of a plan, like a commit of a rebase: the action

@@ -131,6 +131,8 @@ pub struct PopupView<'a> {
     pub max_height: Pixels,
     pub notes_max_width: Pixels,
     pub notes_max_height: Pixels,
+    /// Completions naming a color show it in place of their kind.
+    pub completion_swatches: bool,
 }
 
 /// Keeps the shown documentation's scroll position between frames: new documentation
@@ -564,11 +566,11 @@ fn render_list_popup(popup: &Popup, placement: &Placement, view: &PopupView) -> 
     let (left, children) = match documentation {
         Some((width, documentation)) if width > room_right => (
             list_left - width - px(PANEL_GAP),
-            vec![documentation, render_list(popup)],
+            vec![documentation, render_list(popup, view)],
         ),
         documentation => (
             list_left,
-            [render_list(popup)]
+            [render_list(popup, view)]
                 .into_iter()
                 .chain(documentation.map(|(_, panel)| panel))
                 .collect(),
@@ -594,22 +596,19 @@ fn panel() -> Div {
         .flex_none()
 }
 
-fn render_list(popup: &Popup) -> AnyElement {
+fn render_list(popup: &Popup, view: &PopupView) -> AnyElement {
     panel()
         .w(px(LIST_WIDTH))
         .p(px(LIST_PADDING))
         .gap(px(ROW_GAP))
-        .children(
-            popup
-                .rows
-                .iter()
-                .enumerate()
-                .map(|(index, row)| render_row(row, popup.selected == Some(index))),
-        )
+        .children(popup.rows.iter().enumerate().map(|(index, row)| {
+            let swatch = row.swatch.filter(|_| view.completion_swatches);
+            render_row(row, swatch, popup.selected == Some(index))
+        }))
         .into_any_element()
 }
 
-fn render_row(row: &Candidate, selected: bool) -> impl IntoElement {
+fn render_row(row: &Candidate, swatch: Option<u32>, selected: bool) -> impl IntoElement {
     let secondary = secondary_color(selected);
     let label = StyledText::new(row.label.clone()).with_highlights(matches_in(
         &row.matches,
@@ -633,9 +632,10 @@ fn render_row(row: &Candidate, selected: bool) -> impl IntoElement {
             )])
         })
         .font_family(font::mono())
-        .child(match row.kind {
-            Some(kind) => render_badge(kind).into_any_element(),
-            None => div().flex_none().w(px(BADGE_SIZE)).into_any_element(),
+        .child(match (swatch, row.kind) {
+            (Some(color), _) => render_swatch(color).into_any_element(),
+            (None, Some(kind)) => render_badge(kind).into_any_element(),
+            (None, None) => div().flex_none().w(px(BADGE_SIZE)).into_any_element(),
         })
         .child(
             div()
@@ -656,6 +656,18 @@ fn render_row(row: &Candidate, selected: bool) -> impl IntoElement {
                     .child(detail.into_owned()),
             )
         })
+}
+
+/// The color, `0xRRGGBBAA`, in place of the kind's badge; outlined, so white and
+/// translucent colors show on any glass.
+fn render_swatch(color: u32) -> impl IntoElement {
+    div()
+        .flex_none()
+        .size(px(BADGE_SIZE))
+        .rounded(px(5.0))
+        .bg(rgba(color))
+        .border_1()
+        .border_color(rgba(color::fg_dim() << 8 | 0x40))
 }
 
 /// A letter on a tint of the color code of its kind takes, like `f` for a field.

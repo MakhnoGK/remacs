@@ -34,11 +34,14 @@ pub enum Request {
 pub struct Item {
     pub label: String,
     pub kind: Option<SymbolKind>,
+    /// The color the item names, `0xRRGGBBAA`, like Tailwind's `bg-red-500`.
+    pub swatch: Option<u32>,
     /// Shown at the end of the row, e.g. a type.
     pub detail: String,
-    /// What the typed word is matched against.
+    /// What the text from `start` to point is matched against.
     pub filter_text: String,
-    /// The text from `start` to point is replaced with `insert`.
+    /// The text from `start` to point is replaced with `insert`. It may start before the
+    /// word, e.g. a Tailwind class at `bg-` of `bg-re`.
     pub start: usize,
     pub insert: String,
     /// Where point ends up in `insert`; at its end when `None`.

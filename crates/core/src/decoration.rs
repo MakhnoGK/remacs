@@ -29,6 +29,8 @@ pub enum Face {
     Console(ConsoleStyle),
     /// Followed by a key or a click, like a `file:line` in a program's output.
     Link,
+    /// Text naming a color, like `bg-red-500` or `#1e90ff`, marked in it: `0xRRGGBBAA`.
+    Swatch(u32),
 }
 
 /// How a program asked for its text to be drawn, with SGR escape codes.

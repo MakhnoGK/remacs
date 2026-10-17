@@ -135,6 +135,7 @@ pub(crate) fn convert(item: &CompletionItem, origin: &Origin) -> Item {
         // clangd pads labels to line them up with its `•` for items that add an include.
         label: item.label.trim().to_owned(),
         kind,
+        swatch: swatch(item),
         detail,
         filter_text: item
             .filter_text
@@ -153,6 +154,25 @@ pub(crate) fn convert(item: &CompletionItem, origin: &Origin) -> Item {
             })
             .collect(),
         documentation: documentation(item, kind, origin.modes),
+    }
+}
+
+/// `0xRRGGBBAA` of a color item, whose documentation is `#rrggbb` or `#rrggbbaa`, as
+/// Tailwind's and VS Code's servers send it.
+fn swatch(item: &CompletionItem) -> Option<u32> {
+    if item.kind != Some(CompletionItemKind::COLOR) {
+        return None;
+    }
+    let text = match item.documentation.as_ref()? {
+        lsp_types::Documentation::String(text) => text,
+        lsp_types::Documentation::MarkupContent(content) => &content.value,
+    };
+    let hex = text.trim().strip_prefix('#')?;
+    let value = u32::from_str_radix(hex, 16).ok()?;
+    match hex.len() {
+        6 => Some(value << 8 | 0xff),
+        8 => Some(value),
+        _ => None,
     }
 }
 
@@ -284,6 +304,19 @@ mod tests {
             (start, "step_by(step)", Some(8))
         );
         assert_eq!(method.extra_edits, [(0..0, "use b;\n".into())]);
+    }
+
+    #[test]
+    fn color_items_carry_their_color() {
+        let swatch = |item| swatch(&serde_json::from_value(item).unwrap());
+        let color = |documentation| json!({ "label": "bg-red-500", "kind": 16, "documentation": documentation });
+        assert_eq!(swatch(color("#fb2c36")), Some(0xfb2c36ff));
+        assert_eq!(swatch(color("#fb2c3680")), Some(0xfb2c3680));
+        assert_eq!(swatch(color("rgb(1, 2, 3)")), None);
+        assert_eq!(
+            swatch(json!({ "label": "x", "kind": 6, "documentation": "#fb2c36" })),
+            None
+        );
     }
 
     #[test]

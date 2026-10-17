@@ -15,7 +15,7 @@ use lsp_types::notification::{
     DidSaveTextDocument, Initialized, Notification, PublishDiagnostics,
 };
 use lsp_types::request::{
-    ApplyWorkspaceEdit, CodeActionRequest, CodeActionResolveRequest, Completion,
+    ApplyWorkspaceEdit, CodeActionRequest, CodeActionResolveRequest, Completion, DocumentColor,
     DocumentDiagnosticRequest, ExecuteCommand, Formatting, GotoDefinition, HoverRequest,
     Initialize, PrepareRenameRequest, RangeFormatting, Rename, Request, ResolveCompletionItem,
     WillRenameFiles, WorkspaceConfiguration, WorkspaceDiagnosticRefresh, WorkspaceSymbolRequest,
@@ -35,6 +35,7 @@ use remacs_text::{Edit, Snapshot};
 use serde_json::{Value, json};
 
 use crate::LanguageServer;
+use crate::color::{self, Swatch};
 use crate::completion::{self, CompletionSupport, Origin};
 use crate::markdown::CodeModes;
 use crate::position::{Encoding, from_lsp, to_lsp};
@@ -73,6 +74,12 @@ pub(crate) enum Outgoing {
         uri: Uri,
         path: PathBuf,
         version: i32,
+    },
+    /// Asks for the colors `text`, the text the server has, names.
+    Colors {
+        uri: Uri,
+        path: PathBuf,
+        text: Snapshot,
     },
     /// Asks for completions at `offset` of `text`, the text the server has; `id` is the
     /// completion plugin's.
@@ -285,6 +292,10 @@ enum Pending {
         path: PathBuf,
         version: i32,
     },
+    Colors {
+        path: PathBuf,
+        text: Snapshot,
+    },
     Complete {
         id: u64,
         origin: Origin,
@@ -329,12 +340,13 @@ enum Pending {
 }
 
 impl Pending {
-    /// Whether a failure is answered too, so the user hears of it; other failed
-    /// requests, e.g. cancelled by a newer edit, are dropped.
+    /// Whether a failure is answered too, so the user hears of it, or a list waiting for
+    /// every server's completions is not held up; other failed requests, e.g. cancelled
+    /// by a newer edit, are dropped.
     fn answers_failure(&self) -> bool {
         !matches!(
             self,
-            Pending::Pull { .. } | Pending::Complete { .. } | Pending::Resolve { .. }
+            Pending::Pull { .. } | Pending::Colors { .. } | Pending::Resolve { .. }
         )
     }
 }
@@ -343,6 +355,8 @@ impl Pending {
 #[derive(Default)]
 struct Inbox {
     published: HashMap<PathBuf, Published>,
+    /// The newest colors of each file and the text they were found in.
+    colors: HashMap<PathBuf, (Snapshot, Vec<Swatch>)>,
     requests: HashMap<u64, Pending>,
     answers: Vec<Answer>,
     /// Kept apart from `answers`, which are for the window buffer's document.
@@ -393,6 +407,7 @@ struct Negotiated {
     encoding: Encoding,
     incremental: bool,
     completion: Option<CompletionSupport>,
+    colors: bool,
     will_rename: bool,
     did_rename: bool,
     formatting: bool,
@@ -513,6 +528,10 @@ impl Client {
         lock(&self.inbox).published.remove(path)
     }
 
+    pub fn take_colors(&self, path: &Path) -> Option<(Snapshot, Vec<Swatch>)> {
+        lock(&self.inbox).colors.remove(path)
+    }
+
     /// Why the server exited, the first time it is asked after it has.
     pub fn take_exit(&self) -> Option<String> {
         lock(&self.inbox).exit.take()
@@ -576,6 +595,7 @@ fn initialize_params(options: Option<Value>, root: &Path) -> Value {
                     "contextSupport": true,
                 },
                 "hover": { "contentFormat": ["markdown", "plaintext"] },
+                "colorProvider": {},
                 "definition": { "linkSupport": true },
                 "rename": { "prepareSupport": true },
                 // Without literal support servers send bare commands only.
@@ -664,6 +684,17 @@ impl Writer {
                 };
                 self.ask(DocumentDiagnosticRequest::METHOD, params, pending)
             }
+            Outgoing::Colors { uri, path, text } => {
+                if !negotiated.colors {
+                    return Ok(());
+                }
+                let params = json!({ "textDocument": TextDocumentIdentifier::new(uri.clone()) });
+                let pending = Pending::Colors {
+                    path: path.clone(),
+                    text: text.clone(),
+                };
+                self.ask(DocumentColor::METHOD, params, pending)
+            }
             Outgoing::Complete {
                 uri,
                 id,
@@ -674,6 +705,15 @@ impl Writer {
                 modes,
             } => {
                 let Some(context) = completion.and_then(|support| support.context(*trigger)) else {
+                    let origin = origin(text, *start, *modes);
+                    let (list, items) = completion::list(None, &origin);
+                    lock(&self.inbox).answers.push(Answer::Listed {
+                        id: *id,
+                        list,
+                        items,
+                        origin,
+                    });
+                    (self.notifier)();
                     return Ok(());
                 };
                 let params = json!({
@@ -911,6 +951,7 @@ impl Writer {
 fn is_superseded(message: &Outgoing, later: &[Outgoing]) -> bool {
     later.iter().any(|other| match (message, other) {
         (Outgoing::Pull { uri, .. }, Outgoing::Pull { uri: other, .. })
+        | (Outgoing::Colors { uri, .. }, Outgoing::Colors { uri: other, .. })
         | (Outgoing::Complete { uri, .. }, Outgoing::Complete { uri: other, .. })
         | (Outgoing::CodeActions { uri, .. }, Outgoing::CodeActions { uri: other, .. }) => {
             uri == other
@@ -964,6 +1005,7 @@ impl Outgoing {
                 })
             }
             Outgoing::Pull { .. }
+            | Outgoing::Colors { .. }
             | Outgoing::Complete { .. }
             | Outgoing::Resolve { .. }
             | Outgoing::AtPoint { .. }
@@ -1128,6 +1170,7 @@ impl Reader {
             encoding: self.encoding,
             incremental: !full_sync,
             completion: CompletionSupport::from_capabilities(capabilities),
+            colors: is_provided(&capabilities["colorProvider"]),
             will_rename: capabilities["workspace"]["fileOperations"]["willRename"].is_object(),
             did_rename: capabilities["workspace"]["fileOperations"]["didRename"].is_object(),
             formatting: is_provided(&capabilities["documentFormattingProvider"]),
@@ -1156,6 +1199,12 @@ impl Reader {
         let result = response["result"].take();
         match pending {
             Pending::Pull { path, version } => self.pulled(path, version, result),
+            Pending::Colors { path, text } => {
+                let found = serde_json::from_value(result).unwrap_or_default();
+                let swatches = color::swatches(found, &text, self.encoding);
+                lock(&self.inbox).colors.insert(path, (text, swatches));
+                (self.notifier)();
+            }
             Pending::Complete { id, origin } => {
                 let response = serde_json::from_value(result).unwrap_or_default();
                 let (list, items) = completion::list(response, &origin);

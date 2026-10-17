@@ -382,6 +382,11 @@ root-markers = ["package.json"]
 when = { files = ["tailwind.config.*"], dependencies = ["tailwindcss", "@tailwindcss/*"] }
 install = { from = "npm", package = "@tailwindcss/language-server" }
 
+# Asked for as both the `editor` and the `tailwindCSS` sections; the server takes its
+# defaults for the rest. Strings passed to these hold classes too, like cn("p-4").
+[servers.configuration]
+classFunctions = ["clsx", "cn", "cva", "cx", "tw", "twMerge", "twJoin", "classnames"]
+
 [[servers]]
 name = "ruff"
 command = "ruff"

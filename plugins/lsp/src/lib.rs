@@ -1,10 +1,11 @@
 //! Built-in plugin: a language server client, like Emacs eglot. It starts a server per
-//! project, keeps it in sync with the buffers, passes its diagnostics on and answers the
-//! completion, documentation, xref and actions plugins.
+//! project, keeps it in sync with the buffers, passes its diagnostics on, marks the colors
+//! files name and answers the completion, documentation, xref and actions plugins.
 
 mod catalog;
 mod client;
 mod code_action;
+mod color;
 mod completion;
 mod definition;
 mod document;
@@ -104,6 +105,7 @@ impl Plugin for LspPlugin {
             symbols::sync(editor, servers);
             offer::ask(editor);
         }));
+        registry.decorators.push(Rc::new(document::swatch_spans));
         registry.settings_hooks.push(Rc::new(move |editor| {
             settings::read(editor, catalog);
         }));

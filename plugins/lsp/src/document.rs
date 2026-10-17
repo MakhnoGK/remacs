@@ -1,16 +1,17 @@
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::mem;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::{iter, mem};
 
 use lsp_types::{
     CodeAction, CodeActionOrCommand, CompletionItem, DiagnosticSeverity, NumberOrString, Uri,
 };
 use remacs_actions::{Action, Request as ActionRequest};
-use remacs_completion::Request;
-use remacs_core::{Editor, Notifier};
+use remacs_completion::{List, Request};
+use remacs_core::{Buffer, Editor, Face, Notifier, Span};
 use remacs_diagnostics::{self as diagnostics, Diagnostic, Severity};
+use remacs_documentation::Answer as DocumentationAnswer;
 use remacs_format::{Failure, Request as FormatRequest};
 use remacs_text::Snapshot;
 use remacs_tools::Program;
@@ -19,6 +20,7 @@ use serde_json::json;
 use crate::LanguageServer;
 use crate::catalog::{ServerSpec, has_file};
 use crate::client::{Answer, Client, Outgoing, Published, Question};
+use crate::color::{self, Swatch};
 use crate::completion::Origin;
 use crate::markdown::CodeModes;
 use crate::position::{Encoding, from_lsp};
@@ -31,22 +33,64 @@ const MAX_SYNCED_BYTES: usize = 16 << 20;
 const MAX_PENDING_VERSIONS: usize = 32;
 
 /// A buffer's files on the servers for its mode, in the order the servers are listed.
-/// The first answers questions such as completion; all of them check the buffer and
-/// offer code actions, so linters can serve beside the language's own server.
+/// The first answers questions such as where a symbol is defined; all of them check the
+/// buffer and complete, document and offer code actions in it, so linters and Tailwind
+/// serve beside the language's own server.
 #[derive(Default)]
 struct Documents {
     list: Vec<Document>,
-    /// The code actions of the newest list asked for, until every server offered its own.
-    gathering: Option<Gathering>,
+    /// The newest request of each kind, until every server answered its own.
+    actions: Option<Gathering<Vec<Action>>>,
+    completions: Option<Gathering<List>>,
+    hovers: Option<Gathering<Option<DocumentationAnswer>>>,
 }
 
-struct Gathering {
+struct Gathering<T> {
     id: u64,
     /// Per document; `None` until it answered.
-    menus: Vec<Option<Vec<Action>>>,
+    answers: Vec<Option<T>>,
+}
+
+impl<T> Gathering<T> {
+    fn new(id: u64, documents: usize) -> Option<Self> {
+        Some(Self {
+            id,
+            answers: iter::repeat_with(|| None).take(documents).collect(),
+        })
+    }
+}
+
+/// Takes document `index`'s answer to request `id`; once every document answered, all
+/// their answers in the servers' order. Answers to older requests are dropped.
+fn gather<T>(
+    gathering: &mut Option<Gathering<T>>,
+    id: u64,
+    index: usize,
+    answer: T,
+) -> Option<Vec<T>> {
+    let waiting = gathering.as_mut().filter(|gathering| gathering.id == id)?;
+    *waiting.answers.get_mut(index)? = Some(answer);
+    if waiting.answers.iter().any(Option::is_none) {
+        return None;
+    }
+    let answers = gathering.take()?.answers;
+    Some(answers.into_iter().flatten().collect())
 }
 
 impl Documents {
+    /// Item `index` of completion list `id` as delivered, all servers' items in their
+    /// order: the document that listed it and its index there.
+    fn listed(&self, id: u64, mut index: usize) -> Option<(&Document, usize)> {
+        for document in &self.list {
+            let count = document.listed_count(id);
+            if index < count {
+                return Some((document, index));
+            }
+            index -= count;
+        }
+        None
+    }
+
     /// Action `index` of list `id` as delivered, all servers' actions in their order, and
     /// the server that offered it.
     fn offered(
@@ -90,6 +134,9 @@ struct Document {
     pending: VecDeque<(i32, Snapshot)>,
     /// The client's pull generation when the diagnostics were last pulled.
     pulled: Option<u64>,
+    /// The colors the file names, as of the buffer's text, and the version last asked.
+    colors: Vec<Swatch>,
+    colors_asked: Option<i32>,
     /// The newest completion list, as the server sent it, for resolving its items.
     listed: Option<Listed>,
     /// The diagnostics last taken, as the server sent them, and the text they refer to;
@@ -142,6 +189,8 @@ impl Document {
             modified,
             pending: VecDeque::from([(0, text)]),
             pulled: None,
+            colors: Vec::new(),
+            colors_asked: None,
             listed: None,
             reported: None,
             offered: None,
@@ -182,6 +231,7 @@ impl Document {
             if self.pending.len() > MAX_PENDING_VERSIONS {
                 self.pending.pop_front();
             }
+            color::shift(&mut self.colors, edit);
         }
         if self.modified && !modified {
             self.client.send(Outgoing::Save {
@@ -193,8 +243,37 @@ impl Document {
         }
         self.modified = modified;
         self.pull(edit.is_some());
+        self.update_colors();
         self.resolve_when_settled();
         self.take_diagnostics()
+    }
+
+    /// Asks for the colors of each version once, and takes those found, moved onto the
+    /// text since.
+    fn update_colors(&mut self) {
+        let text = self.sent_text();
+        if self.colors_asked != Some(self.version) {
+            self.colors_asked = Some(self.version);
+            self.client.send(Outgoing::Colors {
+                uri: self.uri.clone(),
+                path: self.path.clone(),
+                text: text.clone(),
+            });
+        }
+        if let Some((found_in, mut colors)) = self.client.take_colors(&self.path) {
+            if let Some(edit) = text.edit_from(&found_in) {
+                color::shift(&mut colors, edit);
+            }
+            self.colors = colors;
+        }
+    }
+
+    /// How many items completion list `id` has from this server.
+    fn listed_count(&self, id: u64) -> usize {
+        self.listed
+            .as_ref()
+            .filter(|listed| listed.id == id)
+            .map_or(0, |listed| listed.items.len())
     }
 
     fn resolve_when_settled(&mut self) {
@@ -584,6 +663,33 @@ fn detach(editor: &mut Editor, name: &'static str) {
     }
 }
 
+/// The colors the buffer's servers found in `range`; where two found one, the first's.
+pub(crate) fn swatch_spans(buffer: &Buffer, range: Range<usize>) -> Vec<Span> {
+    let Some(documents) = buffer.local::<Documents>() else {
+        return Vec::new();
+    };
+    let mut spans: Vec<_> = documents
+        .list
+        .iter()
+        .flat_map(|document| &document.colors)
+        .filter(|(color, _)| color.start < range.end && color.end > range.start)
+        .map(|(color, rgba)| Span {
+            range: color.clone(),
+            face: Face::Swatch(*rgba),
+        })
+        .collect();
+    spans.sort_by_key(|span| span.range.start);
+    let mut end = 0;
+    spans.retain(|span| {
+        let keep = span.range.start >= end;
+        if keep {
+            end = span.range.end;
+        }
+        keep
+    });
+    spans
+}
+
 /// The servers attached to the window buffer.
 pub(crate) fn window_servers(editor: &Editor) -> Vec<&'static str> {
     editor
@@ -663,12 +769,38 @@ fn hand_over_answers(editor: &mut Editor) {
 
 /// Passes on what document `index`'s server answered.
 fn hand_over(editor: &mut Editor, index: usize, client: &Client, answer: Answer) {
+    let documents = editor.window_buffer_mut().local_mut::<Documents>();
     match answer {
-        Answer::Listed { id, list, .. } => remacs_completion::deliver(editor, id, list),
-        Answer::Resolved { id, index, item } => {
-            remacs_completion::resolved(editor, id, index, item);
+        Answer::Listed { id, list, .. } => {
+            let completions = documents.map(|documents| &mut documents.completions);
+            if let Some(lists) = completions.and_then(|lists| gather(lists, id, index, list)) {
+                let list = List {
+                    incomplete: lists.iter().any(|list| list.incomplete),
+                    items: lists.into_iter().flat_map(|list| list.items).collect(),
+                };
+                remacs_completion::deliver(editor, id, list);
+            }
         }
-        Answer::Hover { id, answer } => remacs_documentation::deliver(editor, id, answer),
+        Answer::Resolved {
+            id,
+            index: item_index,
+            item,
+        } => {
+            let before: usize = documents.map_or(0, |documents| {
+                documents.list[..index]
+                    .iter()
+                    .map(|document| document.listed_count(id))
+                    .sum()
+            });
+            remacs_completion::resolved(editor, id, before + item_index, item);
+        }
+        Answer::Hover { id, answer } => {
+            let hovers = documents.map(|documents| &mut documents.hovers);
+            if let Some(answers) = hovers.and_then(|hovers| gather(hovers, id, index, answer)) {
+                let answer = answers.into_iter().flatten().next();
+                remacs_documentation::deliver(editor, id, answer);
+            }
+        }
         Answer::Definitions {
             id,
             targets,
@@ -723,29 +855,14 @@ fn hand_over(editor: &mut Editor, index: usize, client: &Client, answer: Answer)
 }
 
 /// Delivers the code actions of list `id` once every server offered its own, in the
-/// servers' order; older lists are dropped.
+/// servers' order.
 fn gather_actions(editor: &mut Editor, id: u64, index: usize, menu: Vec<Action>) {
     let Some(documents) = editor.window_buffer_mut().local_mut::<Documents>() else {
         return;
     };
-    let Some(gathering) = documents
-        .gathering
-        .as_mut()
-        .filter(|gathering| gathering.id == id)
-    else {
-        return;
-    };
-    let Some(slot) = gathering.menus.get_mut(index) else {
-        return;
-    };
-    *slot = Some(menu);
-    if gathering.menus.iter().any(Option::is_none) {
-        return;
+    if let Some(menus) = gather(&mut documents.actions, id, index, menu) {
+        remacs_actions::deliver(editor, id, menus.into_iter().flatten().collect());
     }
-    let menus = mem::take(&mut gathering.menus);
-    documents.gathering = None;
-    let menu = menus.into_iter().flatten().flatten().collect();
-    remacs_actions::deliver(editor, id, menu);
 }
 
 /// Sends the window buffer's requests to its servers; without any, questions are answered
@@ -770,15 +887,30 @@ fn send_requests(editor: &mut Editor) {
         }
         return;
     };
-    let first = &documents.list[0];
+    let mut completing = None;
     for request in completions {
-        first.request(request);
+        match request {
+            Request::Complete { id, .. } => {
+                for document in &documents.list {
+                    document.request(request.clone());
+                }
+                completing = Some(id);
+            }
+            Request::Resolve { id, index } => {
+                if let Some((document, index)) = documents.listed(id, index) {
+                    document.request(Request::Resolve { id, index });
+                }
+            }
+        }
     }
+    let hovering = hovers.last().map(|request| request.id);
     for request in hovers {
-        first.ask(Question::Hover, request.id, request.offset);
+        for document in &documents.list {
+            document.ask(Question::Hover, request.id, request.offset);
+        }
     }
     for request in definitions {
-        first.ask(Question::Definition, request.id, request.offset);
+        documents.list[0].ask(Question::Definition, request.id, request.offset);
     }
     let mut listed = None;
     let mut chosen = Vec::new();
@@ -793,15 +925,19 @@ fn send_requests(editor: &mut Editor) {
             ActionRequest::Apply { id, index } => chosen.push((id, documents.offered(id, index))),
         }
     }
+    let documents = editor
+        .window_buffer_mut()
+        .local_mut::<Documents>()
+        .expect("the buffer has documents");
+    let count = documents.list.len();
+    if let Some(id) = completing {
+        documents.completions = Gathering::new(id, count);
+    }
+    if let Some(id) = hovering {
+        documents.hovers = Gathering::new(id, count);
+    }
     if let Some(id) = listed {
-        let documents = editor
-            .window_buffer_mut()
-            .local_mut::<Documents>()
-            .expect("the buffer has documents");
-        documents.gathering = Some(Gathering {
-            id,
-            menus: vec![None; documents.list.len()],
-        });
+        documents.actions = Gathering::new(id, count);
     }
     for (id, offered) in chosen {
         let result = match offered {
@@ -936,7 +1072,7 @@ fn attach_once(editor: &mut Editor, index: usize, servers: &'static [LanguageSer
     } else {
         buffer.set_local(Documents {
             list,
-            gathering: None,
+            ..Documents::default()
         });
     }
     next_of_group
@@ -1047,6 +1183,20 @@ fn source_label(source: Option<String>, code: Option<NumberOrString>) -> String 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn answers_are_gathered_from_every_server_in_their_order() {
+        let mut gathering = Gathering::new(2, 3);
+        assert_eq!(gather(&mut gathering, 1, 0, "old"), None);
+        assert_eq!(gather(&mut gathering, 2, 2, "tailwind"), None);
+        assert_eq!(gather(&mut gathering, 2, 0, "typescript"), None);
+        assert_eq!(
+            gather(&mut gathering, 2, 1, "eslint"),
+            Some(vec!["typescript", "eslint", "tailwind"])
+        );
+        assert!(gathering.is_none());
+        assert_eq!(gather(&mut gathering, 2, 1, "late"), None);
+    }
 
     #[test]
     fn source_labels_join_source_and_code() {

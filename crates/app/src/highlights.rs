@@ -58,6 +58,19 @@ pub fn face_style(face: Face) -> HighlightStyle {
             color: Some(hsla(color::link())),
             ..underline(color::link())
         },
+        Face::Swatch(color) => swatch_style(color, UNDERLINE_THICKNESS),
+    }
+}
+
+/// A line under text naming a color, `0xRRGGBBAA`, in it.
+pub fn swatch_style(color: u32, thickness: f32) -> HighlightStyle {
+    HighlightStyle {
+        underline: Some(UnderlineStyle {
+            thickness: px(thickness),
+            color: Some(rgba(color).into()),
+            wavy: false,
+        }),
+        ..Default::default()
     }
 }
 

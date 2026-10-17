@@ -110,6 +110,27 @@ fn typing_asks_once_per_word_and_narrows_the_list() {
 }
 
 #[test]
+fn items_starting_before_the_word_match_the_text_from_their_start() {
+    let mut editor = editor_with("x bg-");
+    type_text(&mut editor, "r");
+    let classes = ["ring-red-500", "bg-red-500", "border-red-500"].map(|label| item(label, 2));
+    let mut items = vec![item("resize", 5)];
+    items.extend(classes);
+    deliver(
+        &mut editor,
+        1,
+        List {
+            items,
+            incomplete: false,
+        },
+    );
+    assert_eq!(shown(&editor), ["resize", "bg-red-500"]);
+    assert_eq!(editor.popups()[0].rows[1].matches.first(), Some(&(0..4)));
+    press(&mut editor, "C-n RET");
+    assert_eq!(text(&editor), "x bg-red-500");
+}
+
+#[test]
 fn other_commands_and_non_word_characters_close_the_popup() {
     let mut editor = editor_with("x\ngap");
     press(&mut editor, "C-M-i");

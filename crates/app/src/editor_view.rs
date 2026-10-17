@@ -19,10 +19,11 @@ use gpui::{
 
 use crate::assets::{EXECUTION_POINT_ICON, LOGPOINT_ICON};
 use remacs_core::{
-    Action, BreakpointIcon, ChangedLines, Code, CommandError, EchoMessage, Editor, FrameRequest,
-    GutterIcon, GutterMark, Icon, Key, LineChange, LineExtra, MessageKind, Minibuffer,
-    MouseSelection, Outline, Pane, PaneBody, PaneButton, Popup, Preview, ScreenButton, ScreenMouse,
-    ScreenPointer, ScreenSize, Scroll, Span, StatusItem, StatusSegment, Tabs, describe_sequence,
+    Action, BreakpointIcon, ChangedLines, Code, CommandError, EchoMessage, Editor, Face,
+    FrameRequest, GutterIcon, GutterMark, Icon, Key, LineChange, LineExtra, MessageKind,
+    Minibuffer, MouseSelection, Outline, Pane, PaneBody, PaneButton, Popup, Preview, ScreenButton,
+    ScreenMouse, ScreenPointer, ScreenSize, Scroll, Span, StatusItem, StatusSegment, Tabs,
+    describe_sequence,
 };
 use remacs_echo::VIEW_MESSAGES;
 use remacs_frame::TEXT_CONFIGURED;
@@ -37,7 +38,7 @@ use crate::bottom_row::{
 use crate::changes_view::render_changes;
 use crate::display_line::{DisplayLine, display_width, slice_line};
 use crate::frame;
-use crate::highlights::{Highlights, combine, face_style, region_style};
+use crate::highlights::{Highlights, combine, face_style, region_style, swatch_style};
 use crate::key_input::{to_key, to_modifiers};
 use crate::menu_bar::{self, RunCommand};
 use crate::minibuffer_view::{draws_input, is_problem_list, render_minibuffer, render_scrim};
@@ -54,8 +55,8 @@ use crate::preview_view::render_preview;
 use crate::screen_view::{Cell as ScreenCell, cell_at, render_screen, screen_size};
 use crate::settings::{
     BottomSettings, CursorHeight, DocumentationSettings, GlassSettings, MouseSettings,
-    ProblemsSettings, PromptsSettings, ReadSettings, ScrollSettings, TransitionsSettings,
-    UiSettings, ZoomSettings, report,
+    ProblemsSettings, PromptsSettings, ReadSettings, ScrollSettings, SwatchesSettings,
+    TransitionsSettings, UiSettings, ZoomSettings, report,
 };
 use crate::smooth_scroll::{Glide, SmoothScroll, wheel_delta};
 use crate::table_view::{
@@ -149,6 +150,7 @@ pub struct EditorView {
     documentation: DocumentationSettings,
     problems: ProblemsSettings,
     prompts: PromptsSettings,
+    swatches: SwatchesSettings,
     /// How far the minibuffer input is scrolled sideways.
     input_scroll: ScrollHandle,
     /// The buffer the window title names.
@@ -359,6 +361,7 @@ impl EditorView {
             documentation: ui.documentation,
             problems: ui.problems,
             prompts: ui.prompts,
+            swatches: ui.swatches,
             input_scroll: ScrollHandle::new(),
             titled_buffer: String::new(),
             code_faces: RefCell::default(),
@@ -407,6 +410,7 @@ impl EditorView {
         self.documentation = read.ui.documentation;
         self.problems = read.ui.problems;
         self.prompts = read.ui.prompts;
+        self.swatches = read.ui.swatches;
         self.bottom = read.ui.bottom();
         self.transitions = read.ui.transitions;
         self.editor
@@ -1169,6 +1173,7 @@ impl EditorView {
         visible: &Range<usize>,
         decorations: Vec<Vec<Span>>,
         display_line: &DisplayLine,
+        swatches: SwatchesSettings,
     ) -> Vec<Highlights> {
         let to_line = |offset: usize| offset.clamp(visible.start, visible.end) - visible.start;
         decorations
@@ -1176,9 +1181,14 @@ impl EditorView {
             .map(|spans| {
                 spans
                     .into_iter()
-                    .map(|span| {
+                    .filter_map(|span| {
+                        let style = match span.face {
+                            Face::Swatch(_) if !swatches.inline => return None,
+                            Face::Swatch(color) => swatch_style(color, swatches.thickness),
+                            face => face_style(face),
+                        };
                         let range = to_line(span.range.start)..to_line(span.range.end);
-                        (display_line.display_range(range), face_style(span.face))
+                        Some((display_line.display_range(range), style))
                     })
                     .collect()
             })
@@ -1223,7 +1233,7 @@ impl EditorView {
         let row_height = px(code_font.line_height);
         let buffer = self.editor.window_buffer();
         let is_current = line == buffer.point_line();
-        let mut layers = Self::face_layers(&visible, decorations, &display_line);
+        let mut layers = Self::face_layers(&visible, decorations, &display_line, self.swatches);
         if let Some(columns) = self.region_columns(line) {
             layers.push(vec![(display_line.cell_range(columns), region_style())]);
         }
@@ -1361,6 +1371,7 @@ impl EditorView {
             max_height: px(self.documentation.max_height),
             notes_max_width: px(self.problems.max_width),
             notes_max_height: px(self.problems.max_height),
+            completion_swatches: self.swatches.completion,
         };
         self.surfaces
             .popups

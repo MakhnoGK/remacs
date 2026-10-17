@@ -64,6 +64,10 @@ struct Session {
     matches: Vec<usize>,
     /// The word matched; the rows shown highlight what of it their labels match.
     word: String,
+    /// The text before `start` of items starting earlier, by their start, and the word
+    /// they last matched: from their start to point.
+    prefixes: Vec<(usize, String)>,
+    words: Vec<(usize, String)>,
     selection: Selection,
     /// Point when the word was matched; moving it other than by typing ends the session.
     point: usize,
@@ -73,7 +77,19 @@ struct Session {
 }
 
 impl Session {
-    fn new(id: u64, start: usize, list: List) -> Self {
+    fn new(id: u64, start: usize, list: List, buffer: &Buffer) -> Self {
+        let mut earlier: Vec<usize> = list
+            .items
+            .iter()
+            .map(|item| item.start)
+            .filter(|&from| from < start && buffer.text().is_char_boundary(from))
+            .collect();
+        earlier.sort_unstable();
+        earlier.dedup();
+        let prefixes = earlier
+            .into_iter()
+            .map(|from| (from, buffer.contents(from..start)))
+            .collect();
         Self {
             id,
             start,
@@ -81,6 +97,8 @@ impl Session {
             incomplete: list.incomplete,
             matches: Vec::new(),
             word: String::new(),
+            prefixes,
+            words: Vec::new(),
             selection: Selection::default(),
             point: start,
             resolving: HashSet::new(),
@@ -89,21 +107,34 @@ impl Session {
     }
 
     fn filter(&mut self, word: &str, point: usize) {
+        word.clone_into(&mut self.word);
+        self.words = self
+            .prefixes
+            .iter()
+            .map(|(from, prefix)| (*from, format!("{prefix}{word}")))
+            .collect();
         let mut ranked: Vec<_> = self
             .items
             .iter()
             .enumerate()
             .filter_map(|(index, item)| {
-                let is_prefix = flex_rank(word, &item.filter_text)?;
+                let is_prefix = flex_rank(self.word_of(item), &item.filter_text)?;
                 Some((!is_prefix, index))
             })
             .collect();
         ranked.sort_unstable();
         self.matches = ranked.into_iter().map(|(_, index)| index).collect();
-        word.clone_into(&mut self.word);
         self.selection = Selection::default();
         self.documentation_pages = 0;
         self.point = point;
+    }
+
+    /// What `item` is matched against: the text from its start to point.
+    fn word_of(&self, item: &Item) -> &str {
+        self.words
+            .iter()
+            .find(|(from, _)| *from == item.start)
+            .map_or(&self.word, |(_, word)| word)
     }
 
     fn is_shown(&self) -> bool {
@@ -278,7 +309,8 @@ pub(crate) fn deliver(editor: &mut Editor, id: u64, list: List) {
         return;
     };
     state.awaited = None;
-    state.session = Some(Session::new(id, awaited.start, list));
+    let session = Session::new(id, awaited.start, list, editor.window_buffer());
+    completion(editor).session = Some(session);
     if !refilter(editor) {
         return;
     }
@@ -334,9 +366,10 @@ pub(crate) fn popup(editor: &Editor) -> Option<Popup> {
         .map(|&index| {
             let item = &session.items[index];
             Candidate {
-                matches: flex_match(&session.word, &item.label).unwrap_or_default(),
+                matches: flex_match(session.word_of(item), &item.label).unwrap_or_default(),
                 detail: (!item.detail.is_empty()).then(|| item.detail.clone().into()),
                 kind: item.kind,
+                swatch: item.swatch,
                 ..Candidate::new(item.label.clone())
             }
         })

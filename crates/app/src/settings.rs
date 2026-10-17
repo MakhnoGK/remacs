@@ -50,6 +50,8 @@ const POPUP_MAX_WIDTHS: RangeInclusive<f32> = 240.0..=2000.0;
 const POPUP_MAX_HEIGHTS: RangeInclusive<f32> = 120.0..=2000.0;
 /// Pixels.
 const PROMPT_INPUT_MARGINS: RangeInclusive<f32> = 0.0..=400.0;
+/// Pixels.
+const SWATCH_THICKNESSES: RangeInclusive<f32> = 1.0..=6.0;
 /// Milliseconds; past 250 a surface keeps one waiting to see it.
 const TRANSITION_DURATIONS: RangeInclusive<u64> = 0..=250;
 /// Pixels.
@@ -182,6 +184,7 @@ pub struct UiSettings {
     pub documentation: DocumentationSettings,
     pub problems: ProblemsSettings,
     pub prompts: PromptsSettings,
+    pub swatches: SwatchesSettings,
     pub transitions: TransitionsSettings,
 }
 
@@ -302,6 +305,11 @@ impl Section for UiSettings {
             "prompts.input-margin",
             self.prompts.input_margin,
             &PROMPT_INPUT_MARGINS,
+        )?;
+        check_range(
+            "swatches.thickness",
+            self.swatches.thickness,
+            &SWATCH_THICKNESSES,
         )?;
         let transitions = &self.transitions;
         for (kind, duration, slide) in [
@@ -732,6 +740,27 @@ impl Default for PromptsSettings {
     }
 }
 
+/// How the colors that text names, as language servers find them, are shown: under the
+/// text in their color, and in place of a completion's kind.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct SwatchesSettings {
+    pub inline: bool,
+    /// Pixels, of the line under the text.
+    pub thickness: f32,
+    pub completion: bool,
+}
+
+impl Default for SwatchesSettings {
+    fn default() -> Self {
+        Self {
+            inline: true,
+            thickness: 3.0,
+            completion: true,
+        }
+    }
+}
+
 /// How the pane under the text, prompts and popups come and go: those by the text, and
 /// the cards over the bottom row, like the keys after a prefix.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
@@ -814,6 +843,7 @@ mod tests {
              [documentation]\nmax-width = 900\nmax-height = 300\n\
              [problems]\nmax-width = 700\nmax-height = 200\n\
              [prompts]\ninput-margin = 20\n\
+             [swatches]\ninline = false\nthickness = 2\ncompletion = false\n\
              [transitions]\npane-duration = 0\npane-slide = 0\nprompt-duration = 100\n\
              prompt-slide = 12\npopup-duration = 40\npopup-slide = 4\n",
         )
@@ -829,6 +859,14 @@ mod tests {
         );
         assert_eq!(settings.transitions.popup().slide, 4.0);
         assert_eq!(settings.prompts.input_margin, 20.0);
+        assert_eq!(
+            settings.swatches,
+            SwatchesSettings {
+                inline: false,
+                thickness: 2.0,
+                completion: false
+            }
+        );
         assert_eq!(
             settings.documentation,
             DocumentationSettings {
@@ -944,6 +982,7 @@ mod tests {
         assert!(parse("[echo]\nlines = 1\n").is_err());
         assert!(parse("[echo]\nhide-after = 60001\n").is_err());
         assert!(parse("[prompts]\ninput-margin = -1\n").is_err());
+        assert!(parse("[swatches]\nthickness = 0\n").is_err());
         assert!(parse("[hints]\nside-room = -1\n").is_err());
         assert!(parse("[prefix-keys]\ncolumns = 0\n").is_err());
         assert!(parse("[documentation]\nmax-width = 100\n").is_err());
