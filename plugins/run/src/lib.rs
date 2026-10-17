@@ -38,8 +38,7 @@ pub use commands::{run_at_point_with, run_with};
 pub use configuration::{Cargo, Configuration, Kind, PackageManager};
 pub use launch::Launch;
 pub use menu::DEBUG_AT_POINT;
-pub use process::{Event, Exit, Program, Starter};
-
+pub use process::{Event, Exit, Process, Program, Starter};
 pub struct RunPlugin;
 
 const RUN: &str = "run";

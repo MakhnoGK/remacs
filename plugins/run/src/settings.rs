@@ -9,6 +9,7 @@ const CONSOLE_LINES: std::ops::RangeInclusive<usize> = 100..=1_000_000;
 const STOP_TIMEOUTS: std::ops::RangeInclusive<u64> = 0..=60_000;
 const ENTRY_POINT_DELAYS: std::ops::RangeInclusive<u64> = 0..=5_000;
 const COMPILE_HISTORY: std::ops::RangeInclusive<u64> = 1..=1_000;
+const OUTPUT_BACKLOGS: std::ops::RangeInclusive<u64> = 1..=1_024;
 const FALLBACK_SHELL: &str = "/bin/sh";
 
 /// `run.toml`.
@@ -17,6 +18,9 @@ const FALLBACK_SHELL: &str = "/bin/sh";
 pub struct RunSettings {
     /// Lines a console keeps; older ones are dropped.
     pub console_lines: usize,
+    /// Reads of output, 64 KB each, queued for a console busy elsewhere; the program
+    /// waits once there are this many.
+    pub output_backlog: usize,
     /// Milliseconds a process has to end after Stop asks it to, before it is killed.
     pub stop_timeout: u64,
     /// Milliseconds of quiet after an edit before a file's entry points are found again.
@@ -98,6 +102,7 @@ impl Default for RunSettings {
     fn default() -> Self {
         Self {
             console_lines: 10_000,
+            output_backlog: 16,
             stop_timeout: 2_000,
             entry_point_delay: 300,
             typescript: TypeScriptRuntime::Auto,
@@ -147,6 +152,11 @@ impl Section for RunSettings {
             ));
         }
         within(self.stop_timeout, &STOP_TIMEOUTS, "stop-timeout")?;
+        within(
+            self.output_backlog as u64,
+            &OUTPUT_BACKLOGS,
+            "output-backlog",
+        )?;
         within(
             self.entry_point_delay,
             &ENTRY_POINT_DELAYS,

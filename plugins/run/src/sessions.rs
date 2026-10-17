@@ -260,7 +260,11 @@ fn start(editor: &mut Editor, id: u64) -> CommandResult {
             let (root, configuration) = (session.root.clone(), session.configuration.clone());
             starter(editor, &root, &configuration, &launch)?
         }
-        None => Box::new(Process::start(launch.clone(), notifier)),
+        None => Box::new(Process::start(
+            launch.clone(),
+            settings.output_backlog,
+            notifier,
+        )),
     };
     let session = get_mut(editor, id).ok_or("No such run")?;
     session.process = Some(process);
@@ -344,17 +348,24 @@ pub fn pick_up(editor: &mut Editor) {
         .map(|session| session.id)
         .collect();
     let max_lines = sessions(editor).settings.console_lines;
+    let backlog = sessions(editor).settings.output_backlog;
     for id in ids {
         let Some(name) = Session::buffer_name(editor, id) else {
             stop(editor, id);
             sessions(editor).list.retain(|session| session.id != id);
             continue;
         };
-        let mut events = Vec::new();
-        if let Some(process) = get(editor, id).and_then(|session| session.process.as_ref()) {
-            while let Some(event) = process.try_event() {
-                events.push(event);
-            }
+        // At most a backlog at once: a program as fast as the drain would never end it.
+        let events: Vec<Event> = get(editor, id)
+            .and_then(|session| session.process.as_ref())
+            .map(|process| {
+                std::iter::from_fn(|| process.try_event())
+                    .take(backlog)
+                    .collect()
+            })
+            .unwrap_or_default();
+        if events.len() == backlog {
+            editor.refresh_after(Duration::ZERO);
         }
         for event in events {
             let buffer = editor.buffer_named_mut(&name).expect("found by name");

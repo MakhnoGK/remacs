@@ -5,7 +5,7 @@ use std::io::{self, Read, Write};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{ChildStdin, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::Duration;
@@ -102,9 +102,10 @@ pub struct Process {
 
 impl Process {
     /// Runs `launch`'s steps in turn, each in its own process group so that stopping it
-    /// stops what it started too; `notifier` is called whenever there are events.
-    pub fn start(launch: Launch, notifier: Notifier) -> Self {
-        let (send, events) = mpsc::channel();
+    /// stops what it started too; `notifier` is called whenever there are events. Once
+    /// `backlog` events wait, the steps wait too: their output pipe fills and blocks them.
+    pub fn start(launch: Launch, backlog: usize, notifier: Notifier) -> Self {
+        let (send, events) = mpsc::sync_channel(backlog);
         let control = Arc::new(Control::default());
         let shared = Arc::clone(&control);
         thread::Builder::new()
@@ -184,7 +185,7 @@ fn signal_group(group: i32, signal: i32) {
 fn run_steps(
     launch: &Launch,
     control: &Control,
-    send: &Sender<Event>,
+    send: &SyncSender<Event>,
     notifier: &Notifier,
 ) -> Exit {
     let shell = |command: &String| {
@@ -226,7 +227,7 @@ fn run_steps(
 fn run_step(
     mut command: Command,
     control: &Control,
-    send: &Sender<Event>,
+    send: &SyncSender<Event>,
     notifier: &Notifier,
 ) -> io::Result<Exit> {
     let (mut output, writer) = io::pipe()?;
