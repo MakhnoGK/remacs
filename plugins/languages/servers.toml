@@ -58,6 +58,12 @@ root-markers = ["package.json"]
 initialization-options = { provideFormatter = true }
 install = { from = "npm", package = "vscode-langservers-extracted" }
 
+# Code in `<style>` and `<script>` is checked by its languages' own servers, which see
+# the project's types and config; the HTML server would report it a second time. Its
+# `html` section is read from this; `css` and `javascript` get it too and ignore it.
+[servers.configuration]
+validate = { styles = false, scripts = false }
+
 [[servers]]
 name = "vscode-css-language-server"
 command = "vscode-css-language-server"

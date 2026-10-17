@@ -51,6 +51,7 @@ pub struct Item {
     pub documentation: Option<Documentation>,
 }
 
+#[derive(Default)]
 pub struct List {
     pub items: Vec<Item>,
     /// Typing more may bring other items, so the list is asked for again.

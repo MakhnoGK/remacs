@@ -72,8 +72,11 @@ fn utf16_offset(text: &Snapshot, line: Range<usize>, units: usize) -> usize {
 }
 
 /// The text a server's positions in `path` refer to: the buffer visiting it, else the
-/// file, since the server sees that.
+/// file, since the server sees that; for a document of embedded code, the server's.
 pub(crate) fn text_of(editor: &Editor, path: &Path) -> Option<Snapshot> {
+    if let Some(text) = crate::document::embedded_text(editor, path) {
+        return Some(text);
+    }
     let visited = editor
         .buffers()
         .iter()

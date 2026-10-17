@@ -13,16 +13,20 @@ use remacs_diagnostics::DiagnosticsPlugin;
 use remacs_dired::{DiredPlugin, list_directory};
 use remacs_documentation::DocumentationPlugin;
 use remacs_format::FormatPlugin;
-use remacs_languages::{LanguagesPlugin, PRETTIER_MODES, SERVERS};
+use remacs_languages::{GRAMMARS, INJECTIONS, LanguagesPlugin, PRETTIER_MODES, SERVERS};
 use remacs_lsp::LspPlugin;
 use remacs_prettier::PrettierPlugin;
 use remacs_rename::RenamePlugin;
+use remacs_syntax::SyntaxPlugin;
 use remacs_xref::XrefPlugin;
 
 static LSP: LspPlugin = LspPlugin::new(SERVERS);
 static PRETTIER: PrettierPlugin = PrettierPlugin::new(PRETTIER_MODES);
+// Tells the code embedded in HTML, which goes to its languages' servers.
+static SYNTAX: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS, INJECTIONS);
 const PLUGINS: &[&dyn Plugin] = &[
     &LanguagesPlugin,
+    &SYNTAX,
     &DiagnosticsPlugin,
     &CompletionPlugin,
     &DocumentationPlugin,
@@ -893,4 +897,73 @@ fn files_are_formatted_after_each_save_when_turned_on() {
         ],
     );
     save_formatted(&rust.join("src/main.rs"), "fn main() {}\n");
+}
+
+/// Whether completion after `before` offers `wanted` within `wait`.
+fn offers(file: &Path, before: &str, wanted: &str, wait: Duration) -> bool {
+    let mut editor = Editor::new(PLUGINS);
+    editor.visit_file(file).unwrap();
+    let source = fs::read_to_string(file).unwrap();
+    editor
+        .window_buffer_mut()
+        .set_point(source.find(before).unwrap() + before.len());
+    let started = Instant::now();
+    while started.elapsed() < wait {
+        editor.run_command("completion-at-point");
+        thread::sleep(Duration::from_millis(300));
+        editor.refresh();
+        if let Some(popup) = editor.popups().pop() {
+            let labels: Vec<_> = popup
+                .rows
+                .iter()
+                .take(5)
+                .map(|row| row.label.clone())
+                .collect();
+            if popup.rows.iter().any(|row| row.label.starts_with(wanted)) {
+                eprintln!("{before:?}: {wanted} offered, first {labels:?}");
+                return true;
+            }
+        }
+    }
+    eprintln!("{before:?}: {wanted} not offered");
+    false
+}
+
+/// Code in `<style>` and `<script>` goes to its languages' servers (#42, stage 3): the
+/// HTML server alone completes CSS there, but no JavaScript or TypeScript, and checks none.
+#[test]
+#[ignore]
+fn servers_of_embedded_languages_complete_and_check_their_code() {
+    let web = project(
+        "html-embedded",
+        &[
+            ("package.json", "{}\n"),
+            (
+                "index.html",
+                "<style>\na { colo }\n</style>\n<script>\ndocument.getElementBy\n</script>\n\
+                 <script lang=\"ts\">\nconst s: string = \"a\";\ns.toUpp\n</script>\n",
+            ),
+            (
+                "broken.html",
+                "<style>\na { colr: red; }\n</style>\n<script>\nlet x = ;\n</script>\n",
+            ),
+        ],
+    );
+    let page = web.join("index.html");
+    assert!(offers(&page, "colo", "color", TIMEOUT));
+    assert!(offers(&page, "getElementBy", "getElementById", TIMEOUT));
+    assert!(offers(&page, "s.toUpp", "toUpperCase", TIMEOUT));
+    let mut editor = Editor::new(PLUGINS);
+    editor.visit_file(&web.join("broken.html")).unwrap();
+    // Once each: the HTML server leaves the code to them.
+    let first = wait_until(&mut editor, |problems| problems.len() >= 2);
+    thread::sleep(Duration::from_secs(2));
+    assert_eq!(
+        problems(&mut editor),
+        [
+            (Icon::Warning, "Unknown property: 'colr'".into()),
+            (Icon::Error, "Expression expected.".into())
+        ],
+        "first {first:?}"
+    );
 }

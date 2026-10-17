@@ -32,7 +32,7 @@ use crate::plugin::{Plugin, Registry};
 use crate::popup::Popup;
 use crate::screen::{Screen, ScreenMouse, ScreenPadding, ScreenPointer, ScreenSize};
 use crate::status::StatusSegment;
-use crate::syntax::SyntaxContext;
+use crate::syntax::{Embedded, SyntaxContext};
 use crate::table::{Action, Table};
 use crate::vc::{ChangedLines, FileStatus, VersionControl};
 use crate::viewport::Viewport;
@@ -176,13 +176,28 @@ impl Editor {
         self.registry.modes.name_for(path)
     }
 
-    /// The mode of the language at `offset` in `buffer`: code of another language there,
-    /// like CSS in HTML's `<style>`, else the buffer's own.
-    pub fn language_at(&self, buffer: &Buffer, offset: usize) -> &'static str {
+    /// The mode named `name`; none for Fundamental and unknown names.
+    pub fn mode(&self, name: &str) -> Option<&Mode> {
+        self.registry.modes.get(name)
+    }
+
+    /// The code of other languages in `buffer`, like CSS in HTML's `<style>`; `None` while
+    /// it cannot be told, e.g. before the buffer is parsed again after an edit.
+    pub fn embedded(&self, buffer: &Buffer) -> Option<Vec<Embedded>> {
         self.registry
-            .language_probes
+            .embedded_probes
             .iter()
-            .find_map(|probe| probe(buffer, offset))
+            .find_map(|probe| probe(buffer))
+    }
+
+    /// The mode of the language at `offset` in `buffer`: code of another language there,
+    /// else the buffer's own.
+    pub fn language_at(&self, buffer: &Buffer, offset: usize) -> &'static str {
+        self.embedded(buffer)
+            .and_then(|embedded| {
+                let code = embedded.into_iter().find(|code| code.holds(offset))?;
+                Some(code.mode)
+            })
             .unwrap_or(buffer.mode())
     }
 

@@ -1,6 +1,7 @@
 # 0068 — Code of other languages inside a file
 
-Status: accepted, 2026-10-17 (issue #42, stages 1 and 2: highlighting, language at point)
+Status: accepted, 2026-10-17 (issue #42, stages 1–3: highlighting, language at point,
+language servers)
 
 ## Decision
 
@@ -41,7 +42,32 @@ decorated in 108 µs before, 132 µs now that they are highlighted.
 - The mode line reads `HTML › CSS` while point is in injected code.
 - Indentation stays text-based and mode-free, so it needs nothing.
 
+## Language servers (stage 3)
+
+- Measured first, with the real servers: the HTML server completes CSS in `<style>` but
+  no JavaScript and no TypeScript in `<script>`, and checks code with its own bundled
+  services, without the project's types or config.
+- **Each embedded language's code is a document of its own** on the servers of its mode
+  (`plugins/lsp/src/embedded.rs`), named `page.html.remacs-embedded.<ext>`: the file's
+  text with every other byte a space and line ends kept, so offsets and lines are the
+  buffer's and nothing is mapped. The mirror follows each edit; it is rebuilt only when
+  the code's bounds move. The code comes from `Editor::embedded`, which the syntax
+  plugin answers from its layers (the stage 2 language probe now derives from it).
+- A question (completion, documentation, definition, code actions) goes to the servers
+  of the language at its offset; without one for the embedded code, to the file's, so
+  the HTML server still completes CSS without a CSS server; with none, it is answered
+  with nothing at once. Answers from one
+  server holding several of a buffer's documents (a page's script and its TypeScript on
+  `tsc`) go to the document that was asked.
+- Problems are kept to the code's ranges and listed under `server (Mode)`, apart from
+  the server's problems with the file itself. The HTML server stops checking
+  `<style>`/`<script>` (`validate = { styles = false, scripts = false }`), which needs
+  it told it may ask for configuration: `workspace.configuration` is now advertised to
+  servers the catalog configures, and to those only.
+- Positions in an embedded document are read against the server's text (`text_of`);
+  definitions, workspace edits and symbols name the file.
+
 ## Open
 
-- Stage 3: language servers of the injected languages; stage 4: formatting.
+- Stage 4: formatting of the embedded block; rename and references inside it.
 - `style="…"`, `on…="…"` and injections inside injections: #65.

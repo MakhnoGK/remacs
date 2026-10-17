@@ -73,7 +73,7 @@ pub use screen::{
     ScreenPointer, ScreenProvider, ScreenRow, ScreenSearch, ScreenSize, ScreenSource,
 };
 pub use status::{StatusItem, StatusProvider, StatusSegment, Tone};
-pub use syntax::{LanguageProbe, SyntaxContext, SyntaxProbe};
+pub use syntax::{Embedded, EmbeddedProbe, SyntaxContext, SyntaxProbe};
 pub use table::{
     Action, Button, CellStyle, Changes, Column, DiffLine, Elsewhere, Field, FileDiff, Mark, Notice,
     Preview, PreviewBody, PreviewItem, Row, RowFace, Table, TableProvider,

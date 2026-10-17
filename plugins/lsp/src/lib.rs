@@ -9,6 +9,7 @@ mod color;
 mod completion;
 mod definition;
 mod document;
+mod embedded;
 mod file_rename;
 mod hover;
 mod markdown;

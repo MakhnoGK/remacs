@@ -469,7 +469,11 @@ impl Client {
             notifier: Arc::clone(&notifier),
             next_id: INITIALIZE_ID + 1,
         };
-        let initialize = initialize_params(server.initialization_options.clone(), root);
+        let initialize = initialize_params(
+            server.initialization_options.clone(),
+            server.configuration.is_some(),
+            root,
+        );
         thread::Builder::new()
             .name(format!("{} writer", server.name))
             .spawn(move || writer.write_all(initialize, negotiated, queued))?;
@@ -568,7 +572,9 @@ impl Client {
     }
 }
 
-fn initialize_params(options: Option<Value>, root: &Path) -> Value {
+/// Only servers given a configuration are told they may ask for it: others then keep to
+/// their defaults, as some take the answer, `null`, for settings.
+fn initialize_params(options: Option<Value>, configured: bool, root: &Path) -> Value {
     let root_uri = uri::from_path(root);
     let name = root.file_name().map(|name| name.to_string_lossy());
     json!({
@@ -614,6 +620,7 @@ fn initialize_params(options: Option<Value>, root: &Path) -> Value {
                 },
             },
             "workspace": {
+                "configuration": configured,
                 "applyEdit": true,
                 // Renaming a Rust module renames its file too.
                 "workspaceEdit": {

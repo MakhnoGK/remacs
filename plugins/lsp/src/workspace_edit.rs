@@ -11,7 +11,7 @@ use remacs_core::{Editor, FileChange, FileEdits};
 use remacs_text::{Snapshot, Text};
 
 use crate::position::{Encoding, from_lsp, text_of};
-use crate::uri;
+use crate::{embedded, uri};
 
 /// The edits per file, for edits that only change text.
 pub(crate) fn file_edits(
@@ -73,6 +73,8 @@ pub(crate) fn file_changes(
                         (start..end, edit.new_text)
                     })
                     .collect();
+                // Offsets in embedded code's document are the file's.
+                let path = embedded::file_of(&path).unwrap_or(path);
                 FileChange::Edit(FileEdits { path, edits })
             }
             DocumentChangeOperation::Op(ResourceOp::Create(create)) => {

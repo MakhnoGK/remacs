@@ -88,7 +88,7 @@ pub(crate) fn found(response: Option<WorkspaceSymbolResponse>) -> Vec<FoundSymbo
                 name,
                 kind: symbol_kind(kind),
                 container: container.filter(|container| !container.is_empty()),
-                path: uri::to_path(&uri)?,
+                path: uri::to_file(&uri)?,
                 position,
             })
         })

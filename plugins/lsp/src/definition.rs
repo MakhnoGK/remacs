@@ -5,7 +5,7 @@ use remacs_core::Editor;
 use remacs_xref::Location;
 
 use crate::position::{Encoding, from_lsp, text_of};
-use crate::uri;
+use crate::{embedded, uri};
 
 /// Where each definition starts: a link's name rather than its whole item.
 pub(crate) fn targets(response: Option<GotoDefinitionResponse>) -> Vec<(PathBuf, Position)> {
@@ -39,6 +39,7 @@ pub(crate) fn locations(
         .into_iter()
         .filter_map(|(path, position)| {
             let offset = from_lsp(&text_of(editor, &path)?, position, encoding);
+            let path = embedded::file_of(&path).unwrap_or(path);
             Some(Location { path, offset })
         })
         .collect()

@@ -90,8 +90,8 @@ impl Plugin for SyntaxPlugin {
             .syntax_probes
             .push(Rc::new(buffer_syntax::context_at));
         registry
-            .language_probes
-            .push(Rc::new(buffer_syntax::language_at));
+            .embedded_probes
+            .push(Rc::new(buffer_syntax::embedded));
         let snippets = RefCell::new(snippet::SnippetHighlighter::new(grammars));
         registry.code_highlighters.push(Rc::new(move |mode, code| {
             snippets.borrow_mut().highlight(mode, code)

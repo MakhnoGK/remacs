@@ -1,3 +1,4 @@
+use std::ops::Range;
 use std::rc::Rc;
 
 use crate::buffer::Buffer;
@@ -15,6 +16,22 @@ pub enum SyntaxContext {
 /// Tells the context of an offset in a buffer, or `None` when it does not know the buffer.
 pub type SyntaxProbe = Rc<dyn Fn(&Buffer, usize) -> Option<SyntaxContext>>;
 
-/// Tells the mode of code of another language at an offset in a buffer, like CSS in
-/// HTML's `<style>`; `None` where the buffer's own language is.
-pub type LanguageProbe = Rc<dyn Fn(&Buffer, usize) -> Option<&'static str>>;
+/// Code of another language in a buffer, like CSS in HTML's `<style>`: its mode and where
+/// it is, in order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Embedded {
+    pub mode: &'static str,
+    pub ranges: Vec<Range<usize>>,
+}
+
+impl Embedded {
+    /// Whether `offset` is in one of the ranges or at its end.
+    pub fn holds(&self, offset: usize) -> bool {
+        self.ranges
+            .iter()
+            .any(|range| range.start <= offset && offset <= range.end)
+    }
+}
+
+/// Tells the code of other languages in a buffer, or `None` when it cannot tell now.
+pub type EmbeddedProbe = Rc<dyn Fn(&Buffer) -> Option<Vec<Embedded>>>;

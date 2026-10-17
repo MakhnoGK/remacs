@@ -2,7 +2,7 @@ use std::ops::Range;
 use std::ptr;
 use std::sync::Arc;
 
-use remacs_core::{Buffer, Editor, Span, SyntaxContext};
+use remacs_core::{Buffer, Editor, Embedded, Span, SyntaxContext};
 use remacs_text::{Edit, Snapshot};
 use tree_sitter::{InputEdit, Point, Tree};
 
@@ -196,9 +196,20 @@ pub(crate) fn tree_at(buffer: &Buffer, range: Range<usize>) -> Option<&Tree> {
     current(buffer)?.tree_at(range)
 }
 
-/// The mode of the language injected at `offset`; `None` where the buffer's own is.
-pub(crate) fn language_at(buffer: &Buffer, offset: usize) -> Option<&'static str> {
-    Some(current(buffer)?.layer_at(offset..offset)?.grammar.mode)
+/// The code of the languages injected into the buffer; `None` until it is parsed and
+/// while its trees lag behind the text.
+pub(crate) fn embedded(buffer: &Buffer) -> Option<Vec<Embedded>> {
+    let syntax = current(buffer).filter(|syntax| syntax.tree.is_some())?;
+    let embedded = syntax.layers.iter().map(|layer| Embedded {
+        mode: layer.grammar.mode,
+        ranges: layer
+            .tree
+            .included_ranges()
+            .iter()
+            .map(|range| range.start_byte..range.end_byte)
+            .collect(),
+    });
+    Some(embedded.collect())
 }
 
 /// The string, comment or embedded markup the character before `offset` belongs to, read
