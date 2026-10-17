@@ -12,7 +12,7 @@ use crate::pane::PaneSource;
 use crate::popup::{CodeHighlighter, PopupProvider};
 use crate::screen::{KeySink, ScreenProvider};
 use crate::status::StatusProvider;
-use crate::syntax::SyntaxProbe;
+use crate::syntax::{LanguageProbe, SyntaxProbe};
 use crate::table::TableProvider;
 use crate::vc::VersionControl;
 
@@ -47,6 +47,8 @@ pub struct Registry {
     pub decorators: Vec<Decorator>,
     /// Tell strings and comments from code; the first that knows the buffer does.
     pub syntax_probes: Vec<SyntaxProbe>,
+    /// Tell the language at an offset where it is not the buffer's; the first that does.
+    pub language_probes: Vec<LanguageProbe>,
     /// Segments of the status pill, before the position and the mode.
     pub status_providers: Vec<StatusProvider>,
     pub popup_providers: Vec<PopupProvider>,

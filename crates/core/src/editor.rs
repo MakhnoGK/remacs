@@ -176,9 +176,22 @@ impl Editor {
         self.registry.modes.name_for(path)
     }
 
-    /// The current buffer's major mode; none for Fundamental.
-    pub fn buffer_mode(&self) -> Option<&Mode> {
-        self.registry.modes.get(self.buffer().mode())
+    /// The mode of the language at `offset` in `buffer`: code of another language there,
+    /// like CSS in HTML's `<style>`, else the buffer's own.
+    pub fn language_at(&self, buffer: &Buffer, offset: usize) -> &'static str {
+        self.registry
+            .language_probes
+            .iter()
+            .find_map(|probe| probe(buffer, offset))
+            .unwrap_or(buffer.mode())
+    }
+
+    /// The major mode of the language at `offset` in the current buffer, as
+    /// [`Self::language_at`] tells it; none for Fundamental.
+    pub fn mode_at(&self, offset: usize) -> Option<&Mode> {
+        self.registry
+            .modes
+            .get(self.language_at(self.buffer(), offset))
     }
 
     /// Whether `offset` in the current buffer is in a string, a comment or code; code
@@ -1083,7 +1096,10 @@ impl Editor {
         let all = first.start..last.end;
         let shown: usize = lines.iter().map(Range::len).sum();
         if all.len() > 2 * shown + MAX_UNSHOWN_DECORATED_BYTES {
-            return lines.iter().map(|line| self.decorations(line.clone())).collect();
+            return lines
+                .iter()
+                .map(|line| self.decorations(line.clone()))
+                .collect();
         }
         let layers = self.decorations(all);
         let mut by_line: Vec<Vec<Vec<Span>>> = vec![Vec::with_capacity(layers.len()); lines.len()];

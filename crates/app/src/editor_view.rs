@@ -2046,7 +2046,10 @@ impl EditorView {
                         .pl(px(8.0))
                         .pr(px(10.0))
                         .font_family(font::ui())
-                        .child(buffer.mode()),
+                        .child(mode_label(
+                            buffer.mode(),
+                            self.editor.language_at(buffer, buffer.point()),
+                        )),
                 )
             })
     }
@@ -2280,6 +2283,15 @@ fn cached_metrics(
     };
     *cache = Some((fonts, metrics));
     metrics
+}
+
+/// The buffer's mode, and the language at point when it is another, like `HTML › CSS`.
+fn mode_label(mode: &'static str, language: &'static str) -> SharedString {
+    if language == mode {
+        mode.into()
+    } else {
+        format!("{mode} › {language}").into()
+    }
 }
 
 /// Rows laid out in the top `height` of the window, clear of the pane under them.

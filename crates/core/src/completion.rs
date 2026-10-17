@@ -563,7 +563,16 @@ mod tests {
 
     #[test]
     fn flex_rank_agrees_with_flex_match() {
-        let texts = ["last()", "size_hint()", "is_sorted", "start", "Start", "ажbx", "s", ""];
+        let texts = [
+            "last()",
+            "size_hint()",
+            "is_sorted",
+            "start",
+            "Start",
+            "ажbx",
+            "s",
+            "",
+        ];
         for query in ["st", "sT", "St", "s", "жx", "", "start"] {
             for text in texts {
                 let ranked = flex_match(query, text)

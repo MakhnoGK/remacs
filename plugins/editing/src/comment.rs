@@ -6,20 +6,21 @@ use crate::editing::writable_buffer;
 
 /// Comments out the region's lines, or point's line, or uncomments them when every one
 /// is commented already. Blank lines are left alone; an active region stays active, so
-/// the toggle can be repeated. Lines starting in embedded markup, like JSX children, take
-/// the mode's markup comment.
+/// the toggle can be repeated. The comment is that of the language the first line starts
+/// in, like CSS in HTML's `<style>`; lines starting in embedded markup, like JSX children,
+/// take the mode's markup comment.
 pub fn comment_line(editor: &mut Editor) -> CommandResult {
-    let mode = editor.buffer_mode().copied();
-    let code_syntax = mode
-        .and_then(|mode| mode.comment)
-        .ok_or("No comment syntax in this mode")?;
-    let markup_syntax = mode.and_then(|mode| mode.markup_comment);
     let region = editor.buffer().region();
     let lines = filled_lines(editor.buffer(), region.clone());
     let Some((first_range, first_line)) = lines.first() else {
         return Ok(());
     };
     let first_character = first_range.start + blanks(first_line) + 1;
+    let mode = editor.mode_at(first_character - 1).copied();
+    let code_syntax = mode
+        .and_then(|mode| mode.comment)
+        .ok_or("No comment syntax in this mode")?;
+    let markup_syntax = mode.and_then(|mode| mode.markup_comment);
     let in_markup = editor.syntax_at(first_character) == SyntaxContext::Markup;
 
     let commented_with = [markup_syntax, Some(code_syntax)]

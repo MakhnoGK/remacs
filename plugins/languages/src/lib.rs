@@ -30,7 +30,8 @@ mod tests {
     use std::thread;
     use std::time::{Duration, Instant};
 
-    use remacs_core::{Buffer, Editor, Face, Mode, Modes};
+    use remacs_core::{Buffer, Editor, Face, Mode, Modes, SyntaxContext};
+    use remacs_editing::EditingPlugin;
     use remacs_syntax::SyntaxPlugin;
     use remacs_text::Text;
     use tree_sitter::{Language, Query};
@@ -49,6 +50,44 @@ mod tests {
             Query::new(&language, &grammar.highlights.concat())
                 .unwrap_or_else(|error| panic!("{mode}: {error}"));
         }
+    }
+
+    #[test]
+    fn editing_in_html_follows_the_language_at_point() {
+        static SYNTAX: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS, INJECTIONS);
+        let page = "<p>hi</p>\n<style>\na { color: red; }\n</style>\n<script>\nlet s = \"x\";\n</script>\n";
+        let mut editor = Editor::new(&[&LanguagesPlugin, &EditingPlugin, &SYNTAX]);
+        editor.add_buffer(Buffer::new("page.html", Text::from(page), "HTML"));
+        let css = page.find("color").unwrap();
+        let start = Instant::now();
+        while editor.mode_at(css).map(|mode| mode.name) != Some("CSS") {
+            assert!(start.elapsed() < Duration::from_secs(5), "never parsed");
+            thread::sleep(Duration::from_millis(5));
+            editor.refresh();
+        }
+        let string = page.find("\"x\"").unwrap() + 1;
+        let language = |editor: &Editor, offset| editor.language_at(editor.buffer(), offset);
+        assert_eq!(language(&editor, page.find("hi").unwrap()), "HTML");
+        assert_eq!(language(&editor, string), "JavaScript");
+        assert_eq!(editor.syntax_at(string + 1), SyntaxContext::String);
+
+        let commented = |editor: &mut Editor, at: &str| {
+            let offset = editor
+                .buffer()
+                .contents(0..editor.buffer().text().len())
+                .find(at)
+                .unwrap();
+            editor.window_buffer_mut().set_point(offset);
+            editor.run_command("comment-line");
+            editor.refresh();
+            let text = editor.buffer().text();
+            editor
+                .buffer()
+                .contents(text.line_range(text.line_of(offset)).unwrap())
+        };
+        assert_eq!(commented(&mut editor, "a {"), "/* a { color: red; } */");
+        assert_eq!(commented(&mut editor, "let s"), "// let s = \"x\";");
+        assert_eq!(commented(&mut editor, "<p>"), "<!-- <p>hi</p> -->");
     }
 
     #[test]

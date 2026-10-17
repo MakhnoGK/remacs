@@ -4250,6 +4250,7 @@ dependencies = [
  "remacs-diagnostics",
  "remacs-dired",
  "remacs-documentation",
+ "remacs-editing",
  "remacs-format",
  "remacs-lsp",
  "remacs-prettier",

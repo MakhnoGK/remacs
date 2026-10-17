@@ -7,7 +7,7 @@ use std::ops::Range;
 use remacs_core::{Buffer, Face, Span};
 use tree_sitter::Node;
 
-use crate::buffer_syntax::current_tree;
+use crate::buffer_syntax::tree_at;
 
 const BRACKETS: &[(&str, &str)] = &[("(", ")"), ("[", "]"), ("{", "}"), ("<", ">")];
 /// Opening and closing tags of HTML, XML and JSX elements.
@@ -35,13 +35,13 @@ pub(crate) fn highlight(buffer: &Buffer, range: Range<usize>) -> Vec<Span> {
 
 /// The ranges of what pairs up at point: the character after point, else the one before.
 fn matching_pair(buffer: &Buffer) -> Option<[Range<usize>; 2]> {
-    let root = current_tree(buffer)?.root_node();
     let point = buffer.point();
     [Some(point), point.checked_sub(1)]
         .into_iter()
         .flatten()
         .filter(|offset| *offset < buffer.text().len())
         .find_map(|offset| {
+            let root = tree_at(buffer, offset..offset + 1)?.root_node();
             let node = root.descendant_for_byte_range(offset, offset + 1)?;
             matching_tag(node, offset).or_else(|| matching_bracket(node, offset))
         })

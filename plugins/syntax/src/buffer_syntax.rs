@@ -162,27 +162,53 @@ pub(crate) fn highlight(buffer: &Buffer, range: Range<usize>) -> Vec<Span> {
     spans
 }
 
-/// The buffer's tree, while it matches the text.
-pub(crate) fn current_tree(buffer: &Buffer) -> Option<&Tree> {
+impl BufferSyntax {
+    /// The injected layer whose ranges hold `range`.
+    fn layer_at(&self, range: Range<usize>) -> Option<&Layer> {
+        self.layers.iter().find(|layer| {
+            let ranges = layer.tree.included_ranges();
+            ranges
+                .iter()
+                .any(|held| held.start_byte <= range.start && range.end <= held.end_byte)
+        })
+    }
+
+    /// The tree that holds `range`: an injected layer's, else the buffer's own.
+    fn tree_at(&self, range: Range<usize>) -> Option<&Tree> {
+        self.layer_at(range)
+            .map(|layer| &layer.tree)
+            .or(self.tree.as_ref())
+    }
+}
+
+/// The buffer's syntax, while its trees match the text.
+fn current(buffer: &Buffer) -> Option<&BufferSyntax> {
     let syntax = buffer.local::<BufferSyntax>()?;
-    let tree = syntax.tree.as_ref()?;
     syntax
         .snapshot
         .is_same(&buffer.text().snapshot())
-        .then_some(tree)
+        .then_some(syntax)
+}
+
+/// The tree that holds `range`, an injected language's or the buffer's, while it matches
+/// the text.
+pub(crate) fn tree_at(buffer: &Buffer, range: Range<usize>) -> Option<&Tree> {
+    current(buffer)?.tree_at(range)
+}
+
+/// The mode of the language injected at `offset`; `None` where the buffer's own is.
+pub(crate) fn language_at(buffer: &Buffer, offset: usize) -> Option<&'static str> {
+    Some(current(buffer)?.layer_at(offset..offset)?.grammar.mode)
 }
 
 /// The string, comment or embedded markup the character before `offset` belongs to, read
-/// from the tree; `None` until the buffer's tree matches its text.
+/// from the tree of its language; `None` until the trees match the text.
 pub(crate) fn context_at(buffer: &Buffer, offset: usize) -> Option<SyntaxContext> {
-    let syntax = buffer.local::<BufferSyntax>()?;
-    let tree = syntax.tree.as_ref()?;
-    if !syntax.snapshot.is_same(&buffer.text().snapshot()) {
-        return None;
-    }
+    let syntax = current(buffer)?;
     if offset == 0 {
-        return Some(SyntaxContext::Code);
+        return syntax.tree.as_ref().map(|_| SyntaxContext::Code);
     }
+    let tree = syntax.tree_at(offset - 1..offset)?;
     let mut node = tree
         .root_node()
         .descendant_for_byte_range(offset - 1, offset);

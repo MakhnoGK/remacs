@@ -1,6 +1,6 @@
 # 0068 — Code of other languages inside a file
 
-Status: accepted, 2026-10-17 (issue #42, stage 1: highlighting)
+Status: accepted, 2026-10-17 (issue #42, stages 1 and 2: highlighting, language at point)
 
 ## Decision
 
@@ -28,8 +28,20 @@ Status: accepted, 2026-10-17 (issue #42, stage 1: highlighting)
 layers (17.2 ms while the query ran over the whole tree); 60 visible script lines
 decorated in 108 µs before, 132 µs now that they are highlighted.
 
+## The language at point (stage 2)
+
+- `Registry::language_probes` tell the mode of injected code at an offset;
+  `Editor::language_at(buffer, offset)` falls back to the buffer's mode, and
+  `Editor::mode_at(offset)` gives its `Mode`. The syntax plugin answers with the layer
+  whose included ranges hold the offset, while the trees match the text.
+- Commenting takes the mode the first line starts in (`/* */` in `<style>`, `//` in
+  `<script>`, `<!-- -->` in markup); typed pairs and expand-region take the mode at
+  point. Strings and comments (`syntax_at`) and matching brackets are read from the tree
+  of the language there.
+- The mode line reads `HTML › CSS` while point is in injected code.
+- Indentation stays text-based and mode-free, so it needs nothing.
+
 ## Open
 
-- Stage 2: the language at point for comments, pairs, indentation and the mode line.
 - Stage 3: language servers of the injected languages; stage 4: formatting.
-- Injections inside injections (JS tagged templates, regex, JSDoc) are not followed.
+- `style="…"`, `on…="…"` and injections inside injections: #65.

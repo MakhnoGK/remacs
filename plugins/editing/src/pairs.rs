@@ -25,9 +25,11 @@ impl Pair {
     }
 }
 
-/// The current buffer's bracket and quote pairs; none in Fundamental mode.
+/// The bracket and quote pairs of the language at point; none in Fundamental mode.
 pub fn mode_pairs(editor: &Editor) -> &'static [(char, char)] {
-    editor.buffer_mode().map_or(&[], |mode| mode.pairs)
+    editor
+        .mode_at(editor.buffer().point())
+        .map_or(&[], |mode| mode.pairs)
 }
 
 /// Types `character` as part of a pair: an opener wraps the region or inserts its closer

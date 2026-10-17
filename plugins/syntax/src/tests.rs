@@ -255,6 +255,11 @@ fn tags_at_point_are_highlighted_with_their_partners() {
     assert_eq!(html("<div><p>x</p></div>|"), names([1, 15], "div"));
     assert_eq!(html("<div>|<p>x</p></div>"), names([6, 11], "p"));
     assert_eq!(html("<div id|=\"a\">x</div>"), []);
+    // In a script, by the script's own tree.
+    assert_eq!(
+        html("<script>f|(1)</script>"),
+        vec![(9, "(".into()), (11, ")".into())]
+    );
 
     let jsx = |marked| matching_pairs("JavaScript", marked);
     assert_eq!(

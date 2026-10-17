@@ -49,6 +49,7 @@ remacs-completion.workspace = true
 remacs-diagnostics.workspace = true
 remacs-dired.workspace = true
 remacs-documentation.workspace = true
+remacs-editing.workspace = true
 remacs-format.workspace = true
 remacs-prettier.workspace = true
 remacs-rename.workspace = true

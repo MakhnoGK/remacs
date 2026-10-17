@@ -34,8 +34,9 @@ pub use buffer::{Buffer, FileEdits};
 pub use char_class::CharClass;
 pub use command::{Command, CommandError, CommandResult, Commands};
 pub use completion::{
-    Candidate, CompletionMemo, Completions, EntryAction, Expansion, FuzzyQuery, Icon, Match, Selection, SymbolKind,
-    filter, filter_candidates, filter_map_parallel, flex_match, flex_rank, rank,
+    Candidate, CompletionMemo, Completions, EntryAction, Expansion, FuzzyQuery, Icon, Match,
+    Selection, SymbolKind, filter, filter_candidates, filter_map_parallel, flex_match, flex_rank,
+    rank,
 };
 pub use decoration::{ConsoleColor, ConsoleStyle, Decorator, Face, Span};
 pub use echo::{EchoMessage, MessageKind, MessageLog};
@@ -72,7 +73,7 @@ pub use screen::{
     ScreenPointer, ScreenProvider, ScreenRow, ScreenSearch, ScreenSize, ScreenSource,
 };
 pub use status::{StatusItem, StatusProvider, StatusSegment, Tone};
-pub use syntax::{SyntaxContext, SyntaxProbe};
+pub use syntax::{LanguageProbe, SyntaxContext, SyntaxProbe};
 pub use table::{
     Action, Button, CellStyle, Changes, Column, DiffLine, Elsewhere, Field, FileDiff, Mark, Notice,
     Preview, PreviewBody, PreviewItem, Row, RowFace, Table, TableProvider,
