@@ -120,12 +120,19 @@ pub fn candidates(commands: &[String], suggested: Option<&str>, input: &str) -> 
     completions
 }
 
-/// The command of the first of `run.toml`'s defaults whose file is at the project root.
+/// The command of the first of `run.toml`'s defaults whose file is at the project root,
+/// with the text it should contain.
 pub fn default_command(root: &Path, settings: &CompileSettings) -> Option<String> {
     settings
         .defaults
         .iter()
-        .find(|default| root.join(&default.file).exists())
+        .find(|default| {
+            let file = root.join(&default.file);
+            match &default.contains {
+                Some(text) => fs::read_to_string(&file).is_ok_and(|found| found.contains(text)),
+                None => file.exists(),
+            }
+        })
         .map(|default| default.command.clone())
 }
 

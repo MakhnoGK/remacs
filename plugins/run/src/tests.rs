@@ -990,6 +990,19 @@ fn compile_commands_are_remembered_per_project_newest_first() {
         compile::default_command(&root, &settings).as_deref(),
         Some("cargo build")
     );
+    let web = root.join("web");
+    fs::create_dir_all(&web).unwrap();
+    fs::write(web.join("package.json"), "{}\n").unwrap();
+    assert_eq!(
+        compile::default_command(&web, &settings).as_deref(),
+        Some("npm run build")
+    );
+    let vite_plus = r#"{ "devDependencies": { "vite-plus": "1" } }"#;
+    fs::write(web.join("package.json"), vite_plus).unwrap();
+    assert_eq!(
+        compile::default_command(&web, &settings).as_deref(),
+        Some("vp check")
+    );
 
     // From a file of the project, RET runs the last command; what is typed runs as typed.
     editor.visit_file(&root.join("Cargo.toml")).unwrap();

@@ -40,7 +40,7 @@ pub struct CompileSettings {
     /// Commands remembered for each project.
     pub history: usize,
     /// Offered in a project that has run none yet: the command of the first whose file
-    /// is at the project root.
+    /// is at the project root, containing `contains` if given.
     pub defaults: Vec<DefaultCommand>,
 }
 
@@ -48,6 +48,8 @@ pub struct CompileSettings {
 #[serde(deny_unknown_fields)]
 pub struct DefaultCommand {
     pub file: String,
+    #[serde(default)]
+    pub contains: Option<String>,
     pub command: String,
 }
 
@@ -57,15 +59,17 @@ impl Default for CompileSettings {
             shell: String::new(),
             history: 50,
             defaults: [
-                ("Cargo.toml", "cargo build"),
-                ("package.json", "npm run build"),
-                ("go.mod", "go build ./..."),
-                ("CMakeLists.txt", "cmake --build build"),
-                ("Makefile", "make -k"),
+                ("Cargo.toml", None, "cargo build"),
+                ("package.json", Some("\"vite-plus\""), "vp check"),
+                ("package.json", None, "npm run build"),
+                ("go.mod", None, "go build ./..."),
+                ("CMakeLists.txt", None, "cmake --build build"),
+                ("Makefile", None, "make -k"),
             ]
             .into_iter()
-            .map(|(file, command)| DefaultCommand {
+            .map(|(file, contains, command)| DefaultCommand {
                 file: file.to_owned(),
+                contains: contains.map(str::to_owned),
                 command: command.to_owned(),
             })
             .collect(),
