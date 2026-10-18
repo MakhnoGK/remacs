@@ -36,6 +36,7 @@ remacs-git.workspace = true
 remacs-languages.workspace = true
 remacs-lsp.workspace = true
 remacs-minibuffer.workspace = true
+remacs-navigation.workspace = true
 remacs-debug.workspace = true
 remacs-prettier.workspace = true
 remacs-rename.workspace = true

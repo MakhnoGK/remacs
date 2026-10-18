@@ -189,7 +189,7 @@ fn ask_settled_servers_again(editor: &mut Editor) {
 }
 
 /// Offsets in the texts the servers know, each file read once.
-fn place(editor: &Editor, found: Vec<FoundSymbol>, encoding: Encoding) -> Vec<Symbol> {
+pub(crate) fn place(editor: &Editor, found: Vec<FoundSymbol>, encoding: Encoding) -> Vec<Symbol> {
     let mut texts: HashMap<PathBuf, Option<Snapshot>> = HashMap::new();
     found
         .into_iter()
@@ -213,7 +213,7 @@ fn place(editor: &Editor, found: Vec<FoundSymbol>, encoding: Encoding) -> Vec<Sy
         .collect()
 }
 
-fn symbol_kind(kind: LspKind) -> Option<SymbolKind> {
+pub(crate) fn symbol_kind(kind: LspKind) -> Option<SymbolKind> {
     Some(match kind {
         LspKind::FUNCTION | LspKind::OPERATOR => SymbolKind::Function,
         LspKind::METHOD | LspKind::CONSTRUCTOR => SymbolKind::Method,

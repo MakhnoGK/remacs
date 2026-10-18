@@ -55,6 +55,17 @@ pub struct LineExtra {
 /// Extras of `lines` of the window buffer, all plugins' together.
 pub type LineExtraProvider = Rc<dyn Fn(&Editor, Range<usize>) -> Vec<LineExtra>>;
 
+/// Text drawn over the window buffer's text from `offset` on, like the labels Emacs `avy`
+/// puts on what can be jumped to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TextLabel {
+    pub offset: usize,
+    pub text: String,
+}
+
+/// Labels on `lines` of the window buffer, all plugins' together.
+pub type TextLabelProvider = Rc<dyn Fn(&Editor, Range<usize>) -> Vec<TextLabel>>;
+
 /// Controls of a buffer drawn as text or as a screen, like an Emacs header line: buttons
 /// in the title bar and keys under the text, e.g. a process's Stop and Rerun.
 #[derive(Default)]

@@ -27,6 +27,11 @@ impl History {
         self.redo.clear();
     }
 
+    /// The texts undo would go back to, the latest first.
+    pub fn states(&self) -> impl Iterator<Item = &PieceTree> {
+        self.undo.iter().rev().map(|revision| &revision.pieces)
+    }
+
     pub fn add_boundary(&mut self) {
         self.group_open = false;
     }

@@ -296,3 +296,67 @@ fn tags_at_point_are_highlighted_with_their_partners() {
         vec![(31, "(".into()), (32, ")".into())]
     );
 }
+
+/// The line point is on after each of `keys` from the `|` in Rust `marked`, `|` at point.
+fn sexp_moves(marked: &str, keys: &[&str]) -> Vec<String> {
+    let point = marked.find('|').unwrap();
+    let text = marked.replacen('|', "", 1);
+    let mut editor = rust_editor(&text);
+    editor.window_buffer_mut().set_point(point);
+    for _ in 0..500 {
+        editor.refresh();
+        if buffer_syntax::is_parsed(editor.window_buffer()) {
+            break;
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+    keys.iter()
+        .map(|keys| {
+            for key in remacs_core::parse_sequence(keys).unwrap() {
+                editor.handle_key(key);
+            }
+            let point = editor.window_buffer().point();
+            let marked = format!("{}|{}", &text[..point], &text[point..]);
+            let line = marked.lines().find(|line| line.contains('|')).unwrap();
+            line.trim().to_owned()
+        })
+        .collect()
+}
+
+#[test]
+fn sexps_are_the_nodes_point_is_between() {
+    let source = "fn main() {\n    |let total = add(1, mul(2, 3));\n    total\n}\n";
+    assert_eq!(
+        sexp_moves(source, &["C-M-f", "C-M-f", "C-M-b", "C-M-b"]),
+        [
+            "let total = add(1, mul(2, 3));|",
+            "total|",
+            "|total",
+            "|let total = add(1, mul(2, 3));",
+        ]
+    );
+    assert_eq!(
+        sexp_moves("fn f() { tot|al }\n", &["C-M-f", "C-M-f"]),
+        ["fn f() { total| }", "fn f() { total| }"]
+    );
+    assert_eq!(sexp_moves("fn f() { |}\n", &["C-M-f"]), ["fn f() { |}"]);
+}
+
+#[test]
+fn lists_are_entered_left_and_skipped_by_their_brackets() {
+    let source = "fn main() {\n    |let total = add(1, mul(2, 3));\n}\n";
+    assert_eq!(
+        sexp_moves(
+            source,
+            &["C-M-d", "C-M-n", "C-M-p", "C-M-u", "C-M-u", "C-M-u"]
+        ),
+        [
+            "let total = add(|1, mul(2, 3));",
+            "let total = add(1, mul(2, 3)|);",
+            "let total = add(1, mul|(2, 3));",
+            "let total = add|(1, mul(2, 3));",
+            "fn main() |{",
+            "fn main() |{",
+        ]
+    );
+}

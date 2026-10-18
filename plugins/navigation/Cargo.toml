@@ -1,0 +1,23 @@
+[package]
+name = "remacs-navigation"
+description = "Built-in plugin: going back and forward through where point was, to the last change, and to text on screen by label"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+remacs-core.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+divan.workspace = true
+remacs-editing.workspace = true
+remacs-text.workspace = true
+
+[[bench]]
+name = "history"
+harness = false
+
+[lints]
+workspace = true

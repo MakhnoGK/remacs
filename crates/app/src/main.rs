@@ -52,6 +52,7 @@ use remacs_git::GitPlugin;
 use remacs_languages::{GRAMMARS, INJECTIONS, LanguagesPlugin, PRETTIER_MODES, SERVERS};
 use remacs_lsp::{LspPlugin, keep_offers_in};
 use remacs_minibuffer::MinibufferPlugin;
+use remacs_navigation::NavigationPlugin;
 use remacs_prettier::PrettierPlugin;
 use remacs_rename::RenamePlugin;
 use remacs_run::{RunPlugin, keep_configurations_in};
@@ -71,6 +72,7 @@ const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
     // First, as it lays out the menu bar the others add items to.
     &FramePlugin,
     &EditingPlugin,
+    &NavigationPlugin,
     &MinibufferPlugin,
     &FilesPlugin,
     &SearchPlugin,

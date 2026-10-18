@@ -167,7 +167,9 @@ fn candidate(text: &Snapshot, query: &Query, line: Line, start: usize) -> Candid
     let label = match String::from_utf8(text.bytes_in(from..to)) {
         Ok(label) if label.trim().len() == label.len() => label,
         Ok(label) => label.trim().to_owned(),
-        Err(invalid) => String::from_utf8_lossy(invalid.as_bytes()).trim().to_owned(),
+        Err(invalid) => String::from_utf8_lossy(invalid.as_bytes())
+            .trim()
+            .to_owned(),
     };
     Candidate {
         matches: query.ranges_in(&label),
@@ -178,11 +180,12 @@ fn candidate(text: &Snapshot, query: &Query, line: Line, start: usize) -> Candid
     }
 }
 
-/// Puts point on the match, centered when it was off screen, and the mark where the
-/// search started, like Emacs isearch.
+/// Puts point on the match, centered when it was off screen, and pushes the mark where
+/// the search started, like Emacs isearch.
 fn go_to(editor: &mut Editor, offset: usize, start: usize) {
     let buffer = editor.window_buffer_mut();
-    buffer.set_mark(start);
+    buffer.set_point(start);
+    buffer.push_mark();
     buffer.deactivate_mark();
     buffer.set_point(offset);
     let line = buffer.point_line();

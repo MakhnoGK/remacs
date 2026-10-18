@@ -3,7 +3,7 @@ use std::rc::Rc;
 use crate::command::Commands;
 use crate::decoration::Decorator;
 use crate::editor::Editor;
-use crate::gutter::{GutterProvider, LineExtraProvider, TextControlsProvider};
+use crate::gutter::{GutterProvider, LineExtraProvider, TextControlsProvider, TextLabelProvider};
 use crate::keymap::Keymap;
 use crate::menu::{Menu, MenuItem};
 use crate::mode::Modes;
@@ -66,6 +66,8 @@ pub struct Registry {
     pub gutter_click: Option<&'static str>,
     /// Bands behind lines of buffers drawn as text, and notes after them.
     pub line_extras: Vec<LineExtraProvider>,
+    /// Labels drawn over the text of buffers drawn as text.
+    pub text_labels: Vec<TextLabelProvider>,
     /// Panels under the window buffer, sharing one slot.
     pub panes: Vec<PaneSource>,
     /// Draw buffers as screens; the first that knows the buffer does.

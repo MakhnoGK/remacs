@@ -1,8 +1,10 @@
 use std::fs::File;
 use std::io;
+use std::mem;
 use std::ops::{Deref, Range};
 use std::path::Path;
 
+use crate::diff::Edit;
 use crate::disk::DiskFile;
 use crate::history::History;
 use crate::original::Original;
@@ -118,6 +120,33 @@ impl Text {
         let revision = self.history.redo(&self.snapshot.pieces)?;
         self.snapshot.pieces = revision.pieces;
         Some(revision.offset)
+    }
+
+    /// Where each group of edits undo would revert starts in the text now, the latest
+    /// first: moved by the edits since, like a marker, onto their start when they replaced
+    /// it. Groups that left the text as it was are left out.
+    pub fn change_offsets(&self) -> impl Iterator<Item = usize> + '_ {
+        let mut after = self.snapshot.clone();
+        let mut before = after.clone();
+        // Newest first.
+        let mut later: Vec<Edit> = Vec::new();
+        self.history.states().filter_map(move |state| {
+            before.pieces = state.clone();
+            let edit = after.edit_from(&before);
+            mem::swap(&mut after, &mut before);
+            let edit = edit?;
+            let offset = later.iter().rev().fold(edit.start, |offset, later| {
+                if offset <= later.start {
+                    offset
+                } else if offset >= later.old_end {
+                    offset + later.new_end - later.old_end
+                } else {
+                    later.start
+                }
+            });
+            later.push(edit);
+            Some(offset)
+        })
     }
 
     pub fn is_modified(&self) -> bool {

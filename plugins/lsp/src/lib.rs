@@ -9,6 +9,7 @@ mod color;
 mod completion;
 mod definition;
 mod document;
+mod document_symbols;
 /// Public for the benchmarks only.
 #[doc(hidden)]
 pub mod embedded;
@@ -113,6 +114,7 @@ impl Plugin for LspPlugin {
             file_rename::sync(editor, servers);
             symbol_rename::sync(editor, servers);
             symbols::sync(editor, servers);
+            document_symbols::sync(editor, servers);
             offer::ask(editor);
         }));
         registry.decorators.push(Rc::new(document::swatch_spans));

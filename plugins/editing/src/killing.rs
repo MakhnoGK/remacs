@@ -6,14 +6,29 @@ use crate::motion::{
 };
 
 pub const SET_MARK_COMMAND: &str = "set-mark-command";
+pub const POP_TO_MARK_COMMAND: &str = "pop-to-mark-command";
 pub const YANK: &str = "yank";
 pub const YANK_POP: &str = "yank-pop";
 
 const NO_MARK: &str = "The mark is not set now, so there is no region";
 const PREVIEW_CHARS: usize = 120;
 
-/// Sets the mark at point; repeated, it deactivates it again.
+/// Set while `pop-to-mark-command` and the `set-mark-command`s right after it pop marks.
+#[derive(Default)]
+struct PoppingMarks(bool);
+
+/// Sets the mark at point, the one before onto the mark ring; repeated, it deactivates it
+/// again; right after `pop-to-mark-command`, it pops the next mark, like Emacs with
+/// `set-mark-command-repeat-pop`.
 pub fn set_mark_command(editor: &mut Editor) -> CommandResult {
+    let after_pop = matches!(
+        editor.last_command(),
+        Some(SET_MARK_COMMAND | POP_TO_MARK_COMMAND)
+    ) && editor.plugin_state::<PoppingMarks>().0;
+    if after_pop {
+        return pop_mark(editor);
+    }
+    editor.plugin_state::<PoppingMarks>().0 = false;
     let repeated = editor.last_command() == Some(SET_MARK_COMMAND);
     let buffer = editor.buffer_mut();
     if repeated && buffer.is_mark_active() {
@@ -21,10 +36,24 @@ pub fn set_mark_command(editor: &mut Editor) -> CommandResult {
         editor.set_message("Mark deactivated");
         return Ok(());
     }
-    buffer.set_mark(buffer.point());
+    buffer.push_mark();
     buffer.activate_mark();
     editor.set_message("Mark set");
     Ok(())
+}
+
+/// Goes to the mark, then, run again, to the marks before it, like Emacs `C-u C-SPC`.
+pub fn pop_to_mark_command(editor: &mut Editor) -> CommandResult {
+    editor.plugin_state::<PoppingMarks>().0 = true;
+    pop_mark(editor)
+}
+
+fn pop_mark(editor: &mut Editor) -> CommandResult {
+    if editor.buffer_mut().pop_mark() {
+        Ok(())
+    } else {
+        Err("No mark set in this buffer".into())
+    }
 }
 
 pub fn exchange_point_and_mark(editor: &mut Editor) -> CommandResult {
@@ -36,9 +65,12 @@ pub fn exchange_point_and_mark(editor: &mut Editor) -> CommandResult {
     Ok(())
 }
 
+/// Selects the buffer, like Emacs, which pushes point onto the mark ring before.
 pub fn mark_whole_buffer(editor: &mut Editor) -> CommandResult {
     let buffer = editor.buffer_mut();
-    buffer.set_mark(buffer.text().len());
+    buffer.push_mark();
+    buffer.set_point(buffer.text().len());
+    buffer.push_mark();
     buffer.set_point(0);
     buffer.activate_mark();
     Ok(())

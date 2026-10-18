@@ -3,6 +3,9 @@ use remacs_core::{Buffer, CharClass, CommandResult, Editor};
 /// Lines of overlap kept when paging, like Emacs `next-screen-context-lines`.
 const CONTEXT_LINES: usize = 2;
 
+pub const RECENTER_TOP_BOTTOM: &str = "recenter-top-bottom";
+pub const MOVE_TO_WINDOW_LINE_TOP_BOTTOM: &str = "move-to-window-line-top-bottom";
+
 /// Reaching an end of the buffer is told, not an error: nothing went wrong.
 pub(crate) fn at_end_of_buffer(editor: &mut Editor) -> CommandResult {
     editor.set_message("End of buffer");
@@ -102,15 +105,25 @@ pub fn move_end_of_line(editor: &mut Editor) -> CommandResult {
     Ok(())
 }
 
+/// Like Emacs, it pushes the mark unless the region is active, so `C-u C-SPC` comes back.
 pub fn beginning_of_buffer(editor: &mut Editor) -> CommandResult {
-    editor.buffer_mut().set_point(0);
+    let buffer = editor.buffer_mut();
+    push_mark_unless_selecting(buffer);
+    buffer.set_point(0);
     Ok(())
 }
 
 pub fn end_of_buffer(editor: &mut Editor) -> CommandResult {
     let buffer = editor.buffer_mut();
+    push_mark_unless_selecting(buffer);
     buffer.set_point(buffer.text().len());
     Ok(())
+}
+
+fn push_mark_unless_selecting(buffer: &mut Buffer) {
+    if !buffer.is_mark_active() {
+        buffer.push_mark();
+    }
 }
 
 pub fn scroll_up_command(editor: &mut Editor) -> CommandResult {
@@ -133,6 +146,48 @@ pub fn recenter(editor: &mut Editor) -> CommandResult {
     let point_line = editor.window_buffer().point_line();
     editor.viewport.center_on(point_line);
     Ok(())
+}
+
+/// Centers the line with point, then, run again, puts it at the top, then at the bottom.
+pub fn recenter_top_bottom(editor: &mut Editor) -> CommandResult {
+    let point_line = editor.window_buffer().point_line();
+    match cycle_step(editor, RECENTER_TOP_BOTTOM, 3) {
+        0 => editor.viewport.center_on(point_line),
+        1 => editor.viewport.put_at_top(point_line),
+        _ => editor.viewport.put_at_bottom(point_line),
+    }
+    Ok(())
+}
+
+/// Moves point to the start of the window's middle line, then, run again, of its top line,
+/// then of its bottom one, out of the margins, like Emacs `move-to-window-line-top-bottom`.
+pub fn move_to_window_line_top_bottom(editor: &mut Editor) -> CommandResult {
+    let viewport = editor.viewport;
+    let line = match cycle_step(editor, MOVE_TO_WINDOW_LINE_TOP_BOTTOM, 3) {
+        0 => viewport.first_line + viewport.height / 2,
+        1 => viewport.first_line,
+        _ => viewport.last_line(),
+    };
+    let buffer = editor.window_buffer_mut();
+    let line = viewport.clamp(line, buffer.text().line_count());
+    let line_start = buffer
+        .text()
+        .line_start(line)
+        .unwrap_or(buffer.text().len());
+    buffer.set_point(line_start);
+    Ok(())
+}
+
+#[derive(Default)]
+struct CycleStep(usize);
+
+/// Where a command that cycles is: 0 the first time, one more each time it runs again
+/// right after itself, back to 0 after `steps`.
+fn cycle_step(editor: &mut Editor, command: &'static str, steps: usize) -> usize {
+    let again = editor.last_command() == Some(command);
+    let step = &mut editor.plugin_state::<CycleStep>().0;
+    *step = if again { (*step + 1) % steps } else { 0 };
+    *step
 }
 
 pub(crate) fn line_end(buffer: &Buffer) -> usize {

@@ -82,6 +82,16 @@ impl Viewport {
         self.first_line = line.saturating_sub(self.height / 2);
     }
 
+    /// Scrolls `line` to the top, just below the top margin.
+    pub fn put_at_top(&mut self, line: usize) {
+        self.first_line = line.saturating_sub(self.fitting_margins().0);
+    }
+
+    /// Scrolls `line` to the bottom, just above the bottom margin.
+    pub fn put_at_bottom(&mut self, line: usize) {
+        self.first_line = (line + self.fitting_margins().1 + 1).saturating_sub(self.height.max(1));
+    }
+
     /// The nearest line to `line` that point can be on without scrolling.
     pub fn clamp(&self, line: usize, line_count: usize) -> usize {
         let lines = self.clear_lines(line_count);

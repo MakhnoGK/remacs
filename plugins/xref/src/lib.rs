@@ -4,6 +4,7 @@
 
 mod apropos;
 mod definitions;
+mod imenu;
 
 use std::rc::Rc;
 
@@ -11,6 +12,7 @@ use remacs_core::{Command, MenuItem, Plugin, Registry, visiting_file};
 
 pub use apropos::{Symbol, SymbolRequest, deliver_symbols, take_symbol_requests};
 pub use definitions::{Location, Request, deliver, take_requests};
+pub use imenu::{DocumentSymbolRequest, deliver_document_symbols, take_document_symbol_requests};
 
 pub struct XrefPlugin;
 
@@ -19,18 +21,22 @@ const COMMANDS: &[Command] = &[
     Command::new(definitions::FIND_DEFINITIONS, "Go to the definition of the symbol at point", definitions::find_definitions),
     Command::new("xref-go-back", "Go back to where the last definition was looked up", definitions::go_back),
     Command::new(apropos::FIND_APROPOS, "Find a symbol of the project by name and go to it", apropos::find_apropos),
+    Command::new(imenu::IMENU, "Go to a symbol of the file by name", imenu::imenu),
 ];
 
 const BINDINGS: &[(&str, &str)] = &[
     ("M-.", definitions::FIND_DEFINITIONS),
     ("M-,", "xref-go-back"),
     ("C-M-.", apropos::FIND_APROPOS),
+    ("M-g i", imenu::IMENU),
+    ("s-<f12>", imenu::IMENU),
 ];
 
 #[rustfmt::skip]
 const MENU_ITEMS: &[MenuItem] = &[
     MenuItem::new("Go", "definitions", "Definition", definitions::FIND_DEFINITIONS).enabled_when(visiting_file),
     MenuItem::new("Go", "definitions", "Back", "xref-go-back"),
+    MenuItem::new("Go", "definitions", "Symbol in File…", imenu::IMENU).enabled_when(visiting_file),
     MenuItem::new("Go", "definitions", "Symbol in Project…", apropos::FIND_APROPOS),
 ];
 
@@ -47,6 +53,7 @@ impl Plugin for XrefPlugin {
             .post_command_hooks
             .push(Rc::new(definitions::update));
         registry.post_command_hooks.push(Rc::new(apropos::update));
+        registry.post_command_hooks.push(Rc::new(imenu::update));
     }
 }
 

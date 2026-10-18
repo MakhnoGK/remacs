@@ -4073,6 +4073,7 @@ dependencies = [
  "remacs-languages",
  "remacs-lsp",
  "remacs-minibuffer",
+ "remacs-navigation",
  "remacs-prettier",
  "remacs-rename",
  "remacs-run",
@@ -4326,6 +4327,17 @@ dependencies = [
  "remacs-core",
  "remacs-editing",
  "remacs-text",
+]
+
+[[package]]
+name = "remacs-navigation"
+version = "0.1.0"
+dependencies = [
+ "divan",
+ "remacs-core",
+ "remacs-editing",
+ "remacs-text",
+ "serde",
 ]
 
 [[package]]

@@ -17,7 +17,7 @@ use crate::command::{CommandResult, Commands};
 use crate::completion::Completions;
 use crate::decoration::{Span, split_by_line};
 use crate::echo::{EchoMessage, MessageKind, MessageLog};
-use crate::gutter::{GutterMark, LineExtra, TextControls};
+use crate::gutter::{GutterMark, LineExtra, TextControls, TextLabel};
 use crate::history::History;
 use crate::key::{Key, describe_sequence};
 use crate::key_bindings::KeysSettings;
@@ -89,6 +89,8 @@ pub struct Editor {
     selected_pane: Option<&'static str>,
     /// The shown pane has the keys, not the window buffer.
     pane_focused: bool,
+    /// The window scrolled since the post-command hooks last ran.
+    scrolled: bool,
 }
 
 impl Editor {
@@ -132,6 +134,7 @@ impl Editor {
             moved_files: Vec::new(),
             selected_pane: None,
             pane_focused: false,
+            scrolled: false,
         }
     }
 
@@ -638,12 +641,19 @@ impl Editor {
     pub fn scroll(&mut self, lines: isize) {
         let line_count = self.window_buffer().text().line_count();
         if self.viewport.scroll_by(lines, line_count) {
+            self.scrolled = true;
             let point_line = self.window_buffer().point_line();
             let visible_line = self.viewport.clamp(point_line, line_count);
             if visible_line != point_line {
                 self.window_buffer_mut().move_to_line(visible_line);
             }
         }
+    }
+
+    /// Whether the window scrolled, by a command or the mouse, since the post-command hooks
+    /// last ran: point it moved was moved by reading on, not by going somewhere.
+    pub fn scrolled(&self) -> bool {
+        self.scrolled
     }
 
     pub fn set_point_at(&mut self, line: usize, column: usize) {
@@ -901,6 +911,14 @@ impl Editor {
     pub fn line_extras(&self, lines: Range<usize>) -> Vec<LineExtra> {
         self.registry
             .line_extras
+            .iter()
+            .flat_map(|provide| provide(self, lines.clone()))
+            .collect()
+    }
+
+    pub fn text_labels(&self, lines: Range<usize>) -> Vec<TextLabel> {
+        self.registry
+            .text_labels
             .iter()
             .flat_map(|provide| provide(self, lines.clone()))
             .collect()
@@ -1170,6 +1188,7 @@ impl Editor {
         for hook in self.registry.post_command_hooks.clone() {
             hook(self);
         }
+        self.scrolled = false;
         // A pane shown later must not find the keys already given to it.
         if self.shown_pane().is_none() {
             self.pane_focused = false;

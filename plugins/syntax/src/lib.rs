@@ -4,12 +4,13 @@ mod buffer_syntax;
 mod highlighter;
 mod matching_pair;
 mod parser_thread;
+mod sexp;
 mod snippet;
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use remacs_core::{Plugin, Registry, Section};
+use remacs_core::{Command, MenuItem, Plugin, Registry, Section};
 use serde::Deserialize;
 pub use tree_sitter_language::LanguageFn;
 
@@ -68,8 +69,42 @@ impl SyntaxPlugin {
     }
 }
 
+#[rustfmt::skip]
+const COMMANDS: &[Command] = &[
+    Command::new(sexp::FORWARD_SEXP, "Move over the next expression of the syntax tree", sexp::forward_sexp),
+    Command::new(sexp::BACKWARD_SEXP, "Move back over the previous expression of the syntax tree", sexp::backward_sexp),
+    Command::new(sexp::BACKWARD_UP_LIST, "Move to the opening bracket of the list point is in", sexp::backward_up_list),
+    Command::new(sexp::DOWN_LIST, "Move into the next list, after its opening bracket", sexp::down_list),
+    Command::new(sexp::FORWARD_LIST, "Move over the next list between brackets", sexp::forward_list),
+    Command::new(sexp::BACKWARD_LIST, "Move back over the previous list between brackets", sexp::backward_list),
+];
+
+const BINDINGS: &[(&str, &str)] = &[
+    ("C-M-f", sexp::FORWARD_SEXP),
+    ("C-M-b", sexp::BACKWARD_SEXP),
+    ("C-M-u", sexp::BACKWARD_UP_LIST),
+    ("C-M-d", sexp::DOWN_LIST),
+    ("C-M-n", sexp::FORWARD_LIST),
+    ("C-M-p", sexp::BACKWARD_LIST),
+];
+
+#[rustfmt::skip]
+const MENU_ITEMS: &[MenuItem] = &[
+    MenuItem::new("Go", "structure", "Next Expression", sexp::FORWARD_SEXP),
+    MenuItem::new("Go", "structure", "Previous Expression", sexp::BACKWARD_SEXP),
+    MenuItem::new("Go", "structure", "Out of List", sexp::BACKWARD_UP_LIST),
+    MenuItem::new("Go", "structure", "Into Next List", sexp::DOWN_LIST),
+];
+
 impl Plugin for SyntaxPlugin {
     fn register(&self, registry: &mut Registry) {
+        for command in COMMANDS {
+            registry.commands.add(*command);
+        }
+        for &(keys, command) in BINDINGS {
+            registry.keymap.bind(keys, command);
+        }
+        registry.menu_items.extend_from_slice(MENU_ITEMS);
         let (grammars, injections) = (self.grammars, self.injections);
         let settings = Rc::new(Cell::new(SyntaxSettings::default()));
         registry.settings_hooks.push(Rc::new({

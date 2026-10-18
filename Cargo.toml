@@ -29,6 +29,7 @@ remacs-git = { path = "plugins/git" }
 remacs-languages = { path = "plugins/languages" }
 remacs-lsp = { path = "plugins/lsp" }
 remacs-minibuffer = { path = "plugins/minibuffer" }
+remacs-navigation = { path = "plugins/navigation" }
 remacs-prettier = { path = "plugins/prettier" }
 remacs-rename = { path = "plugins/rename" }
 remacs-run = { path = "plugins/run" }

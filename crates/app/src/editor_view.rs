@@ -23,7 +23,7 @@ use remacs_core::{
     FrameRequest, GutterIcon, GutterMark, Icon, Key, LineChange, LineExtra, MessageKind,
     Minibuffer, MouseSelection, Outline, Pane, PaneBody, PaneButton, Popup, Preview, ScreenButton,
     ScreenMouse, ScreenPointer, ScreenSize, Scroll, Span, StatusItem, StatusSegment, Tabs,
-    describe_sequence,
+    TextLabel, describe_sequence,
 };
 use remacs_echo::VIEW_MESSAGES;
 use remacs_frame::TEXT_CONFIGURED;
@@ -1216,7 +1216,7 @@ impl EditorView {
 
     /// The row of `line`, shown as `display_line` with the decorators' faces on its
     /// `visible` bytes, its gutter mark in `mark_slot` when the gutter has a column for
-    /// marks, and whether the line goes on past its right edge.
+    /// marks and `labels` over its text, and whether the line goes on past its right edge.
     #[allow(clippy::too_many_arguments)]
     fn render_line(
         &self,
@@ -1227,6 +1227,7 @@ impl EditorView {
         gutter_width: Pixels,
         mark_slot: Option<Div>,
         extra: Option<LineExtra>,
+        labels: Vec<TextLabel>,
     ) -> (AnyElement, bool) {
         let (band, note) = extra.map_or((None, None), |extra| (extra.band, extra.note));
         let code_font = self.text_font();
@@ -1255,6 +1256,23 @@ impl EditorView {
                     .h(height),
             );
         }
+        // Over the characters they stand on, as avy draws them.
+        let label_elements: Vec<_> = labels
+            .into_iter()
+            .map(|label| {
+                let column = buffer.text().char_column(label.offset);
+                let cell = display_line.cursor_cell(column);
+                let column = display_line.text[..cell.start].chars().count();
+                div()
+                    .absolute()
+                    .top_0()
+                    .left(metrics.char_width * column as f32)
+                    .h(row_height)
+                    .bg(rgb(color::accent()))
+                    .text_color(rgb(color::bg_main()))
+                    .child(label.text)
+            })
+            .collect();
         let marks_width = if mark_slot.is_some() {
             px(MARKS_WIDTH)
         } else {
@@ -1329,7 +1347,8 @@ impl EditorView {
                                     .text_size(px(font::status_size()))
                                     .text_color(rgb(color::fg_faint()))
                                     .child(note)
-                            }))),
+                            })))
+                            .children(label_elements),
                     )
                     .when(hidden_start, |text| {
                         text.child(edge_fade(Edge::Left, SCROLL_FADE_SIZE, under))
@@ -1616,6 +1635,14 @@ impl EditorView {
             .into_iter()
             .map(|extra| (extra.line, extra))
             .collect();
+        let mut labels: HashMap<usize, Vec<TextLabel>> = HashMap::new();
+        let text = self.editor.window_buffer().text();
+        for label in self.editor.text_labels(first_line..last_line) {
+            labels
+                .entry(text.line_of(label.offset))
+                .or_default()
+                .push(label);
+        }
         let shown: Vec<_> = (first_line..last_line)
             .map(|line| self.display_line(line))
             .collect();
@@ -1627,7 +1654,17 @@ impl EditorView {
             .map(|((line, shown), decorations)| {
                 let slot = mark_slots.as_mut().and_then(|slots| slots.remove(&line));
                 let extra = extras.remove(&line);
-                self.render_line(line, shown, decorations, metrics, gutter_width, slot, extra)
+                let labels = labels.remove(&line).unwrap_or_default();
+                self.render_line(
+                    line,
+                    shown,
+                    decorations,
+                    metrics,
+                    gutter_width,
+                    slot,
+                    extra,
+                    labels,
+                )
             })
             .unzip();
         self.more_on_right = continued.contains(&true);

@@ -575,6 +575,71 @@ fn paging_moves_point_into_view() {
 }
 
 #[test]
+fn recentering_cycles_through_middle_top_and_bottom() {
+    let lines: String = (0..100).map(|line| format!("{line}\n")).collect();
+    let mut editor = editor_with(&lines);
+    editor.viewport.margins = (1, 1);
+    for _ in 0..50 {
+        press(&mut editor, "C-n");
+    }
+    let mut first_lines = || {
+        press(&mut editor, "C-l");
+        editor.viewport.first_line
+    };
+    assert_eq!(
+        [first_lines(), first_lines(), first_lines(), first_lines()],
+        [45, 49, 42, 45]
+    );
+}
+
+#[test]
+fn moving_to_window_lines_cycles_through_middle_top_and_bottom() {
+    let lines: String = (0..100).map(|line| format!("{line}\n")).collect();
+    let mut editor = editor_with(&lines);
+    editor.viewport.margins = (1, 1);
+    editor.viewport.first_line = 20;
+    press(&mut editor, "C-v C-v");
+    let first_line = editor.viewport.first_line;
+    let mut point_lines = || {
+        press(&mut editor, "M-r");
+        assert_eq!(editor.viewport.first_line, first_line);
+        editor.buffer().point_line()
+    };
+    let (top, bottom) = (first_line + 1, first_line + 8);
+    assert_eq!(
+        [point_lines(), point_lines(), point_lines(), point_lines()],
+        [first_line + 5, top, bottom, first_line + 5]
+    );
+}
+
+#[test]
+fn popping_the_mark_goes_back_through_earlier_marks() {
+    let mut editor = editor_with("one two three four");
+    press(&mut editor, "M-f C-SPC C-g M-f C-SPC C-g M->");
+    insert_at_start(&mut editor, "zero ");
+    let point = |editor: &mut Editor, keys: &str| {
+        press(editor, keys);
+        editor.buffer().point()
+    };
+    // M-> pushed point, 12, which was the mark already.
+    assert_eq!(point(&mut editor, "C-u C-SPC"), 12);
+    assert_eq!(point(&mut editor, "C-SPC"), 8);
+    assert_eq!(point(&mut editor, "C-SPC"), 12);
+    assert!(!editor.buffer().is_mark_active());
+    press(&mut editor, "C-f C-SPC");
+    assert!(editor.buffer().is_mark_active());
+    assert_eq!(editor.buffer().mark(), Some(13));
+}
+
+fn insert_at_start(editor: &mut Editor, text: &str) {
+    let buffer = editor.buffer_mut();
+    let point = buffer.point();
+    buffer.set_point(0);
+    buffer.insert(text);
+    buffer.set_point(point + text.len());
+}
+
+#[test]
 fn region_is_killed_and_yanked_back() {
     let mut editor = editor_with("hello brave world");
     press(&mut editor, "M-f C-SPC M-f");

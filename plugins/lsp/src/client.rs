@@ -16,9 +16,10 @@ use lsp_types::notification::{
 };
 use lsp_types::request::{
     ApplyWorkspaceEdit, CodeActionRequest, CodeActionResolveRequest, Completion, DocumentColor,
-    DocumentDiagnosticRequest, ExecuteCommand, Formatting, GotoDefinition, HoverRequest,
-    Initialize, PrepareRenameRequest, RangeFormatting, Rename, Request, ResolveCompletionItem,
-    WillRenameFiles, WorkspaceConfiguration, WorkspaceDiagnosticRefresh, WorkspaceSymbolRequest,
+    DocumentDiagnosticRequest, DocumentSymbolRequest, ExecuteCommand, Formatting, GotoDefinition,
+    HoverRequest, Initialize, PrepareRenameRequest, RangeFormatting, Rename, Request,
+    ResolveCompletionItem, WillRenameFiles, WorkspaceConfiguration, WorkspaceDiagnosticRefresh,
+    WorkspaceSymbolRequest,
 };
 use lsp_types::{
     ApplyWorkspaceEditParams, CodeAction, CodeActionOrCommand, CompletionItem,
@@ -41,7 +42,7 @@ use crate::markdown::CodeModes;
 use crate::position::{Encoding, from_lsp, to_lsp};
 use crate::symbols::{self, FoundSymbol};
 use crate::transport::{read_message, write_message};
-use crate::{code_action, definition, hover, symbol_rename, uri};
+use crate::{code_action, definition, document_symbols, hover, symbol_rename, uri};
 
 const INITIALIZE_ID: u64 = 0;
 /// rust-analyzer's, with `quiescent` false while it loads the project.
@@ -153,6 +154,11 @@ pub(crate) enum Outgoing {
     Symbols {
         id: u64,
         query: String,
+    },
+    /// Asks for the symbols of the file at `uri`; `id` is xref's.
+    DocumentSymbols {
+        id: u64,
+        uri: Uri,
     },
     /// Asks for the name of the symbol at `offset` of `text` to rename, or whether it can
     /// be; `id` is the rename plugin's.
@@ -332,6 +338,10 @@ enum Pending {
     Symbols {
         id: u64,
     },
+    DocumentSymbols {
+        id: u64,
+        path: PathBuf,
+    },
     PrepareRename {
         id: u64,
         text: Snapshot,
@@ -365,6 +375,7 @@ struct Inbox {
     /// Kept apart from `answers`, which are for the window buffer's document.
     renamed: Vec<Renamed>,
     found: Vec<Found>,
+    document_symbols: Vec<Found>,
     symbol_renamed: Vec<SymbolRenamed>,
     /// Why the server exited, once it has.
     exit: Option<String>,
@@ -416,6 +427,7 @@ struct Negotiated {
     formatting: bool,
     range_formatting: bool,
     workspace_symbols: bool,
+    document_symbols: bool,
     rename: bool,
     prepare_rename: bool,
 }
@@ -554,6 +566,10 @@ impl Client {
 
     pub fn take_found(&self) -> Vec<Found> {
         std::mem::take(&mut lock(&self.inbox).found)
+    }
+
+    pub fn take_document_symbols(&self) -> Vec<Found> {
+        std::mem::take(&mut lock(&self.inbox).document_symbols)
     }
 
     pub fn take_symbol_renamed(&self) -> Vec<SymbolRenamed> {
@@ -908,6 +924,22 @@ impl Writer {
                 let pending = Pending::Symbols { id: *id };
                 self.ask(WorkspaceSymbolRequest::METHOD, params, pending)
             }
+            Outgoing::DocumentSymbols { id, uri } => {
+                let path = uri::to_path(uri).unwrap_or_default();
+                if !negotiated.document_symbols {
+                    lock(&self.inbox).document_symbols.push(Found {
+                        id: *id,
+                        symbols: Vec::new(),
+                        encoding: negotiated.encoding,
+                        settled: true,
+                    });
+                    (self.notifier)();
+                    return Ok(());
+                }
+                let params = json!({ "textDocument": TextDocumentIdentifier::new(uri.clone()) });
+                let pending = Pending::DocumentSymbols { id: *id, path };
+                self.ask(DocumentSymbolRequest::METHOD, params, pending)
+            }
             Outgoing::Format {
                 uri,
                 id,
@@ -980,6 +1012,9 @@ fn is_superseded(message: &Outgoing, later: &[Outgoing]) -> bool {
             },
         ) => question == other,
         (Outgoing::Symbols { .. }, Outgoing::Symbols { .. }) => true,
+        (Outgoing::DocumentSymbols { uri, .. }, Outgoing::DocumentSymbols { uri: other, .. }) => {
+            uri == other
+        }
         _ => false,
     })
 }
@@ -1033,6 +1068,7 @@ impl Outgoing {
             | Outgoing::WillRename { .. }
             | Outgoing::DidRename { .. }
             | Outgoing::Symbols { .. }
+            | Outgoing::DocumentSymbols { .. }
             | Outgoing::PrepareRename { .. }
             | Outgoing::Rename { .. } => unreachable!("the writer numbers requests"),
             Outgoing::Reply { id, result } => {
@@ -1193,6 +1229,7 @@ impl Reader {
             formatting: is_provided(&capabilities["documentFormattingProvider"]),
             range_formatting: is_provided(&capabilities["documentRangeFormattingProvider"]),
             workspace_symbols: is_provided(&capabilities["workspaceSymbolProvider"]),
+            document_symbols: is_provided(&capabilities["documentSymbolProvider"]),
             rename: is_provided(&capabilities["renameProvider"]),
             prepare_rename: capabilities["renameProvider"]["prepareProvider"] == true,
         });
@@ -1337,6 +1374,19 @@ impl Reader {
                     symbols: symbols::found(response),
                     encoding: self.encoding,
                     settled: self.settled.load(Ordering::Relaxed),
+                });
+                (self.notifier)();
+            }
+            Pending::DocumentSymbols { id, path } => {
+                let response = error
+                    .is_none()
+                    .then(|| serde_json::from_value(result).ok())
+                    .flatten();
+                lock(&self.inbox).document_symbols.push(Found {
+                    id,
+                    symbols: document_symbols::found(response, &path),
+                    encoding: self.encoding,
+                    settled: true,
                 });
                 (self.notifier)();
             }

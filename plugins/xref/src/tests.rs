@@ -6,7 +6,8 @@ use remacs_editing::EditingPlugin;
 use remacs_minibuffer::MinibufferPlugin;
 
 use crate::{
-    Location, Request, Symbol, SymbolRequest, XrefPlugin, deliver, deliver_symbols, take_requests,
+    DocumentSymbolRequest, Location, Request, Symbol, SymbolRequest, XrefPlugin, deliver,
+    deliver_document_symbols, deliver_symbols, take_document_symbol_requests, take_requests,
     take_symbol_requests,
 };
 
@@ -262,4 +263,57 @@ fn answers_after_another_command_or_without_definitions() {
     deliver(&mut editor, 2, Vec::new());
     assert_eq!(editor.echo().as_deref(), Some("No definitions found"));
     assert_eq!(place(&editor), (main, 19));
+}
+
+#[test]
+fn symbols_of_the_file_are_listed_shown_and_gone_to() {
+    let (main, _, _) = project("imenu");
+    let mut editor = editor_at(&main, 0);
+    press(&mut editor, "M-g i");
+    let requests = take_document_symbol_requests(&mut editor);
+    assert_eq!(
+        requests,
+        [DocumentSymbolRequest {
+            id: 1,
+            path: main.clone(),
+        }]
+    );
+    assert_eq!(
+        editor.minibuffer().unwrap().note(),
+        Some("Asking the language server…")
+    );
+    let found = vec![
+        symbol("main", SymbolKind::Function, None, &main, 3),
+        symbol("helper", SymbolKind::Function, Some("main"), &main, 16),
+    ];
+    deliver_document_symbols(&mut editor, 1, Ok(found));
+    editor.refresh();
+    assert_eq!(symbol_rows(&editor).len(), 2);
+    assert_eq!(place(&editor), (main.clone(), 3));
+    press(&mut editor, "h");
+    assert_eq!(
+        symbol_rows(&editor),
+        [("helper".into(), "main".into(), Some("function"), "2".into())]
+    );
+    assert_eq!(place(&editor), (main.clone(), 16));
+    press(&mut editor, "C-g");
+    assert_eq!(place(&editor), (main.clone(), 0));
+
+    press(&mut editor, "M-g i");
+    let id = take_document_symbol_requests(&mut editor)[0].id;
+    deliver_document_symbols(
+        &mut editor,
+        id,
+        Err("No language server for this file".into()),
+    );
+    assert_eq!(
+        editor.minibuffer().unwrap().note(),
+        Some("No language server for this file")
+    );
+    let found = vec![symbol("helper", SymbolKind::Function, None, &main, 16)];
+    deliver_document_symbols(&mut editor, id, Ok(found));
+    press(&mut editor, "RET");
+    assert_eq!(place(&editor), (main.clone(), 16));
+    press(&mut editor, "C-u C-SPC");
+    assert_eq!(place(&editor), (main, 0));
 }

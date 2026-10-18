@@ -9,6 +9,9 @@ use remacs_text::Text;
 
 use crate::command::CommandResult;
 
+/// Like Emacs `mark-ring-max`.
+const MARK_RING_MAX: usize = 16;
+
 /// A text with a point (cursor), a mark, a name and a major mode.
 pub struct Buffer {
     name: String,
@@ -21,6 +24,8 @@ pub struct Buffer {
     /// Column that vertical motion keeps returning to, like Emacs `temporary-goal-column`.
     goal_column: Option<usize>,
     mark: Option<usize>,
+    /// Earlier marks, the latest last, like Emacs `mark-ring`.
+    mark_ring: Vec<usize>,
     /// Transient mark mode: the region is highlighted and used only while the mark is active.
     mark_active: bool,
     /// First line shown when the buffer was last in the window, like Emacs `last-window-start`.
@@ -40,6 +45,7 @@ impl Buffer {
             point: 0,
             goal_column: None,
             mark: None,
+            mark_ring: Vec::new(),
             mark_active: false,
             window_start: 0,
             locals: HashMap::new(),
@@ -139,6 +145,7 @@ impl Buffer {
     pub fn replace_text(&mut self, text: Text) {
         self.text = text;
         self.mark = None;
+        self.mark_ring.clear();
         self.mark_active = false;
         self.set_point(self.point);
     }
@@ -198,6 +205,32 @@ impl Buffer {
         self.mark = Some(offset.min(self.text.len()));
     }
 
+    /// Sets the mark at point, the one before onto the mark ring, like Emacs `push-mark`:
+    /// commands that move far call it, so that `pop_mark` comes back.
+    pub fn push_mark(&mut self) {
+        if let Some(mark) = self.mark.filter(|&mark| mark != self.point) {
+            if self.mark_ring.len() == MARK_RING_MAX {
+                self.mark_ring.remove(0);
+            }
+            self.mark_ring.push(mark);
+        }
+        self.mark = Some(self.point);
+    }
+
+    /// Moves point to the mark and the mark to the latest of the mark ring, the mark that
+    /// was there going to its oldest end, like Emacs `pop-to-mark-command`; `false` when
+    /// there is no mark.
+    pub fn pop_mark(&mut self) -> bool {
+        let Some(mark) = self.mark else {
+            return false;
+        };
+        self.set_point(mark);
+        self.mark_ring.insert(0, mark);
+        self.mark = self.mark_ring.pop();
+        self.mark_active = false;
+        true
+    }
+
     pub fn is_mark_active(&self) -> bool {
         self.mark_active && self.mark.is_some()
     }
@@ -224,7 +257,7 @@ impl Buffer {
     pub fn insert(&mut self, text: &str) {
         let point = self.point;
         self.text.insert(point, text);
-        self.mark = self.mark.map(|mark| {
+        self.shift_marks(|mark| {
             if mark > point {
                 mark + text.len()
             } else {
@@ -249,7 +282,8 @@ impl Buffer {
     pub fn truncate_output(&mut self, len: usize) {
         self.text.truncate_output(len);
         self.point = self.point.min(self.text.len());
-        self.mark = self.mark.map(|mark| mark.min(self.text.len()));
+        let len = self.text.len();
+        self.shift_marks(|mark| mark.min(len));
     }
 
     pub fn delete(&mut self, range: Range<usize>) {
@@ -261,7 +295,7 @@ impl Buffer {
             }
         };
         let point = shift(self.point);
-        self.mark = self.mark.map(shift);
+        self.shift_marks(shift);
         self.mark_active = false;
         self.text.delete(range);
         self.set_point(point);
@@ -309,15 +343,28 @@ impl Buffer {
     /// Undo replaces the whole text, so the mark may no longer fall on a character.
     fn restore_point(&mut self, offset: Option<usize>) -> bool {
         self.mark_active = false;
-        self.mark = self.mark.map(|mark| {
-            let mark = mark.min(self.text.len());
-            if self.text.is_char_boundary(mark) {
+        let text = &self.text;
+        let on_character = |mark: usize| {
+            let mark = mark.min(text.len());
+            if text.is_char_boundary(mark) {
                 mark
             } else {
-                self.text.previous_char_boundary(mark)
+                text.previous_char_boundary(mark)
             }
-        });
+        };
+        self.mark = self.mark.map(on_character);
+        for mark in &mut self.mark_ring {
+            *mark = on_character(*mark);
+        }
         offset.inspect(|&offset| self.set_point(offset)).is_some()
+    }
+
+    /// Moves the mark and the mark ring with an edit, like Emacs markers.
+    fn shift_marks(&mut self, shift: impl Fn(usize) -> usize) {
+        self.mark = self.mark.map(&shift);
+        for mark in &mut self.mark_ring {
+            *mark = shift(*mark);
+        }
     }
 }
 
