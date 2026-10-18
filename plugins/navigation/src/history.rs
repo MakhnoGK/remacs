@@ -22,6 +22,8 @@ struct Place {
     // length after edits before it, fine for going back to roughly where point was.
     offset: usize,
     line: usize,
+    /// The buffer's length then: output a program printed since changed it.
+    text_len: usize,
 }
 
 impl Place {
@@ -31,6 +33,7 @@ impl Place {
             path: buffer.path().map(PathBuf::from),
             offset: buffer.point(),
             line: buffer.point_line(),
+            text_len: buffer.text().len(),
         }
     }
 
@@ -50,8 +53,6 @@ struct History {
 }
 
 /// Records the place point jumped from, if it jumped; run after every command and refresh.
-/// Without a command since, only a move to another buffer is one, as when a definition
-/// asked for arrives: within one, point follows output, as in a program's console.
 pub(crate) fn update(editor: &mut Editor) {
     if editor.minibuffer().is_some() {
         return;
@@ -62,15 +63,20 @@ pub(crate) fn update(editor: &mut Editor) {
 }
 
 /// Takes where point is as the last place seen, keeping the one before to come back to
-/// when point jumped from it: across buffers, or, `within_buffer`, across lines. Moves
-/// that scrolled the window are not jumps.
-pub(crate) fn record(editor: &mut Editor, within_buffer: bool) {
+/// when point jumped from it: to another buffer, or across lines of one unless scrolling
+/// moved it, or, with no command since (`by_command` false), output it follows, as in a
+/// program's console. A click or an avy label moves it with the text unchanged.
+fn record(editor: &mut Editor, by_command: bool) {
     let buffer = editor.window_buffer();
+    let text_len = buffer.text().len();
     let unmoved = editor
         .find_plugin_state::<History>()
         .and_then(|history| history.last.as_ref())
         .is_some_and(|last| last.is_at(buffer));
     if unmoved {
+        if let Some(last) = &mut editor.plugin_state::<History>().last {
+            last.text_len = text_len;
+        }
         return;
     }
     let here = Place::of(buffer);
@@ -82,11 +88,13 @@ pub(crate) fn record(editor: &mut Editor, within_buffer: bool) {
         return;
     };
     let jumped = if last.buffer == here.buffer {
-        within_buffer && last.line.abs_diff(here.line) >= jump_lines
+        !scrolled
+            && (by_command || last.text_len == here.text_len)
+            && last.line.abs_diff(here.line) >= jump_lines
     } else {
         true
     };
-    if jumped && !scrolled {
+    if jumped {
         history.forward.clear();
         if history.back.len() == history_size {
             history.back.remove(0);

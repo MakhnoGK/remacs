@@ -15,10 +15,12 @@ The navigation half of issue #71: Emacs motion commands remacs lacked.
   `push-mark`'s global ring. A jump is seen after each command with no prompt open: a
   move to another buffer, or across `jump-lines` (10) lines. A search or a symbol list
   counts once, from where it started to where it ended, whatever its preview showed.
-  Scrolling, by a command or the mouse (`Editor::scrolled`), is not a jump; between
-  commands only a move to another buffer is, as point follows a console's output. Moves
-  past the keymaps (avy's labels, a click) are seen before going back. No jumping command
-  has to report itself. Places are plain
+  Within a buffer, scrolling, by a command or the mouse (`Editor::scrolled`), is not a
+  jump, nor, between commands, a move with the text changed, as point follows a console's
+  output; a click or an avy label leaves the text as it was, so it is one. Going back
+  first sees a move not yet seen. No jumping command has to report itself. avy searches
+  only the columns on screen, so a line of megabytes costs no more than a short one.
+  Places are plain
   offsets with the buffer's file, so a killed file opens again; edits before a place
   leave it off by their length.
 - **`goto-last-change` reads the undo history** (`Text::change_offsets`): each group's

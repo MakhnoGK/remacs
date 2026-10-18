@@ -1256,13 +1256,15 @@ impl EditorView {
                     .h(height),
             );
         }
-        // Over the characters they stand on, as avy draws them.
+        // Over the characters they stand on, as avy draws them; found from the bytes drawn,
+        // as the faces are, not counted from the start of a line that may be megabytes.
         let label_elements: Vec<_> = labels
             .into_iter()
+            .filter(|label| visible.contains(&label.offset))
             .map(|label| {
-                let column = buffer.text().char_column(label.offset);
-                let cell = display_line.cursor_cell(column);
-                let column = display_line.text[..cell.start].chars().count();
+                let at = label.offset - visible.start;
+                let shown = display_line.display_range(at..at + 1).start;
+                let column = display_line.text[..shown].chars().count();
                 div()
                     .absolute()
                     .top_0()

@@ -78,6 +78,26 @@ fn a_click_or_an_answer_in_another_buffer_is_a_jump_back_returns_from() {
 }
 
 #[test]
+fn a_click_is_a_jump_though_background_work_refreshes_before_going_back() {
+    let mut editor = editor_with(&lines(100));
+    press(&mut editor, "C-f");
+    editor.set_point_at(60, 0);
+    editor.refresh();
+    press(&mut editor, "s-[");
+    assert_eq!(place(&editor), ("test".into(), 0));
+}
+
+#[test]
+fn going_to_another_buffer_after_scrolling_is_a_jump() {
+    let mut editor = editor_with(&lines(100));
+    press(&mut editor, "C-f");
+    editor.scroll(40);
+    editor.add_buffer(Buffer::new("other", Text::from("x"), "Fundamental"));
+    press(&mut editor, "C-f s-[");
+    assert_eq!(editor.window_buffer().name(), "test");
+}
+
+#[test]
 fn back_returns_to_where_avy_jumped_from() {
     let mut editor = editor_with(&lines(30));
     editor.viewport.set_height(40);
@@ -92,6 +112,7 @@ fn back_returns_to_where_avy_jumped_from() {
         press(&mut editor, &key.to_string());
     }
     assert_eq!(editor.buffer().point_line(), 25);
+    editor.refresh();
     press(&mut editor, "s-[");
     assert_eq!(editor.buffer().point_line(), 0);
 }
@@ -105,6 +126,22 @@ fn another_command_puts_avy_labels_away() {
     assert!(labels(&editor).is_empty());
     press(&mut editor, "a");
     assert_eq!(editor.buffer().contents(0..5), "x x\na");
+}
+
+#[test]
+fn only_the_columns_on_screen_of_a_long_line_are_searched() {
+    let line = "x".repeat(100_000);
+    let mut editor = editor_with(&format!("{line}\n"));
+    editor.viewport.width = 20;
+    editor.viewport.first_column = 50_000;
+    press(&mut editor, "M-j x RET");
+    let found = labels(&editor);
+    assert_eq!(found.len(), 20);
+    assert!(
+        found
+            .iter()
+            .all(|(offset, _)| (50_000..50_020).contains(offset))
+    );
 }
 
 #[test]

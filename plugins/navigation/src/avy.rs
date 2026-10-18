@@ -167,9 +167,9 @@ fn finish_reading(editor: &mut Editor, words: bool, typed: &str) {
         return editor.set_message("Quit");
     }
     let buffer = editor.window_buffer();
-    let places = shown_bytes(editor)
-        .map(|range| matches(buffer, range, typed, words))
-        .unwrap_or_default();
+    let places: Vec<usize> = shown_parts(editor)
+        .flat_map(|range| matches(buffer, range, typed, words))
+        .collect();
     if places.is_empty() {
         return editor.set_error(format!("No {typed} on screen"));
     }
@@ -258,8 +258,6 @@ fn jump(editor: &mut Editor, offset: usize) {
         buffer.push_mark();
     }
     buffer.set_point(offset);
-    // Labels are read past the keymaps, so no command's hooks see the jump.
-    crate::history::record(editor, true);
 }
 
 /// The window buffer's lines on screen.
@@ -269,16 +267,24 @@ fn shown_lines(editor: &Editor) -> Range<usize> {
     viewport.first_line.min(line_count)..(viewport.last_line() + 1).min(line_count)
 }
 
-fn shown_bytes(editor: &Editor) -> Option<Range<usize>> {
+/// The bytes of each line on screen across the window's columns, so that a line of
+/// megabytes is searched only where it shows.
+fn shown_parts(editor: &Editor) -> impl Iterator<Item = Range<usize>> + '_ {
     let text = editor.window_buffer().text();
-    let lines = shown_lines(editor);
-    let start = text.line_start(lines.start)?;
-    let end = lines
-        .end
-        .checked_sub(1)
-        .and_then(|last| text.line_range(last))
-        .map_or(text.len(), |range| range.end);
-    Some(start..end)
+    let viewport = editor.viewport;
+    // shortcut: character columns stand for display columns, which tabs and wide
+    // characters make larger; scrolled sideways, such a line is searched a little off.
+    // 0 until the window is first laid out.
+    let width = if viewport.width == 0 {
+        usize::MAX
+    } else {
+        viewport.width
+    };
+    let columns = viewport.first_column..viewport.first_column.saturating_add(width);
+    shown_lines(editor).map(move |line| {
+        text.offset_at_char_column(line, columns.start)
+            ..text.offset_at_char_column(line, columns.end)
+    })
 }
 
 /// What is left to type of each label on `lines`.
