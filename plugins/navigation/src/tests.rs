@@ -98,6 +98,65 @@ fn going_to_another_buffer_after_scrolling_is_a_jump() {
 }
 
 #[test]
+fn a_jump_right_after_scrolling_comes_back_to_where_scrolling_left_point() {
+    let mut editor = editor_with(&lines(100));
+    press(&mut editor, "C-f");
+    editor.scroll(40);
+    let read_to = editor.buffer().point_line();
+    assert!(read_to >= 40);
+    press(&mut editor, "M-< s-[");
+    assert_eq!(editor.buffer().point_line(), read_to);
+}
+
+#[test]
+fn scrolling_a_buffer_an_answer_showed_leaves_the_place_before_it_as_it_was() {
+    let mut editor = editor_with(&lines(100));
+    press(&mut editor, "C-n C-n");
+    // As a definition in another file arrives after the history's hook of a refresh.
+    editor.add_buffer(Buffer::new(
+        "other",
+        Text::from(lines(100).as_str()),
+        "Fundamental",
+    ));
+    editor.scroll(40);
+    press(&mut editor, "C-f s-[");
+    assert_eq!(place(&editor), ("test".into(), 2));
+}
+
+#[test]
+fn places_in_files_deleted_since_are_skipped_and_killed_files_open_again() {
+    let dir = std::env::temp_dir().join(format!("remacs-navigation-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let dir = dir.canonicalize().unwrap();
+    let [kept, deleted] = ["kept.txt", "deleted.txt"].map(|name| dir.join(name));
+    for path in [&kept, &deleted] {
+        std::fs::write(path, lines(30)).unwrap();
+    }
+    let mut editor = editor_with("x");
+    editor.visit_file(&kept).unwrap();
+    press(&mut editor, "C-f");
+    editor.visit_file(&deleted).unwrap();
+    press(&mut editor, "C-f");
+    editor.add_buffer(Buffer::new("other", Text::from("x"), "Fundamental"));
+    press(&mut editor, "C-f");
+    let kept_name = editor.buffers()[2].name().to_owned();
+    editor.kill_buffer(&kept_name);
+    std::fs::remove_file(&deleted).unwrap();
+    let deleted_name = editor.buffers()[1].name().to_owned();
+    editor.kill_buffer(&deleted_name);
+
+    press(&mut editor, "s-[");
+    assert_eq!(editor.window_buffer().path(), Some(kept.as_path()));
+    assert!(
+        editor
+            .buffers()
+            .iter()
+            .all(|buffer| buffer.path() != Some(deleted.as_path()))
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn back_returns_to_where_avy_jumped_from() {
     let mut editor = editor_with(&lines(30));
     editor.viewport.set_height(40);

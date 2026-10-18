@@ -89,8 +89,8 @@ pub struct Editor {
     selected_pane: Option<&'static str>,
     /// The shown pane has the keys, not the window buffer.
     pane_focused: bool,
-    /// The window scrolled since the post-command hooks last ran.
-    scrolled: bool,
+    /// See [`Editor::scrolled_to`].
+    scrolled_to: Option<(String, usize)>,
 }
 
 impl Editor {
@@ -134,7 +134,7 @@ impl Editor {
             moved_files: Vec::new(),
             selected_pane: None,
             pane_focused: false,
-            scrolled: false,
+            scrolled_to: None,
         }
     }
 
@@ -641,19 +641,25 @@ impl Editor {
     pub fn scroll(&mut self, lines: isize) {
         let line_count = self.window_buffer().text().line_count();
         if self.viewport.scroll_by(lines, line_count) {
-            self.scrolled = true;
             let point_line = self.window_buffer().point_line();
             let visible_line = self.viewport.clamp(point_line, line_count);
             if visible_line != point_line {
                 self.window_buffer_mut().move_to_line(visible_line);
             }
+            let buffer = &self.buffers[0];
+            match &mut self.scrolled_to {
+                Some((name, offset)) if name == buffer.name() => *offset = buffer.point(),
+                scrolled_to => *scrolled_to = Some((buffer.name().to_owned(), buffer.point())),
+            }
         }
     }
 
-    /// Whether the window scrolled, by a command or the mouse, since the post-command hooks
-    /// last ran: point it moved was moved by reading on, not by going somewhere.
-    pub fn scrolled(&self) -> bool {
-        self.scrolled
+    /// The buffer the window's last scroll, by a command or the mouse, was in since the
+    /// post-command hooks last ran, and where it left point: point moved there by reading
+    /// on, not by going somewhere.
+    pub fn scrolled_to(&self) -> Option<(&str, usize)> {
+        let (name, offset) = self.scrolled_to.as_ref()?;
+        Some((name, *offset))
     }
 
     pub fn set_point_at(&mut self, line: usize, column: usize) {
@@ -1188,7 +1194,7 @@ impl Editor {
         for hook in self.registry.post_command_hooks.clone() {
             hook(self);
         }
-        self.scrolled = false;
+        self.scrolled_to = None;
         // A pane shown later must not find the keys already given to it.
         if self.shown_pane().is_none() {
             self.pane_focused = false;

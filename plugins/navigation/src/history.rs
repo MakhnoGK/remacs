@@ -63,12 +63,20 @@ pub(crate) fn update(editor: &mut Editor) {
 }
 
 /// Takes where point is as the last place seen, keeping the one before to come back to
-/// when point jumped from it: to another buffer, or across lines of one unless scrolling
-/// moved it, or, with no command since (`by_command` false), output it follows, as in a
-/// program's console. A click or an avy label moves it with the text unchanged.
+/// when point jumped from it: to another buffer, or across lines of one, but not as output
+/// it follows does with no command since (`by_command` false), as in a program's console.
+/// A click or an avy label moves it with the text unchanged. Where scrolling left point
+/// stands for the last place, so reading on is no jump but going on from there is.
 fn record(editor: &mut Editor, by_command: bool) {
     let buffer = editor.window_buffer();
     let text_len = buffer.text().len();
+    // Where scrolling left point in the last place's buffer, with its line if that is the
+    // window's: an answer may have shown another since, outside a command.
+    let scrolled_to = editor.scrolled_to().and_then(|(name, offset)| {
+        let last = editor.find_plugin_state::<History>()?.last.as_ref()?;
+        let line = (name == buffer.name()).then(|| buffer.text().line_of(offset));
+        (name == last.buffer).then_some((offset, line))
+    });
     let unmoved = editor
         .find_plugin_state::<History>()
         .and_then(|history| history.last.as_ref())
@@ -80,16 +88,20 @@ fn record(editor: &mut Editor, by_command: bool) {
         return;
     }
     let here = Place::of(buffer);
-    let scrolled = editor.scrolled();
     let settings = editor.plugin_state::<NavigationSettings>();
     let (jump_lines, history_size) = (settings.jump_lines, settings.history_size);
     let history = editor.plugin_state::<History>();
-    let Some(last) = history.last.replace(here.clone()) else {
+    let Some(mut last) = history.last.replace(here.clone()) else {
         return;
     };
+    if let Some((offset, line)) = scrolled_to {
+        last.offset = offset;
+        if let Some(line) = line {
+            last.line = line;
+        }
+    }
     let jumped = if last.buffer == here.buffer {
-        !scrolled
-            && (by_command || last.text_len == here.text_len)
+        (by_command || last.text_len == here.text_len)
             && last.line.abs_diff(here.line) >= jump_lines
     } else {
         true
@@ -146,7 +158,14 @@ fn navigate(
 
 fn show(editor: &mut Editor, place: &Place) -> bool {
     let shown = match &place.path {
-        Some(path) => editor.visit_file(path).is_ok(),
+        // A file deleted or renamed since would open as a new, empty one.
+        Some(path) => {
+            let open = editor
+                .buffers()
+                .iter()
+                .any(|buffer| buffer.path() == Some(path));
+            (open || path.exists()) && editor.visit_file(path).is_ok()
+        }
         None => editor.switch_to_buffer(&place.buffer),
     };
     if !shown {

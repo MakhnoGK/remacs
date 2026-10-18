@@ -1260,7 +1260,8 @@ impl EditorView {
         // as the faces are, not counted from the start of a line that may be megabytes.
         let label_elements: Vec<_> = labels
             .into_iter()
-            .filter(|label| visible.contains(&label.offset))
+            // At the end too: a blank line's label is on its newline.
+            .filter(|label| visible.start <= label.offset && label.offset <= visible.end)
             .map(|label| {
                 let at = label.offset - visible.start;
                 let shown = display_line.display_range(at..at + 1).start;
