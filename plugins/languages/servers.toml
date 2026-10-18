@@ -9,6 +9,9 @@
 #               (`@scope/*` a whole scope), or text a file `contains`
 # group         alternatives for the same languages: the first found serves, and a project
 #               lacking all of them is offered a choice
+# env           added to the server's environment, for projects where `env-when` holds
+#               (as `when`; without it, for every project)
+# formats-first formats its files ahead of the language's own server
 # node-modules  the project's own copy in node_modules/.bin comes first
 # install       where it is downloaded from when a project wants it and it is nowhere:
 #               `from = "github"` with `package` (owner/name), `asset`, `tag-prefix`; or
@@ -327,8 +330,27 @@ args = ["--lsp"]
 languages = { TypeScript = "typescript", TSX = "typescriptreact", JavaScript = "javascript", JSX = "javascriptreact" }
 root-markers = ["package.json", ".oxlintrc.json"]
 node-modules = true
-when = { files = [".oxlintrc.json", ".oxlintrc.jsonc"], dependencies = ["oxlint"] }
+when = { files = [".oxlintrc.json", ".oxlintrc.jsonc"], dependencies = ["oxlint", "vite-plus"] }
+# Without it, oxlint ignores the `lint` block of Vite+'s vite.config.ts; with it, it fails
+# on a plain Vite one.
+env = { VP_VERSION = "1" }
+env-when = { dependencies = ["vite-plus"] }
 install = { from = "github", package = "oxc-project/oxc", tag-prefix = "oxlint_v", asset = "oxlint-{target}.tar.gz", program = "oxlint-{target}" }
+
+# Formats whole files, ahead of tsc, for projects that use it; Vite+'s `fmt` as oxlint's
+# `lint` above.
+[[servers]]
+name = "oxfmt"
+command = "oxfmt"
+args = ["--lsp"]
+languages = { TypeScript = "typescript", TSX = "typescriptreact", JavaScript = "javascript", JSX = "javascriptreact", JSON = "json", CSS = "css", YAML = "yaml" }
+root-markers = ["package.json", ".oxfmtrc.json"]
+node-modules = true
+formats-first = true
+when = { files = [".oxfmtrc.json", ".oxfmtrc.jsonc"], dependencies = ["oxfmt", "vite-plus"] }
+env = { VP_VERSION = "1" }
+env-when = { dependencies = ["vite-plus"] }
+install = { from = "github", package = "oxc-project/oxc", tag-prefix = "oxfmt_v", asset = "oxfmt-{target}.tar.gz", program = "oxfmt-{target}" }
 
 # Loads the project's own eslint, else the global one; only for projects with a config.
 [[servers]]
@@ -365,6 +387,7 @@ args = ["lsp-proxy"]
 languages = { TypeScript = "typescript", TSX = "typescriptreact", JavaScript = "javascript", JSX = "javascriptreact", JSON = "json", CSS = "css" }
 root-markers = ["biome.json", "biome.jsonc"]
 node-modules = true
+formats-first = true
 when = { files = ["biome.json", "biome.jsonc"], dependencies = ["@biomejs/biome"] }
 install = { from = "github", package = "biomejs/biome", tag-prefix = "@biomejs/biome@", asset = "biome-darwin-{arch}" }
 

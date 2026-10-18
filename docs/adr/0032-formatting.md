@@ -28,7 +28,7 @@ Status: accepted, 2026-10-04 (lint and format, step 4)
   1000-line file about 160 ms, prettier's own time. Texts are copied and diffed off the
   UI thread.
 - **Language servers format the rest** (`textDocument/formatting`, `rangeFormatting`),
-  the buffer's first server: rust-analyzer (rustfmt and `rustfmt.toml`), clangd
+  the buffer's first server, unless one formats ahead of it (oxfmt, biome; ADR 0069): rust-analyzer (rustfmt and `rustfmt.toml`), clangd
   (`.clang-format`), tsc, and the CSS and HTML servers (`provideFormatter`). Options are
   4 spaces and a final newline; the formatters' own configuration decides the rest. A
   server that cannot format a region says so.

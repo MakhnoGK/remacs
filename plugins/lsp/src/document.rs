@@ -378,7 +378,7 @@ impl Document {
 
     /// Asks for the actions for `range`. The problems are passed back only while the
     /// server has the text they were reported for, since it matches them by position.
-    fn ask_actions(&self, id: u64, range: Range<usize>) {
+    fn ask_actions(&self, id: u64, range: Range<usize>, kind: Option<&'static str>) {
         let text = self.sent_text();
         let diagnostics = self
             .reported
@@ -392,6 +392,7 @@ impl Document {
             text,
             range,
             diagnostics,
+            kind,
         });
     }
 
@@ -633,7 +634,11 @@ impl Clients {
         if let Some(client) = self.running.get(&(server.name, root.clone())) {
             return Ok(Some(Rc::clone(client)));
         }
-        let Some(Program { path: program, env }) = program(server, &root, downloaded) else {
+        let Some(Program {
+            path: program,
+            mut env,
+        }) = program(server, &root, downloaded)
+        else {
             let (_, missing) = self
                 .missing
                 .entry(server.name)
@@ -641,6 +646,13 @@ impl Clients {
             missing.insert(directory.to_path_buf());
             return Err(NotStarted::Missing);
         };
+        if server.env_when.holds(&root) {
+            let own = server
+                .env
+                .iter()
+                .map(|&(name, value)| (name.into(), value.into()));
+            env.extend(own);
+        }
         match Client::start(server, &program, &env, &root, notifier) {
             Ok(client) => {
                 let client = Rc::new(client);
@@ -806,6 +818,19 @@ pub(crate) fn window_servers(editor: &Editor) -> Vec<&'static str> {
 /// The server that answers questions about `path`'s buffer, the file's URI and the text
 /// the server has.
 pub(crate) fn first_server(editor: &Editor, path: &Path) -> Option<(Rc<Client>, Uri, Snapshot)> {
+    server_for(editor, path, false)
+}
+
+/// `first_server`, unless one of the file's servers formats ahead of it.
+fn formatter(editor: &Editor, path: &Path) -> Option<(Rc<Client>, Uri, Snapshot)> {
+    server_for(editor, path, true)
+}
+
+fn server_for(
+    editor: &Editor,
+    path: &Path,
+    formatting: bool,
+) -> Option<(Rc<Client>, Uri, Snapshot)> {
     let file = remacs_core::embedded_file(path);
     let list = &editor
         .buffers()
@@ -814,9 +839,14 @@ pub(crate) fn first_server(editor: &Editor, path: &Path) -> Option<(Rc<Client>, 
         .local::<Documents>()?
         .list;
     // Without a server of its own, embedded code is the file's server's, at the same offsets.
+    // Embedded code is formatted by regions, which formatters ahead of the server may lack.
     let document = (list.iter())
         .find(|document| file.is_some() && document.path == path)
-        .or_else(|| list.iter().find(|document| document.mirror.is_none()))?;
+        .or_else(|| {
+            let whole = || list.iter().filter(|document| document.mirror.is_none());
+            (whole().find(|document| formatting && document.server.formats_first))
+                .or_else(|| whole().next())
+        })?;
     Some((
         Rc::clone(&document.client),
         document.uri.clone(),
@@ -1072,14 +1102,14 @@ fn send_requests(editor: &mut Editor) {
     let mut chosen = Vec::new();
     for request in actions {
         match request {
-            ActionRequest::List { id, range } => {
+            ActionRequest::List { id, range, kind } => {
                 let asked = asked(range.start);
                 if !asked.contains(&true) {
                     no_actions.push(id);
                     continue;
                 }
                 for document in each(&asked) {
-                    document.ask_actions(id, range.clone());
+                    document.ask_actions(id, range.clone(), kind);
                 }
                 listed = Some((id, asked));
             }
@@ -1137,7 +1167,7 @@ fn send_formats(editor: &mut Editor) {
     // The last backend: what the others left is the language server's to format.
     requests.extend(remacs_format::take_requests(editor, |_| true));
     for (index, request) in requests.into_iter().enumerate() {
-        let Some((client, uri, text)) = first_server(editor, &request.path) else {
+        let Some((client, uri, text)) = formatter(editor, &request.path) else {
             let missing = Failure::Unsupported("No formatter for this buffer".into());
             remacs_format::deliver(editor, request.id, Err(missing));
             continue;

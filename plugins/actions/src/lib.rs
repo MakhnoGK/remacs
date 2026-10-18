@@ -22,12 +22,15 @@ const COMMANDS: &[Command] = &[
     Command::new(menu::PREVIOUS, "Select the previous code action", menu::previous),
     Command::new(menu::APPLY, "Apply the selected code action", menu::apply_selected),
     Command::new(menu::QUIT, "Close the code actions popup", menu::quit),
+    Command::new(menu::FIX_ALL, "Apply the fixes the servers offer for the whole buffer", menu::fix_all),
 ];
 
 const BINDINGS: &[(&str, &str)] = &[("C-c C-a", menu::CODE_ACTIONS)];
 
-const MENU_ITEM: MenuItem =
-    MenuItem::new("Edit", "code", "Code Actions…", menu::CODE_ACTIONS).enabled_when(visiting_file);
+const MENU_ITEMS: [MenuItem; 2] = [
+    MenuItem::new("Edit", "code", "Code Actions…", menu::CODE_ACTIONS).enabled_when(visiting_file),
+    MenuItem::new("Edit", "code", "Fix All", menu::FIX_ALL).enabled_when(visiting_file),
+];
 
 /// Active while the popup is shown; any other command closes it.
 const POPUP_BINDINGS: &[(&str, &str)] = &[
@@ -48,7 +51,7 @@ impl Plugin for ActionsPlugin {
         for &(keys, command) in BINDINGS {
             registry.keymap.bind(keys, command);
         }
-        registry.menu_items.push(MENU_ITEM);
+        registry.menu_items.extend(MENU_ITEMS);
         let mut keymap = Keymap::default();
         for &(keys, command) in POPUP_BINDINGS {
             keymap.bind(keys, command);

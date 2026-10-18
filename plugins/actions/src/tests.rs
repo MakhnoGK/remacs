@@ -64,7 +64,11 @@ fn the_chosen_action_edits_the_buffer_and_other_files() {
     press(&mut editor, "C-c C-a");
     assert_eq!(
         take_requests(&mut editor),
-        [Request::List { id: 1, range: x..x }]
+        [Request::List {
+            id: 1,
+            range: x..x,
+            kind: None
+        }]
     );
     deliver(
         &mut editor,
@@ -153,4 +157,39 @@ fn the_popup_closes_on_quit_and_without_actions() {
     press(&mut editor, "C-g");
     assert!(editor.popups().is_empty());
     assert_eq!(take_requests(&mut editor).len(), 2);
+}
+
+#[test]
+fn fix_all_carries_out_the_only_fix_and_offers_several() {
+    let (mut editor, _, _) = editor("fix-all");
+    editor.run_command("fix-all");
+    assert_eq!(
+        take_requests(&mut editor),
+        [Request::List {
+            id: 1,
+            range: 0..MAIN.len(),
+            kind: Some("source.fixAll")
+        }]
+    );
+    deliver(
+        &mut editor,
+        1,
+        vec![action("Fix all oxlint", "fix all", false)],
+    );
+    assert!(editor.popups().is_empty());
+    assert_eq!(
+        take_requests(&mut editor),
+        [Request::Apply { id: 1, index: 0 }]
+    );
+
+    editor.run_command("fix-all");
+    deliver(&mut editor, 2, Vec::new());
+    assert_eq!(editor.echo().as_deref(), Some("Nothing to fix"));
+    editor.run_command("fix-all");
+    let fixes = vec![
+        action("Fix all oxlint", "", false),
+        action("Fix all ts", "", false),
+    ];
+    deliver(&mut editor, 3, fixes);
+    assert_eq!(rows(&editor).len(), 2);
 }

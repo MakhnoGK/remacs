@@ -472,7 +472,10 @@ fn oxlint_checks_beside_typescript_with_the_projects_own_copy() {
     let root = project(
         "oxlint",
         &[
-            ("package.json", "{}\n"),
+            (
+                "package.json",
+                "{ \"devDependencies\": { \"oxlint\": \"1\" } }\n",
+            ),
             ("index.ts", LINTED),
             (
                 "node_modules/.bin/oxlint",
@@ -492,6 +495,54 @@ fn oxlint_checks_beside_typescript_with_the_projects_own_copy() {
     assert!(root.join("node_modules/.bin/started").exists());
     let text = apply_action(&root.join("index.ts"), "debugger", "Remove the debugger");
     assert_eq!(text, "const count: number = \"a\";\n\n");
+}
+
+#[test]
+#[ignore]
+fn vite_plus_projects_lint_and_format_with_vite_config() {
+    // Needs the oxlint and oxfmt of an installed vite-plus first on PATH: copies of their
+    // own cannot load a vite.config.ts.
+    let root = project(
+        "vite-plus",
+        &[
+            (
+                "package.json",
+                "{ \"devDependencies\": { \"vite-plus\": \"1\" } }\n",
+            ),
+            (
+                "vite.config.ts",
+                "export default {\n  lint: { rules: { eqeqeq: 'error', 'no-useless-rename': 'error' } },\n  fmt: { semi: false, singleQuote: true },\n}\n",
+            ),
+            ("index.ts", "if (1 == 2) {}\nconst a={b:\"c\"};\n"),
+        ],
+    );
+    let mut editor = Editor::new(PLUGINS);
+    editor.visit_file(&root.join("index.ts")).unwrap();
+    let problems = wait_until(&mut editor, |problems| {
+        problems.iter().any(|(_, label)| label.contains("==="))
+    });
+    eprintln!("{problems:?}");
+    assert_eq!(
+        format(&root.join("index.ts")),
+        "if (1 == 2) {\n}\nconst a = { b: 'c' }\n"
+    );
+
+    let fixed = "const { c } = { c: 1 };\nexport { c };\n";
+    fs::write(
+        root.join("fix.ts"),
+        "const { c: c } = { c: 1 };\nexport { c };\n",
+    )
+    .unwrap();
+    let mut editor = Editor::new(PLUGINS);
+    editor.visit_file(&root.join("fix.ts")).unwrap();
+    wait_until(&mut editor, |problems| {
+        problems.iter().any(|(_, label)| label.contains("renam"))
+    });
+    editor.run_command("fix-all");
+    refresh_until(&mut editor, "the fixes", |editor| {
+        let buffer = editor.window_buffer();
+        buffer.contents(0..buffer.text().len()) == fixed
+    });
 }
 
 #[test]

@@ -25,6 +25,19 @@ pub(crate) fn menu(actions: &[CodeActionOrCommand]) -> Vec<Action> {
         .collect()
 }
 
+/// Whether `action` is of `kind` or one of its subkinds, as `source.fixAll.oxc` is of
+/// `source.fixAll`.
+pub(crate) fn is_of_kind(action: &CodeActionOrCommand, kind: &str) -> bool {
+    let CodeActionOrCommand::CodeAction(action) = action else {
+        return false;
+    };
+    action.kind.as_ref().is_some_and(|own| {
+        let own = own.as_str();
+        own.strip_prefix(kind)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
+    })
+}
+
 /// `quickfix` → `quick fix`, `refactor.extract` → `extract`.
 fn kind_label(kind: &CodeActionKind) -> String {
     let kind = kind.as_str();

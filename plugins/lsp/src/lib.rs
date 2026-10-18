@@ -67,6 +67,13 @@ pub struct LanguageServer {
     /// The server runs only for projects where this holds, e.g. a linter's config is
     /// there; empty, for every file.
     pub when: When,
+    /// Added to the server's environment for projects where `env_when` holds, e.g.
+    /// `VP_VERSION`, without which oxlint and oxfmt ignore Vite+'s `vite.config.ts`.
+    pub env: &'static [(&'static str, &'static str)],
+    pub env_when: When,
+    /// Formats its languages' files ahead of the language's own server, like oxfmt
+    /// rather than tsc.
+    pub formats_first: bool,
     /// Servers of one group are alternatives for the same languages, e.g. Python's:
     /// the first found serves, and a project lacking all of them is offered a choice.
     pub group: Option<&'static str>,

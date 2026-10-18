@@ -12,14 +12,21 @@ pub(crate) const NEXT: &str = "code-actions-next";
 pub(crate) const PREVIOUS: &str = "code-actions-previous";
 pub(crate) const APPLY: &str = "code-actions-apply";
 pub(crate) const QUIT: &str = "code-actions-quit";
+pub(crate) const FIX_ALL: &str = "fix-all";
 /// Any other command closes the popup and drops answers still to come.
-const OWN_COMMANDS: &[&str] = &[CODE_ACTIONS, NEXT, PREVIOUS, APPLY, QUIT];
+const OWN_COMMANDS: &[&str] = &[CODE_ACTIONS, NEXT, PREVIOUS, APPLY, QUIT, FIX_ALL];
+const FIX_ALL_KIND: &str = "source.fixAll";
 
 /// What the plugin asks of the window buffer's backend.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Request {
-    /// The actions for `range`: the active region, else point.
-    List { id: u64, range: Range<usize> },
+    /// The actions for `range`: the active region, else point; with `kind`, only those
+    /// of that kind or its subkinds, like `source.fixAll.eslint` of `source.fixAll`.
+    List {
+        id: u64,
+        range: Range<usize>,
+        kind: Option<&'static str>,
+    },
     /// Carry out action `index` of list `id`, in the order delivered.
     Apply { id: u64, index: usize },
 }
@@ -36,6 +43,8 @@ pub struct Action {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Awaited {
     List(u64),
+    /// A list whose only action is carried out at once.
+    FixAll(u64),
     Apply(u64),
 }
 
@@ -84,13 +93,31 @@ pub(crate) fn code_actions(editor: &mut Editor) -> CommandResult {
     let buffer = editor.window_buffer();
     let point = buffer.point();
     let range = buffer.region().unwrap_or(point..point);
+    ask(editor, range, None);
+    Ok(())
+}
+
+/// Asks for the buffer's fix-all actions, such as oxlint's or eslint's, and carries out
+/// the only one, or offers them to choose from.
+pub(crate) fn fix_all(editor: &mut Editor) -> CommandResult {
+    if editor.minibuffer().is_some() {
+        return Err("Fixing works in buffers only".into());
+    }
+    let range = 0..editor.window_buffer().text().len();
+    ask(editor, range, Some(FIX_ALL_KIND));
+    Ok(())
+}
+
+fn ask(editor: &mut Editor, range: Range<usize>, kind: Option<&'static str>) {
     let state = state(editor);
     state.next_id += 1;
     let id = state.next_id;
     state.menu = None;
-    state.awaited = Some(Awaited::List(id));
-    state.requests.push(Request::List { id, range });
-    Ok(())
+    state.awaited = Some(match kind {
+        Some(_) => Awaited::FixAll(id),
+        None => Awaited::List(id),
+    });
+    state.requests.push(Request::List { id, range, kind });
 }
 
 pub fn take_requests(editor: &mut Editor) -> Vec<Request> {
@@ -102,12 +129,24 @@ pub fn take_requests(editor: &mut Editor) -> Vec<Request> {
 pub fn deliver(editor: &mut Editor, id: u64, actions: Vec<Action>) {
     let point = editor.window_buffer().point();
     let state = state(editor);
-    if state.awaited != Some(Awaited::List(id)) {
-        return;
-    }
+    let fixing = match state.awaited {
+        Some(Awaited::List(awaited)) if awaited == id => false,
+        Some(Awaited::FixAll(awaited)) if awaited == id => true,
+        _ => return,
+    };
     state.awaited = None;
     if actions.is_empty() {
-        return editor.set_message("No code actions at point");
+        let message = if fixing {
+            "Nothing to fix"
+        } else {
+            "No code actions at point"
+        };
+        return editor.set_message(message);
+    }
+    if fixing && actions.len() == 1 {
+        state.awaited = Some(Awaited::Apply(id));
+        state.requests.push(Request::Apply { id, index: 0 });
+        return;
     }
     let mut actions: Vec<_> = actions.into_iter().enumerate().collect();
     actions.sort_by_key(|(_, action)| !action.preferred);

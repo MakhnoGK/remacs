@@ -119,6 +119,8 @@ pub(crate) enum Outgoing {
         range: Range<usize>,
         /// As the server reported them for `text`.
         diagnostics: Vec<lsp_types::Diagnostic>,
+        /// Only actions of this kind or its subkinds.
+        kind: Option<&'static str>,
     },
     /// Asks for what an action left out, such as its edit.
     ResolveAction {
@@ -312,6 +314,7 @@ enum Pending {
     },
     CodeActions {
         id: u64,
+        kind: Option<&'static str>,
     },
     ResolveAction {
         id: u64,
@@ -778,6 +781,7 @@ impl Writer {
                 text,
                 range,
                 diagnostics,
+                kind,
             } => {
                 let range = lsp_types::Range::new(
                     to_lsp(text, range.start, negotiated.encoding),
@@ -789,15 +793,21 @@ impl Writer {
                         diagnostic.range.start <= range.end && diagnostic.range.end >= range.start
                     })
                     .collect();
-                let params = json!({
+                let mut params = json!({
                     "textDocument": TextDocumentIdentifier::new(uri.clone()),
                     "range": range,
                     "context": { "diagnostics": diagnostics, "triggerKind": 1 },
                 });
+                if let Some(kind) = kind {
+                    params["context"]["only"] = json!([kind]);
+                }
                 self.ask(
                     CodeActionRequest::METHOD,
                     params,
-                    Pending::CodeActions { id: *id },
+                    Pending::CodeActions {
+                        id: *id,
+                        kind: *kind,
+                    },
                 )
             }
             Outgoing::ResolveAction { id, action } => {
@@ -1249,12 +1259,16 @@ impl Reader {
                     encoding: self.encoding,
                 });
             }
-            Pending::CodeActions { id } => {
+            Pending::CodeActions { id, kind } => {
                 let mut actions: Vec<CodeActionOrCommand> =
                     serde_json::from_value(result).unwrap_or_default();
                 actions.retain(|action| {
                     !matches!(action, CodeActionOrCommand::CodeAction(action) if action.disabled.is_some())
                 });
+                // Servers may ignore `only`.
+                if let Some(kind) = kind {
+                    actions.retain(|action| code_action::is_of_kind(action, kind));
+                }
                 self.deliver(Answer::CodeActions {
                     id,
                     menu: code_action::menu(&actions),

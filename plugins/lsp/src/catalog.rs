@@ -46,6 +46,10 @@ pub(crate) struct ServerSpec {
     reports_loading: Option<bool>,
     node_modules: Option<bool>,
     when: Option<WhenSpec>,
+    /// Added to the server's environment for projects where `env_when` holds.
+    env: Option<BTreeMap<String, String>>,
+    env_when: Option<WhenSpec>,
+    formats_first: Option<bool>,
     group: Option<String>,
     install: Option<InstallSpec>,
 }
@@ -196,6 +200,9 @@ impl ServerSpec {
             reports_loading: change.reports_loading.or(self.reports_loading),
             node_modules: change.node_modules.or(self.node_modules),
             when: change.when.or(self.when),
+            env: change.env.or(self.env),
+            env_when: change.env_when.or(self.env_when),
+            formats_first: change.formats_first.or(self.formats_first),
             group: change.group.or(self.group),
             install: change.install.or(self.install),
         }
@@ -217,7 +224,6 @@ impl ServerSpec {
             Some(install) => Some(install.tool(name, command)?),
             None => None,
         };
-        let when = self.when.clone().unwrap_or_default();
         Ok(LanguageServer {
             name: leak(name),
             command: leak(command),
@@ -233,20 +239,31 @@ impl ServerSpec {
             pull_diagnostics: self.pull_diagnostics.unwrap_or(false),
             reports_loading: self.reports_loading.unwrap_or(false),
             node_modules: self.node_modules.unwrap_or(false),
-            when: When {
-                files: leak_all(&when.files),
-                dependencies: leak_all(&when.dependencies),
-                contains: when
-                    .contains
-                    .iter()
-                    .map(|(file, text)| (leak(file), leak(text)))
-                    .collect::<Vec<_>>()
-                    .leak(),
-            },
+            when: leak_when(self.when.as_ref()),
+            env: (self.env.iter().flatten())
+                .map(|(name, value)| (leak(name), leak(value)))
+                .collect::<Vec<_>>()
+                .leak(),
+            env_when: leak_when(self.env_when.as_ref()),
+            formats_first: self.formats_first.unwrap_or(false),
             group: self.group.as_deref().map(leak),
             tool,
             own_program: own_command.then(|| &*Box::leak(expand_home(command).into_boxed_path())),
         })
+    }
+}
+
+fn leak_when(when: Option<&WhenSpec>) -> When {
+    let Some(when) = when else {
+        return When::default();
+    };
+    When {
+        files: leak_all(&when.files),
+        dependencies: leak_all(&when.dependencies),
+        contains: (when.contains.iter())
+            .map(|(file, text)| (leak(file), leak(text)))
+            .collect::<Vec<_>>()
+            .leak(),
     }
 }
 
@@ -347,6 +364,18 @@ mod tests {
         let serve_d = merged[1].1.build("serve-d", merged[1].2).unwrap();
         assert_eq!(serve_d.own_program, None);
         assert_eq!(serve_d.tool.unwrap().program, "serve-d");
+
+        let oxfmt: ServerSpec = toml::from_str(
+            "command = \"oxfmt\"\n\
+             languages = { TypeScript = \"typescript\" }\n\
+             formats-first = true\n\
+             env = { VP_VERSION = \"1\" }\n\
+             env-when = { dependencies = [\"vite-plus\"] }\n",
+        )
+        .unwrap();
+        let oxfmt = oxfmt.build("oxfmt", false).unwrap();
+        assert!(oxfmt.formats_first && !oxfmt.env_when.always());
+        assert_eq!(oxfmt.env, [("VP_VERSION", "1")]);
 
         let incomplete: BTreeMap<String, ServerSpec> =
             toml::from_str("[zls]\ncommand = \"zls\"\n").unwrap();
