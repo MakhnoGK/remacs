@@ -81,6 +81,14 @@ impl Key {
                 chars.next().is_none().then_some(KeyCode::Char(character))?
             }
         };
+        // As keys typed arrive: shift folded into the character, `C-S-c` being `C-C`.
+        if let (KeyCode::Char(character), true) = (code, modifiers.shift) {
+            modifiers.shift = false;
+            return Some(Self::new(
+                modifiers,
+                KeyCode::Char(character.to_ascii_uppercase()),
+            ));
+        }
         Some(Self { modifiers, code })
     }
 
@@ -156,6 +164,7 @@ mod tests {
             describe_sequence(&parse_sequence("C-x C-s").unwrap()),
             "C-x C-s"
         );
+        assert_eq!(Key::parse("C-S-c"), Key::parse("C-C"));
         assert_eq!(Key::parse("C-xy"), None);
         assert_eq!(Key::parse("<f13>"), None);
     }
