@@ -7,10 +7,18 @@ license-file.workspace = true
 publish.workspace = true
 
 [dependencies]
+memchr.workspace = true
+regex.workspace = true
 remacs-core.workspace = true
+serde.workspace = true
 
 [dev-dependencies]
+divan.workspace = true
 remacs-text.workspace = true
+
+[[bench]]
+name = "cursors"
+harness = false
 
 [lints]
 workspace = true

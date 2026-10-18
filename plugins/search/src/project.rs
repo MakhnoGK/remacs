@@ -75,7 +75,7 @@ pub fn project_search(editor: &mut Editor) -> CommandResult {
         category: CATEGORY,
         placeholder: "Words to find…",
         require_match: true,
-        hints: &[("↵", "Go to"), ("C-g", "Cancel")],
+        hints: &[("↵", "Go to"), ("C-x C-q", "Edit"), ("C-g", "Cancel")],
         ..Prompt::default()
     };
     read_lines(editor, prompt, false, |editor, answer| {
@@ -125,6 +125,44 @@ pub fn searched(editor: &Editor) -> Option<(PathBuf, Arc<FileIndex>, String)> {
     let state = editor.find_plugin_state::<ProjectSearch>()?;
     let index = Arc::clone(state.index.as_ref()?);
     Some((state.root.clone(), index, state.input.clone()))
+}
+
+/// Whether the open prompt lists the project's lines.
+pub fn is_open(editor: &Editor) -> bool {
+    editor
+        .find_plugin_state::<ProjectSearch>()
+        .filter(|state| state.index.is_some())
+        .is_some_and(|state| {
+            editor
+                .minibuffer()
+                .is_some_and(|minibuffer| minibuffer.prompt().category == state.category)
+        })
+}
+
+/// The numbers of the lines found, by file from the project's root.
+pub type FoundLines = Vec<(String, Vec<usize>)>;
+
+/// Closes the prompt, putting back what the window showed; the project's root and the
+/// lines found, unless the search is still running.
+pub fn close(editor: &mut Editor) -> Result<(PathBuf, FoundLines), &'static str> {
+    let state = editor.find_plugin_state::<ProjectSearch>();
+    let scan = state
+        .and_then(|state| state.scan.as_ref())
+        .ok_or("Nothing found")?;
+    if !scan.found().done {
+        return Err("Still searching; try again in a moment");
+    }
+    editor.cancel_minibuffer();
+    let state = mem::take(editor.plugin_state::<ProjectSearch>());
+    state.preview.end(editor, None);
+    let found = state.scan.as_ref().map(|scan| {
+        scan.found()
+            .files
+            .values()
+            .map(|(file, hits)| (file.clone(), hits.iter().map(|hit| hit.line).collect()))
+            .collect()
+    });
+    Ok((state.root, found.unwrap_or_default()))
 }
 
 /// Searches again whenever the input or the project's files change, stopping the last

@@ -2,12 +2,14 @@ use std::any::{Any, TypeId};
 use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::io;
-use std::ops::Range;
+use std::mem;
+use std::ops::{Range, RangeInclusive};
 use std::path::{Path, PathBuf};
 
 use remacs_text::Text;
 
 use crate::command::CommandResult;
+use crate::kill_ring::KillRing;
 
 /// Like Emacs `mark-ring-max`.
 const MARK_RING_MAX: usize = 16;
@@ -28,9 +30,40 @@ pub struct Buffer {
     mark_ring: Vec<usize>,
     /// Transient mark mode: the region is highlighted and used only while the mark is active.
     mark_active: bool,
+    /// See [`Buffer::is_rectangle`].
+    rectangle: bool,
     /// First line shown when the buffer was last in the window, like Emacs `last-window-start`.
     pub window_start: usize,
+    /// More places commands run at, ordered by point, none at point.
+    cursors: Vec<Cursor>,
+    /// Where the cursors were at the last undo boundary, before each undo group since, and
+    /// before each undo, so that undo and redo put them back with the text.
+    cursors_at_boundary: Vec<CursorPlace>,
+    cursors_before_groups: Vec<Vec<CursorPlace>>,
+    cursors_undone: Vec<Vec<CursorPlace>>,
     locals: HashMap<TypeId, Box<dyn Any>>,
+}
+
+/// A cursor's point, mark and whether the mark is active, as the undo history keeps it.
+type CursorPlace = (usize, Option<usize>, bool);
+
+/// A point and mark of their own that commands marked to run at every cursor also run
+/// at, like Emacs multiple-cursors' fake cursors; edits move them as they move the mark.
+#[derive(Clone, Default)]
+pub struct Cursor {
+    pub point: usize,
+    pub mark: Option<usize>,
+    pub mark_active: bool,
+    goal_column: Option<usize>,
+    /// What this cursor's kills went to, starting as the kill ring was when it was made.
+    pub(crate) kill_ring: KillRing,
+}
+
+impl Cursor {
+    pub fn region(&self) -> Option<Range<usize>> {
+        let mark = self.mark.filter(|_| self.mark_active)?;
+        Some(self.point.min(mark)..self.point.max(mark))
+    }
 }
 
 impl Buffer {
@@ -47,7 +80,12 @@ impl Buffer {
             mark: None,
             mark_ring: Vec::new(),
             mark_active: false,
+            rectangle: false,
             window_start: 0,
+            cursors: Vec::new(),
+            cursors_at_boundary: Vec::new(),
+            cursors_before_groups: Vec::new(),
+            cursors_undone: Vec::new(),
             locals: HashMap::new(),
         }
     }
@@ -146,6 +184,10 @@ impl Buffer {
         self.text = text;
         self.mark = None;
         self.mark_ring.clear();
+        self.cursors.clear();
+        self.cursors_at_boundary.clear();
+        self.cursors_before_groups.clear();
+        self.cursors_undone.clear();
         self.mark_active = false;
         self.set_point(self.point);
     }
@@ -235,8 +277,37 @@ impl Buffer {
         self.mark_active && self.mark.is_some()
     }
 
+    /// A region activated anew is not a rectangle until it is made one.
     pub fn activate_mark(&mut self) {
+        if !self.mark_active {
+            self.rectangle = false;
+        }
         self.mark_active = self.mark.is_some();
+    }
+
+    /// Whether the active region is a rectangle: the columns between point and mark on
+    /// the lines between them, like Emacs `rectangle-mark-mode`.
+    pub fn is_rectangle(&self) -> bool {
+        self.rectangle && self.is_mark_active()
+    }
+
+    /// The lines and character columns between point and mark, whether or not the mark is
+    /// active.
+    // shortcut: columns count characters, so a tab counts as one; use display columns if
+    // rectangles over tabs come up.
+    pub fn rectangle(&self) -> Option<(RangeInclusive<usize>, Range<usize>)> {
+        let mark = self.mark?;
+        let (point_line, mark_line) = (self.point_line(), self.text.line_of(mark));
+        let (point_column, mark_column) = (self.point_column(), self.text.char_column(mark));
+        Some((
+            point_line.min(mark_line)..=point_line.max(mark_line),
+            point_column.min(mark_column)..point_column.max(mark_column),
+        ))
+    }
+
+    /// Makes the active region a rectangle, or a run of text again.
+    pub fn set_rectangle(&mut self, rectangle: bool) {
+        self.rectangle = rectangle;
     }
 
     pub fn deactivate_mark(&mut self) {
@@ -254,9 +325,69 @@ impl Buffer {
         self.mark_range().filter(|_| self.mark_active)
     }
 
+    pub fn cursors(&self) -> &[Cursor] {
+        &self.cursors
+    }
+
+    /// Adds a cursor at each point, its region from the mark when given, but where one is;
+    /// each starts with a copy of `kill_ring`.
+    pub fn add_cursors(
+        &mut self,
+        places: impl IntoIterator<Item = (usize, Option<usize>)>,
+        kill_ring: &KillRing,
+    ) {
+        let len = self.text.len();
+        self.cursors
+            .extend(places.into_iter().map(|(point, mark)| Cursor {
+                point: point.min(len),
+                mark: mark.map(|mark| mark.min(len)),
+                mark_active: mark.is_some(),
+                goal_column: None,
+                kill_ring: kill_ring.clone(),
+            }));
+        self.merge_cursors();
+    }
+
+    pub fn remove_cursor(&mut self, index: usize) -> Cursor {
+        self.cursors.remove(index)
+    }
+
+    pub fn clear_cursors(&mut self) {
+        self.cursors.clear();
+    }
+
+    /// Deactivates the mark of every cursor.
+    pub fn deactivate_cursor_marks(&mut self) {
+        for cursor in &mut self.cursors {
+            cursor.mark_active = false;
+        }
+    }
+
+    /// Trades point and mark with cursor `index`, so that a command runs there; trading
+    /// again trades back.
+    pub(crate) fn swap_cursor(&mut self, index: usize) {
+        let cursor = &mut self.cursors[index];
+        mem::swap(&mut self.point, &mut cursor.point);
+        mem::swap(&mut self.mark, &mut cursor.mark);
+        mem::swap(&mut self.mark_active, &mut cursor.mark_active);
+        mem::swap(&mut self.goal_column, &mut cursor.goal_column);
+    }
+
+    pub(crate) fn cursor_kill_ring(&mut self, index: usize) -> &mut KillRing {
+        &mut self.cursors[index].kill_ring
+    }
+
+    /// Orders the cursors by point and drops those that ran into point or each other.
+    pub(crate) fn merge_cursors(&mut self) {
+        let point = self.point;
+        self.cursors.retain(|cursor| cursor.point != point);
+        self.cursors.sort_by_key(|cursor| cursor.point);
+        self.cursors.dedup_by_key(|cursor| cursor.point);
+    }
+
     pub fn insert(&mut self, text: &str) {
         let point = self.point;
-        self.text.insert(point, text);
+        self.record_cursors(|edited| edited.insert(point, text));
         self.shift_marks(|mark| {
             if mark > point {
                 mark + text.len()
@@ -297,7 +428,7 @@ impl Buffer {
         let point = shift(self.point);
         self.shift_marks(shift);
         self.mark_active = false;
-        self.text.delete(range);
+        self.record_cursors(|edited| edited.delete(range));
         self.set_point(point);
     }
 
@@ -320,16 +451,62 @@ impl Buffer {
 
     pub fn undo(&mut self) -> bool {
         let offset = self.text.undo();
+        if offset.is_some() {
+            let before = self.cursors_before_groups.pop().unwrap_or_default();
+            let now = self.place_cursors(before);
+            self.cursors_undone.push(now);
+        }
         self.restore_point(offset)
     }
 
     pub fn redo(&mut self) -> bool {
         let offset = self.text.redo();
+        if offset.is_some() {
+            let after = self.cursors_undone.pop().unwrap_or_default();
+            let now = self.place_cursors(after);
+            self.cursors_before_groups.push(now);
+        }
         self.restore_point(offset)
     }
 
     pub fn add_undo_boundary(&mut self) {
         self.text.add_undo_boundary();
+        self.cursors_at_boundary = self.cursor_places();
+    }
+
+    fn cursor_places(&self) -> Vec<CursorPlace> {
+        self.cursors
+            .iter()
+            .map(|cursor| (cursor.point, cursor.mark, cursor.mark_active))
+            .collect()
+    }
+
+    /// Moves the cursors to `places` and returns where they were. Only as many as there
+    /// are now: cursors added or removed since stay as they are, not brought back.
+    fn place_cursors(&mut self, places: Vec<CursorPlace>) -> Vec<CursorPlace> {
+        let now = self.cursor_places();
+        if places.len() == self.cursors.len() {
+            for (cursor, (point, mark, mark_active)) in self.cursors.iter_mut().zip(places) {
+                (cursor.point, cursor.mark, cursor.mark_active) = (point, mark, mark_active);
+                cursor.goal_column = None;
+            }
+        }
+        now
+    }
+
+    /// Makes an edit of the text, keeping the cursors as they were at the boundary when it
+    /// opens an undo group; any edit ends what redo could bring back.
+    fn record_cursors(&mut self, edit: impl FnOnce(&mut Text)) {
+        let (depth, len) = (self.text.undo_depth(), self.text.len());
+        edit(&mut self.text);
+        if self.text.undo_depth() > depth {
+            self.cursors_before_groups
+                .push(self.cursors_at_boundary.clone());
+        }
+        // An empty edit records nothing, so redo still has what it had.
+        if self.text.len() != len {
+            self.cursors_undone.clear();
+        }
     }
 
     pub fn save(&mut self) -> io::Result<()> {
@@ -356,14 +533,25 @@ impl Buffer {
         for mark in &mut self.mark_ring {
             *mark = on_character(*mark);
         }
-        offset.inspect(|&offset| self.set_point(offset)).is_some()
+        for cursor in &mut self.cursors {
+            cursor.point = on_character(cursor.point);
+            cursor.mark = cursor.mark.map(on_character);
+            cursor.mark_active = false;
+        }
+        let restored = offset.inspect(|&offset| self.set_point(offset)).is_some();
+        self.merge_cursors();
+        restored
     }
 
-    /// Moves the mark and the mark ring with an edit, like Emacs markers.
+    /// Moves the mark, the mark ring and the cursors with an edit, like Emacs markers.
     fn shift_marks(&mut self, shift: impl Fn(usize) -> usize) {
         self.mark = self.mark.map(&shift);
         for mark in &mut self.mark_ring {
             *mark = shift(*mark);
+        }
+        for cursor in &mut self.cursors {
+            cursor.point = shift(cursor.point);
+            cursor.mark = cursor.mark.map(&shift);
         }
     }
 }

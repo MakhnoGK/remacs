@@ -32,6 +32,10 @@ impl History {
         self.undo.iter().rev().map(|revision| &revision.pieces)
     }
 
+    pub fn depth(&self) -> usize {
+        self.undo.len()
+    }
+
     pub fn add_boundary(&mut self) {
         self.group_open = false;
     }

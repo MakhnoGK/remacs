@@ -108,6 +108,11 @@ impl Text {
         self.history.add_boundary();
     }
 
+    /// Groups undo can revert; an edit that opens a group adds one.
+    pub fn undo_depth(&self) -> usize {
+        self.history.depth()
+    }
+
     /// Returns the offset of the undone edit.
     pub fn undo(&mut self) -> Option<usize> {
         let revision = self.history.undo(&self.snapshot.pieces)?;

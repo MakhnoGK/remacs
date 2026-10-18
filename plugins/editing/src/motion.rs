@@ -183,7 +183,7 @@ struct CycleStep(usize);
 
 /// Where a command that cycles is: 0 the first time, one more each time it runs again
 /// right after itself, back to 0 after `steps`.
-fn cycle_step(editor: &mut Editor, command: &'static str, steps: usize) -> usize {
+pub(crate) fn cycle_step(editor: &mut Editor, command: &'static str, steps: usize) -> usize {
     let again = editor.last_command() == Some(command);
     let step = &mut editor.plugin_state::<CycleStep>().0;
     *step = if again { (*step + 1) % steps } else { 0 };

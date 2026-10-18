@@ -1,12 +1,14 @@
 use std::collections::VecDeque;
+use std::rc::Rc;
 
 /// Like Emacs `kill-ring-max`.
 const MAX_ENTRIES: usize = 120;
 
 /// Killed text, newest first, shared by all buffers and synced with the system clipboard.
-#[derive(Default)]
+/// Copies share the text, as each of many cursors starts with one.
+#[derive(Clone, Default)]
 pub struct KillRing {
-    entries: VecDeque<String>,
+    entries: VecDeque<Rc<String>>,
     /// Entry the last yank inserted, like Emacs `kill-ring-yank-pointer`.
     yank_index: usize,
     /// The newest kill has not been handed to the system clipboard yet.
@@ -22,8 +24,9 @@ impl KillRing {
     /// Extends the newest entry, so that consecutive kills yank back as one.
     pub fn append(&mut self, text: &str, before: bool) {
         match self.entries.front_mut() {
-            Some(newest) if before => newest.insert_str(0, text),
-            Some(newest) => newest.push_str(text),
+            // Copied only while a cursor's kill ring shares it.
+            Some(newest) if before => Rc::make_mut(newest).insert_str(0, text),
+            Some(newest) => Rc::make_mut(newest).push_str(text),
             None => self.push_entry(text.to_owned()),
         }
         self.yank_index = 0;
@@ -35,13 +38,13 @@ impl KillRing {
     }
 
     pub fn entries(&self) -> impl Iterator<Item = &str> {
-        self.entries.iter().map(String::as_str)
+        self.entries.iter().map(|entry| entry.as_str())
     }
 
     /// The newest entry; it resets where `rotate` starts from.
     pub fn newest(&mut self) -> Option<&str> {
         self.yank_index = 0;
-        self.entries.front().map(String::as_str)
+        self.entries.front().map(|entry| entry.as_str())
     }
 
     /// The entry after the one yanked last, wrapping around like Emacs `yank-pop`.
@@ -50,7 +53,9 @@ impl KillRing {
             return None;
         }
         self.yank_index = (self.yank_index + 1) % self.entries.len();
-        self.entries.get(self.yank_index).map(String::as_str)
+        self.entries
+            .get(self.yank_index)
+            .map(|entry| entry.as_str())
     }
 
     /// The newest kill, once, for the system clipboard.
@@ -58,18 +63,21 @@ impl KillRing {
         if !std::mem::take(&mut self.unexported) {
             return None;
         }
-        self.entries.front().cloned()
+        self.entries.front().map(|entry| entry.to_string())
     }
 
-    /// Text another program put on the clipboard becomes the newest kill.
-    pub fn receive(&mut self, text: String) {
-        if !text.is_empty() && self.entries.front() != Some(&text) {
+    /// Text another program put on the clipboard becomes the newest kill; false when it
+    /// is empty or the newest kill already.
+    pub fn receive(&mut self, text: String) -> bool {
+        let new = !text.is_empty() && self.entries.front().is_none_or(|newest| **newest != text);
+        if new {
             self.push_entry(text);
         }
+        new
     }
 
     fn push_entry(&mut self, text: String) {
-        self.entries.push_front(text);
+        self.entries.push_front(Rc::new(text));
         self.entries.truncate(MAX_ENTRIES);
         self.yank_index = 0;
     }

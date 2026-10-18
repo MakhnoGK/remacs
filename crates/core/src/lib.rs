@@ -30,7 +30,7 @@ mod table;
 mod vc;
 mod viewport;
 
-pub use buffer::{Buffer, FileEdits};
+pub use buffer::{Buffer, Cursor, FileEdits};
 pub use char_class::CharClass;
 pub use command::{Command, CommandError, CommandResult, Commands};
 pub use completion::{

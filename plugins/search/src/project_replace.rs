@@ -438,7 +438,7 @@ fn relative(path: &Path, root: &Path) -> String {
         .to_string()
 }
 
-fn plural(count: usize, noun: &str) -> String {
+pub fn plural(count: usize, noun: &str) -> String {
     match count {
         1 => format!("1 {noun}"),
         _ => format!("{count} {noun}s"),

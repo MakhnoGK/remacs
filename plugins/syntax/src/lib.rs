@@ -5,6 +5,7 @@ mod highlighter;
 mod matching_pair;
 mod parser_thread;
 mod sexp;
+mod sexp_edit;
 mod snippet;
 
 use std::cell::{Cell, RefCell};
@@ -71,12 +72,22 @@ impl SyntaxPlugin {
 
 #[rustfmt::skip]
 const COMMANDS: &[Command] = &[
-    Command::new(sexp::FORWARD_SEXP, "Move over the next expression of the syntax tree", sexp::forward_sexp),
-    Command::new(sexp::BACKWARD_SEXP, "Move back over the previous expression of the syntax tree", sexp::backward_sexp),
-    Command::new(sexp::BACKWARD_UP_LIST, "Move to the opening bracket of the list point is in", sexp::backward_up_list),
-    Command::new(sexp::DOWN_LIST, "Move into the next list, after its opening bracket", sexp::down_list),
-    Command::new(sexp::FORWARD_LIST, "Move over the next list between brackets", sexp::forward_list),
-    Command::new(sexp::BACKWARD_LIST, "Move back over the previous list between brackets", sexp::backward_list),
+    Command::new(sexp::FORWARD_SEXP, "Move over the next expression of the syntax tree", sexp::forward_sexp).each_cursor(),
+    Command::new(sexp::BACKWARD_SEXP, "Move back over the previous expression of the syntax tree", sexp::backward_sexp).each_cursor(),
+    Command::new(sexp::BACKWARD_UP_LIST, "Move to the opening bracket of the list point is in", sexp::backward_up_list).each_cursor(),
+    Command::new(sexp::DOWN_LIST, "Move into the next list, after its opening bracket", sexp::down_list).each_cursor(),
+    Command::new(sexp::FORWARD_LIST, "Move over the next list between brackets", sexp::forward_list).each_cursor(),
+    Command::new(sexp::BACKWARD_LIST, "Move back over the previous list between brackets", sexp::backward_list).each_cursor(),
+    Command::new(sexp_edit::TRANSPOSE_SEXPS, "Swap the expressions before and after point", sexp_edit::transpose_sexps),
+    Command::new(sexp_edit::KILL_SEXP, "Kill the next expression", sexp_edit::kill_sexp),
+    Command::new(sexp_edit::BACKWARD_KILL_SEXP, "Kill the previous expression", sexp_edit::backward_kill_sexp),
+    Command::new(sexp_edit::MARK_SEXP, "Set the mark after the next expression, then after the one after it", sexp_edit::mark_sexp),
+    Command::new(sexp_edit::SLURP_FORWARD, "Move the closing bracket of the list point is in over the next expression", sexp_edit::slurp_forward),
+    Command::new(sexp_edit::BARF_FORWARD, "Move the closing bracket of the list point is in before its last expression", sexp_edit::barf_forward),
+    Command::new(sexp_edit::SLURP_BACKWARD, "Move the opening bracket of the list point is in over the previous expression", sexp_edit::slurp_backward),
+    Command::new(sexp_edit::BARF_BACKWARD, "Move the opening bracket of the list point is in after its first expression", sexp_edit::barf_backward),
+    Command::new(sexp_edit::SPLICE_SEXP, "Delete the brackets of the list point is in", sexp_edit::splice_sexp),
+    Command::new(sexp_edit::RAISE_SEXP, "Replace the list point is in with the expression at point", sexp_edit::raise_sexp),
 ];
 
 const BINDINGS: &[(&str, &str)] = &[
@@ -86,6 +97,16 @@ const BINDINGS: &[(&str, &str)] = &[
     ("C-M-d", sexp::DOWN_LIST),
     ("C-M-n", sexp::FORWARD_LIST),
     ("C-M-p", sexp::BACKWARD_LIST),
+    ("C-M-t", sexp_edit::TRANSPOSE_SEXPS),
+    ("C-M-k", sexp_edit::KILL_SEXP),
+    ("C-M-DEL", sexp_edit::BACKWARD_KILL_SEXP),
+    ("C-M-SPC", sexp_edit::MARK_SEXP),
+    ("C-)", sexp_edit::SLURP_FORWARD),
+    ("C-}", sexp_edit::BARF_FORWARD),
+    ("C-(", sexp_edit::SLURP_BACKWARD),
+    ("C-{", sexp_edit::BARF_BACKWARD),
+    ("M-D", sexp_edit::SPLICE_SEXP),
+    ("C-M-r", sexp_edit::RAISE_SEXP),
 ];
 
 #[rustfmt::skip]
@@ -94,6 +115,13 @@ const MENU_ITEMS: &[MenuItem] = &[
     MenuItem::new("Go", "structure", "Previous Expression", sexp::BACKWARD_SEXP),
     MenuItem::new("Go", "structure", "Out of List", sexp::BACKWARD_UP_LIST),
     MenuItem::new("Go", "structure", "Into Next List", sexp::DOWN_LIST),
+    MenuItem::new("Edit", "selection", "Select Expression", sexp_edit::MARK_SEXP),
+    MenuItem::new("Edit", "structure", "Kill Expression", sexp_edit::KILL_SEXP),
+    MenuItem::new("Edit", "structure", "Transpose Expressions", sexp_edit::TRANSPOSE_SEXPS),
+    MenuItem::new("Edit", "structure", "Slurp Next Expression", sexp_edit::SLURP_FORWARD),
+    MenuItem::new("Edit", "structure", "Barf Last Expression", sexp_edit::BARF_FORWARD),
+    MenuItem::new("Edit", "structure", "Remove Brackets", sexp_edit::SPLICE_SEXP),
+    MenuItem::new("Edit", "structure", "Raise Expression", sexp_edit::RAISE_SEXP),
 ];
 
 impl Plugin for SyntaxPlugin {

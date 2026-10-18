@@ -4183,8 +4183,12 @@ dependencies = [
 name = "remacs-editing"
 version = "0.1.0"
 dependencies = [
+ "divan",
+ "memchr",
+ "regex",
  "remacs-core",
  "remacs-text",
+ "serde",
 ]
 
 [[package]]

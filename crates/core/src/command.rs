@@ -32,6 +32,9 @@ pub struct Command {
     pub name: &'static str,
     pub doc: &'static str,
     pub run: fn(&mut Editor) -> CommandResult,
+    /// Runs again at each of the buffer's cursors, like a command multiple-cursors does not
+    /// list as run once.
+    pub each_cursor: bool,
 }
 
 impl Command {
@@ -40,7 +43,17 @@ impl Command {
         doc: &'static str,
         run: fn(&mut Editor) -> CommandResult,
     ) -> Self {
-        Self { name, doc, run }
+        Self {
+            name,
+            doc,
+            run,
+            each_cursor: false,
+        }
+    }
+
+    pub const fn each_cursor(mut self) -> Self {
+        self.each_cursor = true;
+        self
     }
 }
 

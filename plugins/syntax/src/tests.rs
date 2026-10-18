@@ -303,13 +303,7 @@ fn sexp_moves(marked: &str, keys: &[&str]) -> Vec<String> {
     let text = marked.replacen('|', "", 1);
     let mut editor = rust_editor(&text);
     editor.window_buffer_mut().set_point(point);
-    for _ in 0..500 {
-        editor.refresh();
-        if buffer_syntax::is_parsed(editor.window_buffer()) {
-            break;
-        }
-        thread::sleep(Duration::from_millis(5));
-    }
+    wait_for_parse(&mut editor);
     keys.iter()
         .map(|keys| {
             for key in remacs_core::parse_sequence(keys).unwrap() {
@@ -321,6 +315,96 @@ fn sexp_moves(marked: &str, keys: &[&str]) -> Vec<String> {
             line.trim().to_owned()
         })
         .collect()
+}
+
+fn wait_for_parse(editor: &mut Editor) {
+    for _ in 0..500 {
+        editor.refresh();
+        if buffer_syntax::is_reparsed(editor.window_buffer()) {
+            break;
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// The Rust `marked` text, `|` at point and `^` at an active mark, after each of `keys`,
+/// the text parsed again before each.
+fn sexp_edits(marked: &str, keys: &[&str]) -> Vec<String> {
+    let point = marked.find('|').unwrap();
+    let mut editor = rust_editor(&marked.replacen('|', "", 1));
+    editor.window_buffer_mut().set_point(point);
+    keys.iter()
+        .map(|keys| {
+            wait_for_parse(&mut editor);
+            for key in remacs_core::parse_sequence(keys).unwrap() {
+                editor.handle_key(key);
+            }
+            let buffer = editor.window_buffer();
+            let mut marked = buffer.contents(0..buffer.text().len());
+            let mark = buffer.region().map(|_| buffer.mark().unwrap());
+            let point = buffer.point();
+            if let Some(mark) = mark.filter(|&mark| mark > point) {
+                marked.insert(mark, '^');
+            }
+            marked.insert(point, '|');
+            if let Some(mark) = mark.filter(|&mark| mark < point) {
+                marked.insert(mark, '^');
+            }
+            marked
+        })
+        .collect()
+}
+
+#[test]
+fn expressions_are_killed_transposed_and_marked() {
+    assert_eq!(
+        sexp_edits("fn m() { f(a, |b + c, d); }", &["C-M-k"]),
+        ["fn m() { f(a, |, d); }"]
+    );
+    assert_eq!(
+        sexp_edits("fn m() { f(a, b|, d); }", &["C-M-DEL"]),
+        ["fn m() { f(a, |, d); }"]
+    );
+    assert_eq!(
+        sexp_edits("fn m() { f(a, |b); }", &["C-M-t"]),
+        ["fn m() { f(b, a|); }"]
+    );
+    assert_eq!(
+        sexp_edits("fn m() { |a; b; }", &["C-M-SPC", "C-M-SPC"]),
+        ["fn m() { |a;^ b; }", "fn m() { |a; b;^ }"]
+    );
+}
+
+#[test]
+fn brackets_slurp_and_barf_expressions_but_not_separators() {
+    assert_eq!(
+        sexp_edits("fn m() { f(g(|a), b); }", &["C-)", "C-}", "C-}"]),
+        [
+            "fn m() { f(g(|a, b)); }",
+            "fn m() { f(g(|a), b); }",
+            "fn m() { f(g(|)a, b); }",
+        ]
+    );
+    assert_eq!(
+        sexp_edits("fn m() { let x = [[|a, b], c]; }", &["C-{"]),
+        ["fn m() { let x = [|a, [b], c]; }"]
+    );
+    assert_eq!(
+        sexp_edits("fn m() { let x = [a, [|b], c]; }", &["C-("]),
+        ["fn m() { let x = [[a, |b], c]; }"]
+    );
+}
+
+#[test]
+fn lists_are_spliced_and_raised_with_what_they_close() {
+    assert_eq!(
+        sexp_edits("fn m() { f(g(|a, b)); }", &["M-D"]),
+        ["fn m() { f(g|a, b); }"]
+    );
+    assert_eq!(
+        sexp_edits("fn m() { f(g(a, |b)); }", &["C-M-r"]),
+        ["fn m() { f(|b); }"]
+    );
 }
 
 #[test]

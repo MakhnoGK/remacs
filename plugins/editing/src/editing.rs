@@ -1,7 +1,7 @@
 use remacs_core::{Buffer, CommandError, CommandResult, Editor};
 
 use crate::motion::{at_beginning_of_buffer, at_end_of_buffer};
-use crate::{indent, pairs};
+use crate::{indent, pairs, rectangle};
 
 /// The buffer to edit, unless it is read-only.
 pub fn writable_buffer(editor: &mut Editor) -> Result<&mut Buffer, CommandError> {
@@ -28,6 +28,9 @@ pub fn self_insert(editor: &mut Editor) -> CommandResult {
 
 /// Deletes the next character, or the active region without saving it, as in Emacs.
 pub fn delete_char(editor: &mut Editor) -> CommandResult {
+    if editor.buffer().is_rectangle() {
+        return rectangle::delete_rectangle(editor);
+    }
     let buffer = writable_buffer(editor)?;
     if let Some(region) = buffer.region() {
         buffer.delete(region);
@@ -43,6 +46,9 @@ pub fn delete_char(editor: &mut Editor) -> CommandResult {
 }
 
 pub fn delete_backward_char(editor: &mut Editor) -> CommandResult {
+    if editor.buffer().is_rectangle() {
+        return rectangle::delete_rectangle(editor);
+    }
     let pairs = pairs::mode_pairs(editor);
     let buffer = writable_buffer(editor)?;
     if let Some(region) = buffer
@@ -74,11 +80,5 @@ pub fn undo_redo(editor: &mut Editor) -> CommandResult {
         return Err("No further redo information".into());
     }
     editor.set_message("Redo");
-    Ok(())
-}
-
-pub fn keyboard_quit(editor: &mut Editor) -> CommandResult {
-    editor.buffer_mut().deactivate_mark();
-    editor.set_message("Quit");
     Ok(())
 }

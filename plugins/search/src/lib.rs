@@ -2,6 +2,7 @@
 //! other searches, like Emacs `consult-line`, and replacing in it, like `query-replace`;
 //! searching the whole project's text, like `consult-ripgrep`, and replacing in it.
 
+mod edit_results;
 mod lines;
 mod preview;
 mod project;
@@ -14,7 +15,7 @@ mod words;
 
 use std::rc::Rc;
 
-use remacs_core::{Command, MenuItem, Plugin, Registry};
+use remacs_core::{Command, Keymap, MenuItem, MinorKeymap, Plugin, Registry};
 
 pub struct SearchPlugin;
 
@@ -33,6 +34,9 @@ const COMMANDS: &[Command] = &[
     Command::new(project_replace::REPLACE_FILE, "Replace this match and the rest of the file", project_replace::replace_file),
     Command::new(project_replace::REPLACE_ALL, "Replace this match and every one after it in every file", project_replace::replace_all),
     Command::new(project_replace::QUIT, "Stop replacing, keeping what was replaced", project_replace::quit),
+    Command::new(edit_results::EDIT_SEARCH_RESULTS, "List the lines the project search found in a buffer to edit them", edit_results::edit_search_results),
+    Command::new(edit_results::FINISH, "Write the edited search results to their files", edit_results::finish),
+    Command::new(edit_results::ABORT, "Discard the edited search results", edit_results::abort),
 ];
 
 const BINDINGS: &[(&str, &str)] = &[
@@ -44,12 +48,23 @@ const BINDINGS: &[(&str, &str)] = &[
     ("s-H", project_replace::PROJECT_QUERY_REPLACE),
 ];
 
+/// While the project search lists its lines.
+const SEARCH_PROMPT_BINDINGS: &[(&str, &str)] = &[("C-x C-q", edit_results::EDIT_SEARCH_RESULTS)];
+
+/// Over the editing keys, in the buffer of search results being edited.
+const EDIT_RESULTS_BINDINGS: &[(&str, &str)] = &[
+    ("C-c C-c", edit_results::FINISH),
+    ("C-x C-s", edit_results::FINISH),
+    ("C-c C-k", edit_results::ABORT),
+];
+
 #[rustfmt::skip]
 const MENU_ITEMS: &[MenuItem] = &[
     MenuItem::new("Edit", "find", "Search…", lines::SEARCH),
     MenuItem::new("Edit", "find", "Replace…", replace::QUERY_REPLACE),
     MenuItem::new("Edit", "find", "Search in Project…", project::PROJECT_SEARCH),
     MenuItem::new("Edit", "find", "Replace in Project…", project_replace::PROJECT_QUERY_REPLACE),
+    MenuItem::new("Edit", "find", "Edit Search Results", edit_results::EDIT_SEARCH_RESULTS).enabled_when(project::is_open),
 ];
 
 impl Plugin for SearchPlugin {
@@ -61,6 +76,14 @@ impl Plugin for SearchPlugin {
             registry.keymap.bind(keys, command);
         }
         registry.menu_items.extend_from_slice(MENU_ITEMS);
+        registry.minor_keymaps.push(MinorKeymap {
+            active: project::is_open,
+            keymap: keymap(SEARCH_PROMPT_BINDINGS),
+        });
+        registry.minor_keymaps.push(MinorKeymap {
+            active: |editor| editor.buffer_has_keys() && edit_results::is_editing(editor),
+            keymap: keymap(EDIT_RESULTS_BINDINGS),
+        });
         registry.decorators.push(Rc::new(preview::decorate));
         registry.decorators.push(Rc::new(project_preview::decorate));
         registry.post_command_hooks.push(Rc::new(preview::sync));
@@ -70,6 +93,14 @@ impl Plugin for SearchPlugin {
             .post_command_hooks
             .push(Rc::new(project_replace::update));
     }
+}
+
+fn keymap(bindings: &[(&str, &'static str)]) -> Keymap {
+    let mut keymap = Keymap::default();
+    for &(keys, command) in bindings {
+        keymap.bind(keys, command);
+    }
+    keymap
 }
 
 #[cfg(test)]

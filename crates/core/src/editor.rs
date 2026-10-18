@@ -350,6 +350,19 @@ impl Editor {
         true
     }
 
+    /// Text another program put on the clipboard becomes the newest kill, at every cursor
+    /// too, as each yanks from a kill ring of its own; what remacs copied there itself
+    /// does not, so the cursors keep their own kills.
+    pub fn receive_clipboard(&mut self, text: String) {
+        if !self.kill_ring.receive(text.clone()) {
+            return;
+        }
+        let buffer = &mut self.buffers[0];
+        for index in 0..buffer.cursors().len() {
+            buffer.cursor_kill_ring(index).receive(text.clone());
+        }
+    }
+
     /// Deletes `range` from the current buffer into the kill ring; consecutive kills
     /// accumulate in one entry, before it when killing backward from point.
     pub fn kill(&mut self, range: Range<usize>) {
@@ -442,17 +455,38 @@ impl Editor {
             self.set_error(format!("Unknown command: {name}"));
             return;
         };
-        let (name, run) = (command.name, command.run);
+        let (name, run, each_cursor) = (command.name, command.run, command.each_cursor);
         self.start_undo_group(name);
         self.this_command = Some(name);
         self.this_command_killed = false;
+        if each_cursor {
+            // A command run once, like undo or a kill, may have moved cursors together.
+            self.buffers[0].merge_cursors();
+        }
         if let Err(error) = run(self) {
             self.set_error(error.0);
+        } else if each_cursor && self.minibuffer.is_none() {
+            self.run_at_cursors(run);
         }
         self.last_command = self.this_command;
         self.last_command_killed = self.this_command_killed;
         self.command_count += 1;
         self.after_command();
+    }
+
+    /// Runs a command again at each cursor of the buffer, each with its own point, mark and
+    /// kill ring; what fails at one is not told, as only point's result is.
+    fn run_at_cursors(&mut self, run: fn(&mut Editor) -> CommandResult) {
+        let message = self.message.take();
+        for index in 0..self.buffers[0].cursors().len() {
+            self.buffers[0].swap_cursor(index);
+            mem::swap(&mut self.kill_ring, self.buffers[0].cursor_kill_ring(index));
+            let _ = run(self);
+            mem::swap(&mut self.kill_ring, self.buffers[0].cursor_kill_ring(index));
+            self.buffers[0].swap_cursor(index);
+        }
+        self.buffers[0].merge_cursors();
+        self.message = message;
     }
 
     pub fn commands(&self) -> &Commands {

@@ -2,7 +2,7 @@
 //! `forward-sexp` and `up-list` in tree-sitter modes. The expressions point is between are
 //! the children of the innermost node it is inside of; a list is a node between brackets.
 
-use remacs_core::{CommandResult, Editor};
+use remacs_core::{Buffer, CommandError, CommandResult, Editor};
 use tree_sitter::Node;
 
 use crate::buffer_syntax::tree_at;
@@ -18,48 +18,47 @@ const BRACKETS: &[(&str, &str)] = &[("(", ")"), ("[", "]"), ("{", "}")];
 
 /// Moves over the next expression.
 pub(crate) fn forward_sexp(editor: &mut Editor) -> CommandResult {
-    move_by(
-        editor,
-        |node, point| {
-            if node.child_count() == 0 {
-                return Some(node.end_byte());
-            }
-            inside(node)
-                .find(|child| child.end_byte() > point)
-                .map(|child| child.end_byte())
-        },
-        "No next expression",
-    )
+    move_by(editor, next_end, "No next expression")
 }
 
 /// Moves back over the previous expression.
 pub(crate) fn backward_sexp(editor: &mut Editor) -> CommandResult {
-    move_by(
-        editor,
-        |node, point| {
-            if node.child_count() == 0 {
-                return Some(node.start_byte());
-            }
-            inside(node)
-                .filter(|child| child.start_byte() < point)
-                .last()
-                .map(|child| child.start_byte())
-        },
-        "No previous expression",
-    )
+    move_by(editor, previous_start, "No previous expression")
 }
 
 /// Moves to the opening bracket of the list point is in.
 pub(crate) fn backward_up_list(editor: &mut Editor) -> CommandResult {
     move_by(
         editor,
-        |node, point| {
-            ancestors(node)
-                .find(|node| is_list(node) && node.start_byte() < point)
-                .map(|list| list.start_byte())
-        },
+        |node, point| list_around(node, point).map(|list| list.start_byte()),
         "Not in a list",
     )
+}
+
+/// Where the expression after `offset` in `node`, its innermost node, ends.
+pub(crate) fn next_end(node: Node, offset: usize) -> Option<usize> {
+    if node.child_count() == 0 {
+        return Some(node.end_byte());
+    }
+    inside(node)
+        .find(|child| child.end_byte() > offset)
+        .map(|child| child.end_byte())
+}
+
+/// Where the expression before `offset` in `node`, its innermost node, starts.
+pub(crate) fn previous_start(node: Node, offset: usize) -> Option<usize> {
+    if node.child_count() == 0 {
+        return Some(node.start_byte());
+    }
+    inside(node)
+        .filter(|child| child.start_byte() < offset)
+        .last()
+        .map(|child| child.start_byte())
+}
+
+/// The list `offset` is in, from `node`, its innermost node.
+pub(crate) fn list_around(node: Node, offset: usize) -> Option<Node> {
+    ancestors(node).find(|node| is_list(node) && node.start_byte() < offset)
 }
 
 /// Moves into the next list, just after its opening bracket.
@@ -111,11 +110,21 @@ fn move_by(
     nowhere: &str,
 ) -> CommandResult {
     let buffer = editor.buffer();
-    let point = buffer.point();
-    let tree = tree_at(buffer, point..point).ok_or("No syntax tree for this buffer")?;
-    let offset = target(innermost(tree.root_node(), point), point).ok_or(nowhere)?;
+    let offset = find_at(buffer, buffer.point(), target, nowhere)?;
     editor.buffer_mut().set_point(offset);
     Ok(())
+}
+
+/// What `target` finds from the innermost node `offset` is inside of, else fails with
+/// `nowhere`.
+pub(crate) fn find_at<T>(
+    buffer: &Buffer,
+    offset: usize,
+    target: impl Fn(Node, usize) -> Option<T>,
+    nowhere: &str,
+) -> Result<T, CommandError> {
+    let tree = tree_at(buffer, offset..offset).ok_or("No syntax tree for this buffer")?;
+    Ok(target(innermost(tree.root_node(), offset), offset).ok_or(nowhere)?)
 }
 
 /// The innermost node that `offset` is strictly inside of, or the root.
@@ -137,7 +146,7 @@ fn expressions<'tree>(node: Node<'tree>) -> impl Iterator<Item = Node<'tree>> {
 }
 
 /// The expressions of `node` but for its brackets, which motion stays between.
-fn inside<'tree>(node: Node<'tree>) -> impl Iterator<Item = Node<'tree>> {
+pub(crate) fn inside<'tree>(node: Node<'tree>) -> impl Iterator<Item = Node<'tree>> {
     let brackets = is_list(&node).then(|| {
         let last = node.child_count() - 1;
         (node.child(0), node.child(last))
@@ -152,7 +161,7 @@ fn ancestors(node: Node) -> impl Iterator<Item = Node> {
 }
 
 /// Whether the node is between brackets that open and close it.
-fn is_list(node: &Node) -> bool {
+pub(crate) fn is_list(node: &Node) -> bool {
     let count = node.child_count();
     let (Some(first), Some(last)) = (
         node.child(0),

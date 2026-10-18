@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::mem;
-use std::ops::Range;
+use std::ops::{Range, RangeInclusive};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -19,8 +19,8 @@ use gpui::{
 
 use crate::assets::{EXECUTION_POINT_ICON, LOGPOINT_ICON};
 use remacs_core::{
-    Action, BreakpointIcon, ChangedLines, Code, CommandError, EchoMessage, Editor, Face,
-    FrameRequest, GutterIcon, GutterMark, Icon, Key, LineChange, LineExtra, MessageKind,
+    Action, BreakpointIcon, Buffer, ChangedLines, Code, CommandError, Cursor, EchoMessage, Editor,
+    Face, FrameRequest, GutterIcon, GutterMark, Icon, Key, LineChange, LineExtra, MessageKind,
     Minibuffer, MouseSelection, Outline, Pane, PaneBody, PaneButton, Popup, Preview, ScreenButton,
     ScreenMouse, ScreenPointer, ScreenSize, Scroll, Span, StatusItem, StatusSegment, Tabs,
     TextLabel, describe_sequence,
@@ -623,7 +623,7 @@ impl EditorView {
 
     fn receive_clipboard(&mut self, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-            self.editor.kill_ring.receive(text);
+            self.editor.receive_clipboard(text);
         }
     }
 
@@ -1198,25 +1198,13 @@ impl EditorView {
     /// Characters of `line` inside the active region; past the end means the newline too.
     fn region_columns(&self, line: usize) -> Option<Range<usize>> {
         let buffer = self.editor.window_buffer();
-        let region = buffer.region()?;
-        let text = buffer.text();
-        let line_range = text.line_range(line)?;
-        if region.start > line_range.end || region.end <= line_range.start {
-            return None;
-        }
-        let column_of =
-            |offset: usize| text.char_column(offset.clamp(line_range.start, line_range.end));
-        let end = if region.end > line_range.end {
-            column_of(line_range.end) + 1
-        } else {
-            column_of(region.end)
-        };
-        Some(column_of(region.start)..end)
+        region_columns(buffer, buffer.region()?, line)
     }
 
     /// The row of `line`, shown as `display_line` with the decorators' faces on its
     /// `visible` bytes, its gutter mark in `mark_slot` when the gutter has a column for
-    /// marks and `labels` over its text, and whether the line goes on past its right edge.
+    /// marks, `labels` over its text and the part of the `rectangle` region on it, and
+    /// whether the line goes on past its right edge.
     #[allow(clippy::too_many_arguments)]
     fn render_line(
         &self,
@@ -1228,6 +1216,7 @@ impl EditorView {
         mark_slot: Option<Div>,
         extra: Option<LineExtra>,
         labels: Vec<TextLabel>,
+        rectangle: Option<&(RangeInclusive<usize>, Range<usize>)>,
     ) -> (AnyElement, bool) {
         let (band, note) = extra.map_or((None, None), |extra| (extra.band, extra.note));
         let code_font = self.text_font();
@@ -1235,27 +1224,47 @@ impl EditorView {
         let buffer = self.editor.window_buffer();
         let is_current = line == buffer.point_line();
         let mut layers = Self::face_layers(&visible, decorations, &display_line, self.swatches);
-        if let Some(columns) = self.region_columns(line) {
-            layers.push(vec![(display_line.cell_range(columns), region_style())]);
+        let line_range = buffer.text().line_range(line).unwrap_or_default();
+        let cursors = buffer.cursors();
+        let rectangle =
+            rectangle.and_then(|rectangle| rectangle_columns(buffer, rectangle, line, &line_range));
+        let regions: Vec<_> = buffer
+            .region()
+            .filter(|_| !buffer.is_rectangle())
+            .into_iter()
+            .chain(cursors.iter().filter_map(Cursor::region))
+            .filter_map(|region| region_columns(buffer, region, line))
+            .chain(rectangle)
+            .map(|columns| (display_line.cell_range(columns), region_style()))
+            .collect();
+        if !regions.is_empty() {
+            layers.push(regions);
         }
-        let mut cursor = None;
-        if is_current {
-            let cell = display_line.cursor_cell(buffer.point_column());
-            let column = display_line.text[..cell.start].chars().count();
-            layers.push(vec![(cell, cursor_text_style())]);
-            let height = match self.cursor_height {
-                CursorHeight::Line => row_height,
-                CursorHeight::Font => metrics.glyph_height.min(row_height),
-            };
-            cursor = Some(
+        let on_line = cursors.partition_point(|cursor| cursor.point < line_range.start)
+            ..cursors.partition_point(|cursor| cursor.point <= line_range.end);
+        let points = cursors[on_line]
+            .iter()
+            .map(|cursor| cursor.point)
+            .chain(is_current.then(|| buffer.point()));
+        let height = match self.cursor_height {
+            CursorHeight::Line => row_height,
+            CursorHeight::Font => metrics.glyph_height.min(row_height),
+        };
+        let mut cursor_cells = Vec::new();
+        let cursor: Vec<_> = points
+            .map(|point| {
+                let cell = display_line.cursor_cell(buffer.text().char_column(point));
+                let column = display_line.text[..cell.start].chars().count();
+                cursor_cells.push((cell, cursor_text_style()));
                 block_cursor()
                     .absolute()
                     .left(metrics.char_width * column as f32)
                     .top((row_height - height) / 2.0)
                     .w(metrics.char_width)
-                    .h(height),
-            );
-        }
+                    .h(height)
+            })
+            .collect();
+        layers.push(cursor_cells);
         // Over the characters they stand on, as avy draws them; found from the bytes drawn,
         // as the faces are, not counted from the start of a line that may be megabytes.
         let label_elements: Vec<_> = labels
@@ -1651,6 +1660,9 @@ impl EditorView {
             .collect();
         let visible: Vec<_> = shown.iter().map(|(_, visible)| visible.clone()).collect();
         let decorations = self.editor.decorations_by_line(&visible);
+        // Once a frame: finding the columns reads the lines of point and mark.
+        let buffer = self.editor.window_buffer();
+        let rectangle = buffer.is_rectangle().then(|| buffer.rectangle()).flatten();
         let (lines, continued): (Vec<_>, Vec<_>) = (first_line..last_line)
             .zip(shown)
             .zip(decorations)
@@ -1667,6 +1679,7 @@ impl EditorView {
                     slot,
                     extra,
                     labels,
+                    rectangle.as_ref(),
                 )
             })
             .unzip();
@@ -2323,6 +2336,39 @@ fn cached_metrics(
     };
     *cache = Some((fonts, metrics));
     metrics
+}
+
+/// Characters of `line` inside `region`; past the end means the newline too.
+fn region_columns(buffer: &Buffer, region: Range<usize>, line: usize) -> Option<Range<usize>> {
+    let text = buffer.text();
+    let line_range = text.line_range(line)?;
+    if region.start > line_range.end || region.end <= line_range.start {
+        return None;
+    }
+    let column_of =
+        |offset: usize| text.char_column(offset.clamp(line_range.start, line_range.end));
+    let end = if region.end > line_range.end {
+        column_of(line_range.end) + 1
+    } else {
+        column_of(region.end)
+    };
+    Some(column_of(region.start)..end)
+}
+
+/// Characters of `line`, at `line_range`, inside `rectangle`'s lines and columns, none
+/// where the line is too short to reach it.
+fn rectangle_columns(
+    buffer: &Buffer,
+    (lines, columns): &(RangeInclusive<usize>, Range<usize>),
+    line: usize,
+    line_range: &Range<usize>,
+) -> Option<Range<usize>> {
+    if !lines.contains(&line) {
+        return None;
+    }
+    let line_len = buffer.text().char_column(line_range.end);
+    let columns = columns.start.min(line_len)..columns.end.min(line_len);
+    (!columns.is_empty()).then_some(columns)
 }
 
 /// The buffer's mode, and the language at point when it is another, like `HTML › CSS`.

@@ -60,7 +60,7 @@ const BINDINGS: &[(&str, &str)] = &[
 const MENUS: &[Menu] = &[
     Menu { title: APP_MENU, groups: &["about", "settings", "hide", "quit"], trailing: false },
     Menu { title: "File", groups: &["open", "save", "close"], trailing: false },
-    Menu { title: "Edit", groups: &["undo", "clipboard", "selection", "find", "code"], trailing: false },
+    Menu { title: "Edit", groups: &["undo", "clipboard", "selection", "cursors", "find", "code", "lines", "transform", "rectangle", "structure"], trailing: false },
     Menu { title: VIEW_MENU, groups: &["commands", "panels", "text-size", "theme"], trailing: false },
     Menu { title: "Go", groups: &["history", "buffer", "jump", "structure", "definitions", "problems"], trailing: false },
     Menu { title: "Git", groups: &["status", "history", "changes", "branches", "sync"], trailing: false },

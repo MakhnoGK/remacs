@@ -256,7 +256,17 @@ pub(crate) fn context_at(buffer: &Buffer, offset: usize) -> Option<SyntaxContext
     Some(SyntaxContext::Code)
 }
 
-#[cfg(test)]
+/// Whether the trees are a parse of the text as it is, not ones edited to follow it.
+pub(crate) fn is_reparsed(buffer: &Buffer) -> bool {
+    current(buffer).is_some_and(|syntax| {
+        syntax.tree.is_some()
+            && syntax
+                .layers_snapshot
+                .as_ref()
+                .is_some_and(|parsed| parsed.is_same(&syntax.snapshot))
+    })
+}
+
 pub(crate) fn is_parsed(buffer: &Buffer) -> bool {
     buffer
         .local::<BufferSyntax>()

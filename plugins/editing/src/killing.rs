@@ -4,6 +4,7 @@ use crate::editing::writable_buffer;
 use crate::motion::{
     at_end_of_buffer, line_end, paragraph_end, paragraph_start, word_end, word_start,
 };
+use crate::rectangle;
 
 pub const SET_MARK_COMMAND: &str = "set-mark-command";
 pub const POP_TO_MARK_COMMAND: &str = "pop-to-mark-command";
@@ -78,12 +79,18 @@ pub fn mark_whole_buffer(editor: &mut Editor) -> CommandResult {
 
 pub fn kill_region(editor: &mut Editor) -> CommandResult {
     writable_buffer(editor)?;
+    if editor.buffer().is_rectangle() {
+        return rectangle::kill_rectangle(editor);
+    }
     let region = editor.buffer().mark_range().ok_or(NO_MARK)?;
     editor.kill(region);
     Ok(())
 }
 
 pub fn kill_ring_save(editor: &mut Editor) -> CommandResult {
+    if editor.buffer().is_rectangle() {
+        return rectangle::copy_rectangle_as_kill(editor);
+    }
     let buffer = editor.buffer_mut();
     let region = buffer.mark_range().ok_or(NO_MARK)?;
     let text = buffer.contents(region);
@@ -153,6 +160,10 @@ pub fn mark_paragraph(editor: &mut Editor) -> CommandResult {
 
 pub fn yank(editor: &mut Editor) -> CommandResult {
     writable_buffer(editor)?;
+    if let Some(lines) = rectangle::newest_kill_is_rectangle(editor) {
+        rectangle::insert_rectangle(editor.buffer_mut(), &lines);
+        return Ok(());
+    }
     let text = editor
         .kill_ring
         .newest()

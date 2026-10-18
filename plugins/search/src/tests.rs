@@ -502,3 +502,71 @@ fn matches_across_chunks_are_found_once_each() {
     assert_eq!(found("aa", &text, 13..text.len()), [13, 15]);
     assert_eq!(found("aa", &text, 13..14), [] as [usize; 0]);
 }
+
+#[test]
+fn search_results_are_edited_in_a_buffer_and_written_back_unless_changed_since() {
+    let root = project("edit-results");
+    let mut editor = Editor::new(&[&EditingPlugin, &MinibufferPlugin, &SearchPlugin]);
+    editor.visit_file(&root.join("src/main.rs")).unwrap();
+    press(&mut editor, "M-s g");
+    type_text(&mut editor, "open");
+    wait_for_lines(&mut editor);
+
+    press(&mut editor, "C-x C-q");
+    assert!(editor.minibuffer().is_none());
+    let buffer = editor.window_buffer_mut();
+    assert_eq!(buffer.name(), "*search results*");
+    let listed = buffer.contents(0..buffer.text().len());
+    let mut lines: Vec<_> = listed.lines().collect();
+    lines.sort_unstable();
+    assert_eq!(
+        lines,
+        [
+            "src/io.rs:1:pub fn open_file() {}",
+            "src/io.rs:2:fn open() {}",
+            "src/main.rs:2:    let file = open(\"a\");",
+        ]
+    );
+
+    buffer.set_point(0);
+    buffer.delete(0..1);
+    press(&mut editor, "C-c C-c");
+    assert!(
+        editor
+            .message()
+            .unwrap()
+            .text
+            .starts_with("Lines were added")
+    );
+    let edited = listed
+        .replace("fn open", "fn read")
+        .replace("= open", "= read");
+    let buffer = editor.window_buffer_mut();
+    buffer.delete(0..buffer.text().len());
+    buffer.insert(&edited);
+    fs::write(
+        root.join("src/io.rs"),
+        "pub fn open_file() {}\nfn open() { 1 }\n",
+    )
+    .unwrap();
+
+    press(&mut editor, "C-c C-c");
+    assert_eq!(
+        editor.message().unwrap().text,
+        "Wrote 2 lines; left 1 line that changed since the search"
+    );
+    assert!(!has_buffer(&editor, "*search results*"));
+    assert!(!has_buffer(&editor, "io.rs"));
+    let main = editor.window_buffer();
+    assert_eq!(main.name(), "main.rs");
+    assert!(!main.is_modified());
+    assert_eq!(
+        fs::read_to_string(root.join("src/main.rs")).unwrap(),
+        "fn main() {\n    let file = read(\"a\");\n}\n"
+    );
+    assert_eq!(
+        fs::read_to_string(root.join("src/io.rs")).unwrap(),
+        "pub fn read_file() {}\nfn open() { 1 }\n"
+    );
+    fs::remove_dir_all(root).unwrap();
+}

@@ -2,16 +2,91 @@
 //! default keys.
 
 mod comment;
+mod cursors;
 mod editing;
 mod expand;
 mod indent;
 mod killing;
+mod lines;
 mod motion;
 mod pairs;
+mod rectangle;
+mod transform;
+mod transpose;
 
-use remacs_core::{Command, Editor, MenuItem, Plugin, Registry, SELF_INSERT_COMMAND};
+use std::rc::Rc;
+
+use remacs_core::{Command, Editor, MenuItem, Plugin, Registry, SELF_INSERT_COMMAND, Section};
+use serde::Deserialize;
 
 pub struct EditingPlugin;
+
+/// `editing.toml`.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct EditingSettings {
+    /// Cursors a buffer has at most, point included.
+    pub max_cursors: usize,
+}
+
+impl Default for EditingSettings {
+    fn default() -> Self {
+        Self { max_cursors: 1000 }
+    }
+}
+
+impl Section for EditingSettings {
+    const NAME: &str = "editing";
+
+    fn check(&self) -> Result<(), String> {
+        match self.max_cursors {
+            0 => Err("max-cursors is 0".into()),
+            _ => Ok(()),
+        }
+    }
+}
+
+/// Commands that run again at each cursor, as multiple-cursors runs all but those it lists
+/// to run once; those that read keys or text after them, or keep state between runs, do
+/// not.
+const EACH_CURSOR: &[&str] = &[
+    "forward-char",
+    "backward-char",
+    "forward-word",
+    "backward-word",
+    "forward-paragraph",
+    "backward-paragraph",
+    "next-line",
+    "previous-line",
+    "move-beginning-of-line",
+    "move-end-of-line",
+    SELF_INSERT_COMMAND,
+    "newline",
+    "open-line-below",
+    "open-line-above",
+    "comment-line",
+    "tab-to-tab-stop",
+    "delete-char",
+    "delete-backward-char",
+    killing::SET_MARK_COMMAND,
+    "exchange-point-and-mark",
+    "mark-paragraph",
+    "kill-region",
+    "kill-ring-save",
+    "kill-line",
+    "kill-word",
+    "backward-kill-word",
+    "kill-paragraph",
+    killing::YANK,
+    "transpose-chars",
+    "transpose-words",
+    "transpose-lines",
+    "join-line",
+    "upcase-dwim",
+    "downcase-dwim",
+    "capitalize-dwim",
+    "duplicate-dwim",
+];
 
 #[rustfmt::skip]
 const COMMANDS: &[Command] = &[
@@ -42,7 +117,7 @@ const COMMANDS: &[Command] = &[
     Command::new("delete-backward-char", "Delete the previous character or the region", editing::delete_backward_char),
     Command::new("undo", "Undo the last change", editing::undo),
     Command::new("undo-redo", "Redo the last undone change", editing::undo_redo),
-    Command::new("keyboard-quit", "Cancel the current command and deactivate the mark", editing::keyboard_quit),
+    Command::new("keyboard-quit", "Cancel the current command and deactivate the mark, or remove the cursors", cursors::keyboard_quit),
     Command::new(killing::SET_MARK_COMMAND, "Set the mark at point and activate it", killing::set_mark_command),
     Command::new(killing::POP_TO_MARK_COMMAND, "Go to the mark, then, with C-SPC, to the marks before it", killing::pop_to_mark_command),
     Command::new("exchange-point-and-mark", "Swap point and mark, activating the region", killing::exchange_point_and_mark),
@@ -58,6 +133,39 @@ const COMMANDS: &[Command] = &[
     Command::new(expand::CONTRACT_REGION, "Go back to the selection the last expand-region grew from", expand::contract_region),
     Command::new(killing::YANK, "Insert the last killed text", killing::yank),
     Command::new(killing::YANK_POP, "Replace the yanked text with an earlier kill", killing::yank_pop),
+    Command::new("transpose-chars", "Swap the characters around point, or the two before it at the end of a line", transpose::transpose_chars),
+    Command::new("transpose-words", "Swap the words around point", transpose::transpose_words),
+    Command::new("transpose-lines", "Swap the line with the one above", transpose::transpose_lines),
+    Command::new(transform::ZAP_TO_CHAR, "Kill up to and with the next occurrence of a character", transform::zap_to_char),
+    Command::new(transform::ZAP_UP_TO_CHAR, "Kill up to the next occurrence of a character", transform::zap_up_to_char),
+    Command::new("join-line", "Join the line to the one above, or the region's lines into one", transform::join_line),
+    Command::new(transform::CYCLE_SPACING, "Leave one space around point, then none, then what was there", transform::cycle_spacing),
+    Command::new("upcase-dwim", "Upcase the region, or to the end of the word", transform::upcase_dwim),
+    Command::new("downcase-dwim", "Downcase the region, or to the end of the word", transform::downcase_dwim),
+    Command::new("capitalize-dwim", "Capitalize the region, or to the end of the word", transform::capitalize_dwim),
+    Command::new("duplicate-dwim", "Copy the line under it, or the region after it, and go to the copy", transform::duplicate_dwim),
+    Command::new("move-line-up", "Move the line, or the region's lines, above the line before", transform::move_line_up),
+    Command::new("move-line-down", "Move the line, or the region's lines, below the line after", transform::move_line_down),
+    Command::new("sort-lines", "Sort the region's lines, or the buffer's", lines::sort_lines),
+    Command::new("delete-duplicate-lines", "Delete repeats of the region's lines, or the buffer's", lines::delete_duplicate_lines),
+    Command::new("keep-lines", "Delete the region's lines, or the buffer's, that do not match a regexp", lines::keep_lines),
+    Command::new("flush-lines", "Delete the region's lines, or the buffer's, that match a regexp", lines::flush_lines),
+    Command::new("align-regexp", "Line up the first match of a regexp on the region's lines", lines::align_regexp),
+    Command::new("align-regexp-repeat", "Line up every match of a regexp on the region's lines, in columns", lines::align_regexp_repeat),
+    Command::new(cursors::MARK_NEXT, "Add a cursor at the next match of the region, or on the next line", cursors::mark_next_like_this),
+    Command::new(cursors::MARK_PREVIOUS, "Add a cursor at the previous match of the region, or on the line above", cursors::mark_previous_like_this),
+    Command::new(cursors::SKIP_TO_NEXT, "Move the last cursor added to the next match of the region", cursors::skip_to_next_like_this),
+    Command::new(cursors::MARK_ALL, "Add a cursor at every match of the region", cursors::mark_all_like_this),
+    Command::new(cursors::EDIT_LINES, "Add a cursor on each line of the region", cursors::edit_lines),
+    Command::new(cursors::IEDIT_MODE, "Add a cursor at each occurrence of the symbol at point or of the region, or remove the cursors", cursors::iedit_mode),
+    Command::new(cursors::REMOVE_CURSORS, "Remove the cursors but point", cursors::remove_cursors),
+    Command::new("rectangle-mark-mode", "Make the region a rectangle, or a run of text again", rectangle::rectangle_mark_mode),
+    Command::new("string-rectangle", "Replace each line of the rectangle with a string", rectangle::string_rectangle),
+    Command::new("kill-rectangle", "Kill the rectangle, for yank-rectangle", rectangle::kill_rectangle),
+    Command::new("copy-rectangle-as-kill", "Copy the rectangle, for yank-rectangle", rectangle::copy_rectangle_as_kill),
+    Command::new("yank-rectangle", "Insert the last rectangle killed, its corner at point", rectangle::yank_rectangle),
+    Command::new("delete-rectangle", "Delete the rectangle", rectangle::delete_rectangle),
+    Command::new("open-rectangle", "Insert blank space over the rectangle, moving its text right", rectangle::open_rectangle),
 ];
 
 const BINDINGS: &[(&str, &str)] = &[
@@ -125,6 +233,34 @@ const BINDINGS: &[(&str, &str)] = &[
     ("C-y", killing::YANK),
     ("s-v", killing::YANK),
     ("M-y", killing::YANK_POP),
+    ("C-t", "transpose-chars"),
+    ("M-t", "transpose-words"),
+    ("C-x C-t", "transpose-lines"),
+    ("M-z", transform::ZAP_TO_CHAR),
+    ("M-Z", transform::ZAP_UP_TO_CHAR),
+    ("M-^", "join-line"),
+    ("M-SPC", transform::CYCLE_SPACING),
+    ("M-u", "upcase-dwim"),
+    ("M-l", "downcase-dwim"),
+    ("M-c", "capitalize-dwim"),
+    ("s-d", "duplicate-dwim"),
+    ("M-S-<up>", "move-line-up"),
+    ("M-S-<down>", "move-line-down"),
+    ("C-x \\", "align-regexp"),
+    ("C-x |", "align-regexp-repeat"),
+    ("C->", cursors::MARK_NEXT),
+    ("C-<", cursors::MARK_PREVIOUS),
+    ("C-c C->", cursors::SKIP_TO_NEXT),
+    ("C-c C-<", cursors::MARK_ALL),
+    ("C-S-c C-S-c", cursors::EDIT_LINES),
+    ("C-;", cursors::IEDIT_MODE),
+    ("C-x SPC", "rectangle-mark-mode"),
+    ("C-x r t", "string-rectangle"),
+    ("C-x r k", "kill-rectangle"),
+    ("C-x r M-w", "copy-rectangle-as-kill"),
+    ("C-x r y", "yank-rectangle"),
+    ("C-x r d", "delete-rectangle"),
+    ("C-x r o", "open-rectangle"),
 ];
 
 #[rustfmt::skip]
@@ -140,7 +276,37 @@ const MENU_ITEMS: &[MenuItem] = &[
     MenuItem::new("Edit", "selection", "Set Mark", killing::SET_MARK_COMMAND),
     MenuItem::new("Edit", "selection", "Expand Selection", expand::EXPAND_REGION),
     MenuItem::new("Edit", "selection", "Shrink Selection", expand::CONTRACT_REGION).enabled_when(has_region),
+    MenuItem::new("Edit", "cursors", "Add Cursor at Next Match", cursors::MARK_NEXT),
+    MenuItem::new("Edit", "cursors", "Add Cursor at Previous Match", cursors::MARK_PREVIOUS),
+    MenuItem::new("Edit", "cursors", "Skip to Next Match", cursors::SKIP_TO_NEXT).enabled_when(has_region),
+    MenuItem::new("Edit", "cursors", "Add Cursors at All Matches", cursors::MARK_ALL).enabled_when(has_region),
+    MenuItem::new("Edit", "cursors", "Add Cursors to Lines", cursors::EDIT_LINES).enabled_when(has_region),
+    MenuItem::new("Edit", "cursors", "Edit All Occurrences", cursors::IEDIT_MODE),
+    MenuItem::new("Edit", "cursors", "Remove Cursors", cursors::REMOVE_CURSORS).enabled_when(cursors::has_cursors),
     MenuItem::new("Edit", "code", "Comment Line", "comment-line"),
+    MenuItem::new("Edit", "lines", "Duplicate", "duplicate-dwim"),
+    MenuItem::new("Edit", "lines", "Move Line Up", "move-line-up"),
+    MenuItem::new("Edit", "lines", "Move Line Down", "move-line-down"),
+    MenuItem::new("Edit", "lines", "Join Lines", "join-line"),
+    MenuItem::new("Edit", "lines", "Sort Lines", "sort-lines"),
+    MenuItem::new("Edit", "lines", "Delete Duplicate Lines", "delete-duplicate-lines"),
+    MenuItem::new("Edit", "lines", "Keep Lines Matching…", "keep-lines"),
+    MenuItem::new("Edit", "lines", "Delete Lines Matching…", "flush-lines"),
+    MenuItem::new("Edit", "lines", "Align…", "align-regexp").enabled_when(has_region),
+    MenuItem::new("Edit", "lines", "Align Every Match…", "align-regexp-repeat").enabled_when(has_region),
+    MenuItem::new("Edit", "transform", "Upper Case", "upcase-dwim"),
+    MenuItem::new("Edit", "transform", "Lower Case", "downcase-dwim"),
+    MenuItem::new("Edit", "transform", "Capitalize", "capitalize-dwim"),
+    MenuItem::new("Edit", "transform", "Transpose Characters", "transpose-chars"),
+    MenuItem::new("Edit", "transform", "Transpose Words", "transpose-words"),
+    MenuItem::new("Edit", "transform", "Transpose Lines", "transpose-lines"),
+    MenuItem::new("Edit", "rectangle", "Rectangle Selection", "rectangle-mark-mode"),
+    MenuItem::new("Edit", "rectangle", "Replace Rectangle…", "string-rectangle").enabled_when(has_mark),
+    MenuItem::new("Edit", "rectangle", "Cut Rectangle", "kill-rectangle").enabled_when(has_mark),
+    MenuItem::new("Edit", "rectangle", "Copy Rectangle", "copy-rectangle-as-kill").enabled_when(has_mark),
+    MenuItem::new("Edit", "rectangle", "Paste Rectangle", "yank-rectangle"),
+    MenuItem::new("Edit", "rectangle", "Delete Rectangle", "delete-rectangle").enabled_when(has_mark),
+    MenuItem::new("Edit", "rectangle", "Open Rectangle", "open-rectangle").enabled_when(has_mark),
     MenuItem::new("Go", "buffer", "Beginning of Buffer", "beginning-of-buffer"),
     MenuItem::new("Go", "buffer", "End of Buffer", "end-of-buffer"),
     MenuItem::new("Go", "buffer", "Previous Paragraph", "backward-paragraph"),
@@ -149,18 +315,34 @@ const MENU_ITEMS: &[MenuItem] = &[
 
 impl Plugin for EditingPlugin {
     fn register(&self, registry: &mut Registry) {
-        for command in COMMANDS {
-            registry.commands.add(*command);
+        for &command in COMMANDS {
+            registry
+                .commands
+                .add(if EACH_CURSOR.contains(&command.name) {
+                    command.each_cursor()
+                } else {
+                    command
+                });
         }
         for &(keys, command) in BINDINGS {
             registry.keymap.bind(keys, command);
         }
         registry.menu_items.extend_from_slice(MENU_ITEMS);
+        registry.key_sinks.push(Rc::new(transform::take_zap_key));
+        registry.settings_hooks.push(Rc::new(|editor| {
+            let settings = editor.settings_section::<EditingSettings>();
+            *editor.plugin_state() = settings;
+        }));
+        registry.status_providers.push(Rc::new(cursors::status));
     }
 }
 
 fn has_region(editor: &Editor) -> bool {
     editor.buffer().region().is_some()
+}
+
+fn has_mark(editor: &Editor) -> bool {
+    editor.buffer().mark().is_some()
 }
 
 fn after_yank(editor: &Editor) -> bool {

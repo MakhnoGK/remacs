@@ -1,8 +1,8 @@
 use std::rc::Rc;
 
 use remacs_core::{
-    Buffer, CommentSyntax, Editor, Key, MessageKind, Mode, Plugin, Registry, SyntaxContext,
-    parse_sequence,
+    Buffer, Command, CommentSyntax, Editor, Key, Keymap, MessageKind, MinorKeymap, Mode, Plugin,
+    Registry, SyntaxContext, parse_sequence,
 };
 use remacs_text::Text;
 
@@ -683,4 +683,380 @@ fn delete_removes_an_active_region_without_killing_it() {
     press(&mut editor, "M-f C-SPC C-e DEL");
     assert_eq!(contents(&editor), "keep");
     assert!(editor.kill_ring.is_empty());
+}
+
+fn answer(editor: &mut Editor, input: &str) {
+    editor.minibuffer_mut().unwrap().set_input(input);
+    if let Err(error) = editor.exit_minibuffer(true) {
+        editor.set_error(error.0);
+    }
+}
+
+#[test]
+fn transpose_swaps_characters_words_and_lines() {
+    let mut editor = editor_with("abc\nfoo bar\nlast");
+    press(&mut editor, "C-f C-t");
+    assert_eq!(contents(&editor), "bac\nfoo bar\nlast");
+    assert_eq!(editor.buffer().point(), 2);
+    press(&mut editor, "C-e C-t");
+    assert_eq!(contents(&editor), "bca\nfoo bar\nlast");
+    press(&mut editor, "C-n C-a M-f M-t");
+    assert_eq!(contents(&editor), "bca\nbar foo\nlast");
+    assert_eq!(editor.buffer().point(), 11);
+    press(&mut editor, "C-x C-t");
+    assert_eq!(contents(&editor), "bar foo\nbca\nlast");
+    assert_eq!(editor.buffer().point(), 12);
+    press(&mut editor, "M-< C-x C-t");
+    assert_eq!(editor.message().unwrap().kind, MessageKind::Error);
+}
+
+#[test]
+fn case_commands_change_the_next_word_or_the_region() {
+    let mut editor = editor_with("hello wORLD again");
+    press(&mut editor, "M-u");
+    assert_eq!(contents(&editor), "HELLO wORLD again");
+    press(&mut editor, "M-c");
+    assert_eq!(contents(&editor), "HELLO World again");
+    press(&mut editor, "C-a C-SPC C-e M-l");
+    assert_eq!(contents(&editor), "hello world again");
+    press(&mut editor, "C-a C-SPC C-e M-c");
+    assert_eq!(contents(&editor), "Hello World Again");
+}
+
+#[test]
+fn zap_kills_up_to_a_character_read_after_the_key() {
+    let mut editor = editor_with("one, two; жук");
+    press(&mut editor, "M-z");
+    type_text(&mut editor, ",");
+    assert_eq!(contents(&editor), " two; жук");
+    assert_eq!(editor.kill_ring.newest(), Some("one,"));
+    press(&mut editor, "M-Z ж");
+    assert_eq!(contents(&editor), "жук");
+    press(&mut editor, "M-z q");
+    assert_eq!(contents(&editor), "жук");
+    assert_eq!(editor.message().unwrap().kind, MessageKind::Error);
+    press(&mut editor, "M-z C-g C-f");
+    assert_eq!(editor.buffer().point(), "ж".len());
+    editor.run_command("flush-lines");
+    press(&mut editor, "M-z");
+    assert_eq!(editor.message().unwrap().kind, MessageKind::Error);
+    press(&mut editor, "C-g C-f");
+    assert_eq!(contents(&editor), "жук");
+}
+
+#[test]
+fn join_line_leaves_one_space_unless_by_a_bracket() {
+    let mut editor = editor_with("call(\n    one  \n   two\n)");
+    press(&mut editor, "C-n C-n M-^");
+    assert_eq!(contents(&editor), "call(\n    one two\n)");
+    assert_eq!(editor.buffer().point(), 13);
+    press(&mut editor, "M-< C-SPC M-> M-^");
+    assert_eq!(contents(&editor), "call(one two)");
+}
+
+#[test]
+fn cycle_spacing_goes_from_one_space_to_none_and_back() {
+    let mut editor = editor_with("a  \t b");
+    press(&mut editor, "C-f C-f M-SPC");
+    assert_eq!(contents(&editor), "a b");
+    press(&mut editor, "M-SPC");
+    assert_eq!(contents(&editor), "ab");
+    press(&mut editor, "M-SPC");
+    assert_eq!(contents(&editor), "a  \t b");
+    assert_eq!(editor.buffer().point(), 2);
+}
+
+#[test]
+fn duplicate_copies_the_line_or_the_region_and_goes_to_the_copy() {
+    let mut editor = editor_with("one\ntwo");
+    press(&mut editor, "C-f s-d");
+    assert_eq!(contents(&editor), "one\none\ntwo");
+    assert_eq!(editor.buffer().point(), 5);
+    press(&mut editor, "M-> C-SPC C-b C-b s-d");
+    assert_eq!(contents(&editor), "one\none\ntwowo");
+    assert_eq!(editor.buffer().region(), Some(11..13));
+}
+
+#[test]
+fn move_line_takes_the_line_or_the_region_lines_past_the_next() {
+    let mut editor = editor_with("a\nbb\ncc\nd");
+    press(&mut editor, "C-n C-f M-S-<down>");
+    assert_eq!(contents(&editor), "a\ncc\nbb\nd");
+    assert_eq!(editor.buffer().point(), 6);
+    press(&mut editor, "C-SPC C-p M-S-<up>");
+    assert_eq!(contents(&editor), "cc\nbb\na\nd");
+    assert_eq!(editor.buffer().region(), Some(1..4));
+    press(&mut editor, "M-S-<up>");
+    assert_eq!(editor.message().unwrap().kind, MessageKind::Error);
+}
+
+#[test]
+fn line_commands_act_on_the_region_lines_or_the_buffer() {
+    let mut editor = editor_with("c\na\nb\na\n");
+    press(&mut editor, "M-x");
+    editor.run_command("sort-lines");
+    assert_eq!(contents(&editor), "a\na\nb\nc\n");
+    editor.run_command("delete-duplicate-lines");
+    assert_eq!(contents(&editor), "a\nb\nc\n");
+    press(&mut editor, "C-n C-SPC M->");
+    editor.run_command("flush-lines");
+    answer(&mut editor, "^c");
+    assert_eq!(contents(&editor), "a\nb\n");
+    editor.run_command("keep-lines");
+    answer(&mut editor, "b");
+    assert_eq!(contents(&editor), "b\n");
+    editor.run_command("keep-lines");
+    answer(&mut editor, "(");
+    assert!(editor.echo().unwrap().starts_with("Invalid regexp"));
+    let mut editor = editor_with("a\nx\ny\nb");
+    press(&mut editor, "C-n C-SPC C-n C-e");
+    editor.run_command("flush-lines");
+    answer(&mut editor, ".");
+    assert_eq!(contents(&editor), "a\nb");
+}
+
+#[test]
+fn align_regexp_lines_up_the_first_match_or_every_match() {
+    let mut editor = editor_with("a = 1 = x\nbbb=2 = yy\nnone\n");
+    press(&mut editor, "C-SPC M-> C-x \\");
+    answer(&mut editor, "=");
+    assert_eq!(contents(&editor), "a   = 1 = x\nbbb =2 = yy\nnone\n");
+    press(&mut editor, "M-< C-SPC M-> C-x |");
+    answer(&mut editor, "=");
+    assert_eq!(contents(&editor), "a   = 1 = x\nbbb =2  = yy\nnone\n");
+    let aligned = contents(&editor);
+    press(&mut editor, "M-< C-SPC M-> C-x |");
+    answer(&mut editor, r"\b");
+    assert_eq!(contents(&editor), aligned);
+    press(&mut editor, "M-< C-SPC M-> C-x |");
+    answer(&mut editor, "x?");
+    assert_eq!(
+        editor.echo().as_deref(),
+        Some("The regexp matches empty text")
+    );
+}
+
+fn cursor_points(editor: &Editor) -> Vec<usize> {
+    editor
+        .buffer()
+        .cursors()
+        .iter()
+        .map(|cursor| cursor.point)
+        .collect()
+}
+
+#[test]
+fn typing_and_deleting_happen_at_every_cursor_as_one_undo() {
+    let mut editor = editor_with("foo(1)\nfoo(2)\nfoo(3)");
+    press(&mut editor, "C-SPC C-f C-f C-f C-> C->");
+    assert_eq!(cursor_points(&editor), [10, 17]);
+    press(&mut editor, "C-<");
+    assert!(editor.echo().unwrap().starts_with("No more matches"));
+    press(&mut editor, "C-g");
+    assert_eq!(cursor_points(&editor), [10, 17]);
+    type_text(&mut editor, "bar");
+    press(&mut editor, "DEL C-e");
+    assert_eq!(contents(&editor), "fooba(1)\nfooba(2)\nfooba(3)");
+    assert_eq!(cursor_points(&editor), [17, 26]);
+    press(&mut editor, "C-/");
+    assert_eq!(contents(&editor), "foobar(1)\nfoobar(2)\nfoobar(3)");
+    press(&mut editor, "C-/");
+    assert_eq!(contents(&editor), "foo(1)\nfoo(2)\nfoo(3)");
+    press(&mut editor, "C-g");
+    assert!(editor.buffer().cursors().is_empty());
+}
+
+#[test]
+fn clipboard_text_from_elsewhere_yanks_at_every_cursor() {
+    let mut editor = editor_with("a1 b\na2 b\na3 b");
+    press(&mut editor, "C-SPC C-n C-n C-S-c C-S-c M-d");
+    // remacs's own kill coming back from the clipboard leaves the cursors' kills alone.
+    let own = editor.kill_ring.newest().unwrap().to_owned();
+    editor.receive_clipboard(own);
+    press(&mut editor, "C-y");
+    assert_eq!(contents(&editor), "a1 b\na2 b\na3 b");
+    press(&mut editor, "C-a M-d");
+    editor.receive_clipboard("foo".into());
+    press(&mut editor, "C-y");
+    assert_eq!(contents(&editor), "foo b\nfoo b\nfoo b");
+}
+
+#[test]
+fn undo_and_redo_put_cursors_back_with_the_text() {
+    let mut editor = editor_with("ab\nab\nab");
+    press(&mut editor, "C-SPC C-n C-n C-S-c C-S-c");
+    assert_eq!(cursor_points(&editor), [0, 3]);
+    type_text(&mut editor, "x");
+    assert_eq!(cursor_points(&editor), [1, 5]);
+    press(&mut editor, "C-/");
+    assert_eq!(contents(&editor), "ab\nab\nab");
+    assert_eq!(cursor_points(&editor), [0, 3]);
+    press(&mut editor, "C-?");
+    assert_eq!(contents(&editor), "xab\nxab\nxab");
+    assert_eq!(cursor_points(&editor), [1, 5]);
+    press(&mut editor, "C-/");
+    type_text(&mut editor, "y");
+    assert_eq!(contents(&editor), "yab\nyab\nyab");
+}
+
+#[test]
+fn undo_neither_brings_back_removed_cursors_nor_removes_new_ones() {
+    let mut editor = editor_with("ab\nab\nab");
+    press(&mut editor, "C-SPC C-n C-n C-S-c C-S-c");
+    type_text(&mut editor, "x");
+    press(&mut editor, "C-g C-/");
+    assert_eq!(contents(&editor), "ab\nab\nab");
+    assert!(editor.buffer().cursors().is_empty());
+    type_text(&mut editor, "y");
+    press(&mut editor, "C-a C-< C-<");
+    assert_eq!(cursor_points(&editor), [0, 3]);
+    press(&mut editor, "C-/");
+    assert_eq!(contents(&editor), "ab\nab\nab");
+    assert_eq!(cursor_points(&editor), [0, 3]);
+}
+
+#[test]
+fn cursors_a_run_once_command_moved_together_type_once() {
+    let mut editor = editor_with("ab ab ab\nzz");
+    press(&mut editor, "C-SPC C-f C-f C-c C-<");
+    assert_eq!(cursor_points(&editor), [5, 8]);
+    press(&mut editor, "C-g M-<");
+    editor.run_command("flush-lines");
+    answer(&mut editor, "ab");
+    type_text(&mut editor, "x");
+    assert_eq!(contents(&editor), "xzz");
+}
+
+#[test]
+fn each_cursor_kills_and_yanks_its_own_text() {
+    let mut editor = editor_with("a1 b\na2 b\na3 b");
+    press(&mut editor, "C-SPC C-n C-n C-S-c C-S-c");
+    assert_eq!(cursor_points(&editor), [0, 5]);
+    press(&mut editor, "M-d C-e C-y");
+    assert_eq!(contents(&editor), " ba1\n ba2\n ba3");
+    assert_eq!(editor.kill_ring.newest(), Some("a3"));
+}
+
+#[test]
+fn mark_all_and_skip_put_cursors_on_matches_of_the_region() {
+    let mut editor = editor_with("x ab ab ab ab");
+    press(&mut editor, "C-f C-f C-SPC C-f C-f C-c C-<");
+    assert_eq!(cursor_points(&editor), [7, 10, 13]);
+    press(&mut editor, "C-g C-g M-< C-f C-f C-SPC C-f C-f C-> C-c C->");
+    assert_eq!(cursor_points(&editor), [10]);
+    assert_eq!(editor.buffer().cursors()[0].region(), Some(8..10));
+}
+
+#[test]
+fn cursors_stop_at_max_cursors() {
+    let mut editor = editor_with("x ab ab ab ab");
+    editor.plugin_state::<crate::EditingSettings>().max_cursors = 3;
+    press(&mut editor, "C-f C-f C-SPC C-f C-f C-c C-<");
+    assert!(editor.buffer().cursors().is_empty());
+    assert_eq!(
+        editor.echo().as_deref(),
+        Some("4 cursors would be over max-cursors, 3")
+    );
+    press(&mut editor, "C-> C->");
+    assert_eq!(cursor_points(&editor), [7, 10]);
+    press(&mut editor, "C->");
+    assert_eq!(cursor_points(&editor), [7, 10]);
+    let mut editor = editor_with("x ab ab ab");
+    editor.plugin_state::<crate::EditingSettings>().max_cursors = 3;
+    press(&mut editor, "C-f C-f C-SPC C-f C-f C-> C-> C-c C-<");
+    assert_eq!(editor.echo().as_deref(), Some("3 cursors"));
+    assert_eq!(cursor_points(&editor), [7, 10]);
+}
+
+#[test]
+fn iedit_puts_cursors_on_whole_symbols_at_point_offset() {
+    let mut editor = editor_with("let ab = ab + abc;\nab");
+    press(&mut editor, "C-f C-f C-f C-f C-f C-;");
+    assert_eq!(cursor_points(&editor), [10, 20]);
+    type_text(&mut editor, "Z");
+    assert_eq!(contents(&editor), "let aZb = aZb + abc;\naZb");
+    press(&mut editor, "C-;");
+    assert!(editor.buffer().cursors().is_empty());
+}
+
+/// Stands in for a popup registered after editing, with C-g to close it.
+struct PopupPlugin;
+
+#[derive(Default)]
+struct PopupShown(bool);
+
+impl Plugin for PopupPlugin {
+    fn register(&self, registry: &mut Registry) {
+        registry
+            .commands
+            .add(Command::new("popup-quit", "Close the popup", |editor| {
+                editor.plugin_state::<PopupShown>().0 = false;
+                Ok(())
+            }));
+        let mut keymap = Keymap::default();
+        keymap.bind("C-g", "popup-quit");
+        registry.minor_keymaps.push(MinorKeymap {
+            active: |editor| {
+                editor
+                    .find_plugin_state::<PopupShown>()
+                    .is_some_and(|shown| shown.0)
+            },
+            keymap,
+        });
+    }
+}
+
+#[test]
+fn c_g_closes_a_popup_before_it_removes_cursors() {
+    let mut editor = Editor::new(&[&EditingPlugin, &PopupPlugin]);
+    editor.add_buffer(Buffer::new("test", Text::from("a\nb\nc"), "Fundamental"));
+    press(&mut editor, "C-> C->");
+    editor.plugin_state::<PopupShown>().0 = true;
+    press(&mut editor, "C-g");
+    assert!(!editor.plugin_state::<PopupShown>().0);
+    assert_eq!(cursor_points(&editor), [2, 4]);
+    press(&mut editor, "C-g");
+    assert!(editor.buffer().cursors().is_empty());
+}
+
+#[test]
+fn mark_next_without_a_region_adds_a_cursor_on_the_next_line() {
+    let mut editor = editor_with("abc\nd\nefg");
+    press(&mut editor, "C-f C-f C-> C->");
+    assert_eq!(cursor_points(&editor), [5, 8]);
+    press(&mut editor, "C->");
+    assert_eq!(editor.message().unwrap().kind, MessageKind::Error);
+}
+
+#[test]
+fn rectangles_are_killed_yanked_opened_and_replaced_by_columns() {
+    let mut editor = editor_with("abcd\nef\nijkl");
+    press(&mut editor, "C-f C-SPC C-n C-n C-f C-f C-x r k");
+    assert_eq!(contents(&editor), "ad\ne\nil");
+    assert_eq!(editor.buffer().point(), 1);
+    press(&mut editor, "M-> C-x r y");
+    assert_eq!(contents(&editor), "ad\ne\nilbc\n  f \n  jk");
+    press(&mut editor, "M-< C-SPC C-n C-x r o");
+    assert_eq!(contents(&editor), "ad\ne\nilbc\n  f \n  jk");
+    press(&mut editor, "C-f C-SPC C-n C-x r t");
+    answer(&mut editor, "<>");
+    assert_eq!(contents(&editor), "a<>d\ne<>\nilbc\n  f \n  jk");
+    press(&mut editor, "M-< C-SPC C-n C-f C-x r o");
+    assert_eq!(contents(&editor), " a<>d\n e<>\nilbc\n  f \n  jk");
+}
+
+#[test]
+fn rectangle_mark_mode_makes_kill_and_yank_act_on_columns() {
+    let mut editor = editor_with("abc\ndef");
+    press(&mut editor, "C-f C-x SPC C-n C-f");
+    assert!(editor.buffer().is_rectangle());
+    press(&mut editor, "M-w");
+    assert_eq!(editor.kill_ring.newest(), Some("b\ne"));
+    assert!(!editor.buffer().is_rectangle());
+    press(&mut editor, "C-SPC C-f");
+    assert!(!editor.buffer().is_rectangle());
+    press(&mut editor, "C-g M-< C-y");
+    assert_eq!(contents(&editor), "babc\nedef");
+    press(&mut editor, "M-< C-x SPC C-n C-f DEL");
+    assert_eq!(contents(&editor), "abc\ndef");
 }
