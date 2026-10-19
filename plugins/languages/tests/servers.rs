@@ -876,15 +876,30 @@ fn prettier_formats_projects_that_use_it_with_their_config() {
             ("index.ts", "const a={b:\"c\"};\n"),
             ("broken.ts", "const = ;\n"),
             ("style.css", "a{color:red}\n"),
+            ("rules.css", "a{color:red}\nb{color:blue}\n"),
+            ("blank.css", "a{color:red}\n\nb{color:blue}\n"),
             (
                 "page.html",
                 "<script>\nconst a={b:\"c\"};\n</script>\n<p>x</p>\n",
+            ),
+            (
+                "styled.html",
+                "<style>\n  a{\n    /* x\n       y */\n    color:red}\n  b{color:blue}\n</style>\n",
             ),
         ],
     );
     assert_eq!(format(&root.join("index.ts")), "const a = { b: 'c' }\n");
     assert_eq!(format(&root.join("style.css")), "a {\n  color: red;\n}\n");
-    // Prettier formats no ranges of CSS, in a file of its own or not.
+    // A region of CSS formats the rules it touches, in a file of its own or not (#69); a
+    // region ending where the next rule starts leaves it be.
+    assert_eq!(
+        format_region(&root.join("rules.css"), Some(("a{color:red}\n", "CSS"))),
+        "a {\n  color: red;\n}\nb{color:blue}\n"
+    );
+    assert_eq!(
+        format_region(&root.join("styled.html"), Some(("a{", "CSS"))),
+        "<style>\n  a {\n    /* x\n       y */\n    color: red;\n  }\n  b{color:blue}\n</style>\n"
+    );
     let script = format_region(&root.join("page.html"), Some(("const a", "JavaScript")));
     assert_eq!(
         script,
@@ -897,6 +912,38 @@ fn prettier_formats_projects_that_use_it_with_their_config() {
     refresh_until(&mut editor, "the failure", |editor| editor.echo().is_some());
     let echo = editor.echo().unwrap();
     assert!(echo.starts_with("prettier: "), "{echo}");
+
+    // A region of CSS between rules says why nothing changed.
+    let mut editor = Editor::new(PLUGINS);
+    editor.visit_file(&root.join("blank.css")).unwrap();
+    let buffer = editor.window_buffer_mut();
+    buffer.set_mark(13);
+    buffer.activate_mark();
+    buffer.set_point(14);
+    editor.run_command("format");
+    refresh_until(&mut editor, "the failure", |editor| editor.echo().is_some());
+    assert_eq!(
+        editor.echo().as_deref(),
+        Some("prettier: no rules in the region")
+    );
+}
+
+/// The rules of a CSS region are formatted alone, but not as a file of their own.
+#[test]
+#[ignore]
+fn prettier_adds_no_pragma_to_a_region_of_css() {
+    let root = project(
+        "prettier-pragma",
+        &[
+            ("package.json", "{}\n"),
+            (".prettierrc", "{ \"insertPragma\": true }\n"),
+            ("rules.css", "a{color:red}\nb{color:blue}\n"),
+        ],
+    );
+    assert_eq!(
+        format_region(&root.join("rules.css"), Some(("b{color:blue}", "CSS"))),
+        "a{color:red}\nb {\n  color: blue;\n}\n"
+    );
 }
 
 #[test]
