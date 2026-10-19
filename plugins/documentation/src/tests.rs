@@ -4,7 +4,10 @@ use remacs_core::{
 use remacs_editing::EditingPlugin;
 use remacs_text::Text;
 
-use crate::{Answer, DocumentationPlugin, Request, deliver, take_requests};
+use crate::{
+    Answer, DocumentationPlugin, Request, SignatureTrigger, Signatures, deliver,
+    deliver_signatures, take_requests, take_signature_requests,
+};
 
 const SOURCE: &str = "self.text.copy_from_slice(s);";
 
@@ -109,4 +112,101 @@ fn late_and_empty_answers() {
     press(&mut editor, "C-h .");
     deliver(&mut editor, 2, None);
     assert_eq!(editor.echo().as_deref(), Some("No documentation at point"));
+}
+
+fn signature(label: &str, parameter: &str) -> Code {
+    let start = label.find(parameter).unwrap();
+    Code {
+        emphasis: Some(start..start + parameter.len()),
+        ..Code::new(label, Some("Rust"))
+    }
+}
+
+fn signatures(parameter: &str) -> Signatures {
+    let label = "fn copy_from_slice(&mut self, src: &[T])";
+    Signatures {
+        list: vec![signature(label, parameter)],
+        active: 0,
+    }
+}
+
+fn signature_asked(editor: &mut Editor) -> Vec<SignatureTrigger> {
+    let requests = take_signature_requests(editor);
+    requests.iter().map(|request| request.trigger).collect()
+}
+
+#[test]
+fn signatures_follow_the_call_being_typed() {
+    let mut editor = editor();
+    editor.window_buffer_mut().set_point(25);
+    press(&mut editor, "C-f");
+    assert_eq!(signature_asked(&mut editor), []);
+    press(&mut editor, "x");
+    assert_eq!(signature_asked(&mut editor), [SignatureTrigger::Typed('x')]);
+    deliver_signatures(&mut editor, 1, None);
+    assert!(popup(&editor).is_none());
+    assert_eq!(editor.echo(), None, "typing says nothing");
+
+    press(&mut editor, "(");
+    assert_eq!(signature_asked(&mut editor), [SignatureTrigger::Typed('(')]);
+    deliver_signatures(&mut editor, 2, Some(signatures("&mut self")));
+    let shown = popup(&editor).unwrap();
+    assert!(shown.above);
+    assert_eq!(shown.anchor, 28);
+    assert_eq!(shown.hints.len(), 0);
+    let label = shown.documentation.unwrap().signature.unwrap();
+    assert_eq!(&label.text[label.emphasis.unwrap()], "&mut self");
+
+    press(&mut editor, ",");
+    let asked = take_signature_requests(&mut editor);
+    assert_eq!(asked[0].trigger, SignatureTrigger::Update(Some(',')));
+    deliver_signatures(&mut editor, asked[0].id, Some(signatures("src: &[T]")));
+    let shown = popup(&editor).unwrap();
+    assert_eq!(shown.anchor, 28, "the same call's signature stays put");
+    let label = shown.documentation.unwrap().signature.unwrap();
+    assert_eq!(&label.text[label.emphasis.unwrap()], "src: &[T]");
+
+    let point = editor.window_buffer().point();
+    editor.set_point_at(0, 0);
+    assert!(popup(&editor).is_none(), "a click moved point away");
+    editor.window_buffer_mut().set_point(point);
+    assert!(popup(&editor).is_some());
+
+    press(&mut editor, "C-b");
+    assert_eq!(
+        signature_asked(&mut editor),
+        [SignatureTrigger::Update(None)]
+    );
+    deliver_signatures(&mut editor, 4, None);
+    assert!(popup(&editor).is_none(), "point left the call");
+}
+
+#[test]
+fn overloads_are_stepped_through_and_escape_hides_them() {
+    let mut editor = editor();
+    press(&mut editor, "s-p");
+    assert_eq!(signature_asked(&mut editor), [SignatureTrigger::Explicit]);
+    let overloads = Signatures {
+        list: vec![
+            Code::new("fn new() -> Self", Some("Rust")),
+            Code::new("fn new(capacity: usize) -> Self", Some("Rust")),
+        ],
+        active: 1,
+    };
+    deliver_signatures(&mut editor, 1, Some(overloads.clone()));
+    let kind = |editor: &Editor| popup(editor).unwrap().documentation.unwrap().kind;
+    assert_eq!(kind(&editor), "2 of 2");
+    press(&mut editor, "s-p");
+    assert_eq!(kind(&editor), "1 of 2");
+    assert_eq!(signature_asked(&mut editor), []);
+
+    press(&mut editor, "C-f");
+    deliver_signatures(&mut editor, 2, Some(overloads));
+    assert_eq!(kind(&editor), "1 of 2", "the overload chosen stays");
+    press(&mut editor, "ESC");
+    assert!(popup(&editor).is_none());
+
+    press(&mut editor, "s-p");
+    deliver_signatures(&mut editor, 3, None);
+    assert_eq!(editor.echo().as_deref(), Some("No signature at point"));
 }

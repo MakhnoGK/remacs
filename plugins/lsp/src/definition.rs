@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use lsp_types::{GotoDefinitionResponse, Position};
 use remacs_core::{Editor, embedded_file};
+use remacs_text::Snapshot;
 use remacs_xref::Location;
 
 use crate::position::{Encoding, from_lsp, text_of};
@@ -29,16 +30,22 @@ pub(crate) fn targets(response: Option<GotoDefinitionResponse>) -> Vec<(PathBuf,
         .collect()
 }
 
-/// Offsets in the text the server knows: the buffer visiting the file, else the file.
-pub(crate) fn locations(
+/// Offsets in the text the server knows: the buffer visiting the file, else the file. Servers
+/// list a file's references together, so it is read once and held only while they last.
+pub fn locations(
     editor: &Editor,
     targets: Vec<(PathBuf, Position)>,
     encoding: Encoding,
 ) -> Vec<Location> {
+    let mut last: Option<(PathBuf, Option<Snapshot>)> = None;
     targets
         .into_iter()
         .filter_map(|(path, position)| {
-            let offset = from_lsp(&text_of(editor, &path)?, position, encoding);
+            if last.as_ref().is_none_or(|(read, _)| *read != path) {
+                last = Some((path.clone(), text_of(editor, &path)));
+            }
+            let text = last.as_ref()?.1.as_ref()?;
+            let offset = from_lsp(text, position, encoding);
             let path = embedded_file(&path).unwrap_or(path);
             Some(Location { path, offset })
         })

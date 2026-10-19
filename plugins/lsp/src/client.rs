@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::{ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::thread;
 
 use lsp_types::notification::{
@@ -17,20 +17,21 @@ use lsp_types::notification::{
 use lsp_types::request::{
     ApplyWorkspaceEdit, CodeActionRequest, CodeActionResolveRequest, Completion, DocumentColor,
     DocumentDiagnosticRequest, DocumentSymbolRequest, ExecuteCommand, Formatting, GotoDefinition,
-    HoverRequest, Initialize, PrepareRenameRequest, RangeFormatting, Rename, Request,
-    ResolveCompletionItem, WillRenameFiles, WorkspaceConfiguration, WorkspaceDiagnosticRefresh,
-    WorkspaceSymbolRequest,
+    HoverRequest, Initialize, PrepareRenameRequest, RangeFormatting, References, Rename, Request,
+    ResolveCompletionItem, SignatureHelpRequest, WillRenameFiles, WorkspaceConfiguration,
+    WorkspaceDiagnosticRefresh, WorkspaceSymbolRequest,
 };
 use lsp_types::{
     ApplyWorkspaceEditParams, CodeAction, CodeActionOrCommand, CompletionItem,
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, InitializedParams, Position, PublishDiagnosticsParams,
-    TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem, TextEdit, Uri,
-    VersionedTextDocumentIdentifier, WorkspaceEdit,
+    DidSaveTextDocumentParams, GotoDefinitionResponse, InitializedParams, Position,
+    PublishDiagnosticsParams, TextDocumentContentChangeEvent, TextDocumentIdentifier,
+    TextDocumentItem, TextEdit, Uri, VersionedTextDocumentIdentifier, WorkspaceEdit,
 };
 use remacs_actions::Action;
 use remacs_completion::{Item, List, Trigger};
 use remacs_core::Notifier;
+use remacs_documentation::{SignatureTrigger, Signatures};
 use remacs_format::{Failure, Formatted};
 use remacs_text::{Edit, Snapshot};
 use serde_json::{Value, json};
@@ -40,6 +41,7 @@ use crate::color::{self, Swatch};
 use crate::completion::{self, CompletionSupport, Origin};
 use crate::markdown::CodeModes;
 use crate::position::{Encoding, from_lsp, to_lsp};
+use crate::signature::{self, SignatureSupport};
 use crate::symbols::{self, FoundSymbol};
 use crate::transport::{read_message, write_message};
 use crate::{code_action, definition, document_symbols, hover, symbol_rename, uri};
@@ -109,6 +111,16 @@ pub(crate) enum Outgoing {
         id: u64,
         text: Snapshot,
         offset: usize,
+        modes: CodeModes,
+    },
+    /// Asks for the signatures of the call at `offset` of `text`; `id` is the
+    /// documentation plugin's.
+    Signatures {
+        uri: Uri,
+        id: u64,
+        text: Snapshot,
+        offset: usize,
+        trigger: SignatureTrigger,
         modes: CodeModes,
     },
     /// Asks for the actions for `range` of `text`, passing back the problems reported
@@ -227,6 +239,7 @@ pub(crate) struct Published {
 pub(crate) enum Question {
     Hover,
     Definition,
+    References,
 }
 
 impl Question {
@@ -234,6 +247,7 @@ impl Question {
         match self {
             Question::Hover => HoverRequest::METHOD,
             Question::Definition => GotoDefinition::METHOD,
+            Question::References => References::METHOD,
         }
     }
 }
@@ -256,11 +270,16 @@ pub(crate) enum Answer {
         id: u64,
         answer: Option<remacs_documentation::Answer>,
     },
-    /// Positions in the target files, which only the editor has the texts of.
-    Definitions {
+    /// Definitions or references: positions in the target files, which only the editor
+    /// has the texts of.
+    Locations {
         id: u64,
         targets: Vec<(PathBuf, Position)>,
         encoding: Encoding,
+    },
+    Signatures {
+        id: u64,
+        signatures: Option<Signatures>,
     },
     CodeActions {
         id: u64,
@@ -317,6 +336,10 @@ enum Pending {
         question: Question,
         id: u64,
         origin: Origin,
+    },
+    Signatures {
+        id: u64,
+        mode: &'static str,
     },
     CodeActions {
         id: u64,
@@ -443,6 +466,7 @@ pub(crate) struct Client {
     notifier: Notifier,
     /// The action whose command ran last, which edits the server asks for belong to.
     executing: Cell<Option<u64>>,
+    signatures: SharedSignatureSupport,
     /// False while the server says it is busy loading the project; servers that never say
     /// are taken as settled.
     settled: Arc<AtomicBool>,
@@ -477,12 +501,14 @@ impl Client {
         let inbox = SharedInbox::default();
         let pull_generation = Arc::new(AtomicU64::new(0));
         let settled = Arc::new(AtomicBool::new(!server.reports_loading));
+        let signatures = SharedSignatureSupport::default();
         let writer = Writer {
             server: server.name,
             stdin: BufWriter::new(stdin),
             inbox: Arc::clone(&inbox),
             notifier: Arc::clone(&notifier),
             next_id: INITIALIZE_ID + 1,
+            signatures: Arc::clone(&signatures),
         };
         let initialize = initialize_params(
             server.initialization_options.clone(),
@@ -502,6 +528,7 @@ impl Client {
             pull_generation: Arc::clone(&pull_generation),
             notifier: Arc::clone(&notifier),
             settled: Arc::clone(&settled),
+            signatures: Arc::clone(&signatures),
         };
         let (exit_inbox, exit_notifier) = (Arc::clone(&inbox), Arc::clone(&notifier));
         thread::Builder::new()
@@ -521,11 +548,22 @@ impl Client {
             notifier,
             executing: Cell::new(None),
             settled,
+            signatures,
         })
     }
 
     pub fn is_settled(&self) -> bool {
         self.settled.load(Ordering::Relaxed)
+    }
+
+    /// Whether a request for `trigger` may show signatures; true until the server agreed
+    /// on what it supports, as the writer holds requests until then.
+    pub fn may_sign(&self, trigger: SignatureTrigger) -> bool {
+        self.signatures.get().is_none_or(|support| {
+            support
+                .as_ref()
+                .is_some_and(|support| support.context(trigger).is_some())
+        })
     }
 
     /// Runs the command of action `id` of the actions plugin.
@@ -620,8 +658,16 @@ fn initialize_params(options: Option<Value>, configured: bool, root: &Path) -> V
                     "contextSupport": true,
                 },
                 "hover": { "contentFormat": ["markdown", "plaintext"] },
+                "signatureHelp": {
+                    "signatureInformation": {
+                        "parameterInformation": { "labelOffsetSupport": true },
+                        "activeParameterSupport": true,
+                    },
+                    "contextSupport": true,
+                },
                 "colorProvider": {},
                 "definition": { "linkSupport": true },
+                "references": {},
                 "rename": { "prepareSupport": true },
                 // Without literal support servers send bare commands only.
                 "codeAction": {
@@ -661,7 +707,12 @@ struct Writer {
     inbox: SharedInbox,
     notifier: Notifier,
     next_id: u64,
+    signatures: SharedSignatureSupport,
 }
+
+/// What the server agreed to about signatures, once `initialize` is answered; the editor
+/// reads it too, so keystrokes that open no call never leave it.
+type SharedSignatureSupport = Arc<OnceLock<Option<SignatureSupport>>>;
 
 impl Writer {
     /// The server must hear nothing but `initialize` until it answers, so the queue waits.
@@ -780,16 +831,47 @@ impl Writer {
                 offset,
                 modes,
             } => {
-                let params = json!({
+                let mut params = json!({
                     "textDocument": TextDocumentIdentifier::new(uri.clone()),
                     "position": to_lsp(text, *offset, negotiated.encoding),
                 });
+                if *question == Question::References {
+                    params["context"] = json!({ "includeDeclaration": true });
+                }
                 let pending = Pending::AtPoint {
                     question: *question,
                     id: *id,
                     origin: origin(text, *offset, *modes),
                 };
                 self.ask(question.method(), params, pending)
+            }
+            Outgoing::Signatures {
+                uri,
+                id,
+                text,
+                offset,
+                trigger,
+                modes,
+            } => {
+                let support = self.signatures.get().and_then(Option::as_ref);
+                let Some(context) = support.and_then(|support| support.context(*trigger)) else {
+                    lock(&self.inbox).answers.push(Answer::Signatures {
+                        id: *id,
+                        signatures: None,
+                    });
+                    (self.notifier)();
+                    return Ok(());
+                };
+                let params = json!({
+                    "textDocument": TextDocumentIdentifier::new(uri.clone()),
+                    "position": to_lsp(text, *offset, negotiated.encoding),
+                    "context": context,
+                });
+                let pending = Pending::Signatures {
+                    id: *id,
+                    mode: modes.document,
+                };
+                self.ask(SignatureHelpRequest::METHOD, params, pending)
             }
             Outgoing::CodeActions {
                 uri,
@@ -1002,6 +1084,7 @@ fn is_superseded(message: &Outgoing, later: &[Outgoing]) -> bool {
         (Outgoing::Pull { uri, .. }, Outgoing::Pull { uri: other, .. })
         | (Outgoing::Colors { uri, .. }, Outgoing::Colors { uri: other, .. })
         | (Outgoing::Complete { uri, .. }, Outgoing::Complete { uri: other, .. })
+        | (Outgoing::Signatures { uri, .. }, Outgoing::Signatures { uri: other, .. })
         | (Outgoing::CodeActions { uri, .. }, Outgoing::CodeActions { uri: other, .. }) => {
             uri == other
         }
@@ -1061,6 +1144,7 @@ impl Outgoing {
             | Outgoing::Complete { .. }
             | Outgoing::Resolve { .. }
             | Outgoing::AtPoint { .. }
+            | Outgoing::Signatures { .. }
             | Outgoing::CodeActions { .. }
             | Outgoing::ResolveAction { .. }
             | Outgoing::Execute { .. }
@@ -1133,6 +1217,7 @@ struct Reader {
     pull_generation: Arc<AtomicU64>,
     notifier: Notifier,
     settled: Arc<AtomicBool>,
+    signatures: SharedSignatureSupport,
 }
 
 impl Reader {
@@ -1219,6 +1304,7 @@ impl Reader {
         };
         let sync = &capabilities["textDocumentSync"];
         let full_sync = sync.get("change").unwrap_or(sync).as_u64() == Some(1);
+        let _ = (self.signatures).set(SignatureSupport::from_capabilities(capabilities));
         let _ = agreed.send(Negotiated {
             encoding: self.encoding,
             incremental: !full_sync,
@@ -1290,10 +1376,31 @@ impl Reader {
                 ..
             } => {
                 let response = serde_json::from_value(result).unwrap_or_default();
-                self.deliver(Answer::Definitions {
+                self.deliver(Answer::Locations {
                     id,
                     targets: definition::targets(response),
                     encoding: self.encoding,
+                });
+            }
+            Pending::AtPoint {
+                question: Question::References,
+                id,
+                ..
+            } => {
+                let response: Option<Vec<lsp_types::Location>> =
+                    serde_json::from_value(result).unwrap_or_default();
+                let response = response.map(GotoDefinitionResponse::Array);
+                self.deliver(Answer::Locations {
+                    id,
+                    targets: definition::targets(response),
+                    encoding: self.encoding,
+                });
+            }
+            Pending::Signatures { id, mode } => {
+                let response = serde_json::from_value(result).unwrap_or_default();
+                self.deliver(Answer::Signatures {
+                    id,
+                    signatures: signature::signatures(response, mode),
                 });
             }
             Pending::CodeActions { id, kind } => {

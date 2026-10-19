@@ -4469,6 +4469,7 @@ dependencies = [
 name = "remacs-xref"
 version = "0.1.0"
 dependencies = [
+ "divan",
  "remacs-core",
  "remacs-editing",
  "remacs-files",

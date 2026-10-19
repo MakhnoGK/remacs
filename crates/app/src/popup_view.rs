@@ -4,11 +4,11 @@ use gpui::{
     AnyElement, Div, ElementId, HighlightStyle, IntoElement, ParentElement, Pixels, Point,
     ScrollHandle, Stateful, StyledText, div, prelude::*, px, rgb, rgba,
 };
-use remacs_core::{Candidate, Code, DocBlock, Documentation, Note, Popup, SymbolKind};
+use remacs_core::{Candidate, Code, DocBlock, Documentation, Face, Note, Popup, SymbolKind};
 use remacs_theme::{color, font, glass};
 
-use crate::code_wrap::wrap_code;
-use crate::highlights::Highlights;
+use crate::code_wrap::{wrap_code, wrapped_offset};
+use crate::highlights::{Highlights, combine, face_style};
 use crate::minibuffer_view::{matches_in, secondary_color};
 use crate::widgets::{glass_surface, hsla, icon, kbd, shadow};
 
@@ -41,6 +41,8 @@ const HOVER_INSET: f32 = 1.0 + HOVER_PADDING;
 /// Room below the line that is enough for documentation, which is otherwise put where
 /// there is more room.
 const HOVER_ENOUGH_ROOM: f32 = 320.0;
+/// Room above the line that is enough for a popup that goes above, like a signature.
+const ABOVE_ENOUGH_ROOM: f32 = 120.0;
 const NOTES_PADDING: f32 = 4.0;
 const NOTE_PADDING_X: f32 = 10.0;
 const NOTE_PADDING_Y: f32 = 8.0;
@@ -191,7 +193,7 @@ impl DocumentationScroll {
 pub fn render_popup(popup: &Popup, placement: Placement, view: &PopupView) -> AnyElement {
     match &popup.documentation {
         Some(documentation) if popup.rows.is_empty() => {
-            render_hover(documentation, popup.hints, &placement, view)
+            render_hover(documentation, popup, &placement, view)
         }
         None if popup.rows.is_empty() => render_notes(&popup.notes, &placement, view),
         _ => render_list_popup(popup, &placement, view),
@@ -447,15 +449,21 @@ fn chunks(text: &str, chars: usize) -> Vec<&str> {
         .collect()
 }
 
-/// Below the symbol, its text in line with the symbol's, or above when there is more room.
+/// Below the symbol, its text in line with the symbol's, or above when there is more room;
+/// the other way round for a popup that goes above.
 fn render_hover(
     documentation: &Documentation,
-    hints: &'static [(&'static str, &'static str)],
+    popup: &Popup,
     placement: &Placement,
     view: &PopupView,
 ) -> AnyElement {
+    let hints = popup.hints;
     let (below, above) = (placement.room_below(), placement.room_above());
-    let fits_below = below >= px(HOVER_ENOUGH_ROOM) || below >= above;
+    let fits_below = if popup.above {
+        above < px(ABOVE_ENOUGH_ROOM) && below > above
+    } else {
+        below >= px(HOVER_ENOUGH_ROOM) || below >= above
+    };
     let room = if fits_below { below } else { above };
     let max_width = view
         .max_width
@@ -508,6 +516,10 @@ fn render_hover(
             )
         })
         .when(!documentation.is_empty(), |panel| {
+            // A signature's popup leaves the scroll position to other documentation shown.
+            if popup.above && documentation.blocks.is_empty() {
+                return panel.children(signature);
+            }
             let code_chars = chip_chars(width - px(HOVER_INSETS.panel), view);
             panel.child(render_body(
                 signature,
@@ -762,7 +774,14 @@ fn fit(
         let longest = text.lines().map(|line| line.chars().count()).max();
         let width = char_width * longest.unwrap_or(0) as f32 + px(insets.panel + inset);
         widest = widest.max(width.ceil());
-        Code::new(text, code.mode)
+        let emphasis = code.emphasis.as_ref().map(|range| {
+            wrapped_offset(&code.text, &text, range.start)
+                ..wrapped_offset(&code.text, &text, range.end)
+        });
+        Code {
+            emphasis,
+            ..Code::new(text, code.mode)
+        }
     };
     let signature = documentation
         .signature
@@ -847,7 +866,15 @@ fn render_body(
 
 /// Colored like the buffer when its mode has a grammar.
 fn render_code(code: &Code, view: &PopupView) -> StyledText {
-    StyledText::new(code.text.clone()).with_highlights((view.code_faces)(code))
+    let mut faces = (view.code_faces)(code);
+    if let Some(emphasis) = &code.emphasis {
+        let emphasized = HighlightStyle {
+            font_weight: Some(gpui::FontWeight::BOLD),
+            ..face_style(Face::Highlight)
+        };
+        faces = combine(&[faces, vec![(emphasis.clone(), emphasized)]]);
+    }
+    StyledText::new(code.text.clone()).with_highlights(faces)
 }
 
 fn render_heading(heading: &str) -> impl IntoElement {

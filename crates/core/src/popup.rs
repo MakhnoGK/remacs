@@ -1,3 +1,4 @@
+use std::ops::Range;
 use std::rc::Rc;
 
 use crate::completion::{Candidate, Icon};
@@ -23,6 +24,9 @@ pub struct Popup {
     pub hints: &'static [(&'static str, &'static str)],
     /// About the text at the anchor, shown without rows or documentation.
     pub notes: Vec<Note>,
+    /// Documentation goes above the line when there is room, e.g. a signature, so that
+    /// completions below stay in view.
+    pub above: bool,
 }
 
 /// A remark about text in the buffer, like a problem a checker reported there.
@@ -60,6 +64,8 @@ pub enum DocBlock {
 pub struct Code {
     pub text: String,
     pub mode: Option<&'static str>,
+    /// Bytes of `text` that stand out, e.g. the parameter of a signature being typed.
+    pub emphasis: Option<Range<usize>>,
 }
 
 impl Code {
@@ -67,6 +73,7 @@ impl Code {
         Self {
             text: text.into(),
             mode,
+            emphasis: None,
         }
     }
 }

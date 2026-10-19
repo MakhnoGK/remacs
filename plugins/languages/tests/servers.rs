@@ -3,15 +3,20 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use remacs_actions::ActionsPlugin;
 use remacs_completion::CompletionPlugin;
-use remacs_core::{Changes, Documentation, Editor, Elsewhere, Icon, Plugin, Popup, Settings};
+use remacs_core::{
+    Changes, Documentation, Editor, Elsewhere, Icon, Plugin, Popup, Settings, parse_sequence,
+};
 use remacs_diagnostics::DiagnosticsPlugin;
 use remacs_dired::{DiredPlugin, list_directory};
 use remacs_documentation::DocumentationPlugin;
+use remacs_editing::EditingPlugin;
 use remacs_format::FormatPlugin;
 use remacs_languages::{GRAMMARS, INJECTIONS, LanguagesPlugin, PRETTIER_MODES, SERVERS};
 use remacs_lsp::LspPlugin;
@@ -233,6 +238,7 @@ fn ask_at<T>(
             started.elapsed() < TIMEOUT,
             "{command} on {symbol} never answered"
         );
+        editor.cancel_minibuffer();
         editor.visit_file(file).unwrap();
         editor.window_buffer_mut().set_point(point);
         editor.run_command(command);
@@ -337,6 +343,260 @@ fn servers_show_documentation_and_go_to_definitions() {
         eprintln!("{}: {line}", path.display());
         assert_eq!(line, expected);
     }
+}
+
+/// The file and line text of each use of `symbol` listed, once there are `count`.
+fn references(file: &Path, symbol: &str, count: usize) -> Vec<(String, String)> {
+    let references = ask_at(file, symbol, "xref-find-references", |editor| {
+        let rows: Vec<_> = (editor.minibuffer()?.candidates().iter())
+            .map(|row| {
+                (
+                    row.group.as_deref().unwrap_or_default().to_owned(),
+                    row.label.clone(),
+                )
+            })
+            .collect();
+        (rows.len() >= count).then_some(rows)
+    });
+    eprintln!("{}: {symbol}: {references:#?}", file.display());
+    references
+}
+
+/// The signature shown with point after the first character of `at`, and the parameter
+/// in it that point is in.
+fn signature_at(editor: &Editor) -> Option<(String, String)> {
+    let popup = editor.popups().into_iter().find(|popup| popup.above)?;
+    let label = popup.documentation?.signature?;
+    let parameter = label.text[label.emphasis.clone()?].to_owned();
+    Some((label.text, parameter))
+}
+
+fn signature(file: &Path, at: &str) -> (String, String) {
+    let signature = ask_at(file, at, "signature-help", signature_at);
+    eprintln!("{}: {at}: {signature:?}", file.display());
+    signature
+}
+
+#[test]
+#[ignore]
+fn servers_find_references_and_show_signatures() {
+    let rust = project(
+        "rust-references",
+        &[
+            (
+                "Cargo.toml",
+                "[package]\nname = \"demo\"\nedition = \"2024\"\n",
+            ),
+            (
+                "src/main.rs",
+                "mod util;\n\nfn main() {\n    util::add(1, 2);\n}\n",
+            ),
+            (
+                "src/util.rs",
+                "pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n",
+            ),
+        ],
+    );
+    let typescript = project(
+        "ts-references",
+        &[
+            ("package.json", "{}\n"),
+            (
+                "index.ts",
+                "import { add } from \"./util\";\nadd(1, 2);\nadd\n",
+            ),
+            (
+                "util.ts",
+                "export function add(a: number, b: number) {\n  return a + b;\n}\n",
+            ),
+        ],
+    );
+    let html = project(
+        "html-references",
+        &[(
+            "index.html",
+            "<body>\n<script>\nfunction add(a, b) { return a + b; }\nadd(1, 2);\n</script>\n</body>\n",
+        )],
+    );
+
+    let main = rust.join("src/main.rs");
+    let uses = references(&main, "add(1", 2);
+    assert!(uses.contains(&("main.rs  ·  src/".into(), "util::add(1, 2);".into())));
+    assert!(uses.contains(&(
+        "util.rs  ·  src/".into(),
+        "pub fn add(a: i32, b: i32) -> i32 {".into()
+    )));
+    let (label, parameter) = signature(&main, ", 2)");
+    assert!(label.contains("fn add(a: i32, b: i32)"), "{label}");
+    assert_eq!(parameter, "b: i32");
+
+    let index = typescript.join("index.ts");
+    let uses = references(&index, "add(1", 4);
+    assert!(
+        uses.iter()
+            .any(|(file, line)| file.starts_with("util.ts") && line.contains("function add"))
+    );
+    assert_eq!(signature(&index, ", 2)").1, "b: number");
+
+    let page = html.join("index.html");
+    let uses = references(&page, "add(1", 2);
+    assert!(
+        uses.iter().all(|(file, _)| file.starts_with("index.html")),
+        "{uses:?}"
+    );
+    assert_eq!(signature(&page, ", 2)").1, "b: any");
+
+    // Typing a call opens its signature and follows the arguments, once the server answers.
+    let typing: Vec<_> = PLUGINS
+        .iter()
+        .copied()
+        .chain([&EditingPlugin as _])
+        .collect();
+    let mut editor = Editor::new(&typing);
+    editor.visit_file(&index).unwrap();
+    let source = fs::read_to_string(&index).unwrap();
+    let press = |editor: &mut Editor, keys: &str| {
+        for key in parse_sequence(keys).unwrap() {
+            editor.handle_key(key);
+        }
+    };
+    let shown = |editor: &mut Editor, parameter: &str| {
+        let started = Instant::now();
+        while signature_at(editor).is_none_or(|(_, shown)| shown != parameter) {
+            assert!(
+                started.elapsed() < TIMEOUT,
+                "{parameter} never shown: {:?} {:?}",
+                signature_at(editor),
+                editor.echo()
+            );
+            thread::sleep(Duration::from_millis(100));
+            editor.refresh();
+            if editor.echo().as_deref() == Some("No signature at point") {
+                editor.run_command("signature-help");
+            }
+        }
+    };
+    editor
+        .window_buffer_mut()
+        .set_point(source.find("1, 2").unwrap());
+    editor.run_command("signature-help");
+    shown(&mut editor, "a: number");
+    press(&mut editor, "ESC");
+    editor.window_buffer_mut().set_point(source.len() - 1);
+    press(&mut editor, "(");
+    shown(&mut editor, "a: number");
+    press(&mut editor, "1 ,");
+    shown(&mut editor, "b: number");
+
+    // Off, typing leaves signatures alone while ⌘P still shows them.
+    let lsp_toml = (
+        PathBuf::from("lsp.toml"),
+        "signature-help-on-typing = false\n".to_owned(),
+    );
+    editor.set_settings(Settings::from_files([lsp_toml]));
+    press(&mut editor, "ESC");
+    let end = editor.window_buffer().text().len();
+    editor.window_buffer_mut().set_point(end);
+    press(&mut editor, "a d d (");
+    for _ in 0..10 {
+        thread::sleep(Duration::from_millis(100));
+        editor.refresh();
+    }
+    assert_eq!(signature_at(&editor), None);
+    editor.run_command("signature-help");
+    shown(&mut editor, "a: number");
+}
+
+/// Wakes of the editor, as the app's refreshes, and how long the refreshes took, while
+/// typing a line of identifiers at a person's pace into a TypeScript file.
+fn wakes_while_typing(root: &Path, signature_help: bool) -> (usize, Duration) {
+    let typing: Vec<_> = PLUGINS
+        .iter()
+        .copied()
+        .chain([&EditingPlugin as _])
+        .collect();
+    let mut editor = Editor::new(&typing);
+    let lsp_toml = format!("signature-help-on-typing = {signature_help}\n");
+    editor.set_settings(Settings::from_files([(
+        PathBuf::from("lsp.toml"),
+        lsp_toml,
+    )]));
+    let wakes = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&wakes);
+    editor.set_notifier(Arc::new(move || {
+        counted.fetch_add(1, Ordering::Relaxed);
+    }));
+    editor.visit_file(&root.join("index.ts")).unwrap();
+    // Loaded once the first question is answered.
+    documentation(&root.join("index.ts"), "add(1");
+    editor.run_command("show-documentation");
+    let started = Instant::now();
+    while editor.popups().is_empty() && started.elapsed() < TIMEOUT {
+        thread::sleep(Duration::from_millis(100));
+        editor.refresh();
+        editor.run_command("show-documentation");
+    }
+    editor.run_command("hide-documentation");
+    let end = editor.window_buffer().text().len();
+    editor.window_buffer_mut().set_point(end);
+    thread::sleep(Duration::from_secs(1));
+    editor.refresh();
+    wakes.store(0, Ordering::Relaxed);
+    let mut refreshing = Duration::ZERO;
+    let mut refreshes = 0;
+    for character in "let total = count + offset * scale".chars() {
+        let key = if character == ' ' {
+            "SPC".to_owned()
+        } else {
+            character.to_string()
+        };
+        for key in parse_sequence(&key).unwrap() {
+            editor.handle_key(key);
+        }
+        // About 8 keys a second; each wake refreshes, as the app does.
+        let typed = Instant::now();
+        while typed.elapsed() < Duration::from_millis(120) {
+            if wakes.load(Ordering::Relaxed) > refreshes {
+                refreshes = wakes.load(Ordering::Relaxed);
+                let refresh = Instant::now();
+                editor.refresh();
+                refreshing += refresh.elapsed();
+            }
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+    (wakes.load(Ordering::Relaxed), refreshing)
+}
+
+/// Keys that open no call are answered without the server's threads, so signature help
+/// wakes the editor no more often while typing; answered by them, it was once per key.
+#[test]
+#[ignore]
+fn signature_help_wakes_the_editor_no_more_often_while_typing() {
+    let typescript = project(
+        "ts-typing-wakes",
+        &[
+            ("package.json", "{}\n"),
+            (
+                "index.ts",
+                "function add(a: number, b: number) {\n  return a + b;\n}\nadd(1, 2);\n",
+            ),
+        ],
+    );
+    let mut wakes = [0; 2];
+    for signature_help in [false, true, false, true] {
+        let (woken, refreshing) = wakes_while_typing(&typescript, signature_help);
+        eprintln!(
+            "signature help on typing {signature_help}: {woken} wakes, refreshes took {refreshing:?}"
+        );
+        wakes[usize::from(signature_help)] += woken;
+    }
+    let [off, on] = wakes;
+    // Typed 35 keys twice; servers' own messages vary by a few.
+    assert!(
+        on <= off + 10,
+        "{on} wakes with signature help, {off} without"
+    );
 }
 
 #[test]

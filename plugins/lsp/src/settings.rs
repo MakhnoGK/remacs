@@ -17,6 +17,9 @@ pub(crate) struct LspSettings {
     /// Code of other languages in a file, like CSS in HTML's `<style>`, goes to their
     /// servers too.
     embedded_code: bool,
+    /// Typing a call's opening bracket, or what else its server says starts its
+    /// arguments, shows the call's signature; off, only `signature-help` does.
+    signature_help_on_typing: bool,
     servers: BTreeMap<String, ServerSpec>,
 }
 
@@ -25,6 +28,7 @@ impl Default for LspSettings {
         Self {
             offer_downloads: true,
             embedded_code: true,
+            signature_help_on_typing: true,
             servers: BTreeMap::new(),
         }
     }
@@ -41,6 +45,10 @@ impl LspSettings {
 
     pub fn embedded_code(&self) -> bool {
         self.embedded_code
+    }
+
+    pub fn signature_help_on_typing(&self) -> bool {
+        self.signature_help_on_typing
     }
 }
 

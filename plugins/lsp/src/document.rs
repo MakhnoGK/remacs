@@ -11,10 +11,11 @@ use remacs_actions::{Action, Request as ActionRequest};
 use remacs_completion::{List, Request};
 use remacs_core::{Buffer, Editor, Embedded, Face, Notifier, Span};
 use remacs_diagnostics::{self as diagnostics, Diagnostic, Severity};
-use remacs_documentation::Answer as DocumentationAnswer;
+use remacs_documentation::{Answer as DocumentationAnswer, SignatureRequest, SignatureTrigger};
 use remacs_format::{Failure, Request as FormatRequest};
 use remacs_text::Snapshot;
 use remacs_tools::Program;
+use remacs_xref::Lookup;
 use serde_json::json;
 
 use crate::LanguageServer;
@@ -403,6 +404,17 @@ impl Document {
             id,
             text: self.sent_text(),
             offset,
+            modes: self.modes,
+        });
+    }
+
+    fn ask_signatures(&self, request: SignatureRequest) {
+        self.client.send(Outgoing::Signatures {
+            uri: self.uri.clone(),
+            id: request.id,
+            text: self.sent_text(),
+            offset: request.offset,
+            trigger: request.trigger,
             modes: self.modes,
         });
     }
@@ -987,13 +999,16 @@ fn hand_over(editor: &mut Editor, index: usize, client: &Client, answer: Answer)
                 remacs_documentation::deliver(editor, id, answer);
             }
         }
-        Answer::Definitions {
+        Answer::Locations {
             id,
             targets,
             encoding,
         } => {
             let locations = definition::locations(editor, targets, encoding);
             remacs_xref::deliver(editor, id, locations);
+        }
+        Answer::Signatures { id, signatures } => {
+            remacs_documentation::deliver_signatures(editor, id, signatures);
         }
         Answer::CodeActions { id, menu, .. } => gather_actions(editor, id, index, menu),
         Answer::ResolvedAction {
@@ -1063,11 +1078,25 @@ fn send_requests(editor: &mut Editor) {
     }
     let completions = remacs_completion::take_requests(editor);
     let hovers = remacs_documentation::take_requests(editor);
+    let mut signatures = remacs_documentation::take_signature_requests(editor);
     let definitions = remacs_xref::take_requests(editor);
     let actions = remacs_actions::take_requests(editor);
+    let clients = editor.find_plugin_state::<Clients>();
+    if clients.is_some_and(|clients| !clients.settings().signature_help_on_typing()) {
+        let (typed, kept) = signatures
+            .into_iter()
+            .partition(|request| matches!(request.trigger, SignatureTrigger::Typed(_)));
+        signatures = kept;
+        for request in typed {
+            remacs_documentation::deliver_signatures(editor, request.id, None);
+        }
+    }
     let Some(documents) = editor.window_buffer().local::<Documents>() else {
         for request in hovers {
             remacs_documentation::deliver(editor, request.id, None);
+        }
+        for request in signatures {
+            remacs_documentation::deliver_signatures(editor, request.id, None);
         }
         for request in definitions {
             remacs_xref::deliver(editor, request.id, Vec::new());
@@ -1087,6 +1116,7 @@ fn send_requests(editor: &mut Editor) {
     // Asked of no server, so answered with nothing at once.
     let (mut no_completions, mut no_hovers, mut no_definitions, mut no_actions) =
         (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let mut no_signatures = Vec::new();
     let mut completing = None;
     for request in completions {
         match request {
@@ -1120,9 +1150,22 @@ fn send_requests(editor: &mut Editor) {
         }
         hovering = Some((request.id, asked));
     }
-    for request in definitions {
+    for request in signatures {
+        // Most keys typed open no call; answered here, they never wake the editor again.
         match each(&asked(request.offset)).next() {
-            Some(document) => document.ask(Question::Definition, request.id, request.offset),
+            Some(document) if document.client.may_sign(request.trigger) => {
+                document.ask_signatures(request);
+            }
+            _ => no_signatures.push(request.id),
+        }
+    }
+    for request in definitions {
+        let question = match request.lookup {
+            Lookup::Definitions => Question::Definition,
+            Lookup::References => Question::References,
+        };
+        match each(&asked(request.offset)).next() {
+            Some(document) => document.ask(question, request.id, request.offset),
             None => no_definitions.push(request.id),
         }
     }
@@ -1149,6 +1192,9 @@ fn send_requests(editor: &mut Editor) {
     }
     for id in no_hovers {
         remacs_documentation::deliver(editor, id, None);
+    }
+    for id in no_signatures {
+        remacs_documentation::deliver_signatures(editor, id, None);
     }
     for id in no_definitions {
         remacs_xref::deliver(editor, id, Vec::new());

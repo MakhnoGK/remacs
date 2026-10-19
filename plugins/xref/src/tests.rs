@@ -6,7 +6,7 @@ use remacs_editing::EditingPlugin;
 use remacs_minibuffer::MinibufferPlugin;
 
 use crate::{
-    DocumentSymbolRequest, Location, Request, Symbol, SymbolRequest, XrefPlugin, deliver,
+    DocumentSymbolRequest, Location, Lookup, Request, Symbol, SymbolRequest, XrefPlugin, deliver,
     deliver_document_symbols, deliver_symbols, take_document_symbol_requests, take_requests,
     take_symbol_requests,
 };
@@ -47,7 +47,14 @@ fn goes_to_the_definition_and_back() {
     let (main, lib, _) = project("single");
     let mut editor = editor_at(&main, 18);
     press(&mut editor, "M-.");
-    assert_eq!(take_requests(&mut editor), [Request { id: 1, offset: 18 }]);
+    assert_eq!(
+        take_requests(&mut editor),
+        [Request {
+            id: 1,
+            offset: 18,
+            lookup: Lookup::Definitions
+        }]
+    );
     let definition = Location {
         path: lib.clone(),
         offset: 14,
@@ -90,6 +97,39 @@ fn several_definitions_are_listed_to_choose_from() {
     assert_eq!(place(&editor), (module, 7));
     press(&mut editor, "M-,");
     assert_eq!(place(&editor), (main, 18));
+}
+
+#[test]
+fn references_are_listed_even_when_there_is_one() {
+    let (main, lib, _) = project("references");
+    let mut editor = editor_at(&lib, 14);
+    press(&mut editor, "M-?");
+    assert_eq!(
+        take_requests(&mut editor),
+        [Request {
+            id: 1,
+            offset: 14,
+            lookup: Lookup::References
+        }]
+    );
+    let call = Location {
+        path: main.clone(),
+        offset: 16,
+    };
+    deliver(&mut editor, 1, vec![call]);
+    let minibuffer = editor.minibuffer().unwrap();
+    assert_eq!(minibuffer.prompt().label, "References");
+    let row = &minibuffer.candidates()[0];
+    assert_eq!(
+        (row.label.as_str(), row.annotation.as_str()),
+        ("helper();", "2")
+    );
+    press(&mut editor, "RET");
+    assert_eq!(place(&editor), (main, 16));
+
+    press(&mut editor, "M-?");
+    deliver(&mut editor, 2, Vec::new());
+    assert_eq!(editor.echo().as_deref(), Some("No references found"));
 }
 
 fn symbol(

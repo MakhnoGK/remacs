@@ -90,7 +90,7 @@ fn documentation(mut blocks: Vec<DocBlock>) -> Documentation {
         let last = blocks.len().saturating_sub(1);
         signature = take_code(&mut blocks, last);
     }
-    let signature = signature.map(|Code { text, mode }| {
+    let signature = signature.map(|Code { text, mode, .. }| {
         let (context, mut declaration) = split_context(&text);
         container.extend(context);
         if let Some((named, rest)) = declaration

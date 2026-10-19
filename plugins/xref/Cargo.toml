@@ -12,8 +12,13 @@ remacs-files.workspace = true
 remacs-text.workspace = true
 
 [dev-dependencies]
+divan.workspace = true
 remacs-editing.workspace = true
 remacs-minibuffer.workspace = true
+
+[[bench]]
+name = "references"
+harness = false
 
 [lints]
 workspace = true

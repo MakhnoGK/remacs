@@ -1,13 +1,16 @@
 //! Built-in plugin: a language server client, like Emacs eglot. It starts a server per
 //! project, keeps it in sync with the buffers, passes its diagnostics on, marks the colors
-//! files name and answers the completion, documentation, xref and actions plugins.
+//! files name and answers the completion, documentation (signatures too), xref and actions
+//! plugins.
 
 mod catalog;
 mod client;
 mod code_action;
 mod color;
 mod completion;
-mod definition;
+/// Public for the benchmarks only.
+#[doc(hidden)]
+pub mod definition;
 mod document;
 mod document_symbols;
 /// Public for the benchmarks only.
@@ -22,6 +25,7 @@ mod offer;
 pub mod position;
 mod restart;
 mod settings;
+mod signature;
 mod snippet;
 mod symbol_rename;
 mod symbols;

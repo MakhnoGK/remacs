@@ -5,16 +5,25 @@ use remacs_core::{Candidate, CommandResult, Editor, Prompt, filter_candidates};
 use remacs_text::{Snapshot, Text};
 
 pub(crate) const FIND_DEFINITIONS: &str = "xref-find-definitions";
+pub(crate) const FIND_REFERENCES: &str = "xref-find-references";
 /// Places to go back to, like `xref-history-storage`'s length.
 const MAX_HISTORY: usize = 16;
 const MAX_PREVIEW_CHARS: usize = 200;
 
 /// What the plugin asks of the window buffer's backend: where the symbol at `offset` is
-/// defined.
+/// defined, or used.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Request {
     pub id: u64,
     pub offset: usize,
+    pub lookup: Lookup,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Lookup {
+    Definitions,
+    /// Every use, the declaration too.
+    References,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,15 +52,27 @@ fn state(editor: &mut Editor) -> &mut State {
 pub(crate) fn update(editor: &mut Editor) {
     let count = editor.command_count();
     if mem::replace(&mut state(editor).seen_commands, count) != count
-        && editor.last_command() != Some(FIND_DEFINITIONS)
+        && !matches!(
+            editor.last_command(),
+            Some(FIND_DEFINITIONS | FIND_REFERENCES)
+        )
     {
         state(editor).awaited = None;
     }
 }
 
 pub(crate) fn find_definitions(editor: &mut Editor) -> CommandResult {
+    look_up(editor, Lookup::Definitions)
+}
+
+/// Lists every use of the symbol at point, like Emacs `xref-find-references`.
+pub(crate) fn find_references(editor: &mut Editor) -> CommandResult {
+    look_up(editor, Lookup::References)
+}
+
+fn look_up(editor: &mut Editor, lookup: Lookup) -> CommandResult {
     if editor.minibuffer().is_some() {
-        return Err("Definitions are looked up in buffers only".into());
+        return Err("Symbols are looked up in buffers only".into());
     }
     let offset = editor.window_buffer().point();
     let state = state(editor);
@@ -59,6 +80,7 @@ pub(crate) fn find_definitions(editor: &mut Editor) -> CommandResult {
     let request = Request {
         id: state.next_id,
         offset,
+        lookup,
     };
     state.awaited = Some(request);
     state.requests.push(request);
@@ -77,18 +99,20 @@ pub fn take_requests(editor: &mut Editor) -> Vec<Request> {
     mem::take(&mut state(editor).requests)
 }
 
-/// Answers request `id`: goes to the one definition, or lets the user choose among several.
+/// Answers request `id`: goes to the one definition, or lets the user choose among several
+/// definitions or any references.
 pub fn deliver(editor: &mut Editor, id: u64, mut locations: Vec<Location>) {
     let state = state(editor);
-    if state.awaited.is_none_or(|awaited| awaited.id != id) {
+    let Some(awaited) = state.awaited.filter(|awaited| awaited.id == id) else {
         return;
-    }
+    };
     state.awaited = None;
     locations.dedup();
-    let result = match locations.as_slice() {
-        [] => Err("No definitions found".into()),
-        [location] => jump(editor, location),
-        _ => choose(editor, locations),
+    let result = match (awaited.lookup, locations.as_slice()) {
+        (Lookup::Definitions, []) => Err("No definitions found".into()),
+        (Lookup::References, []) => Err("No references found".into()),
+        (Lookup::Definitions, [location]) => jump(editor, location),
+        (lookup, _) => choose(editor, lookup, locations),
     };
     if let Err(error) = result {
         editor.set_error(error.0);
@@ -127,19 +151,34 @@ fn go_to(editor: &mut Editor, location: &Location) -> CommandResult {
     Ok(())
 }
 
-/// Lists the definitions with their lines, like the `*xref*` buffer.
-fn choose(editor: &mut Editor, locations: Vec<Location>) -> CommandResult {
+/// Lists the places with their lines, like the `*xref*` buffer.
+fn choose(editor: &mut Editor, lookup: Lookup, locations: Vec<Location>) -> CommandResult {
+    // A file's places come together, so it is read once and held only while they last.
+    let mut last: Option<(&Path, Option<Snapshot>)> = None;
     let candidates: Vec<_> = locations
         .iter()
         .enumerate()
-        .map(|(index, location)| candidate(editor, index, location))
+        .map(|(index, location)| {
+            if last.as_ref().is_none_or(|(read, _)| *read != location.path) {
+                last = Some((&location.path, text_of(editor, &location.path)));
+            }
+            let text = last.as_ref().and_then(|(_, text)| text.as_ref());
+            candidate(text, index, location)
+        })
         .collect();
+    let (label, hints): (_, &[_]) = match lookup {
+        Lookup::Definitions => (
+            "Definitions",
+            &[("↵", "Go to definition"), ("C-g", "Close")],
+        ),
+        Lookup::References => ("References", &[("↵", "Go to reference"), ("C-g", "Close")]),
+    };
     let prompt = Prompt {
-        label: "Definitions".into(),
+        label: label.into(),
         category: "xref",
         placeholder: "Filter…",
         require_match: true,
-        hints: &[("↵", "Go to definition"), ("C-g", "Close")],
+        hints,
         ..Prompt::default()
     };
     editor.read(
@@ -156,17 +195,20 @@ fn choose(editor: &mut Editor, locations: Vec<Location>) -> CommandResult {
     )
 }
 
-/// The definition's line, its number and file.
-fn candidate(editor: &Editor, index: usize, location: &Location) -> Candidate {
+/// The buffer visiting `path`, else the file.
+fn text_of(editor: &Editor, path: &Path) -> Option<Snapshot> {
     let open = editor
         .buffers()
         .iter()
-        .find(|buffer| buffer.path() == Some(&location.path))
+        .find(|buffer| buffer.path() == Some(path))
         .map(|buffer| buffer.text().snapshot());
-    let text = open.or_else(|| Some(Text::open(&location.path).ok()?.snapshot()));
-    let (preview, line) = text
-        .as_ref()
-        .map_or_else(|| (String::new(), 0), |text| preview(text, location.offset));
+    open.or_else(|| Some(Text::open(path).ok()?.snapshot()))
+}
+
+/// The place's line, its number and file.
+fn candidate(text: Option<&Snapshot>, index: usize, location: &Location) -> Candidate {
+    let (preview, line) =
+        text.map_or_else(|| (String::new(), 0), |text| preview(text, location.offset));
     Candidate {
         label: preview,
         annotation: (line + 1).to_string(),

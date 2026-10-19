@@ -107,6 +107,25 @@ fn width(text: &str) -> usize {
     text.chars().count()
 }
 
+/// Where byte `offset` of `code` went in `wrapped`, which [`wrap_code`] made of it by
+/// adding line ends and indents and dropping spaces at breaks.
+pub fn wrapped_offset(code: &str, wrapped: &str, offset: usize) -> usize {
+    let mut position = 0;
+    for character in code[..offset].chars() {
+        let rest = &wrapped[position..];
+        if rest.starts_with(character) || character != ' ' {
+            // Past the line end and indent a break put before it.
+            position += rest
+                .find(character)
+                .map_or(rest.len(), |skipped| skipped + character.len_utf8());
+        }
+    }
+    match code[offset..].chars().next() {
+        Some(next) if next != ' ' => position + wrapped[position..].find(next).unwrap_or(0),
+        _ => position,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -129,6 +148,21 @@ mod tests {
             wrap_code(code, 40),
             "pub fn with_capacity_and_hasher(\n    capacity: usize, hasher: S)\n    -> HashMap<K, V, S>"
         );
+    }
+
+    #[test]
+    fn offsets_follow_their_characters_past_breaks() {
+        let code =
+            "pub fn with_capacity_and_hasher(capacity: usize, hasher: S) -> HashMap<K, V, S>";
+        let wrapped = wrap_code(code, 40);
+        let at = |part: &str| {
+            let start = code.find(part).unwrap();
+            wrapped_offset(code, &wrapped, start)
+                ..wrapped_offset(code, &wrapped, start + part.len())
+        };
+        assert_eq!(&wrapped[at("capacity: usize")], "capacity: usize");
+        assert_eq!(&wrapped[at("hasher: S")], "hasher: S");
+        assert_eq!(&wrapped[at("-> HashMap")], "-> HashMap");
     }
 
     #[test]
