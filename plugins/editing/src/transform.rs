@@ -5,7 +5,7 @@ use remacs_core::{Buffer, CommandResult, Editor, Key, describe_sequence};
 use crate::cursors::find_forward;
 use crate::editing::writable_buffer;
 use crate::lines::lines_of;
-use crate::motion::{cycle_step, word_end};
+use crate::motion::{cycle_step, forward_word_end};
 
 pub const ZAP_TO_CHAR: &str = "zap-to-char";
 pub const ZAP_UP_TO_CHAR: &str = "zap-up-to-char";
@@ -30,7 +30,7 @@ fn change_case(editor: &mut Editor, change: fn(&str) -> String) -> CommandResult
     let region = buffer.region();
     let range = region
         .clone()
-        .unwrap_or_else(|| buffer.point()..word_end(buffer, buffer.point()));
+        .unwrap_or_else(|| buffer.point()..forward_word_end(buffer, buffer.point()));
     let changed = change(&buffer.contents(range.clone()));
     let end = range.start + changed.len();
     buffer.apply_edits(vec![(range, changed)]);

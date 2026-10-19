@@ -1,4 +1,6 @@
-use remacs_core::{Buffer, CharClass, CommandResult, Editor};
+use std::ops::Range;
+
+use remacs_core::{Buffer, CharClass, CommandResult, Editor, SyntaxContext};
 
 /// Lines of overlap kept when paging, like Emacs `next-screen-context-lines`.
 const CONTEXT_LINES: usize = 2;
@@ -40,7 +42,7 @@ pub fn forward_word(editor: &mut Editor) -> CommandResult {
     if buffer.point() == buffer.text().len() {
         return at_end_of_buffer(editor);
     }
-    buffer.set_point(word_end(buffer, buffer.point()));
+    buffer.set_point(forward_word_end(buffer, buffer.point()));
     Ok(())
 }
 
@@ -49,7 +51,7 @@ pub fn backward_word(editor: &mut Editor) -> CommandResult {
     if buffer.point() == 0 {
         return at_beginning_of_buffer(editor);
     }
-    buffer.set_point(word_start(buffer, buffer.point()));
+    buffer.set_point(backward_word_start(buffer, buffer.point()));
     Ok(())
 }
 
@@ -197,49 +199,171 @@ pub(crate) fn line_end(buffer: &Buffer) -> usize {
         .map_or(buffer.text().len(), |range| range.end)
 }
 
-/// End of the step after `offset`: a word with the whitespace to its left on its line, or
-/// a run of punctuation, or whitespace on its own before punctuation or across lines.
-pub(crate) fn word_end(buffer: &Buffer, offset: usize) -> usize {
-    let Some(first) = buffer.char_after(offset).map(CharClass::of) else {
-        return offset;
+// Word steps follow IntelliJ's default macOS caret stops (`EditorActionUtil`): moves stop
+// at the near end of a token and cross one line break at a time; kills stop at the line
+// ends and take a quoted word with its quotes.
+
+/// Where `forward-word` goes: the end of the next token, or the start of the next line.
+pub(crate) fn forward_word_end(buffer: &Buffer, offset: usize) -> usize {
+    next_stop(
+        buffer,
+        offset,
+        next_line_start(buffer, offset),
+        is_token_end,
+    )
+}
+
+/// Where `backward-word` goes: the start of the previous token, or the end of the previous
+/// line.
+pub(crate) fn backward_word_start(buffer: &Buffer, offset: usize) -> usize {
+    previous_stop(
+        buffer,
+        offset,
+        previous_line_end(buffer, offset),
+        is_token_start,
+    )
+}
+
+/// Where `kill-word` kills to: the next start or end of a token, past a quoted word, or the
+/// end of the line, or from there the start of the next.
+pub(crate) fn kill_word_end(editor: &Editor, offset: usize) -> usize {
+    let buffer = editor.buffer();
+    let line_end = line_range_at(buffer, offset).end;
+    let limit = if offset < line_end {
+        line_end
+    } else {
+        next_line_start(buffer, offset)
     };
-    let end = skip_forward(buffer, offset, first);
-    if first == CharClass::Space
-        && buffer.char_after(end).map(CharClass::of) == Some(CharClass::Word)
-        && !buffer.contents(offset..end).contains('\n')
+    let stop = next_stop(buffer, offset, limit, is_token_edge);
+    if let Some(quote) = buffer.char_before(stop).filter(|&c| is_quote(c))
+        && stop < limit
+        && opens_quote(editor, stop, quote)
     {
-        skip_forward(buffer, end, CharClass::Word)
-    } else {
-        end
+        let before_quote = next_stop(buffer, stop, limit, is_token_edge);
+        if buffer.char_after(before_quote) == Some(quote) {
+            return next_stop(buffer, before_quote, limit, is_token_edge);
+        }
     }
+    stop
 }
 
-/// Start of the step before `offset`: a word with the whitespace to its left, or a run
-/// of punctuation or of whitespace.
-pub(crate) fn word_start(buffer: &Buffer, offset: usize) -> usize {
-    let Some(last) = buffer.char_before(offset).map(CharClass::of) else {
-        return offset;
+/// Where `backward-kill-word` kills from: the previous start of a token, before a quoted
+/// word, or the start of the line, or from there the end of the previous.
+pub(crate) fn backward_kill_word_start(editor: &Editor, offset: usize) -> usize {
+    let buffer = editor.buffer();
+    let line_start = line_range_at(buffer, offset).start;
+    let limit = if offset > line_start {
+        line_start
+    } else {
+        previous_line_end(buffer, offset)
     };
-    let start = skip_backward(buffer, offset, last);
-    if last == CharClass::Word {
-        skip_backward(buffer, start, CharClass::Space)
-    } else {
-        start
+    let stop = previous_stop(buffer, offset, limit, is_token_start);
+    if let Some(quote) = buffer.char_after(stop).filter(|&c| is_quote(c))
+        && stop > limit
+    {
+        let after_quote = previous_stop(buffer, stop, limit, is_token_edge);
+        if buffer.char_before(after_quote) == Some(quote) && opens_quote(editor, after_quote, quote)
+        {
+            return previous_stop(buffer, after_quote, limit, is_token_start);
+        }
     }
+    stop
 }
 
-fn skip_forward(buffer: &Buffer, mut offset: usize, class: CharClass) -> usize {
-    while buffer.char_after(offset).map(CharClass::of) == Some(class) {
+/// Whether the `quote` ending at `offset` starts a string, rather than sitting inside one
+/// or in a comment or text no parser reads.
+fn opens_quote(editor: &Editor, offset: usize, quote: char) -> bool {
+    editor.syntax_at(offset - quote.len_utf8()) != SyntaxContext::String
+        && editor.syntax_at(offset) == SyntaxContext::String
+}
+
+/// The first offset after `offset`, up to `limit`, where `stops` holds, or `limit`.
+fn next_stop(buffer: &Buffer, mut offset: usize, limit: usize, stops: StopAt) -> usize {
+    while offset < limit {
         offset = buffer.text().next_char_boundary(offset);
+        if stops(buffer, offset) {
+            break;
+        }
     }
     offset
 }
 
-fn skip_backward(buffer: &Buffer, mut offset: usize, class: CharClass) -> usize {
-    while buffer.char_before(offset).map(CharClass::of) == Some(class) {
+/// The last offset before `offset`, down to `limit`, where `stops` holds, or `limit`.
+fn previous_stop(buffer: &Buffer, mut offset: usize, limit: usize, stops: StopAt) -> usize {
+    while offset > limit {
         offset = buffer.text().previous_char_boundary(offset);
+        if stops(buffer, offset) {
+            break;
+        }
     }
     offset
+}
+
+type StopAt = fn(&Buffer, usize) -> bool;
+
+fn is_token_start(buffer: &Buffer, offset: usize) -> bool {
+    match (buffer.char_before(offset), buffer.char_after(offset)) {
+        (_, None) => false,
+        (_, Some(after)) if after.is_whitespace() => false,
+        (None, _) => true,
+        (Some(before), Some(after)) => splits(before, after),
+    }
+}
+
+fn is_token_end(buffer: &Buffer, offset: usize) -> bool {
+    match (buffer.char_before(offset), buffer.char_after(offset)) {
+        (None, _) => false,
+        (Some(before), _) if before.is_whitespace() => false,
+        (_, None) => true,
+        (Some(before), Some(after)) => splits(before, after),
+    }
+}
+
+fn is_token_edge(buffer: &Buffer, offset: usize) -> bool {
+    is_token_start(buffer, offset) || is_token_end(buffer, offset)
+}
+
+/// Whether a token ends between two characters next to each other: a word next to
+/// anything else, a quote, or a bracket, `,` or `;` next to another character; other
+/// punctuation runs together, as in `->` or `!=`.
+/// shortcut: character rules stand in for the lexer tokens IntelliJ steps by; take the
+/// syntax tree's leaves if a language splits wrong.
+fn splits(before: char, after: char) -> bool {
+    if CharClass::of(before) != CharClass::of(after) {
+        return true;
+    }
+    CharClass::of(before) == CharClass::Punctuation
+        && (is_quote(before)
+            || is_quote(after)
+            || (stands_alone(before) || stands_alone(after)) && before != after)
+}
+
+fn is_quote(character: char) -> bool {
+    matches!(character, '"' | '\'' | '`')
+}
+
+fn stands_alone(character: char) -> bool {
+    matches!(character, '(' | ')' | '[' | ']' | '{' | '}' | ',' | ';')
+}
+
+fn line_range_at(buffer: &Buffer, offset: usize) -> Range<usize> {
+    let text = buffer.text();
+    text.line_range(text.line_of(offset))
+        .unwrap_or(offset..offset)
+}
+
+fn next_line_start(buffer: &Buffer, offset: usize) -> usize {
+    let text = buffer.text();
+    text.line_start(text.line_of(offset) + 1)
+        .unwrap_or(text.len())
+}
+
+fn previous_line_end(buffer: &Buffer, offset: usize) -> usize {
+    let text = buffer.text();
+    text.line_of(offset)
+        .checked_sub(1)
+        .and_then(|line| text.line_range(line))
+        .map_or(0, |range| range.end)
 }
 
 /// The start of the first blank line after the paragraph at or after `line`, or the end

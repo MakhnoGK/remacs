@@ -121,58 +121,33 @@ fn motion_steps_over_multibyte_characters() {
 }
 
 #[test]
-fn word_motion_steps_over_words_with_the_whitespace_before_them() {
-    let text = "fn  main() -> жук";
-    let mut editor = editor_with(text);
-    let mut steps = |keys: &str| {
-        keys.split(' ')
-            .map(|key| {
-                press(&mut editor, key);
-                &text[..editor.buffer().point()]
-            })
-            .collect::<Vec<_>>()
-    };
-    assert_eq!(
-        steps("M-f M-f M-f M-f M-f M-f"),
-        [
-            "fn",
-            "fn  main",
-            "fn  main()",
-            "fn  main() ",
-            "fn  main() ->",
-            text
-        ]
-    );
-    assert_eq!(
-        steps("M-b M-b M-b M-b M-b M-b"),
-        [
-            "fn  main() ->",
-            "fn  main() ",
-            "fn  main()",
-            "fn  main",
-            "fn",
-            ""
-        ]
-    );
-}
-
-#[test]
-fn word_kills_take_a_word_with_the_whitespace_before_it() {
+fn word_steps_and_kills_follow_intellij() {
     let cases = [
-        ("word1 word2|", "M-DEL", "word1|"),
-        ("word1| word2", "M-d", "word1|"),
-        ("слово1 слово2|", "M-DEL", "слово1|"),
-        ("слово1| слово2", "M-d", "слово1|"),
-        ("meta: {\n    |sentAt", "M-DEL", "meta: {|sentAt"),
-        ("1000,\n|                  },\n};", "M-d", "1000,\n|},\n};"),
-        ("foo\n    bar|", "M-DEL", "foo|"),
-        ("word1 word2|", "M-b", "word1| word2"),
-        ("word1| word2", "M-f", "word1 word2|"),
-        ("a(|  )", "M-d", "a(|)"),
-        ("a(  )|", "M-DEL", "a(  |"),
-        ("';\n|\ntype Media", "M-d", "';\n|type Media"),
-        ("foo|\n    bar", "M-d", "foo|bar"),
-        ("foo|\n    bar", "M-f", "foo\n    |bar"),
+        ("foo bar|", "M-b", "foo |bar"),
+        ("foo  |  bar", "M-b", "|foo    bar"),
+        ("my_list|", "M-b", "|my_list"),
+        ("foo\n    |bar", "M-b", "foo|\n    bar"),
+        ("main|();", "M-f", "main(|);"),
+        ("foo|\n    bar", "M-f", "foo\n|    bar"),
+        ("foo\n|    bar", "M-f", "foo\n    bar|"),
+        ("foo| bar", "M-f", "foo bar|"),
+        ("foo bar|", "M-DEL", "foo |"),
+        ("foo |", "M-DEL", "|"),
+        ("CARET_STOP_OPTIONS|", "M-DEL", "|"),
+        ("foo();|", "M-DEL", "foo()|"),
+        ("foo\n    bar|", "M-DEL", "foo\n    |"),
+        ("foo\n    |", "M-DEL", "foo\n|"),
+        ("foo\n|", "M-DEL", "foo|"),
+        ("meta: {\n    |sentAt", "M-DEL", "meta: {\n|sentAt"),
+        ("\"test\"|", "M-DEL", "|"),
+        ("foo| bar", "M-d", "foo|bar"),
+        ("foo,| bar", "M-d", "foo,|bar"),
+        ("foo|\n    bar", "M-d", "foo|    bar"),
+        ("foo|    bar", "M-d", "foo|bar"),
+        ("|\"test\", x", "M-d", "|, x"),
+        ("слово1 слово_2|", "M-DEL", "слово1 |"),
+        ("слово1| слово_2", "M-f", "слово1 слово_2|"),
+        ("foo| bar", "M-u", "foo BAR|"),
     ];
     for (before, keys, expected) in cases {
         let mut editor = editor_with(&before.replace('|', ""));
@@ -228,14 +203,239 @@ fn a_paragraph_is_selected_or_killed() {
 }
 
 #[test]
-fn backward_kill_word_takes_one_run_at_a_time() {
-    let mut editor = editor_with("тако1ую_ф22разу");
+fn word_kills_keep_quotes_single_where_no_parser_reads_strings() {
+    let mut editor = Editor::new(&[&EditingPlugin]);
+    editor.add_buffer(Buffer::new(
+        "test",
+        Text::from("\"a\" \"b\""),
+        "Fundamental",
+    ));
+    editor.buffer_mut().set_point(2);
+    press(&mut editor, "M-d");
+    assert_eq!(contents(&editor), "\"a \"b\"");
     press(&mut editor, "C-e M-DEL");
-    assert_eq!(contents(&editor), "тако1ую_");
-    press(&mut editor, "M-DEL");
-    assert_eq!(contents(&editor), "тако1ую");
-    press(&mut editor, "M-DEL");
-    assert_eq!(contents(&editor), "");
+    assert_eq!(contents(&editor), "\"a \"b");
+}
+
+// The `^`-marked strings of IntelliJ's `MoveToCaretStopTest.kt` (intellij-community), its
+// default (macOS) caret stops.
+
+#[test]
+fn forward_word_stops_like_intellij() {
+    for marked in [
+        r#"doTest^(^"^test^"^,^ Direction^.^FORWARD^)^"#,
+        r#"
+^      assert^(^i^ <^ expectedCaretOffset^)^ {^ "^Duplicate^ carets^:^ '^$stringWithCaretStops^'^"^ }^
+"#,
+        r#"
+^  private^ fun^ doTest^(^stringWithCaretStops^:^ String^,^
+^                     direction^:^ Direction^,^
+^                     isDelete^:^ Boolean^ =^ false^)^ {^
+"#,
+        r#"
+^data^ class^ CaretStopOptions^(^@^OptionTag^(^"^BACKWARD^"^)^ val^ backwardPolicy^:^ CaretStopPolicy^,^
+^                            @^OptionTag^(^"^FORWARD^"^)^ val^ forwardPolicy^:^ CaretStopPolicy^)^ {^
+"#,
+        r#"
+^  public^ void^ setCaretStopOptions^(^@^NotNull^ CaretStopOptions^ options^)^ {^
+^    myOsSpecificState^.^CARET_STOP_OPTIONS^ =^ options^;^
+^  }^
+"#,
+        r#"
+^my_list^ =^ [^"^one^"^,^ "^two^"^,^ "^three^"^,^
+^           "^four^"^,^ "^five^"^,^
+^           "^six^"^.^six^,^ "^seven^"^seven^,^
+^           eight^"^eight^"^,^ nine^/^"^nine^"^,^
+^           "^...^"^"^ten^"^,^ (^"^...^"^"^eleven^"^"^...^"^)^,^ "^twelve^"^"^...^"^]^
+"#,
+        r#"
+^  [^  "^word^"^"^...^"^]^  ,^
+^  [^"^word^"^  "^...^"^]^  ,^
+^  [^"^word^"^"^...^"^  ]^  ,^
+^  [^ "^word^"^"^...^"^ ]^  ,^
+^  [^"^  word^"^"^...^"^]^  ,^
+^  [^"^ word^ "^"^...^"^]^  ,^
+^  [^"^word^  "^"^...^"^]^  ,^
+^  [^"^word^"^"^  ...^"^]^  ,^
+^  [^"^word^"^"^ ...^ "^]^  ,^
+^  [^"^word^"^"^...^  "^]^  ,^
+"#,
+    ] {
+        assert_caret_stops("forward-word", true, marked);
+    }
+}
+
+#[test]
+fn backward_word_stops_like_intellij() {
+    for marked in [
+        r#"^doTest^(^"^test^"^, ^Direction^.^FORWARD^)"#,
+        r#"
+      ^assert^(^i ^< ^expectedCaretOffset^) ^{ ^"^Duplicate ^carets^: ^'^$stringWithCaretStops^'^" ^}^
+"#,
+        r#"
+  ^private ^fun ^doTest^(^stringWithCaretStops^: ^String^,^
+                     ^direction^: ^Direction^,^
+                     ^isDelete^: ^Boolean ^= ^false^) ^{^
+"#,
+        r#"
+^data ^class ^CaretStopOptions^(^@^OptionTag^(^"^BACKWARD^"^) ^val ^backwardPolicy^: ^CaretStopPolicy^,^
+                            ^@^OptionTag^(^"^FORWARD^"^) ^val ^forwardPolicy^: ^CaretStopPolicy^) ^{^
+"#,
+        r#"
+  ^public ^void ^setCaretStopOptions^(^@^NotNull ^CaretStopOptions ^options^) ^{^
+    ^myOsSpecificState^.^CARET_STOP_OPTIONS ^= ^options^;^
+  ^}^
+"#,
+        r#"
+^my_list ^= ^[^"^one^"^, ^"^two^"^, ^"^three^"^,^
+           ^"^four^"^, ^"^five^"^,^
+           ^"^six^"^.^six^, ^"^seven^"^seven^,^
+           ^eight^"^eight^"^, ^nine^/^"^nine^"^,^
+           ^"^...^"^"^ten^"^, ^(^"^...^"^"^eleven^"^"^...^"^)^, ^"^twelve^"^"^...^"^]]^
+"#,
+        r#"
+  ^[  ^"^word^"^"^...^"^]  ^,^
+  ^[^"^word^"  ^"^...^"^]  ^,^
+  ^[^"^word^"^"^...^"  ^]  ^,^
+  ^[ ^"^word^"^"^...^" ^]  ^,^
+  ^[^"  ^word^"^"^...^"^]  ^,^
+  ^[^" ^word ^"^"^...^"^]  ^,^
+  ^[^"^word  ^"^"^...^"^]  ^,^
+  ^[^"^word^"^"  ^...^"^]  ^,^
+  ^[^"^word^"^" ^... ^"^]  ^,^
+  ^[^"^word^"^"^...  ^"^]  ^,^
+"#,
+    ] {
+        assert_caret_stops("backward-word", false, marked);
+    }
+}
+
+#[test]
+fn kill_word_stops_like_intellij() {
+    for marked in [
+        r#"doTest^(^"`test`"^,^ ^Direction^.^FORWARD^)^"#,
+        r#"
+^      ^assert^(^i^ ^<^ ^expectedCaretOffset^)^ ^{^ ^"^Duplicate^ ^carets^:^ ^'^$stringWithCaretStops^'^"^ ^}^
+"#,
+        r#"
+^  ^private^ ^fun^ ^doTest^(^stringWithCaretStops^:^ ^String^,^
+^                     ^direction^:^ ^Direction^,^
+^                     ^isDelete^:^ ^Boolean^ ^=^ ^false^)^ ^{^
+"#,
+        r#"
+^data^ ^class^ ^CaretStopOptions^(^@^OptionTag^(^"`BACKWARD`"^)^ ^val^ ^backwardPolicy^:^ ^CaretStopPolicy^,^
+^                            ^@^OptionTag^(^"`FORWARD`"^)^ ^val^ ^forwardPolicy^:^ ^CaretStopPolicy^)^ ^{^
+"#,
+        r#"
+^  ^public^ ^void^ ^setCaretStopOptions^(^@^NotNull^ ^CaretStopOptions^ ^options^)^ ^{^
+^    ^myOsSpecificState^.^CARET_STOP_OPTIONS^ ^=^ ^options^;^
+^  ^}^
+"#,
+        r#"
+^my_list^ ^=^ ^[^"`one`"^,^ ^"`two`"^,^ ^"`three`"^,^
+^           ^"`four`"^,^ ^"`five`"^,^
+^           ^"`six`"^.^six^,^ ^"`seven`"^seven^,^
+^           ^eight^"`eight`"^,^ ^nine^/^"`nine`"^,^
+^           ^"`...`"^"`ten`"^,^ ^(^"`...`"^"`eleven`"^"`...`"^)^,^ ^"`twelve`"^"`...`"^]^
+"#,
+    ] {
+        assert_caret_stops("kill-word", true, marked);
+    }
+}
+
+#[test]
+fn backward_kill_word_stops_like_intellij() {
+    for marked in [
+        r#"^doTest^(^"`test`"^, ^Direction^.^FORWARD^)"#,
+        r#"
+^      ^assert^(^i ^< ^expectedCaretOffset^) ^{ ^"^Duplicate ^carets^: ^'^$stringWithCaretStops^'^" ^}^
+"#,
+        r#"
+^  ^private ^fun ^doTest^(^stringWithCaretStops^: ^String^,^
+^                     ^direction^: ^Direction^,^
+^                     ^isDelete^: ^Boolean ^= ^false^) ^{^
+"#,
+        r#"
+^data ^class ^CaretStopOptions^(^@^OptionTag^(^"`BACKWARD`"^) ^val ^backwardPolicy^: ^CaretStopPolicy^,^
+^                            ^@^OptionTag^(^"`FORWARD`"^) ^val ^forwardPolicy^: ^CaretStopPolicy^) ^{^
+"#,
+        r#"
+^  ^public ^void ^setCaretStopOptions^(^@^NotNull ^CaretStopOptions ^options^) ^{^
+^    ^myOsSpecificState^.^CARET_STOP_OPTIONS ^= ^options^;^
+^  ^}^
+"#,
+        r#"
+^my_list ^= ^[^"`one`"^, ^"`two`"^, ^"`three`"^,^
+^           ^"`four`"^, ^"`five`"^,^
+^           ^"`six`"^.^six^, ^"`seven`"^seven^,^
+^           ^eight^"`eight`"^, ^nine^/^"`nine`"^,^
+^           ^"`...`"^"`ten`"^, ^(^"`...`"^"`eleven`"^"`...`"^)^, ^"`twelve`"^"`...`"^]^
+"#,
+    ] {
+        assert_caret_stops("backward-kill-word", false, marked);
+    }
+}
+
+/// Runs `command` from every offset of `marked` without its marks and checks it reaches
+/// the nearest stop in its direction; a kill skips the `` ` `` stops inside a quoted word
+/// unless it starts at one, as `MoveToCaretStopTest.nextTo` does.
+fn assert_caret_stops(command: &str, forward: bool, marked: &str) {
+    let (text, stops) = caret_stops(marked);
+    let offsets: Vec<usize> = if forward {
+        (0..text.len()).collect()
+    } else {
+        (1..=text.len()).rev().collect()
+    };
+    let kills = command.contains("kill");
+    for offset in offsets {
+        let mut editor = code_editor_with(&text);
+        editor.buffer_mut().set_point(offset);
+        editor.run_command(command);
+        let stop = nearest_stop(&stops, offset, forward, kills);
+        let mut shown = text.clone();
+        let (start, end) = (offset.min(stop), offset.max(stop));
+        let expected = if kills {
+            shown.replace_range(start..end, "");
+            (shown, start)
+        } else {
+            (text.clone(), stop)
+        };
+        assert_eq!(
+            (contents(&editor), editor.buffer().point()),
+            expected,
+            "{command} from {offset} in {text:?}"
+        );
+    }
+}
+
+/// `marked` without its marks, and the offset of each `^` or `` ` `` stop, whether it is
+/// inside a quoted word; the ends of the text are stops.
+fn caret_stops(marked: &str) -> (String, Vec<(usize, bool)>) {
+    let marked = format!("^{}^", marked.trim_matches(['^', '`']));
+    let mut text = String::new();
+    let mut stops = Vec::new();
+    for character in marked.chars() {
+        match character {
+            '^' | '`' => stops.push((text.len(), character == '`')),
+            _ => text.push(character),
+        }
+    }
+    (text, stops)
+}
+
+fn nearest_stop(stops: &[(usize, bool)], offset: usize, forward: bool, kills: bool) -> usize {
+    let from_inside = match stops.binary_search_by_key(&offset, |&(at, _)| at) {
+        Ok(index) => stops[index].1,
+        Err(index) => index > 0 && index < stops.len() && stops[index].1 && stops[index - 1].1,
+    };
+    let reachable = |&&(_, inside): &&(usize, bool)| !kills || from_inside || !inside;
+    let mut candidates = stops.iter().filter(reachable);
+    let stop = if forward {
+        candidates.find(|&&(at, _)| at > offset)
+    } else {
+        candidates.rev().find(|&&(at, _)| at < offset)
+    };
+    stop.unwrap().0
 }
 
 #[test]
@@ -661,7 +861,7 @@ fn consecutive_kills_yank_as_one() {
     press(&mut editor, "C-y");
     assert_eq!(contents(&editor), "one\ntwo\nthree");
     press(&mut editor, "M-> M-DEL M-DEL");
-    assert_eq!(editor.kill_ring.newest(), Some("\ntwo\nthree"));
+    assert_eq!(editor.kill_ring.newest(), Some("\nthree"));
 }
 
 #[test]

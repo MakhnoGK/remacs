@@ -91,6 +91,28 @@ mod tests {
     }
 
     #[test]
+    fn word_kills_take_a_quoted_word_only_where_a_string_starts() {
+        static SYNTAX: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS, INJECTIONS);
+        let source = "f(\"x\", \"a 'b' c\"); // \"y\" \"z\"\n";
+        let killed = |at: &str| {
+            let mut editor = Editor::new(&[&LanguagesPlugin, &EditingPlugin, &SYNTAX]);
+            editor.add_buffer(Buffer::new("main.rs", Text::from(source), RUST));
+            let start = Instant::now();
+            while editor.syntax_at(source.find('x').unwrap()) != SyntaxContext::String {
+                assert!(start.elapsed() < Duration::from_secs(5), "never parsed");
+                thread::sleep(Duration::from_millis(5));
+                editor.refresh();
+            }
+            editor.buffer_mut().set_point(source.find(at).unwrap());
+            editor.run_command("kill-word");
+            editor.buffer().contents(0..editor.buffer().text().len())
+        };
+        assert_eq!(killed("\"x\""), "f(, \"a 'b' c\"); // \"y\" \"z\"\n");
+        assert_eq!(killed("'b'"), "f(\"x\", \"a b' c\"); // \"y\" \"z\"\n");
+        assert_eq!(killed("\" \"z"), "f(\"x\", \"a 'b' c\"); // \"y \"z\"\n");
+    }
+
+    #[test]
     fn scripts_and_styles_in_html_are_highlighted_as_their_languages() {
         static SYNTAX: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS, INJECTIONS);
         let page = "<style>a { color: red; }</style>\n\

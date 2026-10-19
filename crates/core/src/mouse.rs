@@ -95,11 +95,10 @@ fn word_at(buffer: &Buffer, offset: usize) -> Range<usize> {
         .unwrap_or(offset..offset);
     let after = buffer.char_after(offset).filter(|_| offset < line.end);
     let before = buffer.char_before(offset).filter(|_| offset > line.start);
-    let Some(class) = after.or(before).map(CharClass::in_identifier) else {
+    let Some(class) = after.or(before).map(CharClass::of) else {
         return offset..offset;
     };
-    let in_class =
-        |character: Option<char>| character.is_some_and(|c| CharClass::in_identifier(c) == class);
+    let in_class = |character: Option<char>| character.is_some_and(|c| CharClass::of(c) == class);
     let mut start = offset;
     while start > line.start && in_class(buffer.char_before(start)) {
         start = text.previous_char_boundary(start);

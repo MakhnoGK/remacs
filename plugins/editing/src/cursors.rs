@@ -268,7 +268,7 @@ fn span_of_cursors(buffer: &Buffer) -> (usize, usize) {
 /// The identifier around `offset`, if it is in or right after one.
 fn symbol_at(buffer: &Buffer, offset: usize) -> Option<Range<usize>> {
     let is_symbol = |character: Option<char>| {
-        character.is_some_and(|character| CharClass::in_identifier(character) == CharClass::Word)
+        character.is_some_and(|character| CharClass::of(character) == CharClass::Word)
     };
     let text = buffer.text();
     let (mut start, mut end) = (offset, offset);

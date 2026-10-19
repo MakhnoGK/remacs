@@ -2,7 +2,8 @@ use remacs_core::{Candidate, CommandResult, Editor, Prompt, filter_candidates};
 
 use crate::editing::writable_buffer;
 use crate::motion::{
-    at_end_of_buffer, line_end, paragraph_end, paragraph_start, word_end, word_start,
+    at_end_of_buffer, backward_kill_word_start, kill_word_end, line_end, paragraph_end,
+    paragraph_start,
 };
 use crate::rectangle;
 
@@ -117,15 +118,15 @@ pub fn kill_line(editor: &mut Editor) -> CommandResult {
 }
 
 pub fn kill_word(editor: &mut Editor) -> CommandResult {
-    let buffer = writable_buffer(editor)?;
-    let (point, end) = (buffer.point(), word_end(buffer, buffer.point()));
+    let point = writable_buffer(editor)?.point();
+    let end = kill_word_end(editor, point);
     editor.kill(point..end);
     Ok(())
 }
 
 pub fn backward_kill_word(editor: &mut Editor) -> CommandResult {
-    let buffer = writable_buffer(editor)?;
-    let (start, point) = (word_start(buffer, buffer.point()), buffer.point());
+    let point = writable_buffer(editor)?.point();
+    let start = backward_kill_word_start(editor, point);
     editor.kill(start..point);
     Ok(())
 }
