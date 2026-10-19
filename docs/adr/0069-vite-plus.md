@@ -28,10 +28,10 @@ Status: accepted, 2026-10-18
 
 ## Consequences
 
-- Only the project's own copies read `vite.config.ts`: a global npm oxlint looks for
-  `vite-plus` beside itself and fails to load the config; the downloaded native oxfmt
-  formats with its defaults. npm links them into `node_modules/.bin`; pnpm, which links
-  only direct dependencies there, is not checked.
+- Only the project's own copies read `vite.config.ts`: a global npm oxlint or oxfmt
+  looks for `vite-plus` beside itself and fails to load the config. oxfmt installs from
+  npm: the native GitHub build has no `--lsp`. npm links them into `node_modules/.bin`;
+  pnpm, which links only direct dependencies there, is not checked.
 
 ## Later
 

@@ -350,7 +350,8 @@ formats-first = true
 when = { files = [".oxfmtrc.json", ".oxfmtrc.jsonc"], dependencies = ["oxfmt", "vite-plus"] }
 env = { VP_VERSION = "1" }
 env-when = { dependencies = ["vite-plus"] }
-install = { from = "github", package = "oxc-project/oxc", tag-prefix = "oxfmt_v", asset = "oxfmt-{target}.tar.gz", program = "oxfmt-{target}" }
+# The native GitHub build has no `--lsp`; only the npm package serves LSP.
+install = { from = "npm", package = "oxfmt" }
 
 # Loads the project's own eslint, else the global one; only for projects with a config.
 [[servers]]
