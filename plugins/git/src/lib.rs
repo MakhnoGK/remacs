@@ -75,9 +75,12 @@ const COMMANDS: &[Command] = &[
     Command::new("git-history-open-commit", "Show what the selected commit of the history changed", history_view::open_commit),
     Command::new("git-history-all-files", "Show the commits of every file in the history again", history_view::all_files),
     Command::new("git-log-file", "Show the commits that changed the visited file", history_view::file_log),
-    Command::new(commit_view::TOGGLE, "Fold or unfold the part at point, or show the file's diff", commit_view::toggle),
-    Command::new("git-commit-toggle-all", "Hide every file's diff when one is shown, else show them all", commit_view::toggle_all),
+    Command::new(commit_view::TOGGLE, "Fold or unfold the commit's message", commit_view::toggle),
     Command::new(commit_view::VISIT, "Visit the file at point in the working tree, at the diff line", commit_view::visit),
+    Command::new("git-commit-next-hunk", "Go to the next hunk of the commit's diff", commit_view::next_hunk),
+    Command::new("git-commit-previous-hunk", "Go to the previous hunk of the commit's diff", commit_view::previous_hunk),
+    Command::new("git-commit-next-file", "Go to the next file of the commit's diff", commit_view::next_file),
+    Command::new("git-commit-previous-file", "Go to the previous file of the commit's diff", commit_view::previous_file),
     Command::new("git-commit-open-file", "Show the file at point as the commit left it", commit_view::open_file),
     Command::new("git-keep-ours", "Resolve the conflict to what was there: the upstream when rebasing", resolve::keep_ours),
     Command::new("git-keep-theirs", "Resolve the conflict to what comes in: your commit when rebasing", resolve::keep_theirs),
@@ -116,12 +119,15 @@ const BINDINGS: &[(&str, &str)] = &[("C-x g", "git-status"), ("C-x v l", "git-lo
 
 const COMMIT_BINDINGS: &[(&str, &str)] = &[
     ("TAB", commit_view::TOGGLE),
-    ("S-TAB", "git-commit-toggle-all"),
     ("RET", commit_view::VISIT),
     ("o", "git-commit-open-file"),
     ("q", "git-quit"),
-    ("n", "next-line"),
-    ("p", "previous-line"),
+    ("n", "git-commit-next-hunk"),
+    ("p", "git-commit-previous-hunk"),
+    ("N", "git-commit-next-file"),
+    ("P", "git-commit-previous-file"),
+    ("M-n", "git-commit-next-file"),
+    ("M-p", "git-commit-previous-file"),
 ];
 
 #[rustfmt::skip]
@@ -132,6 +138,10 @@ const MENU_ITEMS: &[MenuItem] = &[
     MenuItem::new("Git", "history", "File History", "git-log-file").enabled_when(history_view::visits_file),
     MenuItem::new("Git", "history", "All Files' History", "git-history-all-files").enabled_when(status_shown),
     MenuItem::new("Git", "history", "Show Selected Commit", "git-history-open-commit").enabled_when(status_shown),
+    MenuItem::new("Git", "history", "Next Hunk", "git-commit-next-hunk").enabled_when(commit_shown),
+    MenuItem::new("Git", "history", "Previous Hunk", "git-commit-previous-hunk").enabled_when(commit_shown),
+    MenuItem::new("Git", "history", "Next File", "git-commit-next-file").enabled_when(commit_shown),
+    MenuItem::new("Git", "history", "Previous File", "git-commit-previous-file").enabled_when(commit_shown),
     MenuItem::new("Git", "changes", "Commit…", "git-commit").enabled_when(status_shown),
     MenuItem::new("Git", "changes", "Stash…", "git-stash").enabled_when(status_shown),
     MenuItem::new("Git", "branches", "Switch Branch…", "git-branch").enabled_when(status_shown),
@@ -144,6 +154,10 @@ const MENU_ITEMS: &[MenuItem] = &[
 /// The commands that act on a working tree act on the status buffer's.
 fn status_shown(editor: &Editor) -> bool {
     commands::shown_status(editor).is_ok()
+}
+
+fn commit_shown(editor: &Editor) -> bool {
+    editor.window_buffer().mode() == commit_view::COMMIT_MODE
 }
 
 const STATUS_BINDINGS: &[(&str, &str)] = &[
@@ -225,7 +239,9 @@ impl Plugin for GitPlugin {
             .post_command_hooks
             .push(Rc::new(buffer_changes::sync));
         registry.outlines.push(Rc::new(status_view::outline));
-        registry.outlines.push(Rc::new(commit_view::outline));
+        registry.decorators.push(Rc::new(commit_view::decorate));
+        registry.line_extras.push(Rc::new(commit_view::line_extras));
+        registry.text_controls.push(Rc::new(commit_view::controls));
         registry
             .status_providers
             .push(Rc::new(status_view::branch_status));

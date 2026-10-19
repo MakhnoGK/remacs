@@ -39,7 +39,7 @@ const HINTS: &[(&str, &str)] = &[
     ("u", "Unstage"),
 ];
 /// Diff lines shown of one file at most, so a huge change does not swamp the buffer.
-const MAX_DIFF_LINES: usize = 2000;
+pub const MAX_DIFF_LINES: usize = 2000;
 pub const SHORT_ID: usize = 7;
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]

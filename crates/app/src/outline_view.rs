@@ -1,3 +1,5 @@
+use std::mem;
+
 use gpui::{
     AnyElement, BorderStyle, Bounds, Context, Div, FontWeight, IntoElement, MouseButton,
     MouseDownEvent, ParentElement, PathBuilder, Pixels, Point, ScrollWheelEvent, Window, canvas,
@@ -5,7 +7,7 @@ use gpui::{
 };
 use remacs_core::{
     Banner, BannerButton, BannerPart, Code, CommitRow, DiffRow, Fact, FactValue, GraphNode,
-    GraphRow, History, Outline, OutlineRow, RefChip, RefKind, Tone, ToolbarButton,
+    GraphRow, History, Outline, OutlineRow, RefChip, RefKind, TextSide, Tone, ToolbarButton,
 };
 use remacs_theme::{color, font, glass};
 
@@ -146,115 +148,71 @@ pub fn render_outline(
     let has_banner = banner.is_some();
     let banner = banner.map(|banner| render_banner(banner, cx));
     let facts = (!facts.is_empty()).then(|| render_facts(facts, cx));
-    let mut children: Vec<AnyElement> = Vec::new();
-    let mut diff_block: Vec<AnyElement> = Vec::new();
-    let row_count = rows.len();
-    for (index, row) in rows.into_iter().enumerate() {
-        let line = first_line + index;
-        let selected = line == point_line;
-        let element = match row {
-            OutlineRow::Diff(diff) => {
-                diff_block.push(render_diff_line(diff, selected, line, activate, cx));
-                None
-            }
-            OutlineRow::Heading {
-                title,
-                count,
-                open,
-                tone,
-            } => Some(
-                render_heading(&title, count, open, tone, selected).on_mouse_down(
+    let rows: Vec<(Div, bool)> = rows
+        .into_iter()
+        .enumerate()
+        .map(|(index, row)| {
+            let line = first_line + index;
+            let is_diff = matches!(row, OutlineRow::Diff(_));
+            let is_heading = matches!(row, OutlineRow::Heading { .. });
+            let body = row_body(row, line == point_line);
+            let body = if is_heading {
+                body.on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |view, _: &MouseDownEvent, _, cx| {
                         cx.stop_propagation();
                         view.click_heading(line, toggle, cx);
                     }),
-                ),
-            ),
-            OutlineRow::File {
-                state,
-                name,
-                directory,
-                lines,
-                note,
-                ..
-            } => Some(clicks(
-                row_frame(selected)
-                    .child(state_letter(Some(state), selected).w(px(12.0)))
-                    .child(div().flex_none().font_family(font::mono()).child(name))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_size(px(font::status_size()))
-                            .text_color(rgb(if selected {
-                                color::fg_alt()
-                            } else {
-                                color::fg_faint()
-                            }))
-                            .child(directory),
-                    )
-                    .map(|row| match note {
-                        Some((note, tone)) => row.child(
-                            div()
-                                .flex_none()
-                                .text_size(px(font::status_size()))
-                                .text_color(rgb(tone_color(tone, color::fg_dim())))
-                                .child(note),
-                        ),
-                        None => row.children(lines.map(|lines| line_counts(lines, selected))),
-                    }),
-                line,
-                activate,
-                cx,
-            )),
-            OutlineRow::Item { name, description } => Some(clicks(
-                row_frame(selected)
-                    .child(
-                        div()
-                            .flex_none()
-                            .font_family(font::mono())
-                            .text_size(px(font::status_size()))
-                            .text_color(rgb(if selected {
-                                color::fg_alt()
-                            } else {
-                                color::fg_dim()
-                            }))
-                            .child(name),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_color(rgb(color::fg_body()))
-                            .child(description),
-                    ),
-                line,
-                activate,
-                cx,
-            )),
-        };
-        if !diff_block.is_empty() && (element.is_some() || index + 1 == row_count) {
-            children.push(diff_frame(std::mem::take(&mut diff_block)).into_any_element());
-        }
-        children.extend(element.map(IntoElement::into_any_element));
-    }
+                )
+            } else {
+                clicks(body, line, activate, cx)
+            };
+            (body, is_diff)
+        })
+        .collect();
+    let children = framed(rows);
     let side = match conflict {
         Some(conflict) => Some(render_conflict(conflict, code_faces, cx)),
         None => history
             .map(|history| render_history(history, scrolled.history, scrolled.history_shift, cx)),
     };
-    let rows = scrolled_by(
-        div().flex().flex_col().gap(px(ROW_GAP)).children(children),
+    let pane = pane_column(
+        facts,
+        children,
+        scrolled.rows,
         scrolled.rows_shift,
+        PANE_WIDTH,
     );
-    let pane = div()
+    let panes = div()
+        .absolute()
+        .top(px(pane_top(has_banner)))
+        .left(px(PANE_SIDE))
+        .right(px(PANE_SIDE))
+        .bottom(px(LIST_BOTTOM))
+        .flex()
+        .gap(px(HISTORY_GAP))
+        .child(pane)
+        .children(side);
+    div().absolute().inset_0().children(banner).child(panes)
+}
+
+/// A pane `width` wide: `facts` over `rows`, the rows moved up by `shift` pixels.
+fn pane_column(
+    facts: Option<Div>,
+    rows: Vec<AnyElement>,
+    scrolled: Scrolled,
+    shift: f32,
+    width: f32,
+) -> Div {
+    let rows = scrolled_by(
+        div().flex().flex_col().gap(px(ROW_GAP)).children(rows),
+        shift,
+    );
+    div()
         .flex()
         .flex_col()
         .flex_none()
-        .w(px(PANE_WIDTH))
+        .w(px(width))
         .p(px(PANE_PADDING))
         .gap(px(ROW_GAP))
         .overflow_hidden()
@@ -267,20 +225,70 @@ pub fn render_outline(
         .children(facts)
         .child(fade_scrolled(
             rows,
-            scrolled.rows,
+            scrolled,
             over(glass::pane(), glass::window_tint()),
-        ));
-    let panes = div()
+        ))
+}
+
+/// The column a plugin puts at the left of a buffer drawn as text, `width` wide, in a
+/// window `height` tall above any pane; its selected row is kept in sight.
+pub fn render_text_side(
+    side: TextSide,
+    width: f32,
+    height: Pixels,
+    cx: &mut Context<EditorView>,
+) -> AnyElement {
+    let TextSide {
+        facts,
+        rows,
+        selected,
+    } = side;
+    let fact_count = facts.len();
+    let facts = (!facts.is_empty()).then(|| render_facts(facts, cx));
+    let (rows, actions): (Vec<_>, Vec<_>) = rows.into_iter().unzip();
+    let fitting = |first: usize| fitting_rows(&rows[first..], fact_count, false, height);
+    let mut first = 0;
+    if let Some(selected) = selected {
+        while first < selected && selected >= first + fitting(first) {
+            first += 1;
+        }
+    }
+    let shown = fitting(first);
+    let scrolled = Scrolled {
+        above: first > 0,
+        below: first + shown < rows.len(),
+    };
+    let rows: Vec<(Div, bool)> = rows
+        .into_iter()
+        .zip(actions)
+        .enumerate()
+        .skip(first)
+        .take(shown)
+        .map(|(index, (row, action))| {
+            let is_diff = matches!(row, OutlineRow::Diff(_));
+            let body = row_body(row, Some(index) == selected);
+            let body = match action {
+                Some(action) => clickable(body, action, cx),
+                None => body,
+            };
+            (body, is_diff)
+        })
+        .collect();
+    div()
         .absolute()
-        .top(px(pane_top(has_banner)))
+        .top(px(PANE_TOP))
         .left(px(PANE_SIDE))
-        .right(px(PANE_SIDE))
         .bottom(px(LIST_BOTTOM))
         .flex()
-        .gap(px(HISTORY_GAP))
-        .child(pane)
-        .children(side);
-    div().absolute().inset_0().children(banner).child(panes)
+        // Clicks between rows stay off the text.
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .child(pane_column(facts, framed(rows), scrolled, 0.0, width))
+        .into_any_element()
+}
+
+/// Where the text starts, past a side column `width` wide.
+pub fn text_side_end(width: f32) -> Pixels {
+    px(PANE_SIDE + width + HISTORY_GAP)
 }
 
 /// What is in progress across the top: its name and refs, the step, the commit applied,
@@ -480,7 +488,12 @@ pub fn render_toolbar(buttons: Vec<ToolbarButton>, cx: &mut Context<EditorView>)
 
 /// Whether a window this wide has room for the history beside the pane.
 pub fn fits_history(window_width: Pixels) -> bool {
-    window_width >= px(2.0 * PANE_SIDE + PANE_WIDTH + HISTORY_GAP + MIN_HISTORY_WIDTH)
+    fits_beside(window_width, PANE_WIDTH)
+}
+
+/// Whether a pane `width` wide leaves room beside it for the history or the text.
+pub fn fits_beside(window_width: Pixels, width: f32) -> bool {
+    window_width >= px(2.0 * PANE_SIDE + width + HISTORY_GAP + MIN_HISTORY_WIDTH)
 }
 
 /// How many commits fit under the history's header in a window this tall.
@@ -963,20 +976,101 @@ fn diff_frame(lines: Vec<AnyElement>) -> Div {
         .children(lines)
 }
 
-fn render_diff_line(
-    diff: DiffRow,
-    selected: bool,
-    line: usize,
-    activate: &'static str,
-    cx: &mut Context<EditorView>,
-) -> AnyElement {
+/// `row` as drawn, without what a click on it does; a diff line belongs in a diff's frame.
+fn row_body(row: OutlineRow, selected: bool) -> Div {
+    match row {
+        OutlineRow::Diff(diff) => diff_line(diff, selected),
+        OutlineRow::Heading {
+            title,
+            count,
+            open,
+            tone,
+        } => render_heading(&title, count, open, tone, selected),
+        OutlineRow::File {
+            state,
+            name,
+            directory,
+            lines,
+            note,
+            ..
+        } => row_frame(selected)
+            .child(state_letter(Some(state), selected).w(px(12.0)))
+            .child(div().flex_none().font_family(font::mono()).child(name))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(px(font::status_size()))
+                    .text_color(rgb(if selected {
+                        color::fg_alt()
+                    } else {
+                        color::fg_faint()
+                    }))
+                    .child(directory),
+            )
+            .map(|row| match note {
+                Some((note, tone)) => row.child(
+                    div()
+                        .flex_none()
+                        .text_size(px(font::status_size()))
+                        .text_color(rgb(tone_color(tone, color::fg_dim())))
+                        .child(note),
+                ),
+                None => row.children(lines.map(|lines| line_counts(lines, selected))),
+            }),
+        OutlineRow::Item { name, description } => row_frame(selected)
+            .child(
+                div()
+                    .flex_none()
+                    .font_family(font::mono())
+                    .text_size(px(font::status_size()))
+                    .text_color(rgb(if selected {
+                        color::fg_alt()
+                    } else {
+                        color::fg_dim()
+                    }))
+                    .child(name),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_color(rgb(color::fg_body()))
+                    .child(description),
+            ),
+    }
+}
+
+/// The rows, each told whether it is a diff line, with each run of diff lines in a frame.
+fn framed(rows: Vec<(Div, bool)>) -> Vec<AnyElement> {
+    let mut children = Vec::new();
+    let mut diff_block = Vec::new();
+    for (row, is_diff) in rows {
+        if is_diff {
+            diff_block.push(row.into_any_element());
+            continue;
+        }
+        if !diff_block.is_empty() {
+            children.push(diff_frame(mem::take(&mut diff_block)).into_any_element());
+        }
+        children.push(row.into_any_element());
+    }
+    if !diff_block.is_empty() {
+        children.push(diff_frame(diff_block).into_any_element());
+    }
+    children
+}
+
+fn diff_line(diff: DiffRow, selected: bool) -> Div {
     let (prefix, text, foreground, background) = match diff {
         DiffRow::Hunk(text) => ("", text, color::docstring(), Some(rgba(glass::ink(0x0a)))),
         DiffRow::Context(text) => ("", text, color::fg_kbd(), None),
         DiffRow::Added(text) => ("+", text, color::fg_added(), Some(rgba(glass::added()))),
         DiffRow::Removed(text) => ("-", text, color::fg_removed(), Some(rgba(glass::removed()))),
     };
-    let row = div()
+    div()
         .flex()
         .flex_none()
         .h(px(DIFF_LINE_HEIGHT))
@@ -986,6 +1080,5 @@ fn render_diff_line(
         .when_some(background, |row, background| row.bg(background))
         .when(selected, |row| row.bg(rgba(glass::selection())))
         .child(div().flex_none().w(px(16.0)).text_center().child(prefix))
-        .child(text);
-    clicks(row, line, activate, cx).into_any_element()
+        .child(text)
 }

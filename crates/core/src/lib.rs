@@ -44,7 +44,7 @@ pub use editor::{Editor, Notifier, SCRATCH_BUFFER, SELF_INSERT_COMMAND};
 pub use file_change::{ChangedFiles, FileChange};
 pub use gutter::{
     BreakpointIcon, GutterIcon, GutterMark, GutterProvider, LineExtra, LineExtraProvider,
-    TextControls, TextControlsProvider, TextLabel, TextLabelProvider,
+    TextControls, TextControlsProvider, TextLabel, TextLabelProvider, TextSide,
 };
 pub use key::{Key, KeyCode, Modifiers, describe_sequence, parse_sequence};
 pub use keymap::{Binding, Keymap};

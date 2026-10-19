@@ -2,9 +2,10 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use crate::editor::Editor;
-use crate::outline::ToolbarButton;
+use crate::outline::{Fact, OutlineRow, ToolbarButton};
 use crate::pane::{PaneButton, Tabs};
 use crate::status::Tone;
+use crate::table::Action;
 
 /// Marks of one line are drawn in this order, the later over the earlier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -44,10 +45,14 @@ pub type GutterProvider = Rc<dyn Fn(&Editor, Range<usize>) -> Option<Vec<GutterM
 
 /// More drawn with a line of the window buffer, like a paused program's line and the
 /// values of the variables on it: a band behind it, and a note after its text.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LineExtra {
     pub line: usize,
     pub band: Option<Tone>,
+    /// A band without an outline, like a diff's added or removed line.
+    pub fill: Option<Tone>,
+    /// In place of the line's number, e.g. a diff line's old and new numbers.
+    pub number: Option<String>,
     /// Drawn faint, in the code font.
     pub note: Option<String>,
 }
@@ -76,6 +81,19 @@ pub struct TextControls {
     /// On the left of the title bar, e.g. one per terminal.
     pub tabs: Option<Tabs>,
     pub hints: &'static [(&'static str, &'static str)],
+    /// Beside the text when the window is wide enough, e.g. a commit's files.
+    pub side: Option<TextSide>,
+    /// Characters the `LineExtra::number`s take, when the plugin numbers the lines.
+    pub number_width: Option<usize>,
+}
+
+/// A column of facts and rows at the left of the text, like the pane of an outline.
+pub struct TextSide {
+    pub facts: Vec<Fact>,
+    /// Each with what a click on it does.
+    pub rows: Vec<(OutlineRow, Option<Action>)>,
+    /// Drawn selected and kept in sight.
+    pub selected: Option<usize>,
 }
 
 /// Controls for the window buffer, if the plugin has any for it.

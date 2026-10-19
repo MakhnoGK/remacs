@@ -44,8 +44,8 @@ use crate::menu_bar::{self, RunCommand};
 use crate::minibuffer_view::{draws_input, is_problem_list, render_minibuffer, render_scrim};
 use crate::opening::open;
 use crate::outline_view::{
-    COMMIT_HEIGHT, OutlineScrolled, fits_history, fitting_commits, fitting_rows, max_outline_lines,
-    render_outline, render_toolbar, row_height,
+    COMMIT_HEIGHT, OutlineScrolled, fits_beside, fits_history, fitting_commits, fitting_rows,
+    max_outline_lines, render_outline, render_text_side, render_toolbar, row_height, text_side_end,
 };
 use crate::pane_view::{
     PANE_BOTTOM, PANE_GAP, PaneChrome, render_button, render_pane, screen_bounds,
@@ -54,9 +54,9 @@ use crate::popup_view::{DocumentationScroll, Placement, PopupView, render_popup}
 use crate::preview_view::render_preview;
 use crate::screen_view::{Cell as ScreenCell, cell_at, render_screen, screen_size};
 use crate::settings::{
-    BottomSettings, CursorHeight, DocumentationSettings, GlassSettings, MouseSettings,
-    ProblemsSettings, PromptsSettings, ReadSettings, ScrollSettings, SwatchesSettings,
-    TransitionsSettings, UiSettings, ZoomSettings, report,
+    BottomSettings, CursorHeight, DiffSettings, DocumentationSettings, GlassSettings,
+    MouseSettings, ProblemsSettings, PromptsSettings, ReadSettings, ScrollSettings,
+    SwatchesSettings, TransitionsSettings, UiSettings, ZoomSettings, report,
 };
 use crate::smooth_scroll::{Glide, SmoothScroll, wheel_delta};
 use crate::table_view::{
@@ -151,6 +151,11 @@ pub struct EditorView {
     documentation_scroll: DocumentationScroll,
     documentation: DocumentationSettings,
     problems: ProblemsSettings,
+    diff: DiffSettings,
+    /// Where the text's rows start: past the side column a plugin put beside them.
+    text_left: Pixels,
+    /// Characters of the line numbers a plugin gives in place of the buffer's.
+    number_width: Option<usize>,
     prompts: PromptsSettings,
     swatches: SwatchesSettings,
     /// How far the minibuffer input is scrolled sideways.
@@ -362,6 +367,9 @@ impl EditorView {
             documentation_scroll: DocumentationScroll::default(),
             documentation: ui.documentation,
             problems: ui.problems,
+            diff: ui.diff,
+            text_left: px(0.0),
+            number_width: None,
             prompts: ui.prompts,
             swatches: ui.swatches,
             input_scroll: ScrollHandle::new(),
@@ -411,6 +419,7 @@ impl EditorView {
         self.glass = read.ui.glass;
         self.documentation = read.ui.documentation;
         self.problems = read.ui.problems;
+        self.diff = read.ui.diff;
         self.prompts = read.ui.prompts;
         self.swatches = read.ui.swatches;
         self.bottom = read.ui.bottom();
@@ -885,7 +894,7 @@ impl EditorView {
     /// The offset in the window buffer nearest to `x` on `line`; past the last line, the
     /// end of the text.
     fn offset_at(&self, line: usize, x: Pixels, metrics: Metrics) -> usize {
-        let text_left = px(ROW_MARGIN) + self.gutter_width(metrics);
+        let text_left = self.text_left + px(ROW_MARGIN) + self.gutter_width(metrics);
         let columns = (x - text_left) / metrics.char_width + self.sideways.shown();
         let display_column = columns.round().max(0.0) as usize;
         let column = self.display_line(line).0.char_column_at(display_column);
@@ -1114,7 +1123,8 @@ impl EditorView {
             .text()
             .line_count()
             .to_string()
-            .len();
+            .len()
+            .max(self.number_width.unwrap_or(0));
         let marks = if self.has_marks_column() {
             px(MARKS_WIDTH)
         } else {
@@ -1221,7 +1231,15 @@ impl EditorView {
         labels: Vec<TextLabel>,
         rectangle: Option<&(RangeInclusive<usize>, Range<usize>)>,
     ) -> (AnyElement, bool) {
-        let (band, note) = extra.map_or((None, None), |extra| (extra.band, extra.note));
+        let LineExtra {
+            band,
+            fill,
+            number,
+            note,
+            ..
+        } = extra.unwrap_or_default();
+        let fill_alpha = u32::from(self.diff.band_opacity) * 0xff / 100;
+        let fill = fill.map(|tone| (tone_color(tone, color::fg_main()) << 8) | fill_alpha);
         let code_font = self.text_font();
         let row_height = px(code_font.line_height);
         let buffer = self.editor.window_buffer();
@@ -1313,8 +1331,15 @@ impl EditorView {
             .flex_none()
             .h(row_height)
             .mx(px(ROW_MARGIN))
-            .rounded(px(ROW_RADIUS))
-            .when(is_current, |row| row.bg(rgba(glass::line_highlight())))
+            // Filled rows run together, like a diff's added lines.
+            .when(fill.is_none(), |row| row.rounded(px(ROW_RADIUS)))
+            .when_some(fill, |row, fill| row.bg(rgba(fill)))
+            .when(is_current, |row| {
+                row.bg(match fill {
+                    Some(fill) => over(glass::line_highlight(), fill),
+                    None => rgba(glass::line_highlight()).into(),
+                })
+            })
             .when_some(band, |row, tone| {
                 let band = tone_color(tone, color::fg_main());
                 row.bg(rgba((band << 8) | 0x26))
@@ -1339,7 +1364,7 @@ impl EditorView {
                     .text_right()
                     .text_size(px(code_font.line_number_size()))
                     .text_color(rgb(number_color))
-                    .child((line + 1).to_string()),
+                    .child(number.unwrap_or_else(|| (line + 1).to_string())),
             )
             .child(
                 div()
@@ -1429,8 +1454,10 @@ impl EditorView {
                     + display_line.text[..byte].chars().count())
                     as f32
                     - self.sideways.shown();
-                let anchor_left =
-                    px(ROW_MARGIN) + gutter_width + metrics.char_width * column.max(0.0);
+                let anchor_left = self.text_left
+                    + px(ROW_MARGIN)
+                    + gutter_width
+                    + metrics.char_width * column.max(0.0);
                 let placement = Placement {
                     anchor_left,
                     line_top,
@@ -1633,8 +1660,10 @@ impl EditorView {
         // Only the top fade is over lines point can be on.
         self.editor.viewport.margins = (1, 0);
         let gutter_width = self.gutter_width(metrics);
-        let text_width =
-            window.viewport_size().width - px(2.0 * ROW_MARGIN + ROW_RADIUS) - gutter_width;
+        let text_width = window.viewport_size().width
+            - self.text_left
+            - px(2.0 * ROW_MARGIN + ROW_RADIUS)
+            - gutter_width;
         self.editor.viewport.width = (text_width / metrics.char_width).floor().max(1.0) as usize;
         self.editor.viewport.column_margin = SIDE_MARGIN_COLUMNS;
         if !self.scrolled_sideways {
@@ -1711,7 +1740,7 @@ impl EditorView {
         let body = div()
             .absolute()
             .top(px(TEXT_TOP))
-            .left_0()
+            .left(self.text_left)
             .right_0()
             .bottom(reserved)
             .overflow_hidden()
@@ -2163,6 +2192,8 @@ impl Render for EditorView {
         let mut toolbar = None;
         let mut tabbed = false;
         let mut text_shown = false;
+        self.text_left = px(0.0);
+        self.number_width = None;
         let (body, hints, popups) = match (table, outline) {
             _ if self.showing_screen => {
                 let controls = self.editor.text_controls().unwrap_or_default();
@@ -2230,8 +2261,27 @@ impl Render for EditorView {
                 (above_pane(body, rows_area_height), hints, Vec::new())
             }
             (None, None) => {
+                let mut controls = self.editor.text_controls().unwrap_or_default();
+                let side_width = self.diff.side_width;
+                let side = controls
+                    .side
+                    .take()
+                    .filter(|_| fits_beside(window.viewport_size().width, side_width));
+                if side.is_some() {
+                    self.text_left = text_side_end(side_width) - px(ROW_MARGIN);
+                }
+                self.number_width = controls.number_width;
                 let (body, popups) = self.render_text(reserved, window, cx);
-                let controls = self.editor.text_controls().unwrap_or_default();
+                let side = side.map(|side| {
+                    let side = render_text_side(side, side_width, rows_area_height, cx);
+                    above_pane(side, rows_area_height)
+                });
+                let body = div()
+                    .absolute()
+                    .inset_0()
+                    .child(body)
+                    .children(side)
+                    .into_any_element();
                 if !controls.toolbar.is_empty() {
                     toolbar = Some(render_toolbar(controls.toolbar, cx).into_any_element());
                 }

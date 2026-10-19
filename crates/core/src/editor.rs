@@ -29,7 +29,7 @@ use crate::mode::Mode;
 use crate::outline::Outline;
 use crate::pane::Pane;
 use crate::plugin::{Plugin, Registry};
-use crate::popup::Popup;
+use crate::popup::{CodeHighlighter, Popup};
 use crate::screen::{Screen, ScreenMouse, ScreenPadding, ScreenPointer, ScreenSize};
 use crate::status::StatusSegment;
 use crate::syntax::{self, Embedded, SyntaxContext};
@@ -1226,6 +1226,11 @@ impl Editor {
             .iter()
             .find_map(|highlight| highlight(mode, code))
             .unwrap_or_default()
+    }
+
+    /// What [`Editor::highlight_code`] asks, for a decorator, which has only the buffer.
+    pub fn code_highlighters(&self) -> Vec<CodeHighlighter> {
+        self.registry.code_highlighters.clone()
     }
 
     fn run_post_command_hooks(&mut self) {

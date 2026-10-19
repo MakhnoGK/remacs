@@ -65,6 +65,15 @@ fn visible_lines_one_at_a_time(bencher: Bencher) {
     });
 }
 
+/// What a commit's diff asks once per side of a file, as the file is first drawn: 2000
+/// lines, the most it shows.
+#[divan::bench(sample_count = 20)]
+fn diff_side(bencher: Bencher) {
+    let editor = Editor::new(&[&SYNTAX]);
+    let code: String = SOURCE.lines().take(2000).map(|line| format!("{line}\n")).collect();
+    bencher.bench_local(|| black_box(editor.highlight_code("Rust", &code)));
+}
+
 /// What a frame asks of the decorators for the visible lines.
 #[divan::bench(sample_count = 50)]
 fn visible_lines(bencher: Bencher) {

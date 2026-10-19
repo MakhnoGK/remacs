@@ -7,8 +7,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use remacs_core::{
-    DiffRow, Editor, FactValue, FileState, FileStatus, LineChange, LineCounts, OutlineRow,
-    Settings, parse_sequence,
+    ConsoleColor, ConsoleStyle, DiffRow, Editor, Face, Fact, FactValue, FileState, FileStatus,
+    LineChange, LineCounts, OutlineRow, Settings, Tone, parse_sequence,
 };
 use remacs_dired::{DiredPlugin, list_directory};
 use remacs_editing::EditingPlugin;
@@ -399,31 +399,35 @@ fn rows(editor: &Editor) -> Vec<String> {
         .unwrap()
         .rows
         .into_iter()
-        .map(|row| match row {
-            OutlineRow::Heading {
-                title, count, open, ..
-            } => {
-                format!("{} {title} {count}", if open { "v" } else { ">" })
-            }
-            OutlineRow::File {
-                state,
-                name,
-                directory,
-                lines,
-                ..
-            } => {
-                let lines = lines.map_or(String::new(), |lines| {
-                    format!(" +{} -{}", lines.added, lines.removed)
-                });
-                format!("{} {directory}{name}{lines}", state.letter())
-            }
-            OutlineRow::Diff(DiffRow::Hunk(text)) => text,
-            OutlineRow::Diff(DiffRow::Added(text)) => format!("+{text}"),
-            OutlineRow::Diff(DiffRow::Removed(text)) => format!("-{text}"),
-            OutlineRow::Diff(DiffRow::Context(text)) => format!(" {text}"),
-            OutlineRow::Item { name, description } => format!("{name} {description}"),
-        })
+        .map(describe_row)
         .collect()
+}
+
+fn describe_row(row: OutlineRow) -> String {
+    match row {
+        OutlineRow::Heading {
+            title, count, open, ..
+        } => {
+            format!("{} {title} {count}", if open { "v" } else { ">" })
+        }
+        OutlineRow::File {
+            state,
+            name,
+            directory,
+            lines,
+            ..
+        } => {
+            let lines = lines.map_or(String::new(), |lines| {
+                format!(" +{} -{}", lines.added, lines.removed)
+            });
+            format!("{} {directory}{name}{lines}", state.letter())
+        }
+        OutlineRow::Diff(DiffRow::Hunk(text)) => text,
+        OutlineRow::Diff(DiffRow::Added(text)) => format!("+{text}"),
+        OutlineRow::Diff(DiffRow::Removed(text)) => format!("-{text}"),
+        OutlineRow::Diff(DiffRow::Context(text)) => format!(" {text}"),
+        OutlineRow::Item { name, description } => format!("{name} {description}"),
+    }
 }
 
 fn facts(editor: &Editor) -> Vec<String> {
@@ -432,14 +436,16 @@ fn facts(editor: &Editor) -> Vec<String> {
         .unwrap()
         .facts
         .into_iter()
-        .map(|fact| {
-            let value = match fact.value {
-                FactValue::Ref(chip) => chip.name,
-                FactValue::Code(text) => text,
-            };
-            format!("{}: {value} · {}", fact.label, fact.note)
-        })
+        .map(describe_fact)
         .collect()
+}
+
+fn describe_fact(fact: Fact) -> String {
+    let value = match fact.value {
+        FactValue::Ref(chip) => chip.name,
+        FactValue::Code(text) => text,
+    };
+    format!("{}: {value} · {}", fact.label, fact.note)
 }
 
 fn go_to_row(editor: &mut Editor, row: &str) {
@@ -790,10 +796,19 @@ fn a_commit_of_the_history_shows_its_message_files_and_diffs() {
     press(&mut editor, "M-p");
     press(&mut editor, "M-RET");
     wait_for_commit(&mut editor);
-    assert_eq!(facts(&editor)[0].split(" · ").nth(1), Some("Add new"));
-    assert!(facts(&editor)[2].starts_with("Parent: ") && facts(&editor)[2].ends_with("Grow lib"));
+    let side = |editor: &Editor| editor.text_controls().unwrap().side.unwrap();
+    let side_facts: Vec<String> = side(&editor).facts.into_iter().map(describe_fact).collect();
+    assert_eq!(side_facts[0].split(" · ").nth(1), Some("Add new"));
+    assert!(side_facts[2].starts_with("Parent: ") && side_facts[2].ends_with("Grow lib"));
+    let side_rows = |editor: &Editor| -> Vec<String> {
+        let side = editor.text_controls().unwrap().side.unwrap();
+        side.rows
+            .into_iter()
+            .map(|(row, _)| describe_row(row))
+            .collect()
+    };
     assert_eq!(
-        rows(&editor),
+        side_rows(&editor),
         [
             "v Message 2",
             " Why it was added.",
@@ -803,14 +818,61 @@ fn a_commit_of_the_history_shows_its_message_files_and_diffs() {
             "A src/new.rs +1 -0",
         ]
     );
+    let text = editor.window_buffer().text().snapshot();
     assert_eq!(
-        rows(&editor)[editor.window_buffer().point_line()],
-        "v Files 2"
+        String::from_utf8_lossy(&text.bytes_in(0..text.len())),
+        "M lib.rs  +1 −0\n@@ -1,2 +1,3 @@\n one\n two\n+three\n\
+         A src/new.rs  +1 −0\n@@ -0,0 +1 @@\n+fresh"
+    );
+    let extras = editor.line_extras(0..8);
+    let numbers: Vec<_> = extras
+        .iter()
+        .map(|extra| extra.number.as_deref().unwrap())
+        .collect();
+    assert_eq!(
+        numbers,
+        ["   ", "   ", "1 1", "2 2", "  3", "   ", "   ", "  1"]
+    );
+    let fills: Vec<_> = extras.iter().map(|extra| extra.fill).collect();
+    assert_eq!(
+        fills[..5],
+        [Some(Tone::Faint), None, None, None, Some(Tone::Success)]
+    );
+    let plus = text.line_start(4).unwrap();
+    assert!(
+        editor
+            .decorations(plus..plus + 1)
+            .concat()
+            .iter()
+            .any(|span| span.face
+                == Face::Console(ConsoleStyle {
+                    color: Some(ConsoleColor::Indexed(2)),
+                    ..ConsoleStyle::default()
+                }))
     );
 
-    go_to_row(&mut editor, "M ./lib.rs +1 -0");
+    // Point's file is the one selected beside the diff.
+    assert_eq!(side(&editor).selected, Some(4));
+    let moves = [
+        ("n", 1),
+        ("n", 6),
+        ("p", 1),
+        ("N", 5),
+        ("M-p", 0),
+        ("M-n", 5),
+    ];
+    for (keys, line) in moves {
+        press(&mut editor, keys);
+        assert_eq!(editor.window_buffer().point_line(), line, "after {keys}");
+    }
+    assert_eq!(side(&editor).selected, Some(5));
+    let (_, click) = side(&editor).rows.swap_remove(4);
+    editor.run_action(&click.unwrap());
+    assert_eq!(editor.window_buffer().point_line(), 0);
     press(&mut editor, "TAB");
-    go_to_row(&mut editor, "+three");
+    assert_eq!(side_rows(&editor)[..2], ["> Message 2", "v Files 2"]);
+
+    editor.set_point_at(4, 0);
     press(&mut editor, "o");
     let name = "lib.rs @ ".to_owned() + &short_head(&repository);
     wait_until(&mut editor, "the file at the commit", |editor| {
@@ -850,8 +912,16 @@ fn the_log_of_a_file_shows_its_commits_and_opens_them_at_the_file() {
 
     editor.run_action(&log.commits[0].open);
     wait_for_commit(&mut editor);
-    assert_eq!(rows(&editor)[..2], ["v Files 1", "M ./lib.rs +1 -0"]);
-    assert!(rows(&editor).contains(&"+two".to_owned()));
+    let side = editor.text_controls().unwrap().side.unwrap();
+    let side_rows: Vec<_> = side
+        .rows
+        .into_iter()
+        .map(|(row, _)| describe_row(row))
+        .collect();
+    assert_eq!(side_rows, ["v Files 1", "M ./lib.rs +1 -0"]);
+    assert_eq!(editor.window_buffer().point_line(), 0);
+    let text = editor.window_buffer().text().snapshot();
+    assert!(String::from_utf8_lossy(&text.bytes_in(0..text.len())).contains("\n+two"));
 
     press(&mut editor, "q");
     let clear = editor

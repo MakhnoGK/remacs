@@ -1,9 +1,11 @@
-//! What one commit changed, like Emacs magit-revision: who made it and when, its message,
-//! then its files, each unfolding into its diff.
+//! What one commit changed, like Emacs magit-revision: who made it and when, its message
+//! and its files in a column at the left, and the diff of all its files as text, so every
+//! motion, search and copy works on it.
 
-use std::collections::{HashMap, HashSet};
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::hash::Hash;
+use std::fmt::Write;
 use std::io;
 use std::ops::Range;
 use std::os::unix::ffi::OsStrExt;
@@ -12,8 +14,9 @@ use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use remacs_core::{
-    Buffer, Button, CommandResult, DiffRow, Editor, Fact, FactValue, FileState, Outline,
-    OutlineRow, Tone,
+    Action, Buffer, Button, CodeHighlighter, CommandResult, ConsoleColor, ConsoleStyle, DiffRow,
+    Editor, Face, Fact, FactValue, FileState, LineExtra, OutlineRow, Span, TextControls, TextSide,
+    Tone,
 };
 use remacs_text::Text;
 
@@ -22,22 +25,27 @@ use crate::diff::{FileDiff, read_patch, size};
 use crate::history_view::ago;
 use crate::reads;
 use crate::settings::GitSettings;
-use crate::status_view::{SHORT_ID, directory_label, hunk_row, push_diff};
+use crate::status_view::{MAX_DIFF_LINES, SHORT_ID, directory_label, push_diff};
 
 pub const COMMIT_MODE: &str = "Git Commit";
 pub const TOGGLE: &str = "git-commit-toggle";
 pub const VISIT: &str = "git-commit-visit";
 const NOT_A_COMMIT_BUFFER: &str = "Not a commit buffer";
 const HINTS: &[(&str, &str)] = &[
-    ("TAB", "Fold"),
+    ("n/p", "Hunk"),
+    ("N/P", "File"),
     ("↵", "Visit file"),
     ("o", "File at commit"),
+    ("TAB", "Message"),
     ("q", "Back"),
 ];
 /// Its fields end in NULs, the last before the patch.
 const FORMAT: &str = "--format=%H%x00%P%x00%an%x00%at%x00%ad%x00%B%x00";
 const FIELDS: usize = 6;
 const DATE: &str = "--date=format:%Y-%m-%d %H:%M";
+/// Of the theme's 16, for a removed line's `-` and an added line's `+`.
+const REMOVED_SIGN: u8 = 1;
+const ADDED_SIGN: u8 = 2;
 
 /// A commit as `git show` tells it, its changes against its first parent.
 pub struct Commit {
@@ -55,49 +63,63 @@ pub struct Commit {
     pub files: Vec<(PathBuf, FileDiff)>,
 }
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
-pub enum Part {
-    Message,
-    Files,
-}
-
 /// What a line of the commit buffer stands for; files by their place in the commit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CommitLine {
-    Heading(Part),
-    Message(usize),
+    /// A file's header: its state, path and lines changed.
     File(usize),
+    /// A hunk's header, or with `line`, a line of it.
     Diff {
         file: usize,
         hunk: usize,
         line: Option<usize>,
     },
+    /// In place of the hunks of a file that has none to show.
     NoDiff(usize),
 }
 
 impl CommitLine {
-    fn file(self) -> Option<usize> {
+    fn file(self) -> usize {
         match self {
             CommitLine::File(file) | CommitLine::Diff { file, .. } | CommitLine::NoDiff(file) => {
-                Some(file)
+                file
             }
-            _ => None,
         }
     }
 }
+
+/// Faces of a file's hunk lines past their `+`, `-` or ` `, by hunk and line.
+type FileFaces = Vec<Vec<Vec<Span>>>;
 
 /// The state of a commit buffer.
 pub struct CommitView {
     pub root: PathBuf,
     pub commit: Commit,
-    folded: HashSet<Part>,
-    /// Files shown unfolded.
-    open: HashSet<usize>,
+    message_folded: bool,
     pub lines: Vec<CommitLine>,
+    /// Each line's numbers in the old and the new file, where it has them.
+    numbers: Vec<(Option<usize>, Option<usize>)>,
+    /// Of the largest number.
+    digits: usize,
+    /// To highlight each file's code in its mode, as it is first drawn.
+    highlighters: Vec<CodeHighlighter>,
+    modes: Vec<&'static str>,
+    faces: RefCell<HashMap<usize, Rc<FileFaces>>>,
 }
 
-/// Shows commit `id` of the working tree at `root` in a buffer of its own, `file`
-/// unfolded if it is one of the commit's; read in the background, a large one taking
+impl CommitView {
+    fn faces_of(&self, file: usize) -> Rc<FileFaces> {
+        let mut faces = self.faces.borrow_mut();
+        let faces = faces.entry(file).or_insert_with(|| {
+            let diff = &self.commit.files[file].1;
+            Rc::new(highlight_file(&self.highlighters, self.modes[file], diff))
+        });
+        Rc::clone(faces)
+    }
+}
+
+/// Shows commit `id` of the working tree at `root` in a buffer of its own, scrolled to
+/// `file` if it is one of the commit's; read in the background, a large one taking
 /// seconds.
 pub fn open(editor: &mut Editor, root: &Path, id: &str, file: Option<&Path>) -> CommandResult {
     if switch_to_shown(editor, root, id) {
@@ -138,25 +160,40 @@ fn show(editor: &mut Editor, root: &Path, commit: Commit, file: Option<&Path>) {
     if switch_to_shown(editor, root, &commit.id) {
         return;
     }
-    let focus = file.and_then(|file| commit.files.iter().position(|(path, _)| path == file));
+    let (lines, numbers, text) = layout(&commit);
+    let focus = file
+        .and_then(|file| commit.files.iter().position(|(path, _)| path == file))
+        .and_then(|file| {
+            lines
+                .iter()
+                .position(|line| *line == CommitLine::File(file))
+        });
+    let largest = numbers.iter().flat_map(|&(old, new)| [old, new]).flatten();
+    let digits = largest.max().unwrap_or(0).to_string().len();
+    let modes = commit
+        .files
+        .iter()
+        .map(|(path, _)| editor.mode_for(Some(&root.join(path))))
+        .collect();
     let name = format!("Commit {}", short(&commit.id));
-    let mut buffer = Buffer::new(name, Text::default(), COMMIT_MODE)
+    let mut buffer = Buffer::new(name, Text::from(text.as_str()), COMMIT_MODE)
         .with_directory(root.to_path_buf())
         .read_only();
     buffer.set_local(CommitView {
         root: root.to_path_buf(),
         commit,
-        folded: HashSet::new(),
-        open: focus.into_iter().collect(),
-        lines: Vec::new(),
-    });
-    draw(&mut buffer);
-    let first_file = buffer.local::<CommitView>().and_then(|view| {
-        let target = focus.map_or(CommitLine::Heading(Part::Files), CommitLine::File);
-        view.lines.iter().position(|line| *line == target)
+        message_folded: false,
+        lines,
+        numbers,
+        digits,
+        highlighters: editor.code_highlighters(),
+        modes,
+        faces: RefCell::default(),
     });
     editor.add_buffer(buffer);
-    editor.set_point_at(first_file.unwrap_or_default(), 0);
+    if let Some(line) = focus {
+        go_to(editor, line);
+    }
 }
 
 /// The commit, its files' diffs kept up to `max_bytes`.
@@ -231,53 +268,24 @@ fn subjects(root: &Path, ids: &[&str]) -> Vec<(String, String)> {
         .collect()
 }
 
-/// Rewrites the buffer's lines, point staying on what it was on.
-fn draw(buffer: &mut Buffer) {
-    let current_line = buffer.point_line();
-    let Some(view) = buffer.local_mut::<CommitView>() else {
-        return;
-    };
-    let current = view.lines.get(current_line).copied();
-    let (lines, texts) = layout(view);
-    let target = current
-        .and_then(|current| {
-            lines.iter().position(|line| *line == current).or_else(|| {
-                let file = current.file()?;
-                lines
-                    .iter()
-                    .position(|line| *line == CommitLine::File(file))
-            })
-        })
-        .unwrap_or(current_line.min(lines.len().saturating_sub(1)));
-    view.lines = lines;
-    buffer.replace_text(Text::from(texts.join("\n").as_str()));
-    let offset = buffer.text().line_start(target).unwrap_or_default();
-    buffer.set_point(offset);
-}
+type Numbers = Vec<(Option<usize>, Option<usize>)>;
 
-fn layout(view: &CommitView) -> (Vec<CommitLine>, Vec<String>) {
-    let commit = &view.commit;
+/// The buffer's text, each file's header then its hunks; what each line is, and its
+/// numbers in the old and the new file.
+fn layout(commit: &Commit) -> (Vec<CommitLine>, Numbers, String) {
     let (mut lines, mut texts) = (Vec::new(), Vec::new());
-    if !commit.body.is_empty() {
-        lines.push(CommitLine::Heading(Part::Message));
-        texts.push("Message".to_owned());
-        if !view.folded.contains(&Part::Message) {
-            for (index, text) in commit.body.iter().enumerate() {
-                lines.push(CommitLine::Message(index));
-                texts.push(text.clone());
-            }
-        }
-    }
-    lines.push(CommitLine::Heading(Part::Files));
-    texts.push(format!("Files {}", commit.files.len()));
-    if view.folded.contains(&Part::Files) {
-        return (lines, texts);
-    }
     for (index, (path, diff)) in commit.files.iter().enumerate() {
         lines.push(CommitLine::File(index));
-        texts.push(format!("{} {}", diff.state().letter(), path.display()));
-        if view.open.contains(&index) {
-            push_diff(
+        texts.push(file_header(path, diff));
+        match diff.too_large {
+            Some(bytes) => {
+                lines.push(CommitLine::NoDiff(index));
+                texts.push(format!(
+                    "Diff of {} not shown, past git.toml commit-max-bytes",
+                    size(bytes)
+                ));
+            }
+            None => push_diff(
                 &mut lines,
                 &mut texts,
                 Some(diff),
@@ -287,83 +295,283 @@ fn layout(view: &CommitView) -> (Vec<CommitLine>, Vec<String>) {
                     hunk,
                     line,
                 },
+            ),
+        }
+    }
+    let numbers = numbers(commit, &lines);
+    (lines, numbers, texts.join("\n"))
+}
+
+/// `M src/lib.rs  +3 −1`.
+fn file_header(path: &Path, diff: &FileDiff) -> String {
+    let mut header = format!("{} {}", diff.state().letter(), path.display());
+    if let Some(original) = diff.original() {
+        let _ = write!(header, "  from {}", original.display());
+    }
+    if let Some(counts) = diff.line_counts() {
+        let _ = write!(header, "  +{} −{}", counts.added, counts.removed);
+    }
+    header
+}
+
+fn numbers(commit: &Commit, lines: &[CommitLine]) -> Numbers {
+    let (mut old, mut new) = (0, 0);
+    lines
+        .iter()
+        .map(|line| {
+            let CommitLine::Diff { file, hunk, line } = *line else {
+                return (None, None);
+            };
+            let hunk = &commit.files[file].1.hunks[hunk];
+            let Some(line) = line else {
+                (old, new) = (hunk.old_start, hunk.new_start);
+                return (None, None);
+            };
+            match hunk.lines[line].as_bytes().first() {
+                Some(b'-') => {
+                    old += 1;
+                    (Some(old - 1), None)
+                }
+                Some(b'+') => {
+                    new += 1;
+                    (None, Some(new - 1))
+                }
+                Some(b'\\') => (None, None),
+                _ => {
+                    (old, new) = (old + 1, new + 1);
+                    (Some(old - 1), Some(new - 1))
+                }
+            }
+        })
+        .collect()
+}
+
+/// Faces of `diff`'s hunk lines: the old side's lines and the new side's each highlighted
+/// as code of their own, so neither breaks the other's syntax. Only the lines the buffer
+/// shows, the first `MAX_DIFF_LINES`.
+fn highlight_file(
+    highlighters: &[CodeHighlighter],
+    mode: &'static str,
+    diff: &FileDiff,
+) -> FileFaces {
+    let shown = || {
+        let hunks = diff.hunks.iter().enumerate();
+        hunks
+            .flat_map(|(index, hunk)| {
+                let lines = hunk.lines.iter().enumerate();
+                lines.map(move |(at, line)| (index, at, line))
+            })
+            .take(MAX_DIFF_LINES)
+    };
+    let mut faces = FileFaces::new();
+    for (hunk, _, _) in shown() {
+        faces.resize_with(faces.len().max(hunk + 1), Vec::new);
+        faces[hunk].push(Vec::new());
+    }
+    for side in *b"-+" {
+        let mut code = String::new();
+        let mut placed = Vec::new();
+        for (hunk, index, line) in shown() {
+            let sign = line.as_bytes().first().copied();
+            if sign != Some(b' ') && sign != Some(side) {
+                continue;
+            }
+            let start = code.len();
+            code.push_str(&line[1..]);
+            // Lines both sides have take the new side's faces.
+            if sign == Some(side) || side == b'+' {
+                placed.push((hunk, index, start..code.len()));
+            }
+            code.push('\n');
+        }
+        if placed.is_empty() {
+            continue;
+        }
+        let spans = highlighters
+            .iter()
+            .find_map(|highlight| highlight(mode, &code))
+            .unwrap_or_default();
+        let mut first = 0;
+        for (hunk, line, bytes) in placed {
+            while spans
+                .get(first)
+                .is_some_and(|span| span.range.end <= bytes.start)
+            {
+                first += 1;
+            }
+            faces[hunk][line] = spans[first..]
+                .iter()
+                .take_while(|span| span.range.start < bytes.end)
+                .map(|span| Span {
+                    range: span.range.start.max(bytes.start) - bytes.start
+                        ..span.range.end.min(bytes.end) - bytes.start,
+                    face: span.face,
+                })
+                .collect();
+        }
+    }
+    faces
+}
+
+/// Faces of a commit buffer's `range`: file headers bold, hunk headers dim, each `-` and
+/// `+` in its color and the code after it in its file's language.
+pub fn decorate(buffer: &Buffer, range: Range<usize>) -> Vec<Span> {
+    let Some(view) = buffer.local::<CommitView>() else {
+        return Vec::new();
+    };
+    let text = buffer.text();
+    let style = |style: ConsoleStyle| Face::Console(style);
+    let mut spans = Vec::new();
+    for line in text.line_of(range.start)..=text.line_of(range.end) {
+        let (Some(&kind), Some(bytes)) = (view.lines.get(line), text.line_range(line)) else {
+            continue;
+        };
+        match kind {
+            CommitLine::File(_) => spans.push(Span {
+                range: bytes,
+                face: style(ConsoleStyle {
+                    bold: true,
+                    ..ConsoleStyle::default()
+                }),
+            }),
+            CommitLine::Diff { line: None, .. } | CommitLine::NoDiff(_) => spans.push(Span {
+                range: bytes,
+                face: style(ConsoleStyle {
+                    dim: true,
+                    ..ConsoleStyle::default()
+                }),
+            }),
+            CommitLine::Diff {
+                file,
+                hunk,
+                line: Some(index),
+            } => {
+                let sign = match view.numbers[line] {
+                    (Some(_), None) => Some(REMOVED_SIGN),
+                    (None, Some(_)) => Some(ADDED_SIGN),
+                    _ => None,
+                };
+                spans.extend(sign.map(|color| Span {
+                    range: bytes.start..bytes.start + 1,
+                    face: style(ConsoleStyle {
+                        color: Some(ConsoleColor::Indexed(color)),
+                        ..ConsoleStyle::default()
+                    }),
+                }));
+                let code_start = bytes.start + 1;
+                spans.extend(view.faces_of(file)[hunk][index].iter().map(|span| Span {
+                    range: code_start + span.range.start..code_start + span.range.end,
+                    face: span.face,
+                }));
+            }
+        }
+    }
+    spans
+        .into_iter()
+        .filter_map(|span| {
+            let shown = span.range.start.max(range.start)..span.range.end.min(range.end);
+            (shown.start < shown.end).then_some(Span {
+                range: shown,
+                face: span.face,
+            })
+        })
+        .collect()
+}
+
+/// Each line's old and new numbers in the gutter, and the bands of headers and of added
+/// and removed lines.
+pub fn line_extras(editor: &Editor, lines: Range<usize>) -> Vec<LineExtra> {
+    let Some(view) = editor.window_buffer().local::<CommitView>() else {
+        return Vec::new();
+    };
+    let number = |number: Option<usize>| number.map_or_else(String::new, |at| at.to_string());
+    lines
+        .filter_map(|line| {
+            let kind = *view.lines.get(line)?;
+            let (old, new) = view.numbers[line];
+            let fill = match (kind, old, new) {
+                (CommitLine::File(_), ..) => Some(Tone::Faint),
+                (CommitLine::Diff { .. }, Some(_), None) => Some(Tone::Danger),
+                (CommitLine::Diff { .. }, None, Some(_)) => Some(Tone::Success),
+                _ => None,
+            };
+            let width = view.digits;
+            Some(LineExtra {
+                line,
+                fill,
+                number: Some(format!("{:>width$} {:>width$}", number(old), number(new))),
+                ..LineExtra::default()
+            })
+        })
+        .collect()
+}
+
+/// The commit's facts, message and files beside its diff, and its keys.
+pub fn controls(editor: &Editor) -> Option<TextControls> {
+    let buffer = editor.window_buffer();
+    let view = buffer.local::<CommitView>()?;
+    Some(TextControls {
+        hints: HINTS,
+        side: Some(side(view, buffer.point_line())),
+        number_width: Some(2 * view.digits + 1),
+        ..TextControls::default()
+    })
+}
+
+/// The file at `point_line` is the one selected.
+fn side(view: &CommitView, point_line: usize) -> TextSide {
+    let commit = &view.commit;
+    let mut rows: Vec<(OutlineRow, Option<Action>)> = Vec::new();
+    if !commit.body.is_empty() {
+        let heading = OutlineRow::Heading {
+            title: "Message".into(),
+            count: commit.body.len(),
+            open: !view.message_folded,
+            tone: Tone::Plain,
+        };
+        rows.push((heading, Some(Rc::new(toggle))));
+        if !view.message_folded {
+            rows.extend(
+                (commit.body.iter())
+                    .map(|text| (OutlineRow::Diff(DiffRow::Context(text.clone())), None)),
             );
         }
     }
-    (lines, texts)
-}
-
-/// The window's commit buffer as an outline, if it is one.
-pub fn outline(editor: &Editor, range: Range<usize>) -> Option<Outline> {
-    let view = editor.window_buffer().local::<CommitView>()?;
-    let lines = &view.lines;
-    let rows = lines
-        .get(range.start.min(lines.len())..range.end.min(lines.len()))
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|line| row(view, *line))
-        .collect();
-    Some(Outline {
+    let heading = OutlineRow::Heading {
+        title: "Files".into(),
+        count: commit.files.len(),
+        open: true,
+        tone: Tone::Plain,
+    };
+    rows.push((heading, None));
+    let first_file = rows.len();
+    for (index, (path, diff)) in commit.files.iter().enumerate() {
+        let row = OutlineRow::File {
+            state: diff.state(),
+            name: path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            directory: directory_label(path),
+            lines: diff.line_counts(),
+            note: diff
+                .original()
+                .filter(|_| diff.hunks.is_empty())
+                .map(|original| (format!("from {}", original.display()), Tone::Faint)),
+            open: false,
+        };
+        let action: Action = Rc::new(move |editor| go_to_file(editor, index));
+        rows.push((row, Some(action)));
+    }
+    let selected = view
+        .lines
+        .get(point_line)
+        .map(|line| first_file + line.file());
+    TextSide {
         facts: facts(view),
         rows,
-        toggle: TOGGLE,
-        activate: VISIT,
-        hints: HINTS,
-        history: None,
-        conflict: None,
-        banner: None,
-        toolbar: Vec::new(),
-    })
-}
-
-fn row(view: &CommitView, line: CommitLine) -> Option<OutlineRow> {
-    let commit = &view.commit;
-    Some(match line {
-        CommitLine::Heading(part) => OutlineRow::Heading {
-            title: match part {
-                Part::Message => "Message",
-                Part::Files => "Files",
-            }
-            .into(),
-            count: match part {
-                Part::Message => commit.body.len(),
-                Part::Files => commit.files.len(),
-            },
-            open: !view.folded.contains(&part),
-            tone: Tone::Plain,
-        },
-        CommitLine::Message(index) => {
-            OutlineRow::Diff(DiffRow::Context(commit.body.get(index)?.clone()))
-        }
-        CommitLine::File(index) => {
-            let (path, diff) = commit.files.get(index)?;
-            OutlineRow::File {
-                state: diff.state(),
-                name: path
-                    .file_name()
-                    .map(|name| name.to_string_lossy().into_owned())
-                    .unwrap_or_default(),
-                directory: directory_label(path),
-                lines: diff.line_counts(),
-                note: diff
-                    .original()
-                    .filter(|_| diff.hunks.is_empty())
-                    .map(|original| (format!("from {}", original.display()), Tone::Faint)),
-                open: view.open.contains(&index),
-            }
-        }
-        CommitLine::Diff { file, hunk, line } => hunk_row(&commit.files.get(file)?.1, hunk, line)?,
-        CommitLine::NoDiff(file) => {
-            let diff = &commit.files.get(file)?.1;
-            OutlineRow::Diff(DiffRow::Context(match diff.too_large {
-                Some(bytes) => format!(
-                    "Diff of {} not shown, past git.toml commit-max-bytes",
-                    size(bytes)
-                ),
-                None => diff.summary(),
-            }))
-        }
-    })
+        selected,
+    }
 }
 
 fn facts(view: &CommitView) -> Vec<Fact> {
@@ -408,60 +616,92 @@ fn short(id: &str) -> String {
     id.chars().take(SHORT_ID).collect()
 }
 
-/// Folds or unfolds the part at point, or shows or hides the diff of the file.
+/// Folds or unfolds the commit's message beside its diff.
 pub fn toggle(editor: &mut Editor) -> CommandResult {
-    let buffer = editor.window_buffer_mut();
+    let view = editor
+        .window_buffer_mut()
+        .local_mut::<CommitView>()
+        .ok_or(NOT_A_COMMIT_BUFFER)?;
+    if view.commit.body.is_empty() {
+        return Err("The message is only its subject, shown beside Commit".into());
+    }
+    view.message_folded = !view.message_folded;
+    Ok(())
+}
+
+/// Puts point on the header of the commit's `file`, at the top of the window.
+fn go_to_file(editor: &mut Editor, file: usize) -> CommandResult {
+    let view = editor
+        .window_buffer()
+        .local::<CommitView>()
+        .ok_or(NOT_A_COMMIT_BUFFER)?;
+    let line = (view.lines.iter())
+        .position(|line| *line == CommitLine::File(file))
+        .ok_or("No such file")?;
+    editor.set_point_at(line, 0);
+    editor.scroll(line as isize - editor.viewport.first_line as isize);
+    Ok(())
+}
+
+pub fn next_hunk(editor: &mut Editor) -> CommandResult {
+    move_to(editor, true, is_hunk, "No next hunk")
+}
+
+pub fn previous_hunk(editor: &mut Editor) -> CommandResult {
+    move_to(editor, false, is_hunk, "No previous hunk")
+}
+
+pub fn next_file(editor: &mut Editor) -> CommandResult {
+    move_to(editor, true, is_file, "No next file")
+}
+
+pub fn previous_file(editor: &mut Editor) -> CommandResult {
+    move_to(editor, false, is_file, "No previous file")
+}
+
+fn is_hunk(line: &CommitLine) -> bool {
+    matches!(line, CommitLine::Diff { line: None, .. })
+}
+
+fn is_file(line: &CommitLine) -> bool {
+    matches!(line, CommitLine::File(_))
+}
+
+/// Puts point on the first line after it that `wanted` holds for, or with `forward` false
+/// the last before it.
+fn move_to(
+    editor: &mut Editor,
+    forward: bool,
+    wanted: fn(&CommitLine) -> bool,
+    none: &'static str,
+) -> CommandResult {
+    let buffer = editor.window_buffer();
     let point_line = buffer.point_line();
-    let view = buffer
-        .local_mut::<CommitView>()
-        .ok_or(NOT_A_COMMIT_BUFFER)?;
-    let line = *view.lines.get(point_line).ok_or("Nothing here")?;
-    let back_to = match line {
-        CommitLine::Heading(part) => {
-            toggle_in(&mut view.folded, part);
-            None
-        }
-        CommitLine::Message(_) => {
-            view.folded.insert(Part::Message);
-            Some(CommitLine::Heading(Part::Message))
-        }
-        CommitLine::File(file) => {
-            toggle_in(&mut view.open, file);
-            None
-        }
-        CommitLine::Diff { file, .. } | CommitLine::NoDiff(file) => {
-            view.open.remove(&file);
-            Some(CommitLine::File(file))
-        }
-    };
-    let back_to = back_to.and_then(|target| view.lines.iter().position(|line| *line == target));
-    if let Some(line) = back_to {
-        buffer.set_point(buffer.text().line_start(line).unwrap_or_default());
-    }
-    draw(buffer);
-    Ok(())
-}
-
-fn toggle_in<T: Eq + Hash>(set: &mut HashSet<T>, value: T) {
-    if !set.remove(&value) {
-        set.insert(value);
-    }
-}
-
-/// Hides every file's diff when one is shown, else shows them all.
-pub fn toggle_all(editor: &mut Editor) -> CommandResult {
-    let buffer = editor.window_buffer_mut();
-    let view = buffer
-        .local_mut::<CommitView>()
-        .ok_or(NOT_A_COMMIT_BUFFER)?;
-    if view.open.is_empty() {
-        view.folded.remove(&Part::Files);
-        view.open = (0..view.commit.files.len()).collect();
+    let lines = &buffer
+        .local::<CommitView>()
+        .ok_or(NOT_A_COMMIT_BUFFER)?
+        .lines;
+    let target = if forward {
+        (lines.iter().skip(point_line + 1))
+            .position(wanted)
+            .map(|at| point_line + 1 + at)
     } else {
-        view.open.clear();
-    }
-    draw(buffer);
+        lines[..point_line.min(lines.len())]
+            .iter()
+            .rposition(wanted)
+    };
+    go_to(editor, target.ok_or(none)?);
     Ok(())
+}
+
+/// Puts point on `line`; one out of sight is scrolled to the top, so what follows it shows.
+fn go_to(editor: &mut Editor, line: usize) {
+    let viewport = editor.viewport;
+    let in_sight = (viewport.first_line..viewport.first_line + viewport.height).contains(&line);
+    editor.set_point_at(line, 0);
+    if !in_sight {
+        editor.scroll(line as isize - editor.viewport.first_line as isize);
+    }
 }
 
 /// The commit's file at point, and on a diff line, the line of the file it is at.
@@ -469,29 +709,18 @@ fn file_at_point(editor: &Editor) -> Result<(&CommitView, usize, Option<usize>),
     let buffer = editor.window_buffer();
     let view = buffer.local::<CommitView>().ok_or(NOT_A_COMMIT_BUFFER)?;
     let line = *view.lines.get(buffer.point_line()).ok_or("Nothing here")?;
-    let file = line.file().ok_or("No file here")?;
     let target = match line {
-        CommitLine::Diff { hunk, line, .. } => view.commit.files[file]
-            .1
-            .hunks
-            .get(hunk)
-            .map(|hunk| hunk.new_line(line.unwrap_or(0))),
+        CommitLine::Diff { file, hunk, line } => {
+            (view.commit.files[file].1.hunks.get(hunk)).map(|hunk| hunk.new_line(line.unwrap_or(0)))
+        }
         _ => None,
     };
-    Ok((view, file, target))
+    Ok((view, line.file(), target))
 }
 
 /// Visits the file at point in the working tree, on a diff line at that line, like
 /// Emacs `magit-diff-visit-worktree-file`.
 pub fn visit(editor: &mut Editor) -> CommandResult {
-    let is_heading = editor
-        .window_buffer()
-        .local::<CommitView>()
-        .and_then(|view| view.lines.get(editor.window_buffer().point_line()))
-        .is_some_and(|line| matches!(line, CommitLine::Heading(_)));
-    if is_heading {
-        return toggle(editor);
-    }
     let (view, file, target) = file_at_point(editor)?;
     let path = view.root.join(&view.commit.files[file].0);
     if !path.exists() {
@@ -567,5 +796,46 @@ pub fn open_file(editor: &mut Editor) -> CommandResult {
 fn go_to_line(editor: &mut Editor, line: Option<usize>) {
     if let Some(line) = line {
         editor.set_point_at(line.saturating_sub(1), 0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::diff::parse_diff;
+
+    /// `let` at the start of the code, and a span from byte 8 across the first newline.
+    fn fake_highlighter() -> CodeHighlighter {
+        Rc::new(|_, code: &str| {
+            let span = |range, face| Span { range, face };
+            Some(vec![
+                span(0..3, Face::Keyword),
+                span(8..14.min(code.len()), Face::Comment),
+            ])
+        })
+    }
+
+    #[test]
+    fn each_line_takes_its_sides_faces_cut_at_the_line() {
+        let diff = parse_diff("@@ -1,2 +1,2 @@\n let a = 1;\n-let b = 2;\n+let b = 3;\n").unwrap();
+        let faces = highlight_file(&[fake_highlighter()], "Rust", &diff);
+        let face = |range, face| Span { range, face };
+        assert_eq!(
+            faces[0],
+            [
+                vec![face(0..3, Face::Keyword), face(8..10, Face::Comment)],
+                // Each side's second line starts at byte 11 of its code.
+                vec![face(0..3, Face::Comment)],
+                vec![face(0..3, Face::Comment)],
+            ]
+        );
+    }
+
+    #[test]
+    fn only_the_lines_shown_are_highlighted() {
+        let added: String = (0..MAX_DIFF_LINES + 5).map(|_| "+x\n").collect();
+        let diff = parse_diff(&format!("@@ -0,0 +1,9 @@\n{added}")).unwrap();
+        let faces = highlight_file(&[fake_highlighter()], "Rust", &diff);
+        assert_eq!(faces.iter().map(Vec::len).sum::<usize>(), MAX_DIFF_LINES);
     }
 }

@@ -51,6 +51,10 @@ const POPUP_MAX_WIDTHS: RangeInclusive<f32> = 240.0..=2000.0;
 /// Pixels.
 const POPUP_MAX_HEIGHTS: RangeInclusive<f32> = 120.0..=2000.0;
 /// Pixels.
+const DIFF_SIDE_WIDTHS: RangeInclusive<f32> = 240.0..=900.0;
+/// Percent.
+const DIFF_BAND_OPACITIES: RangeInclusive<u8> = 0..=60;
+/// Pixels.
 const PROMPT_INPUT_MARGINS: RangeInclusive<f32> = 0.0..=400.0;
 /// Pixels.
 const SWATCH_THICKNESSES: RangeInclusive<f32> = 1.0..=6.0;
@@ -193,6 +197,7 @@ pub struct UiSettings {
     pub prefix_keys: PrefixKeysSettings,
     pub documentation: DocumentationSettings,
     pub problems: ProblemsSettings,
+    pub diff: DiffSettings,
     pub prompts: PromptsSettings,
     pub swatches: SwatchesSettings,
     pub transitions: TransitionsSettings,
@@ -317,6 +322,12 @@ impl Section for UiSettings {
                 &POPUP_MAX_HEIGHTS,
             )?;
         }
+        check_range("diff.side-width", self.diff.side_width, &DIFF_SIDE_WIDTHS)?;
+        check_range(
+            "diff.band-opacity",
+            self.diff.band_opacity,
+            &DIFF_BAND_OPACITIES,
+        )?;
         check_range(
             "prompts.input-margin",
             self.prompts.input_margin,
@@ -761,6 +772,26 @@ impl Default for ProblemsSettings {
     }
 }
 
+/// A diff drawn as text, like a commit's: the column of files beside it and the bands of
+/// its added and removed lines.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct DiffSettings {
+    /// Pixels.
+    pub side_width: f32,
+    /// Percent.
+    pub band_opacity: u8,
+}
+
+impl Default for DiffSettings {
+    fn default() -> Self {
+        Self {
+            side_width: 480.0,
+            band_opacity: 15,
+        }
+    }
+}
+
 /// What a prompt's input keeps in view as it scrolls sideways, and where the directory it
 /// acts in goes.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
@@ -1050,6 +1081,8 @@ mod tests {
         assert!(parse("[documentation]\nmax-width = 100\n").is_err());
         assert!(parse("[documentation]\nmax-height = 5000\n").is_err());
         assert!(parse("[problems]\nmax-height = 100\n").is_err());
+        assert!(parse("[diff]\nside-width = 100\n").is_err());
+        assert!(parse("[diff]\nband-opacity = 61\n").is_err());
         assert!(parse("[transitions]\npane-duration = 251\n").is_err());
         assert!(parse("[transitions]\npopup-slide = -1\n").is_err());
         assert!(parse("[transitions]\nduration = 50\n").is_err());

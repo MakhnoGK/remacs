@@ -77,12 +77,6 @@ fn press(editor: &mut Editor, keys: &str) {
     }
 }
 
-fn rows(editor: &Editor) -> Vec<OutlineRow> {
-    editor
-        .outline(0..editor.window_buffer().text().line_count())
-        .map_or_else(Vec::new, |outline| outline.rows)
-}
-
 #[test]
 fn a_commit_with_a_50_mb_patch_opens_without_holding_the_ui_and_its_diff_capped() {
     let repository = Repository::new();
@@ -111,34 +105,23 @@ fn a_commit_with_a_50_mb_patch_opens_without_holding_the_ui_and_its_diff_capped(
         editor.window_buffer().mode() == "Git Commit"
     });
     let shown = start.elapsed();
-    press(&mut editor, "S-TAB");
     let peak = dhat::HeapStats::get().max_bytes;
     eprintln!("UI held {held:?}, commit shown after {shown:?}, peak heap {peak} B");
 
-    let rows = rows(&editor);
-    let files: Vec<&str> = rows
-        .iter()
-        .filter_map(|row| match row {
-            OutlineRow::File { name, .. } => Some(name.as_str()),
+    let side = editor.text_controls().unwrap().side.unwrap();
+    let files: Vec<String> = side
+        .rows
+        .into_iter()
+        .filter_map(|(row, _)| match row {
+            OutlineRow::File { name, .. } => Some(name),
             _ => None,
         })
         .collect();
     assert_eq!(files, ["Cargo.lock", "z.rs"]);
-    let diffs: Vec<String> = rows
-        .iter()
-        .filter_map(|row| match row {
-            OutlineRow::Diff(diff) => Some(format!("{diff:?}")),
-            _ => None,
-        })
-        .collect();
-    assert!(
-        diffs.iter().any(|diff| diff.contains("not shown, past")),
-        "{diffs:?}"
-    );
-    assert!(
-        diffs.iter().any(|diff| diff == "Added(\"small\")"),
-        "{diffs:?}"
-    );
+    let text = editor.window_buffer().text().snapshot();
+    let diff = String::from_utf8_lossy(&text.bytes_in(0..text.len())).into_owned();
+    assert!(diff.contains("not shown, past"), "{diff}");
+    assert!(diff.ends_with("\n+small"), "{diff}");
     // Read on the UI thread, uncapped, it held the UI 14.7 s and peaked at 138 MB.
     assert!(held < Duration::from_millis(100), "UI held {held:?}");
     dhat::assert!(peak < 32 << 20);

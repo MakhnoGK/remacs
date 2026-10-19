@@ -25,7 +25,8 @@ pub struct Hunk {
     pub header: String,
     /// With their `+`, `-`, ` ` or `\` first.
     pub lines: Vec<String>,
-    /// The line of the new file the hunk starts at, from 1.
+    /// The lines of the old and new file the hunk starts at, from 1.
+    pub old_start: usize,
     pub new_start: usize,
 }
 
@@ -125,7 +126,8 @@ pub fn parse_diff(output: &str) -> Option<FileDiff> {
             diff.hunks.push(Hunk {
                 header: line.to_owned(),
                 lines: Vec::new(),
-                new_start: new_start(line).unwrap_or(1),
+                old_start: start(line, '-').unwrap_or(1),
+                new_start: start(line, '+').unwrap_or(1),
             });
         } else if let Some(hunk) = diff.hunks.last_mut() {
             hunk.lines.push(line.to_owned());
@@ -226,9 +228,10 @@ fn patched_path(file: &str) -> Option<PathBuf> {
 }
 
 /// The `39` of `@@ -39,3 +39,6 @@`.
-fn new_start(header: &str) -> Option<usize> {
-    let added = header.split(' ').find(|part| part.starts_with('+'))?;
-    added[1..].split(',').next()?.parse().ok()
+/// Where the side marked by `sign`, `-` old or `+` new, starts in `@@ -39,3 +39,6 @@`.
+fn start(header: &str, sign: char) -> Option<usize> {
+    let side = header.split(' ').find(|part| part.starts_with(sign))?;
+    side[1..].split(',').next()?.parse().ok()
 }
 
 #[cfg(test)]
@@ -260,7 +263,7 @@ index 1111111..2222222 100644
         assert_eq!(diff.hunks.len(), 2);
         assert_eq!(diff.hunks[0].header, "@@ -3,3 +3,4 @@ fn one");
         assert_eq!(diff.hunks[0].lines, [" a", "-b", "+B", "+c", " d"]);
-        assert_eq!(diff.hunks[1].new_start, 21);
+        assert_eq!((diff.hunks[1].old_start, diff.hunks[1].new_start), (20, 21));
         assert!(!diff.binary);
         assert_eq!(parse_diff(""), None);
     }

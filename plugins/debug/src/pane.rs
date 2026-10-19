@@ -596,7 +596,7 @@ pub fn line_extras(editor: &Editor, lines: Range<usize>) -> Vec<LineExtra> {
         extras.push(LineExtra {
             line: paused,
             band: Some(Tone::Warning),
-            note: None,
+            ..LineExtra::default()
         });
     }
     let first = paused.saturating_sub(settings.inline_value_lines);
@@ -628,8 +628,8 @@ pub fn line_extras(editor: &Editor, lines: Range<usize>) -> Vec<LineExtra> {
             Some(extra) => extra.note = note,
             None => extras.push(LineExtra {
                 line,
-                band: None,
                 note,
+                ..LineExtra::default()
             }),
         }
     }
