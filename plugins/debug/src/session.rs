@@ -72,6 +72,8 @@ pub struct Session {
     phase: Phase,
     /// The first to the adapter, then those it asked for.
     pub links: Vec<Link>,
+    /// The link read first on the next refresh.
+    turn: usize,
     /// Where js-debug listens, for the sessions it asks for.
     port: Option<u16>,
     exit_code: Option<i32>,
@@ -190,6 +192,7 @@ pub fn start(
         shared: Rc::clone(&shared),
         phase: Phase::Preparing(preparation),
         links: Vec::new(),
+        turn: 0,
         port: None,
         exit_code: None,
         last_log: None,
@@ -210,8 +213,15 @@ pub fn update(editor: &mut Editor) {
         .collect();
     for id in ids {
         stop_if_asked(editor, id);
-        prepared(editor, id);
-        receive(editor, id);
+        // The preparation and every connection together take a backlog at once, as much as
+        // the console takes, so what waits for the console stays within a backlog.
+        let mut budget = find_session(editor, id).map_or(0, |session| session.backlog);
+        prepared(editor, id, &mut budget);
+        receive(editor, id, &mut budget);
+        if budget == 0 {
+            // More may wait, from producers that wait and so wake no one.
+            editor.refresh_after(Duration::ZERO);
+        }
         if let Some(Phase::Stopping(deadline)) =
             find_session(editor, id).map(|session| &session.phase)
             && Instant::now() >= *deadline
@@ -250,25 +260,26 @@ fn stop_if_asked(editor: &mut Editor, id: u64) {
     }
 }
 
-fn prepared(editor: &mut Editor, id: u64) {
+fn prepared(editor: &mut Editor, id: u64, budget: &mut usize) {
     let Some(session) = find_session(editor, id) else {
         return;
     };
     let Phase::Preparing(preparation) = &session.phase else {
         return;
     };
-    // The output first, as the result comes after it all; at most a backlog at once, as the
-    // console takes it.
-    let mut taken = 0;
-    for event in std::iter::from_fn(|| preparation.try_output()).take(session.backlog) {
+    // The result first: once it is in, all the output is too, at most a backlog of it, and
+    // all of it goes to the console before the preparation is dropped.
+    let result = preparation.try_result();
+    let limit = if result.is_some() {
+        usize::MAX
+    } else {
+        *budget
+    };
+    for event in std::iter::from_fn(|| preparation.try_output()).take(limit) {
         session.say(event);
-        taken += 1;
+        *budget = budget.saturating_sub(1);
     }
-    if taken == session.backlog {
-        editor.refresh_after(Duration::ZERO);
-        return;
-    }
-    match preparation.try_result() {
+    match result {
         None => {}
         Some(Prepared::Failed(exit)) => finish(editor, id, Some(exit)),
         Some(Prepared::Ready(target)) => start_adapter(editor, id, target),
@@ -470,47 +481,54 @@ pub fn request(
     link.pending.insert(seq, Box::new(then));
 }
 
-fn receive(editor: &mut Editor, id: u64) {
-    let (links, backlog) =
-        find_session(editor, id).map_or((0, 0), |session| (session.links.len(), session.backlog));
-    'links: for index in 0..links {
+/// Takes a message from each connection in turn, going on next time from where it stopped,
+/// so one flooding holds up no other.
+fn receive(editor: &mut Editor, id: u64, budget: &mut usize) {
+    let Some(session) = find_session(editor, id) else {
+        return;
+    };
+    let (links, mut index) = (session.links.len(), session.turn);
+    // Connections in a row with nothing waiting; a closed one has nothing ever again.
+    let mut idle = 0;
+    while idle < links && *budget > 0 {
         let address = Address {
             session: id,
             link: index,
         };
-        for _ in 0..backlog {
-            let Some(incoming) =
-                find_link(editor, address).and_then(|link| link.connection.try_receive())
-            else {
-                continue 'links;
-            };
-            match incoming {
-                Incoming::Message(message) => handle(editor, address, message),
-                // Shown only if the adapter goes away, as the reason.
-                Incoming::Log(line) => {
-                    if let Some(session) = find_session(editor, id) {
-                        session.last_log = Some(line);
-                    }
+        index = (index + 1) % links;
+        let Some(incoming) =
+            find_link(editor, address).and_then(|link| link.connection.try_receive())
+        else {
+            idle += 1;
+            continue;
+        };
+        idle = 0;
+        *budget -= 1;
+        match incoming {
+            Incoming::Message(message) => handle(editor, address, message),
+            // Shown only if the adapter goes away, as the reason.
+            Incoming::Log(line) => {
+                if let Some(session) = find_session(editor, id) {
+                    session.last_log = Some(line);
                 }
-                Incoming::Closed(error) => {
-                    if address.link == 0 {
-                        if let Some(session) = find_session(editor, id) {
-                            let unexpected = session.exit_code.is_none()
-                                && !matches!(session.phase, Phase::Stopping(_));
-                            if let Some(why) =
-                                error.or(session.last_log.take()).filter(|_| unexpected)
-                            {
-                                session.note(&why);
-                            }
+            }
+            Incoming::Closed(error) => {
+                if address.link == 0 {
+                    if let Some(session) = find_session(editor, id) {
+                        let unexpected = session.exit_code.is_none()
+                            && !matches!(session.phase, Phase::Stopping(_));
+                        if let Some(why) = error.or(session.last_log.take()).filter(|_| unexpected)
+                        {
+                            session.note(&why);
                         }
-                        finish(editor, id, None);
                     }
-                    return;
+                    finish(editor, id, None);
                 }
             }
         }
-        // A backlog taken and more may wait: an adapter as fast as the drain would never end it.
-        editor.refresh_after(Duration::ZERO);
+    }
+    if let Some(session) = find_session(editor, id) {
+        session.turn = index;
     }
 }
 
@@ -873,3 +891,6 @@ pub fn current(editor: &mut Editor) -> Option<Address> {
         })
     })
 }
+
+#[cfg(test)]
+mod tests;
