@@ -273,10 +273,7 @@ pub fn controls(editor: &Editor) -> Option<TextControls> {
         _ => WINDOW_HINTS,
     };
     Some(TextControls {
-        buttons: vec![
-            button("Restore to panel", "⌘↩", MAXIMIZE),
-            button("New", "⌘T", NEW),
-        ],
+        buttons: vec![button("Restore to panel", "⌘↩", MAXIMIZE)],
         tabs: Some(tabs(editor, id)),
         hints,
         ..TextControls::default()

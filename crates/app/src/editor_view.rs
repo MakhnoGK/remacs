@@ -78,6 +78,8 @@ const SCREEN_SIDE: f32 = 24.0;
 const SCREEN_BOTTOM: f32 = 64.0;
 /// Where chips in the title bar start, after the window's buttons.
 const HEADER_TABS_LEFT: f32 = 92.0;
+/// Kept clear of chips on the title bar's right, for the terminal's one button.
+const HEADER_BUTTONS_WIDTH: f32 = 200.0;
 /// Over the status pill; point stays above it.
 const FOOTER_FADE_HEIGHT: f32 = 56.0;
 const TEXT_TOP: f32 = 64.0;
@@ -1044,7 +1046,8 @@ impl EditorView {
         if tabs.is_none() && buttons.is_empty() {
             return None;
         }
-        let room = f32::from(window.viewport_size().width) / 2.0 - HEADER_TABS_LEFT - 120.0;
+        let room =
+            f32::from(window.viewport_size().width) - HEADER_TABS_LEFT - HEADER_BUTTONS_WIDTH;
         let controls = div()
             .absolute()
             .top_0()
@@ -1530,9 +1533,10 @@ impl EditorView {
         render_preview(preview, &|code| self.faces_of(code))
     }
 
-    fn render_header(&self) -> Div {
+    /// The window buffer's name in the middle of the title bar, unless chips name it.
+    fn render_header(&self, titled: bool) -> Div {
         let buffer = self.editor.window_buffer();
-        div()
+        let header = div()
             .absolute()
             .top_0()
             .left_0()
@@ -1543,7 +1547,11 @@ impl EditorView {
             .justify_center()
             .gap(px(6.0))
             .font_family(font::ui())
-            .text_size(px(font::ui_size()))
+            .text_size(px(font::ui_size()));
+        if !titled {
+            return header;
+        }
+        header
             .child(
                 div()
                     .font_weight(gpui::FontWeight::MEDIUM)
@@ -2153,10 +2161,12 @@ impl Render for EditorView {
         };
         self.showing_rows = table.is_some() || outline.is_some();
         let mut toolbar = None;
+        let mut tabbed = false;
         let mut text_shown = false;
         let (body, hints, popups) = match (table, outline) {
             _ if self.showing_screen => {
                 let controls = self.editor.text_controls().unwrap_or_default();
+                tabbed = controls.tabs.is_some();
                 toolbar = self.render_header_controls(controls.tabs, controls.buttons, window, cx);
                 let bounds = full_screen_bounds(window.viewport_size());
                 let body = self
@@ -2285,7 +2295,7 @@ impl Render for EditorView {
             .children(pane)
             .children(row_below_scrim)
             .children(scrim)
-            .child(self.render_header().children(toolbar))
+            .child(self.render_header(!tabbed).children(toolbar))
             .children(popups)
             .children(row_popups)
             .children(row_above_scrim)

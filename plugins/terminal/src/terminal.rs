@@ -248,14 +248,15 @@ pub fn find_program(program: &str) -> Option<PathBuf> {
 }
 
 /// A shell's title as short as a chip wants it: without the `user@host:` zsh and bash put
-/// first, a directory shortened, and cut to its last characters.
+/// first, a directory shortened to its last characters, anything else to its first.
 fn tidy_title(title: &str) -> String {
     let title = title.trim();
     let title = match title.split_once(':') {
         Some((who, rest)) if who.contains('@') && !who.contains(' ') => rest.trim(),
         _ => title,
     };
-    let title = if title.starts_with('~') || title.starts_with('/') {
+    let directory = title.starts_with('~') || title.starts_with('/');
+    let title = if directory {
         short_directory(&expand_home(title))
     } else {
         title.to_owned()
@@ -264,8 +265,12 @@ fn tidy_title(title: &str) -> String {
     if count <= MAX_TITLE {
         return title;
     }
-    let tail: String = title.chars().skip(count - (MAX_TITLE - 1)).collect();
-    format!("…{tail}")
+    if directory {
+        let tail: String = title.chars().skip(count - (MAX_TITLE - 1)).collect();
+        return format!("…{tail}");
+    }
+    let head: String = title.chars().take(MAX_TITLE - 1).collect();
+    format!("{head}…")
 }
 
 /// `~/work/shop-api` as `~/w/shop-api`, as fish's `prompt_pwd` shortens it.
@@ -298,8 +303,11 @@ mod tests {
         assert_eq!(tidy_title("hk@mbp:/usr/local/bin"), "/u/l/bin");
         assert_eq!(tidy_title("cargo watch"), "cargo watch");
         assert_eq!(tidy_title("a: b"), "a: b");
-        let long = "x".repeat(40);
+        let long = format!("start {}", "x".repeat(40));
         assert_eq!(tidy_title(&long).chars().count(), MAX_TITLE);
+        assert!(tidy_title(&long).starts_with("start x") && tidy_title(&long).ends_with('…'));
+        let deep = format!("/a/{}-end", "x".repeat(40));
+        assert!(tidy_title(&deep).starts_with('…') && tidy_title(&deep).ends_with("-end"));
     }
 
     #[test]

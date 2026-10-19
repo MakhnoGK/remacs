@@ -15,7 +15,8 @@ const CHIP_HEIGHT: f32 = 26.0;
 const GAP: f32 = 6.0;
 /// Of a chip's padding, border and dots, beside its label's characters.
 const CHIP_CHROME: f32 = 40.0;
-const CHAR_WIDTH: f32 = 7.3;
+/// A monospace character's advance, in ems.
+const CHAR_ADVANCE: f32 = 0.61;
 const OVERFLOW_WIDTH: f32 = 52.0;
 
 /// As many chips as fit in `width`, the selected one always; the rest behind `+N`.
@@ -60,7 +61,7 @@ pub fn render_tabs(tabs: Tabs, width: f32, cx: &mut Context<EditorView>) -> Div 
 }
 
 fn chip_width(tab: &Tab) -> f32 {
-    CHIP_CHROME + tab.label.chars().count() as f32 * CHAR_WIDTH
+    CHIP_CHROME + tab.label.chars().count() as f32 * font::status_size() * CHAR_ADVANCE
 }
 
 fn render_tab(tab: Tab, cx: &mut Context<EditorView>) -> Div {
