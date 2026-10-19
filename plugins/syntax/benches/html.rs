@@ -1,5 +1,6 @@
 //! `cargo bench -p remacs-syntax --bench html`: a page of about 600 KB and 240k nodes
-//! with `<style>` and `<script>` blocks, the code in them highlighted as its own language.
+//! with `<style>` and `<script>` blocks, `style` and `onclick` attributes and `css` templates
+//! in the scripts, the code in them highlighted as its own language.
 
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -31,10 +32,37 @@ const GRAMMARS: &[Grammar] = &[
         highlights: &[tree_sitter_css::HIGHLIGHTS_QUERY],
     },
 ];
-const INJECTIONS: &[Injections] = &[Injections {
-    host: "HTML",
-    query: tree_sitter_html::INJECTIONS_QUERY,
-}];
+/// The kinds of injection `remacs-languages` has: combined blocks, combined attributes with
+/// a terminator, and tagged templates each apart.
+const HTML_INJECTIONS: &str = r#"
+((script_element (raw_text) @injection.content)
+ (#set! injection.language "javascript") (#set! injection.combined))
+((style_element (raw_text) @injection.content)
+ (#set! injection.language "css") (#set! injection.combined))
+((attribute (attribute_name) @_name (quoted_attribute_value) @injection.content)
+ (#match? @_name "(?i)^style$") (#set! injection.language "css")
+ (#set! injection.combined) (#set! injection.terminator ";"))
+((attribute (attribute_name) @_name (quoted_attribute_value) @injection.content)
+ (#match? @_name "(?i)^on[a-z]+$") (#set! injection.language "javascript")
+ (#set! injection.combined) (#set! injection.terminator ";"))
+"#;
+const TEMPLATE_INJECTIONS: &str = r#"
+(call_expression
+  function: (identifier) @injection.language
+  arguments: (template_string (string_fragment) @injection.content))
+"#;
+const INJECTIONS: &[Injections] = &[
+    Injections {
+        host: "HTML",
+        query: HTML_INJECTIONS,
+        documents: true,
+    },
+    Injections {
+        host: "JavaScript",
+        query: TEMPLATE_INJECTIONS,
+        documents: false,
+    },
+];
 static SYNTAX: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS, INJECTIONS);
 
 const SECTIONS: usize = 3000;
@@ -52,14 +80,14 @@ fn page() -> String {
     let mut page = String::from("<!doctype html>\n<html>\n<body>\n");
     for section in 0..SECTIONS {
         page.push_str(&format!(
-            "<section class=\"card\" id=\"card-{section}\">\n  <h2 title=\"Card {section}\">Card {section}</h2>\n  <p>Some <b>text</b> about card {section}, <a href=\"/cards/{section}\">more</a>.</p>\n</section>\n"
+            "<section class=\"card\" id=\"card-{section}\" style=\"padding: 4px 8px; color: #333\">\n  <h2 title=\"Card {section}\" onclick=\"select({section}, event)\">Card {section}</h2>\n  <p>Some <b>text</b> about card {section}, <a href=\"/cards/{section}\">more</a>.</p>\n</section>\n"
         ));
         if section % BLOCK_EVERY == 0 {
             page.push_str(&format!(
                 "<style>\n.card-{section} {{\n  display: flex;\n  margin: 0 auto;\n  color: #336699;\n}}\n.card-{section}:hover > h2 {{ text-decoration: underline; }}\n</style>\n"
             ));
             page.push_str(&format!(
-                "<script>\nfunction render{section}(cards) {{\n  const list = document.querySelector(\"#card-{section}\");\n  for (const card of cards) {{\n    if (card.visible) {{\n      list.append(`${{card.title}}: ${{card.count * 2}}`);\n    }}\n  }}\n  return list;\n}}\n</script>\n"
+                "<script>\nconst sheet{section} = css`.card-{section} {{ color: ${{accent}}; }}`;\nfunction render{section}(cards) {{\n  const list = document.querySelector(\"#card-{section}\");\n  for (const card of cards) {{\n    if (card.visible) {{\n      list.append(`${{card.title}}: ${{card.count * 2}}`);\n    }}\n  }}\n  return list;\n}}\n</script>\n"
             ));
         }
     }
@@ -99,6 +127,23 @@ fn parsed_editor() -> (Editor, mpsc::Receiver<()>) {
 #[divan::bench(sample_count = 50)]
 fn edit_and_reparse(bencher: Bencher) {
     let (mut editor, notified) = parsed_editor();
+    bencher.bench_local(|| {
+        editor.window_buffer_mut().insert("x");
+        editor.refresh();
+        notified.recv().unwrap();
+        editor.refresh();
+    });
+}
+
+/// Typing a character in a `style` attribute, until the parser thread has the new tree.
+#[divan::bench(sample_count = 50)]
+fn edit_in_an_attribute_and_reparse(bencher: Bencher) {
+    let (mut editor, notified) = parsed_editor();
+    let source = page();
+    let style = source[..source.find(MARKER).unwrap()]
+        .rfind("padding")
+        .unwrap();
+    editor.window_buffer_mut().set_point(style);
     bencher.bench_local(|| {
         editor.window_buffer_mut().insert("x");
         editor.refresh();

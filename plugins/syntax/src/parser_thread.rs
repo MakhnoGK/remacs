@@ -1,6 +1,5 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
-use std::ptr;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -20,7 +19,8 @@ pub(crate) struct Request {
     pub grammar: &'static Grammar,
     /// Every grammar, which injected languages are found among.
     pub grammars: &'static [Grammar],
-    pub injections: Option<&'static Injections>,
+    /// Every mode's injections, followed into injected code too; none when turned off.
+    pub injections: &'static [Injections],
     pub snapshot: Snapshot,
     /// The previous trees, already edited to match `snapshot`, so parsing is incremental.
     pub tree: Option<Tree>,
@@ -30,7 +30,9 @@ pub(crate) struct Request {
     pub slot: ParseSlot,
 }
 
-/// The code of one injected language, parsed in the host's ranges of it.
+/// The code of one injected language, parsed in the host's ranges of it: those of one
+/// match, like a tagged template, or when combined all of them, or all with a terminator,
+/// like `onclick` attributes, each ended by it.
 #[derive(Clone)]
 pub(crate) struct Layer {
     pub grammar: &'static Grammar,
@@ -38,10 +40,28 @@ pub(crate) struct Layer {
     /// For each of the tree's included ranges, what the injection query matched to find
     /// it, e.g. a script's tag with its type; an edit there finds the range again.
     owners: Vec<Range<usize>>,
+    pub combined: bool,
+    pub terminator: Option<u8>,
     pub highlighter: Option<Arc<Highlighter>>,
+    /// The languages injected into this one's code.
+    pub layers: Vec<Layer>,
 }
 
 impl Layer {
+    /// Where its code is, around all its ranges.
+    pub fn bounds(&self) -> Range<usize> {
+        self.owners[0].start..self.owners[self.owners.len() - 1].end
+    }
+
+    fn kind(&self) -> Kind {
+        kind(
+            self.grammar,
+            self.combined,
+            self.terminator,
+            &self.owners[0],
+        )
+    }
+
     pub fn edit(&mut self, edit: &InputEdit) {
         self.tree.edit(edit);
         let shift = |offset: usize| match offset {
@@ -51,6 +71,9 @@ impl Layer {
         };
         for owner in &mut self.owners {
             *owner = shift(owner.start)..shift(owner.end);
+        }
+        for layer in &mut self.layers {
+            layer.edit(edit);
         }
     }
 }
@@ -97,16 +120,23 @@ fn run(requests: Receiver<Request>, notifier: Notifier) {
                 &request.snapshot,
                 &[],
                 old_tree,
+                None,
             ) else {
                 continue;
             };
-            let layers = request
-                .injections
-                .and_then(|injections| {
-                    compiled.injections(injections, request.grammar, request.grammars)
-                })
-                .map(|query| parse_layers(&mut parser, &mut compiled, &query, &tree, &request))
-                .unwrap_or_default();
+            let layers = Injector {
+                parser: &mut parser,
+                compiled: &mut compiled,
+                grammars: request.grammars,
+                injections: request.injections,
+                text: &request.snapshot,
+                edited: request.edited,
+            }
+            .layers(
+                request.grammar,
+                &tree,
+                old_tree.map(|old| (old, request.layers)),
+            );
             *request.slot.lock().expect("parse slots are never poisoned") = Some(Parse {
                 snapshot: request.snapshot,
                 tree,
@@ -138,81 +168,185 @@ struct Region {
     grammar: &'static Grammar,
     owner: Range<usize>,
     content: tree_sitter::Range,
+    combined: bool,
+    terminator: Option<u8>,
 }
 
-/// The injected languages of `tree`, each parsed in its ranges from its previous tree.
-/// Only where the text or the host's tree changed is the injection query run again, as
-/// running it over a large page takes longer than parsing the change.
-fn parse_layers(
-    parser: &mut Parser,
-    compiled: &mut Compiled,
-    query: &InjectionQuery,
-    tree: &Tree,
-    request: &Request,
-) -> Vec<Layer> {
-    let text = &request.snapshot;
-    let mut regions = match &request.tree {
-        None => query.regions(tree, text, None),
-        Some(old_tree) => {
-            let mut changed: Vec<Range<usize>> = old_tree
-                .changed_ranges(tree)
-                .map(|range| range.start_byte..range.end_byte)
-                .chain(request.edited.clone())
-                .collect();
-            let mut kept = Vec::new();
-            for layer in &request.layers {
-                let ranges = layer.tree.included_ranges();
-                for (owner, content) in layer.owners.iter().zip(ranges) {
-                    if changed.iter().any(|range| touches(range, owner)) {
-                        changed.push(owner.clone());
-                    } else {
-                        kept.push(Region {
-                            grammar: layer.grammar,
-                            owner: owner.clone(),
-                            content,
-                        });
-                    }
-                }
-            }
-            for range in changed {
-                kept.extend(query.regions(tree, text, Some(range)));
-            }
-            kept
-        }
-    };
-    regions.sort_by_key(|region| region.content.start_byte);
-    regions.dedup_by_key(|region| region.content.start_byte);
-    let mut grammars: Vec<&'static Grammar> = Vec::new();
-    for region in &regions {
-        if !grammars
-            .iter()
-            .any(|grammar| ptr::eq(*grammar, region.grammar))
-        {
-            grammars.push(region.grammar);
-        }
+impl Region {
+    fn kind(&self) -> Kind {
+        kind(self.grammar, self.combined, self.terminator, &self.owner)
     }
-    grammars
-        .into_iter()
-        .filter_map(|grammar| {
-            let (owners, ranges): (Vec<_>, Vec<_>) = regions
-                .iter()
-                .filter(|region| ptr::eq(region.grammar, grammar))
+}
+
+/// Which layer code goes to: a language's combined code, with or without a terminator, or
+/// one match's.
+type Kind = (*const Grammar, Option<u8>, Option<Range<usize>>);
+
+fn kind(grammar: &Grammar, combined: bool, terminator: Option<u8>, owner: &Range<usize>) -> Kind {
+    (grammar, terminator, (!combined).then(|| owner.clone()))
+}
+
+/// Parses the languages injected into a tree, and those injected into them in turn.
+struct Injector<'a> {
+    parser: &'a mut Parser,
+    compiled: &'a mut Compiled,
+    grammars: &'static [Grammar],
+    injections: &'static [Injections],
+    text: &'a Snapshot,
+    /// Where the text changed since the layers were found.
+    edited: Option<Range<usize>>,
+}
+
+impl Injector<'_> {
+    /// The languages `grammar`'s query injects into `tree`, each parsed in its ranges from
+    /// its previous tree; `old` is the tree before, edited, with the layers found in it.
+    /// Only where the text or the tree changed is the query run again, as running it over
+    /// a large page takes longer than parsing the change.
+    fn layers(
+        &mut self,
+        grammar: &'static Grammar,
+        tree: &Tree,
+        old: Option<(&Tree, Vec<Layer>)>,
+    ) -> Vec<Layer> {
+        let Some(query) = self
+            .compiled
+            .injections(self.injections, grammar, self.grammars)
+        else {
+            return Vec::new();
+        };
+        let (old_tree, old_layers) = match old {
+            Some((old_tree, old_layers)) => (Some(old_tree), old_layers),
+            None => (None, Vec::new()),
+        };
+        // Layers whose code no change touched, kept whole rather than taken apart into
+        // regions and put together again; and those parsed again, from their old trees.
+        let mut untouched: Vec<Layer> = Vec::new();
+        let mut reparsed: HashMap<Kind, Layer> = HashMap::new();
+        let mut regions =
+            match old_tree {
+                None => query.regions(tree, self.text, None),
+                Some(old_tree) => {
+                    let mut changed: Vec<Range<usize>> = old_tree
+                        .changed_ranges(tree)
+                        .map(|range| range.start_byte..range.end_byte)
+                        .chain(self.edited.clone())
+                        .collect();
+                    let mut kept = Vec::new();
+                    for layer in old_layers {
+                        let touched = |owner: &Range<usize>| {
+                            changed.iter().any(|range| touches(range, owner))
+                        };
+                        if !layer.owners.iter().any(touched) {
+                            untouched.push(layer);
+                            continue;
+                        }
+                        let ranges = layer.tree.included_ranges();
+                        for (owner, content) in layer.owners.iter().zip(ranges) {
+                            if changed.iter().any(|range| touches(range, owner)) {
+                                changed.push(owner.clone());
+                            } else {
+                                kept.push(Region {
+                                    grammar: layer.grammar,
+                                    owner: owner.clone(),
+                                    content,
+                                    combined: layer.combined,
+                                    terminator: layer.terminator,
+                                });
+                            }
+                        }
+                        reparsed.insert(layer.kind(), layer);
+                    }
+                    for range in changed {
+                        kept.extend(query.regions(tree, self.text, Some(range)));
+                    }
+                    // One that gains code, like a new attribute, is parsed again with it.
+                    let gaining: HashSet<Kind> = kept.iter().map(Region::kind).collect();
+                    for layer in untouched.extract_if(.., |layer| gaining.contains(&layer.kind())) {
+                        let ranges = layer.tree.included_ranges();
+                        kept.extend(layer.owners.iter().zip(ranges).map(|(owner, content)| {
+                            Region {
+                                grammar: layer.grammar,
+                                owner: owner.clone(),
+                                content,
+                                combined: layer.combined,
+                                terminator: layer.terminator,
+                            }
+                        }));
+                        reparsed.insert(layer.kind(), layer);
+                    }
+                    kept
+                }
+            };
+        regions.sort_by_key(|region| region.content.start_byte);
+        regions.dedup_by_key(|region| region.content.start_byte);
+        let mut groups: Vec<Vec<&Region>> = Vec::new();
+        let mut group_of: HashMap<Kind, usize> = HashMap::new();
+        for region in &regions {
+            let group = *group_of.entry(region.kind()).or_insert_with(|| {
+                groups.push(Vec::new());
+                groups.len() - 1
+            });
+            groups[group].push(region);
+        }
+        let mut layers = untouched;
+        for group in groups {
+            let (owners, ranges): (Vec<_>, Vec<_>) = (group.iter())
                 .map(|region| (region.owner.clone(), region.content))
                 .unzip();
-            let old_tree = request
-                .layers
-                .iter()
-                .find(|layer| ptr::eq(layer.grammar, grammar))
-                .map(|layer| &layer.tree);
-            let tree = parse_in(parser, grammar, text, &ranges, old_tree)?;
-            Some(Layer {
-                grammar,
-                tree,
-                owners,
-                highlighter: compiled.highlighter(grammar),
-            })
+            let old = reparsed.remove(&group[0].kind());
+            layers.extend(self.layer(group[0], owners, &ranges, old));
+        }
+        // In order of their code, so that the documents of embedded code keep theirs.
+        layers.sort_by_key(|layer| layer.owners[0].start);
+        layers
+    }
+
+    /// The code of `first`'s kind in `ranges`, parsed from `old`'s tree, with what it
+    /// injects. Kept as it was when nothing changed in its code: reparsing a tree of many
+    /// pieces takes time in proportion to them, even where nothing changed.
+    fn layer(
+        &mut self,
+        first: &Region,
+        owners: Vec<Range<usize>>,
+        ranges: &[tree_sitter::Range],
+        old: Option<Layer>,
+    ) -> Option<Layer> {
+        let untouched = |old: &Layer| {
+            old.owners == owners
+                && (self.edited.as_ref())
+                    .is_none_or(|edited| !owners.iter().any(|owner| touches(edited, owner)))
+        };
+        if old.as_ref().is_some_and(untouched) {
+            return old;
+        }
+        let (grammar, combined, terminator) = (first.grammar, first.combined, first.terminator);
+        let (old_tree, old_layers) = match old {
+            Some(old) => (Some(old.tree), old.layers),
+            None => (None, Vec::new()),
+        };
+        let tree = parse_in(
+            self.parser,
+            grammar,
+            self.text,
+            ranges,
+            old_tree.as_ref(),
+            terminator,
+        )?;
+        let layers = self.layers(
+            grammar,
+            &tree,
+            old_tree.as_ref().map(|old_tree| (old_tree, old_layers)),
+        );
+        Some(Layer {
+            grammar,
+            tree,
+            owners,
+            combined,
+            terminator,
+            highlighter: self.compiled.highlighter(grammar),
+            layers,
         })
-        .collect()
+    }
 }
 
 /// Whether `range` overlaps or borders `owner`, which a deletion's empty range does too.
@@ -220,13 +354,19 @@ fn touches(range: &Range<usize>, owner: &Range<usize>) -> bool {
     range.start <= owner.end && owner.start <= range.end
 }
 
-/// `text` parsed with `grammar` in `ranges`, all of it when there are none.
+/// `text` parsed with `grammar` in `ranges`, all of it when there are none. With a
+/// `terminator`, each range's first and last bytes, its delimiters, are read as spaces,
+/// or the last as the terminator when the code between them does not end with it.
+// shortcut: a string, template or comment a piece leaves open runs on into the next
+// pieces, a line comment into the rest of its line; a tree per piece costs 4.6 ms a
+// keystroke on a page of thousands, so split the layer into small trees if that matters.
 fn parse_in(
     parser: &mut Parser,
     grammar: &Grammar,
     text: &Snapshot,
     ranges: &[tree_sitter::Range],
     old_tree: Option<&Tree>,
+    terminator: Option<u8>,
 ) -> Option<Tree> {
     if parser
         .set_language(&Language::new(grammar.language))
@@ -239,7 +379,37 @@ fn parse_in(
         .set_included_ranges(ranges)
         .inspect_err(|error| eprintln!("remacs: {} ranges: {error}", grammar.mode))
         .ok()?;
-    parse(parser, text, old_tree)
+    let Some(terminator) = terminator else {
+        return parse(parser, text, old_tree);
+    };
+    let read_as: Vec<(usize, u8)> = ranges
+        .iter()
+        .filter(|range| range.end_byte - range.start_byte >= 2)
+        .flat_map(|range| {
+            let (open, close) = (range.start_byte, range.end_byte - 1);
+            let last = (text.chunks(open + 1..close).flatten())
+                .filter(|byte| !byte.is_ascii_whitespace())
+                .last();
+            let closing = match last {
+                Some(&last) if last != terminator => terminator,
+                _ => b' ',
+            };
+            [(open, b' '), (close, closing)]
+        })
+        .collect();
+    let read_as = &read_as;
+    parser.parse_with_options(
+        &mut |offset, _| {
+            let next = read_as.partition_point(|&(at, _)| at < offset);
+            match read_as.get(next) {
+                Some((at, byte)) if *at == offset => std::slice::from_ref(byte),
+                Some(&(at, _)) => text.chunks(offset..at).next().unwrap_or_default(),
+                None => text.chunks(offset..text.len()).next().unwrap_or_default(),
+            }
+        },
+        old_tree,
+        None,
+    )
 }
 
 pub(crate) fn parse(parser: &mut Parser, text: &Snapshot, old_tree: Option<&Tree>) -> Option<Tree> {
@@ -272,10 +442,14 @@ impl Compiled {
 
     fn injections(
         &mut self,
-        injections: &'static Injections,
+        injections: &'static [Injections],
         host: &'static Grammar,
         grammars: &'static [Grammar],
     ) -> Option<Arc<InjectionQuery>> {
+        // Looked up first, so that injections turned off do not cache their absence.
+        let injections = injections
+            .iter()
+            .find(|injections| injections.host == host.mode)?;
         self.injections
             .entry(host.mode)
             .or_insert_with(|| {
@@ -288,11 +462,28 @@ impl Compiled {
     }
 }
 
-/// A compiled injection query, with the grammar each of its patterns injects.
+/// The grammar of the mode named `name`, ignoring case.
+fn grammar_named(grammars: &'static [Grammar], name: &[u8]) -> Option<&'static Grammar> {
+    grammars
+        .iter()
+        .find(|grammar| grammar.mode.as_bytes().eq_ignore_ascii_case(name))
+}
+
+/// What one pattern of an injection query injects.
+struct Injection {
+    /// Its `#set! injection.language`; `None` reads it from the `@injection.language` capture.
+    language: Option<Option<&'static Grammar>>,
+    combined: bool,
+    terminator: Option<u8>,
+}
+
+/// A compiled injection query, with what each of its patterns injects.
 struct InjectionQuery {
     query: Query,
     content: u32,
-    languages: Vec<Option<&'static Grammar>>,
+    language: Option<u32>,
+    grammars: &'static [Grammar],
+    injections: Vec<Injection>,
 }
 
 impl InjectionQuery {
@@ -305,23 +496,30 @@ impl InjectionQuery {
         let content = query
             .capture_index_for_name("injection.content")
             .ok_or("no @injection.content capture")?;
-        let languages = (0..query.pattern_count())
+        let injections = (0..query.pattern_count())
             .map(|pattern| {
-                let name = query
-                    .property_settings(pattern)
-                    .iter()
-                    .find(|property| &*property.key == "injection.language")?
-                    .value
-                    .as_deref()?;
-                grammars
-                    .iter()
-                    .find(|grammar| grammar.mode.eq_ignore_ascii_case(name))
+                let properties = query.property_settings(pattern);
+                let property = |key: &str| {
+                    properties
+                        .iter()
+                        .find(|property| &*property.key == key)
+                        .map(|property| property.value.as_deref().unwrap_or_default())
+                };
+                Injection {
+                    language: property("injection.language")
+                        .map(|name| grammar_named(grammars, name.as_bytes())),
+                    combined: property("injection.combined").is_some(),
+                    terminator: property("injection.terminator")
+                        .and_then(|terminator| terminator.bytes().next()),
+                }
             })
             .collect();
         Ok(Self {
+            language: query.capture_index_for_name("injection.language"),
             query,
             content,
-            languages,
+            grammars,
+            injections,
         })
     }
 
@@ -334,7 +532,17 @@ impl InjectionQuery {
         }
         let mut matches = cursor.matches(&self.query, tree.root_node(), Chunks(text));
         while let Some(matched) = matches.next() {
-            let Some(grammar) = self.languages[matched.pattern_index] else {
+            let injection = &self.injections[matched.pattern_index];
+            let grammar = injection.language.unwrap_or_else(|| {
+                let name = matched
+                    .captures()
+                    .iter()
+                    .find(|capture| Some(capture.index) == self.language)?
+                    .node
+                    .byte_range();
+                grammar_named(self.grammars, &text.bytes_in(name))
+            });
+            let Some(grammar) = grammar else {
                 continue;
             };
             let captures = matched.captures();
@@ -354,6 +562,8 @@ impl InjectionQuery {
                         grammar,
                         owner: start..end,
                         content: capture.node.range(),
+                        combined: injection.combined,
+                        terminator: injection.terminator,
                     }),
             );
         }

@@ -47,13 +47,20 @@ pub struct Grammar {
     pub highlights: &'static [&'static str],
 }
 
-/// Where a host mode's text holds code of other languages, e.g. scripts in HTML: each
-/// `@injection.content` capture of `query` is parsed with the grammar whose mode is the
-/// pattern's `#set! injection.language`, ignoring case. All the ranges of one language
-/// make one tree.
+/// Where a mode's text holds code of other languages, e.g. scripts in HTML: each
+/// `@injection.content` capture of `query` is parsed with the grammar of the mode its
+/// pattern's `#set! injection.language` names, else its `@injection.language` capture's
+/// text, ignoring case; that code's own injections are followed in turn. Each match makes
+/// a tree, but with `#set! injection.combined` all the ranges of one language do; with
+/// `#set! injection.terminator ";"` too, those of such patterns make one of their own:
+/// their first and last bytes, like an attribute's quotes, are read as spaces, or the
+/// last as `;` where the code lacks it, so that each piece ends before the next.
 pub struct Injections {
     pub host: &'static str,
     pub query: &'static str,
+    /// Whether its combined code without a terminator is a document of its own for servers
+    /// and formatters, like a page's scripts; code in strings, like ``css`…` ``, is not.
+    pub documents: bool,
 }
 
 pub struct SyntaxPlugin {

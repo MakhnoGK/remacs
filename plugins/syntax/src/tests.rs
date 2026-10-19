@@ -27,6 +27,7 @@ const GRAMMARS: &[Grammar] = &[
 const INJECTIONS: &[Injections] = &[Injections {
     host: "HTML",
     query: tree_sitter_html::INJECTIONS_QUERY,
+    documents: true,
 }];
 static SYNTAX: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS, INJECTIONS);
 

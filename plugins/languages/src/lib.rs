@@ -182,6 +182,83 @@ mod tests {
         wait_for(&mut editor, ("true", Face::Constant), false);
     }
 
+    #[test]
+    fn attributes_and_templates_are_highlighted_as_their_languages() {
+        static SYNTAX: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS, INJECTIONS);
+        let page = "<p style=\"color: #fff; margin: 0 auto\" onclick=\"n = go(1)\">x</p>\n\
+                    <script>/re/.test(s);\n\
+                    const sheet = css`article { width: 2em; }`;\n\
+                    const card = html`<b style=\"top: 7px;\">y</b>`;</script>\n";
+        let mut editor = Editor::new(&[&SYNTAX]);
+        editor.add_buffer(Buffer::new("page.html", Text::from(page), "HTML"));
+        let faces = |editor: &Editor| -> Vec<(String, Face)> {
+            let buffer = editor.window_buffer();
+            let spans = editor.decorations(0..buffer.text().len()).concat();
+            spans
+                .into_iter()
+                .map(|span| (buffer.contents(span.range), span.face))
+                .collect()
+        };
+        let wait_for = |editor: &mut Editor, shows: (&str, Face)| {
+            let start = Instant::now();
+            while !faces(editor).contains(&(shows.0.into(), shows.1)) {
+                assert!(
+                    start.elapsed() < Duration::from_secs(5),
+                    "{shows:?}: {:?}",
+                    faces(editor)
+                );
+                thread::sleep(Duration::from_millis(5));
+                editor.refresh();
+            }
+            faces(editor)
+        };
+        let expected = [
+            // The style attribute's declarations, the last without `;`.
+            ("#fff", Face::String),
+            ("0", Face::Constant),
+            // The handler, apart from the script, which would make `1 /re/` a division.
+            ("go", Face::Function),
+            ("/re/", Face::String),
+            // CSS in a script, and CSS in a style in HTML in a script.
+            ("article", Face::Function),
+            ("em", Face::Type),
+            ("b", Face::Function),
+            ("7", Face::Constant),
+        ];
+        let assert_shown = |shown: &[(String, Face)]| {
+            for expected in expected {
+                assert!(
+                    shown.contains(&(expected.0.into(), expected.1)),
+                    "{expected:?} in {shown:?}"
+                );
+            }
+            // The attribute's string face gives way to the code in it.
+            assert!(
+                !shown.iter().any(|(text, _)| text.contains("margin")),
+                "{shown:?}"
+            );
+        };
+        assert_shown(&wait_for(&mut editor, ("7", Face::Constant)));
+        let documents: Vec<_> = (editor.embedded(editor.window_buffer()).unwrap().iter())
+            .map(|code| code.mode)
+            .collect();
+        assert_eq!(documents, [JAVASCRIPT]);
+
+        // Pieces apart follow an edit before them, and an edit in them.
+        editor.window_buffer_mut().set_point(0);
+        editor.window_buffer_mut().insert("<code>z</code>");
+        assert_shown(&wait_for(&mut editor, ("code", Face::Function)));
+        let go = editor
+            .buffer()
+            .contents(0..editor.buffer().text().len())
+            .find("go(")
+            .unwrap();
+        editor.window_buffer_mut().delete(go..go + 2);
+        editor.window_buffer_mut().set_point(go);
+        editor.window_buffer_mut().insert("run");
+        wait_for(&mut editor, ("run", Face::Function));
+    }
+
     /// The faces of `source` in `mode` once parsed, merged by face.
     fn highlighted(mode: &'static str, source: &str) -> Vec<(String, Face)> {
         static SYNTAX: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS, INJECTIONS);
@@ -204,6 +281,19 @@ mod tests {
             );
             thread::sleep(Duration::from_millis(5));
         }
+    }
+
+    #[test]
+    fn each_tagged_template_is_code_of_its_own() {
+        // Run into the first, the second query would be `… where id = select …`.
+        let source = "const a = sql`select id from users where id = ${id}`;\n\
+                      const b = sql`select name from cards`;\n";
+        // The templates come with the parse that brings the first faces.
+        let faces = highlighted(TYPESCRIPT, source);
+        let selects = (faces.iter())
+            .filter(|shown| **shown == ("select".into(), Face::Keyword))
+            .count();
+        assert_eq!(selects, 2, "{faces:?}");
     }
 
     #[test]

@@ -19,7 +19,7 @@ const MAX_PARSED_BYTES: usize = 16 << 20;
 struct BufferSyntax {
     grammar: &'static Grammar,
     grammars: &'static [Grammar],
-    injections: Option<&'static Injections>,
+    injections: &'static [Injections],
     /// The text the trees match.
     snapshot: Snapshot,
     tree: Option<Tree>,
@@ -34,7 +34,7 @@ impl BufferSyntax {
     fn new(
         grammar: &'static Grammar,
         grammars: &'static [Grammar],
-        injections: Option<&'static Injections>,
+        injections: &'static [Injections],
         snapshot: Snapshot,
     ) -> Self {
         Self {
@@ -121,18 +121,14 @@ pub(crate) fn sync(
         return;
     };
     let text = buffer.text().snapshot();
-    let injected = injections
-        .iter()
-        .find(|injections| injections.host == grammar.mode);
     let request = match buffer.local_mut::<BufferSyntax>() {
         Some(syntax)
-            if ptr::eq(syntax.grammar, grammar)
-                && syntax.injections.map(ptr::from_ref) == injected.map(ptr::from_ref) =>
+            if ptr::eq(syntax.grammar, grammar) && ptr::eq(syntax.injections, injections) =>
         {
             syntax.update(text)
         }
         _ => {
-            let syntax = BufferSyntax::new(grammar, grammars, injected, text);
+            let syntax = BufferSyntax::new(grammar, grammars, injections, text);
             Some(buffer.set_local(syntax).request())
         }
     };
@@ -148,39 +144,109 @@ pub(crate) fn highlight(buffer: &Buffer, range: Range<usize>) -> Vec<Span> {
     let Some(syntax) = buffer.local::<BufferSyntax>() else {
         return Vec::new();
     };
-    let mut spans = match (&syntax.tree, &syntax.highlighter) {
-        (Some(tree), Some(highlighter)) => highlighter.spans(tree, &syntax.snapshot, range.clone()),
-        _ => return Vec::new(),
-    };
-    let mut injected = false;
-    for layer in &syntax.layers {
-        if let Some(highlighter) = &layer.highlighter {
-            let layer_spans = highlighter.spans(&layer.tree, &syntax.snapshot, range.clone());
-            injected |= !layer_spans.is_empty();
-            spans.extend(layer_spans);
+    match (&syntax.tree, &syntax.highlighter) {
+        (Some(tree), Some(highlighter)) => {
+            let spans = highlighter.spans(tree, &syntax.snapshot, range.clone());
+            paint_layers(&syntax.layers, &syntax.snapshot, &range, spans)
         }
+        _ => Vec::new(),
     }
-    // The host leaves injected code unhighlighted, so the spans do not overlap.
-    if injected {
-        spans.sort_by_key(|span| span.range.start);
+}
+
+/// `spans` of the code around `layers` with each layer's own painted over them in its
+/// ranges, and the layers injected into it over those.
+fn paint_layers(
+    layers: &[Layer],
+    text: &Snapshot,
+    range: &Range<usize>,
+    mut spans: Vec<Span>,
+) -> Vec<Span> {
+    let mut held = Vec::new();
+    let mut injected = Vec::new();
+    for layer in layers
+        .iter()
+        .filter(|layer| overlaps(&layer.bounds(), range))
+    {
+        let Some(highlighter) = &layer.highlighter else {
+            continue;
+        };
+        let own = highlighter.spans(&layer.tree, text, range.clone());
+        injected.extend(paint_layers(&layer.layers, text, range, own));
+        let ranges = layer.tree.included_ranges();
+        held.extend(
+            ranges
+                .iter()
+                .map(|held| held.start_byte..held.end_byte)
+                .filter(|held| overlaps(held, range)),
+        );
     }
+    if held.is_empty() {
+        return spans;
+    }
+    held.sort_by_key(|held| held.start);
+    spans = outside(spans, &held);
+    spans.extend(injected);
+    spans.sort_by_key(|span| span.range.start);
     spans
 }
 
-impl BufferSyntax {
-    /// The injected layer whose ranges hold `range`.
-    fn layer_at(&self, range: Range<usize>) -> Option<&Layer> {
-        self.layers.iter().find(|layer| {
-            let ranges = layer.tree.included_ranges();
-            ranges
+/// The parts of `spans` outside the ranges `held`, both in order.
+fn outside(spans: Vec<Span>, held: &[Range<usize>]) -> Vec<Span> {
+    let mut kept = Vec::with_capacity(spans.len());
+    let mut first = 0;
+    for span in spans {
+        while held
+            .get(first)
+            .is_some_and(|held| held.end <= span.range.start)
+        {
+            first += 1;
+        }
+        let mut start = span.range.start;
+        for held in held[first..]
+            .iter()
+            .take_while(|held| held.start < span.range.end)
+        {
+            if start < held.start {
+                kept.push(Span {
+                    range: start..held.start,
+                    face: span.face,
+                });
+            }
+            start = start.max(held.end);
+        }
+        if start < span.range.end {
+            kept.push(Span {
+                range: start..span.range.end,
+                face: span.face,
+            });
+        }
+    }
+    kept
+}
+
+fn overlaps(a: &Range<usize>, b: &Range<usize>) -> bool {
+    a.start < b.end && b.start < a.end
+}
+
+/// The innermost of `layers` and the layers injected into them whose ranges hold `range`.
+fn layer_at<'a>(layers: &'a [Layer], range: &Range<usize>) -> Option<&'a Layer> {
+    let layer = layers.iter().find(|layer| {
+        let bounds = layer.bounds();
+        bounds.start <= range.start
+            && range.end <= bounds.end
+            && layer
+                .tree
+                .included_ranges()
                 .iter()
                 .any(|held| held.start_byte <= range.start && range.end <= held.end_byte)
-        })
-    }
+    })?;
+    layer_at(&layer.layers, range).or(Some(layer))
+}
 
+impl BufferSyntax {
     /// The tree that holds `range`: an injected layer's, else the buffer's own.
     fn tree_at(&self, range: Range<usize>) -> Option<&Tree> {
-        self.layer_at(range)
+        layer_at(&self.layers, &range)
             .map(|layer| &layer.tree)
             .or(self.tree.as_ref())
     }
@@ -201,11 +267,18 @@ pub(crate) fn tree_at(buffer: &Buffer, range: Range<usize>) -> Option<&Tree> {
     current(buffer)?.tree_at(range)
 }
 
-/// The code of the languages injected into the buffer; `None` until it is parsed and
-/// while its trees lag behind the text.
+/// The code of the languages injected into the buffer that is a document of its own;
+/// `None` until it is parsed and while its trees lag behind the text.
 pub(crate) fn embedded(buffer: &Buffer) -> Option<Vec<Embedded>> {
     let syntax = current(buffer).filter(|syntax| syntax.tree.is_some())?;
-    let embedded = syntax.layers.iter().map(|layer| Embedded {
+    let documents = syntax
+        .injections
+        .iter()
+        .any(|injections| injections.host == syntax.grammar.mode && injections.documents);
+    // One document per language: its combined code.
+    let layers = (syntax.layers.iter())
+        .filter(|layer| documents && layer.combined && layer.terminator.is_none());
+    let embedded = layers.map(|layer| Embedded {
         mode: layer.grammar.mode,
         ranges: layer
             .tree

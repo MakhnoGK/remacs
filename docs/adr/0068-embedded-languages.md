@@ -1,7 +1,7 @@
 # 0068 — Code of other languages inside a file
 
 Status: accepted, 2026-10-17 (issue #42, stages 1–4: highlighting, language at point,
-language servers, formatting)
+language servers, formatting); 2026-10-19 attributes and nested injections (#65)
 
 ## Decision
 
@@ -14,7 +14,7 @@ language servers, formatting)
 - **HTML**: a script's `type` or `lang` picks its language — none, `module` or
   `text/javascript` → JavaScript; `lang="ts"` or `text/typescript` → TypeScript;
   `importmap`, `speculationrules` and `…json` → JSON; any other type stays text.
-  `<style>` → CSS. `style="…"` and `on…="…"` attributes are not injected yet.
+  `<style>` → CSS. Quoted `style="…"` → CSS and `on…="…"` → JavaScript (#65, below).
 - **The injection query runs again only where the text or the host tree changed**
   (`Tree::changed_ranges` plus the edit since the layers were found): walking a 240k-node
   page takes 8 ms, more than the parse. Each range remembers what the query matched to
@@ -90,8 +90,51 @@ character updates the scripts' document in 9 µs; blanking it all again, when th
 found by the parse differ from the edited ones, took 453 ms with a check of every byte
 against every range, 112 µs with one pass over the ranges in order.
 
+## Attributes and injections inside injections (#65)
+
+- **Layers nest**: each layer's grammar's own injection query is followed in its tree,
+  at any depth (HTML → JavaScript → ``css`…` `` / ``html`…` `` → CSS). JavaScript, JSX,
+  TypeScript and TSX use upstream's tagged-template pattern, which names the language by
+  a capture (`@injection.language`, the template's tag); a name with no grammar
+  (`styled.div`) stays text, and regex and JSDoc are left out until they have one.
+- **A match is a tree of its own unless its pattern says `#set! injection.combined`**,
+  as in tree-sitter: a page's scripts and styles are combined, each tagged template is
+  apart. Upstream combines a file's templates, which ran one `sql` query on into the next
+  (`… where id = select …`). Highlighting paints each layer over the code around it,
+  cutting the host's spans in its ranges, since an attribute's value is painted as a
+  string; strings, comments and brackets are read from the innermost layer.
+- **Attributes are pieces apart, in a tree of their own**: `#set! injection.terminator ";"`
+  puts a combined pattern's ranges in a layer apart from the language's other code, the value's
+  quotes read as spaces and the closing one as `;` where the code lacks it. So a
+  handler's `n = 1` and a script's `/re/` never become a division, and a style's
+  declarations, which tree-sitter-css only parses at top level when each ends with `;`,
+  parse with no error node. A tree per attribute cost 4.6 ms a keystroke on the bench
+  page (6 000 trees cloned and edited each time); braces around the values cost 25 ms,
+  as the selector tree-sitter then reports missing makes every rule unreusable (missing
+  and fragile nodes are never reused) and every token is lexed again.
+- **A layer nothing touched is kept as it was**: tree-sitter's reparse of a layer with
+  3 000 top-level nodes takes 2–3 ms wherever the edit is. The cost follows the number
+  of nodes, not of ranges: CSS declarations are fragile from the grammar's conflicts, and
+  JavaScript lexes each statement's first token again. So a layer no change touched is
+  kept whole, not even taken apart into its ranges to be found again (0.33 ms a
+  keystroke for the 6 000 attributes), unless the query finds new code of its kind.
+- Only top-level combined code without a terminator, from a host whose
+  `Injections::documents` is set (HTML), is `Editor::embedded`: attributes and code in
+  strings get no servers, formatting or language at point.
+- Unquoted attribute values are not injected. A string, template or comment an attribute
+  leaves open runs on into the attributes after it, so while one is being typed the
+  later handlers lose their faces; a line comment takes the rest of its line.
+
+`cargo bench -p remacs-syntax --bench html`, the page now with a `style` and an
+`onclick` per section (3 000 each) and a ``css`…` `` per script (150 trees), fastest of
+50 as a browser kept the machine busy: a character typed in a script reparsed in 1.79 ms
+before (attributes and templates not injected), 1.84 ms now; typed in a `style`
+attribute, 4.27 ms, the 3 000 attributes' tree being reparsed; 60 visible lines
+decorated in 149 µs before, 261 µs now that attributes and templates are highlighted.
+
 ## Open
 
 - References and signature help: #67. Rename in embedded code and questions asked
   before the page is parsed: #68. Prettier and CSS regions: #69.
-- `style="…"`, `on…="…"` and injections inside injections: #65.
+- Typing in an attribute on a page of thousands of them: split each terminator layer
+  into trees of a few dozen pieces if it shows up.
