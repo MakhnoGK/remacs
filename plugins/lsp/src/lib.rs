@@ -67,7 +67,8 @@ pub struct LanguageServer {
     /// is taken as loading from its start until it first does.
     pub reports_loading: bool,
     /// Runs the project's own copy from `node_modules/.bin` when it has one, as npx does,
-    /// so its version matches the project's.
+    /// so its version matches the project's; else from that of a package `when` names,
+    /// where pnpm puts it.
     pub node_modules: bool,
     /// The server runs only for projects where this holds, e.g. a linter's config is
     /// there; empty, for every file.

@@ -410,6 +410,10 @@ fn lock(inbox: &SharedInbox) -> MutexGuard<'_, Inbox> {
     inbox.lock().expect("no thread panics holding the inbox")
 }
 
+/// The reader's way to the writer, taken when the client is dropped: the writer ends
+/// once no one can send to it, which closes the server's input so that it exits.
+type SharedReplies = Arc<Mutex<Option<Sender<Outgoing>>>>;
+
 /// Lines of a server's stderr kept to say why it exited.
 const KEPT_ERROR_LINES: usize = 3;
 
@@ -470,6 +474,16 @@ pub(crate) struct Client {
     /// False while the server says it is busy loading the project; servers that never say
     /// are taken as settled.
     settled: Arc<AtomicBool>,
+    replies: SharedReplies,
+}
+
+impl Drop for Client {
+    fn drop(&mut self) {
+        self.replies
+            .lock()
+            .expect("no thread panics holding the replies")
+            .take();
+    }
 }
 
 impl Client {
@@ -518,10 +532,11 @@ impl Client {
         thread::Builder::new()
             .name(format!("{} writer", server.name))
             .spawn(move || writer.write_all(initialize, negotiated, queued))?;
+        let replies = Arc::new(Mutex::new(Some(outgoing.clone())));
         let reader = Reader {
             server: server.name,
             configuration: server.configuration.clone().unwrap_or_default(),
-            replies: outgoing.clone(),
+            replies: Arc::clone(&replies),
             agreed: Some(agreed),
             encoding: Encoding::Utf16,
             inbox: Arc::clone(&inbox),
@@ -549,6 +564,7 @@ impl Client {
             executing: Cell::new(None),
             settled,
             signatures,
+            replies,
         })
     }
 
@@ -1209,7 +1225,7 @@ struct Reader {
     server: &'static str,
     /// Answered for every `workspace/configuration` item; `null` for the defaults.
     configuration: Value,
-    replies: Sender<Outgoing>,
+    replies: SharedReplies,
     /// Taken once `initialize` is answered.
     agreed: Option<Sender<Negotiated>>,
     encoding: Encoding,
@@ -1285,7 +1301,13 @@ impl Reader {
             }
             _ => Value::Null,
         };
-        let _ = self.replies.send(Outgoing::Reply { id, result });
+        let replies = self
+            .replies
+            .lock()
+            .expect("no thread panics holding the replies");
+        if let Some(replies) = &*replies {
+            let _ = replies.send(Outgoing::Reply { id, result });
+        }
     }
 
     fn initialized(&mut self, response: &Value) {
@@ -1594,5 +1616,38 @@ mod tests {
             Some("exited: error TS5023: Unknown compiler option '--lsp'.")
         );
         assert_eq!(client.take_exit(), None);
+    }
+
+    #[test]
+    fn a_dropped_client_closes_the_servers_input() {
+        // Answers `initialize`, asks for the configuration, then serves until its input
+        // closes, like oxfmt.
+        let initialized = r#"{"jsonrpc":"2.0","id":0,"result":{"capabilities":{}}}"#;
+        let request = r#"{"jsonrpc":"2.0","id":"c","method":"workspace/configuration","params":{"items":[]}}"#;
+        let script = format!(
+            "printf 'Content-Length: {}\\r\\n\\r\\n%s' '{initialized}'; \
+             printf 'Content-Length: {}\\r\\n\\r\\n%s' '{request}'; \
+             cat > /dev/null",
+            initialized.len(),
+            request.len(),
+        );
+        let args: &'static [&'static str] = Vec::leak(vec!["-c", String::leak(script)]);
+        let server = LanguageServer {
+            name: "oxfmt",
+            command: "sh",
+            args,
+            ..LanguageServer::default()
+        };
+        let (sender, notified) = mpsc::channel();
+        let notifier: Notifier = Arc::new(move || {
+            let _ = sender.send(());
+        });
+        let client = Client::start(&server, Path::new("sh"), &[], Path::new("/"), notifier);
+        let inbox = Arc::clone(&client.unwrap().inbox);
+        while lock(&inbox).exit.is_none() {
+            notified
+                .recv_timeout(Duration::from_secs(5))
+                .expect("the server exits");
+        }
     }
 }

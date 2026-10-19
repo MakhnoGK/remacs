@@ -19,7 +19,7 @@ use remacs_xref::Lookup;
 use serde_json::json;
 
 use crate::LanguageServer;
-use crate::catalog::{ServerSpec, has_file};
+use crate::catalog::{ServerSpec, has_file, project_ancestors};
 use crate::client::{Answer, Client, Outgoing, Published, Question};
 use crate::color::{self, Swatch};
 use crate::completion::Origin;
@@ -680,8 +680,8 @@ impl Clients {
     }
 }
 
-/// The program set in `lsp.toml`; else the project's own copy in `node_modules/.bin` of
-/// the root or above, for servers that prefer it; else the command found on `PATH`; else
+/// The program set in `lsp.toml`; else the project's own copy in `node_modules` of the
+/// root or above, for servers that prefer it; else the command found on `PATH`; else
 /// the one remacs downloaded.
 fn program(server: &LanguageServer, root: &Path, downloaded: Option<Program>) -> Option<Program> {
     let own = |path: PathBuf| Program {
@@ -691,17 +691,42 @@ fn program(server: &LanguageServer, root: &Path, downloaded: Option<Program>) ->
     if let Some(program) = server.own_program {
         return Some(own(program.to_path_buf()));
     }
-    server
-        .node_modules
-        .then(|| {
-            root.ancestors()
-                .map(|directory| directory.join("node_modules/.bin").join(server.command))
-                .find(|program| program.is_file())
-        })
-        .flatten()
-        .or_else(|| remacs_tools::find_on_path(server.command))
+    if server.node_modules
+        && let Some(program) = root
+            .ancestors()
+            .find_map(|directory| node_program(&directory.join("node_modules"), server))
+    {
+        return Some(program);
+    }
+    remacs_tools::find_on_path(server.command)
         .map(own)
         .or(downloaded)
+}
+
+/// `server`'s command in `node_modules/.bin`, else in that of a package its `when` names,
+/// where pnpm leaves the programs of the package's own dependencies (Vite+'s oxlint).
+/// Its directory goes first on `PATH`, as npx puts it, for the programs it runs in turn
+/// (oxlint's tsgolint).
+fn node_program(node_modules: &Path, server: &LanguageServer) -> Option<Program> {
+    let packages = server
+        .when
+        .dependencies
+        .iter()
+        .filter(|package| !package.ends_with('*'))
+        .map(|package| node_modules.join(package).join("node_modules"));
+    let path = std::iter::once(node_modules.to_path_buf())
+        .chain(packages)
+        .map(|directory| directory.join(".bin").join(server.command))
+        .find(|program| program.is_file())?;
+    let bin = path.parent()?.to_path_buf();
+    let path_variable = std::env::join_paths(std::iter::once(bin).chain(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    )))
+    .ok()?;
+    Some(Program {
+        path,
+        env: vec![("PATH".into(), path_variable.to_string_lossy().into_owned())],
+    })
 }
 
 /// Puts the servers built from `specs` in place, with the `lsp.toml` they came from;
@@ -1442,12 +1467,12 @@ fn open(editor: &mut Editor, index: usize, want: &Want) -> Option<Document> {
 }
 
 /// The outermost directory with a root marker inside the Git work tree; else the work
-/// tree, else the file's directory. One server then covers a whole Cargo workspace or
-/// monorepo.
+/// tree, else the file's directory; never the home directory or above. One server then
+/// covers a whole Cargo workspace or monorepo.
 pub(crate) fn project_root(path: &Path, markers: &[&str]) -> PathBuf {
     let directory = path.parent().unwrap_or(path);
     let mut outermost = None;
-    for ancestor in directory.ancestors() {
+    for ancestor in project_ancestors(directory) {
         if markers.iter().any(|marker| has_file(ancestor, marker)) {
             outermost = Some(ancestor);
         }
@@ -1517,6 +1542,36 @@ mod tests {
         // Servers of another language than the one asked about answered nothing.
         let mut gathering = Gathering::new(3, &[false, true]);
         assert_eq!(gather(&mut gathering, 3, 1, "css"), Some(vec!["", "css"]));
+    }
+
+    #[test]
+    fn a_program_is_found_in_the_node_modules_of_a_package_it_comes_with() {
+        let root = std::env::temp_dir().join(format!("remacs-node-program-{}", std::process::id()));
+        let bin = root.join("node_modules/vite-plus/node_modules/.bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(bin.join("oxlint"), "").unwrap();
+        let server = |dependencies: &'static [&'static str]| LanguageServer {
+            command: "oxlint",
+            when: crate::catalog::When {
+                dependencies,
+                ..Default::default()
+            },
+            ..LanguageServer::default()
+        };
+
+        let modules = root.join("node_modules");
+        let program = node_program(&modules, &server(&["oxlint", "vite-plus"])).unwrap();
+        assert_eq!(program.path, bin.join("oxlint"));
+        let (name, value) = &program.env[0];
+        assert_eq!(name, "PATH");
+        assert!(value.starts_with(&format!("{}:", bin.display())));
+        assert!(node_program(&modules, &server(&["oxlint"])).is_none());
+
+        std::fs::create_dir_all(root.join("node_modules/.bin")).unwrap();
+        std::fs::write(root.join("node_modules/.bin/oxlint"), "").unwrap();
+        let program = node_program(&modules, &server(&["vite-plus"])).unwrap();
+        assert_eq!(program.path, root.join("node_modules/.bin/oxlint"));
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

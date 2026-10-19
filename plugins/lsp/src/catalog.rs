@@ -87,7 +87,7 @@ impl When {
         if self.always() {
             return true;
         }
-        for ancestor in directory.ancestors() {
+        for ancestor in project_ancestors(directory) {
             if self.holds_in(ancestor) {
                 return true;
             }
@@ -105,6 +105,15 @@ impl When {
                 fs::read_to_string(directory.join(file)).is_ok_and(|found| found.contains(text))
             })
     }
+}
+
+/// `directory` and those above it, short of the home directory: a home is never a
+/// project, whatever stray `package.json` it holds.
+pub(crate) fn project_ancestors(directory: &Path) -> impl Iterator<Item = &Path> {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    directory
+        .ancestors()
+        .take_while(move |ancestor| home.as_deref() != Some(*ancestor))
 }
 
 /// Whether `directory` has a file named `pattern`, where `*` matches any part of a name.
@@ -325,6 +334,18 @@ mod tests {
         assert!(ruff.holds(&app));
         assert!(!when(&["tailwind.config.*"], &[]).holds(&std::env::temp_dir()));
         fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn projects_end_below_the_home_directory() {
+        let home = PathBuf::from(std::env::var_os("HOME").unwrap());
+        let web = home.join("projects/blog/web");
+        let ancestors: Vec<_> = project_ancestors(&web).collect();
+        assert_eq!(
+            ancestors,
+            [web.as_path(), web.parent().unwrap(), &home.join("projects")]
+        );
+        assert_eq!(project_ancestors(&home).count(), 0);
     }
 
     #[test]
