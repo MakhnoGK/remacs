@@ -90,8 +90,10 @@ pub struct TextControls {
 /// A column of facts and rows at the left of the text, like the pane of an outline.
 pub struct TextSide {
     pub facts: Vec<Fact>,
-    /// Each with what a click on it does.
-    pub rows: Vec<(OutlineRow, Option<Action>)>,
+    /// Shared as the plugin keeps them: only the rows in sight are drawn.
+    pub rows: Rc<[OutlineRow]>,
+    /// What a click on each row does.
+    pub actions: Rc<[Option<Action>]>,
     /// Drawn selected and kept in sight.
     pub selected: Option<usize>,
 }

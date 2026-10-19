@@ -109,11 +109,11 @@ fn a_commit_with_a_50_mb_patch_opens_without_holding_the_ui_and_its_diff_capped(
     eprintln!("UI held {held:?}, commit shown after {shown:?}, peak heap {peak} B");
 
     let side = editor.text_controls().unwrap().side.unwrap();
-    let files: Vec<String> = side
+    let files: Vec<&str> = side
         .rows
-        .into_iter()
-        .filter_map(|(row, _)| match row {
-            OutlineRow::File { name, .. } => Some(name),
+        .iter()
+        .filter_map(|row| match row {
+            OutlineRow::File { name, .. } => Some(name.as_str()),
             _ => None,
         })
         .collect();

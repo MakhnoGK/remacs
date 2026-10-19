@@ -17,10 +17,15 @@ trash.workspace = true
 
 [dev-dependencies]
 dhat.workspace = true
+divan.workspace = true
 remacs-dired.workspace = true
 remacs-editing.workspace = true
 remacs-files.workspace = true
 remacs-minibuffer.workspace = true
+
+[[bench]]
+name = "commit_view"
+harness = false
 
 [lints]
 workspace = true

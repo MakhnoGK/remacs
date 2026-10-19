@@ -70,7 +70,11 @@ fn visible_lines_one_at_a_time(bencher: Bencher) {
 #[divan::bench(sample_count = 20)]
 fn diff_side(bencher: Bencher) {
     let editor = Editor::new(&[&SYNTAX]);
-    let code: String = SOURCE.lines().take(2000).map(|line| format!("{line}\n")).collect();
+    let code: String = SOURCE
+        .lines()
+        .take(2000)
+        .map(|line| format!("{line}\n"))
+        .collect();
     bencher.bench_local(|| black_box(editor.highlight_code("Rust", &code)));
 }
 

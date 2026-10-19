@@ -21,11 +21,20 @@ Status: accepted, 2026-10-15 (issues #31, #33); the commit buffer redrawn 2026-1
   with the highlighters taken from the editor when the commit opens (a decorator has only
   the buffer). One side of 2000 lines, the most a file shows, takes 10 ms
   (`cargo bench -p remacs-syntax --bench decorations -- diff_side`).
+- **What a pair of lines changed is marked** (`Face::Added`/`Face::Removed`, a second
+  decorator): in a run of as many added lines as removed, each removed line and the added
+  line in its place, between the start and the end they share, like git's
+  diff-highlight. Lines that share neither, or only indentation and punctuation, and runs
+  of unequal length, are not marked.
 - **Beside it, a column** (`TextControls::side`, `ui.toml` `[diff] side-width`): the facts
   (id and subject, author and date, each parent with an Open button), the message's body
   under a Message heading, and the files, the one at point selected and kept in sight; a
   click on a file puts its header at the top of the window. A window too narrow for both
-  shows only the diff.
+  shows only the diff. Its rows are built when the commit opens and when TAB folds the
+  message, shared with the app, which draws only those in sight and looks for the first
+  no further back than rows fit: for a commit of 3000 files a frame's column went from
+  742 µs and 9015 allocations to 0.35 µs and 13 (`cargo bench -p remacs-git --bench
+  commit_view`), and finding its first row from 40–89 µs to 0.3–0.5 µs.
 - **Keys in it**: `n`/`p` next/previous hunk, `N`/`P` or M-n/M-p next/previous file, TAB
   folds the message, RET visits the working-tree file at the diff line, `o` shows the file
   as the commit left it (as before it, for a file it deleted) in a read-only buffer
@@ -48,5 +57,3 @@ Status: accepted, 2026-10-15 (issues #31, #33); the commit buffer redrawn 2026-1
   too.
 - A commit from before the file was renamed opens at its top, as the log knows the file
   by its current name only.
-- The words changed within a removed/added pair are not marked apart from the rest of
-  their lines.

@@ -240,6 +240,9 @@ impl Plugin for GitPlugin {
             .push(Rc::new(buffer_changes::sync));
         registry.outlines.push(Rc::new(status_view::outline));
         registry.decorators.push(Rc::new(commit_view::decorate));
+        registry
+            .decorators
+            .push(Rc::new(commit_view::decorate_changes));
         registry.line_extras.push(Rc::new(commit_view::line_extras));
         registry.text_controls.push(Rc::new(commit_view::controls));
         registry

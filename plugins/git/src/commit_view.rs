@@ -96,6 +96,7 @@ pub struct CommitView {
     pub root: PathBuf,
     pub commit: Commit,
     message_folded: bool,
+    side_rows: SideRows,
     pub lines: Vec<CommitLine>,
     /// Each line's numbers in the old and the new file, where it has them.
     numbers: Vec<(Option<usize>, Option<usize>)>,
@@ -105,6 +106,8 @@ pub struct CommitView {
     highlighters: Vec<CodeHighlighter>,
     modes: Vec<&'static str>,
     faces: RefCell<HashMap<usize, Rc<FileFaces>>>,
+    /// The part of a line that changed against its pair, by line, in bytes of the line.
+    changed: HashMap<usize, Range<usize>>,
 }
 
 impl CommitView {
@@ -161,6 +164,7 @@ fn show(editor: &mut Editor, root: &Path, commit: Commit, file: Option<&Path>) {
         return;
     }
     let (lines, numbers, text) = layout(&commit);
+    let changed = changed_parts(&commit, &lines, &numbers);
     let focus = file
         .and_then(|file| commit.files.iter().position(|(path, _)| path == file))
         .and_then(|file| {
@@ -181,6 +185,7 @@ fn show(editor: &mut Editor, root: &Path, commit: Commit, file: Option<&Path>) {
         .read_only();
     buffer.set_local(CommitView {
         root: root.to_path_buf(),
+        side_rows: side_rows(&commit, false),
         commit,
         message_folded: false,
         lines,
@@ -189,6 +194,7 @@ fn show(editor: &mut Editor, root: &Path, commit: Commit, file: Option<&Path>) {
         highlighters: editor.code_highlighters(),
         modes,
         faces: RefCell::default(),
+        changed,
     });
     editor.add_buffer(buffer);
     if let Some(line) = focus {
@@ -478,6 +484,91 @@ pub fn decorate(buffer: &Buffer, range: Range<usize>) -> Vec<Span> {
         .collect()
 }
 
+/// Where each removed line and the added line taking its place differ: between what their
+/// starts and ends share, like git's diff-highlight. Only for runs of as many lines added
+/// as removed, so each line has a pair.
+fn changed_parts(
+    commit: &Commit,
+    lines: &[CommitLine],
+    numbers: &[(Option<usize>, Option<usize>)],
+) -> HashMap<usize, Range<usize>> {
+    let code = |line: usize| match lines[line] {
+        CommitLine::Diff {
+            file,
+            hunk,
+            line: Some(index),
+        } => &commit.files[file].1.hunks[hunk].lines[index][1..],
+        _ => "",
+    };
+    let run_end = |from: usize, side: (bool, bool)| {
+        let is_side = |at: &usize| (numbers[*at].0.is_some(), numbers[*at].1.is_some()) == side;
+        (from..lines.len())
+            .find(|at| !is_side(at))
+            .unwrap_or(lines.len())
+    };
+    let mut changed = HashMap::new();
+    let mut line = 0;
+    while line < lines.len() {
+        let removed = line..run_end(line, (true, false));
+        let added = removed.end..run_end(removed.end, (false, true));
+        if !removed.is_empty() && removed.len() == added.len() {
+            for (old, new) in removed.zip(added.clone()) {
+                let Some(parts) = changed_between(code(old), code(new)) else {
+                    continue;
+                };
+                for (at, part) in [(old, parts.0), (new, parts.1)] {
+                    if !part.is_empty() {
+                        // Past the `-` or `+`.
+                        changed.insert(at, part.start + 1..part.end + 1);
+                    }
+                }
+            }
+        }
+        line = added.end.max(line + 1);
+    }
+    changed
+}
+
+/// What lies between the start and the end `old` and `new` share, in each; none when they
+/// share neither, as the whole line changed. Shared indentation or punctuation alone,
+/// like `    ` and `;`, does not count.
+fn changed_between(old: &str, new: &str) -> Option<(Range<usize>, Range<usize>)> {
+    let shared = |old: &mut dyn Iterator<Item = char>, new: &mut dyn Iterator<Item = char>| {
+        old.zip(new)
+            .take_while(|(old, new)| old == new)
+            .map(|(old, _)| old.len_utf8())
+            .sum::<usize>()
+    };
+    let start = shared(&mut old.chars(), &mut new.chars());
+    let end = shared(
+        &mut old[start..].chars().rev(),
+        &mut new[start..].chars().rev(),
+    );
+    let real = |part: &str| part.chars().any(char::is_alphanumeric);
+    (real(&old[..start]) || real(&old[old.len() - end..]))
+        .then(|| (start..old.len() - end, start..new.len() - end))
+}
+
+/// The changed part of each paired line, a layer over the faces of [`decorate`].
+pub fn decorate_changes(buffer: &Buffer, range: Range<usize>) -> Vec<Span> {
+    let Some(view) = buffer.local::<CommitView>() else {
+        return Vec::new();
+    };
+    let text = buffer.text();
+    (text.line_of(range.start)..=text.line_of(range.end))
+        .filter_map(|line| {
+            let part = view.changed.get(&line)?;
+            let start = text.line_start(line)?;
+            let shown = (start + part.start).max(range.start)..(start + part.end).min(range.end);
+            let face = match view.numbers[line] {
+                (Some(_), None) => Face::Removed,
+                _ => Face::Added,
+            };
+            (shown.start < shown.end).then_some(Span { range: shown, face })
+        })
+        .collect()
+}
+
 /// Each line's old and new numbers in the gutter, and the bands of headers and of added
 /// and removed lines.
 pub fn line_extras(editor: &Editor, lines: Range<usize>) -> Vec<LineExtra> {
@@ -520,17 +611,35 @@ pub fn controls(editor: &Editor) -> Option<TextControls> {
 
 /// The file at `point_line` is the one selected.
 fn side(view: &CommitView, point_line: usize) -> TextSide {
-    let commit = &view.commit;
+    let (rows, actions) = view.side_rows.clone();
+    let first_file = rows.len() - view.commit.files.len();
+    let selected = view
+        .lines
+        .get(point_line)
+        .map(|line| first_file + line.file());
+    TextSide {
+        facts: facts(view),
+        rows,
+        actions,
+        selected,
+    }
+}
+
+type SideRows = (Rc<[OutlineRow]>, Rc<[Option<Action>]>);
+
+/// The message, unless `folded`, and the files beside the diff, with what a click on each
+/// does; kept, so a frame does not build a row per file.
+fn side_rows(commit: &Commit, folded: bool) -> SideRows {
     let mut rows: Vec<(OutlineRow, Option<Action>)> = Vec::new();
     if !commit.body.is_empty() {
         let heading = OutlineRow::Heading {
             title: "Message".into(),
             count: commit.body.len(),
-            open: !view.message_folded,
+            open: !folded,
             tone: Tone::Plain,
         };
         rows.push((heading, Some(Rc::new(toggle))));
-        if !view.message_folded {
+        if !folded {
             rows.extend(
                 (commit.body.iter())
                     .map(|text| (OutlineRow::Diff(DiffRow::Context(text.clone())), None)),
@@ -544,7 +653,6 @@ fn side(view: &CommitView, point_line: usize) -> TextSide {
         tone: Tone::Plain,
     };
     rows.push((heading, None));
-    let first_file = rows.len();
     for (index, (path, diff)) in commit.files.iter().enumerate() {
         let row = OutlineRow::File {
             state: diff.state(),
@@ -563,15 +671,8 @@ fn side(view: &CommitView, point_line: usize) -> TextSide {
         let action: Action = Rc::new(move |editor| go_to_file(editor, index));
         rows.push((row, Some(action)));
     }
-    let selected = view
-        .lines
-        .get(point_line)
-        .map(|line| first_file + line.file());
-    TextSide {
-        facts: facts(view),
-        rows,
-        selected,
-    }
+    let (rows, actions): (Vec<_>, Vec<_>) = rows.into_iter().unzip();
+    (rows.into(), actions.into())
 }
 
 fn facts(view: &CommitView) -> Vec<Fact> {
@@ -626,6 +727,7 @@ pub fn toggle(editor: &mut Editor) -> CommandResult {
         return Err("The message is only its subject, shown beside Commit".into());
     }
     view.message_folded = !view.message_folded;
+    view.side_rows = side_rows(&view.commit, view.message_folded);
     Ok(())
 }
 
@@ -829,6 +931,34 @@ mod tests {
                 vec![face(0..3, Face::Comment)],
             ]
         );
+    }
+
+    #[test]
+    fn paired_lines_mark_what_changed_between_what_they_share() {
+        let diff = parse_diff(
+            "@@ -1,6 +1,5 @@\n let a = 1;\n-let b = 2;\n+let b = 30;\n-x\n-y\n+z\n-gone\n+new\n",
+        )
+        .unwrap();
+        let commit = Commit {
+            id: String::new(),
+            parents: Vec::new(),
+            author: String::new(),
+            time: 0,
+            date: String::new(),
+            subject: String::new(),
+            body: Vec::new(),
+            files: vec![(PathBuf::from("a.rs"), diff)],
+        };
+        let (lines, numbers, _) = layout(&commit);
+        let changed = changed_parts(&commit, &lines, &numbers);
+        // Lines: the file, the hunk, ` let a`, `-let b`, `+let b`, `-x`, `-y`, `+z`, ...
+        // Two removed for one added are not paired; `gone` and `new` share nothing.
+        let mut found: Vec<_> = changed.into_iter().collect();
+        found.sort_by_key(|(line, _)| *line);
+        assert_eq!(found, [(3, 9..10), (4, 9..11)]);
+        assert_eq!(changed_between("aé1b", "aé22b"), Some((3..4, 3..5)));
+        assert_eq!(changed_between("ab", "abc"), Some((2..2, 2..3)));
+        assert_eq!(changed_between("    let x = 1;", "    return y;"), None);
     }
 
     #[test]

@@ -241,33 +241,23 @@ pub fn render_text_side(
     let TextSide {
         facts,
         rows,
+        actions,
         selected,
     } = side;
     let fact_count = facts.len();
     let facts = (!facts.is_empty()).then(|| render_facts(facts, cx));
-    let (rows, actions): (Vec<_>, Vec<_>) = rows.into_iter().unzip();
-    let fitting = |first: usize| fitting_rows(&rows[first..], fact_count, false, height);
-    let mut first = 0;
-    if let Some(selected) = selected {
-        while first < selected && selected >= first + fitting(first) {
-            first += 1;
-        }
-    }
-    let shown = fitting(first);
+    let first = first_shown(&rows, fact_count, height, selected);
+    let shown = fitting_rows(&rows[first..], fact_count, false, height);
     let scrolled = Scrolled {
         above: first > 0,
         below: first + shown < rows.len(),
     };
-    let rows: Vec<(Div, bool)> = rows
-        .into_iter()
-        .zip(actions)
-        .enumerate()
-        .skip(first)
-        .take(shown)
-        .map(|(index, (row, action))| {
+    let rows: Vec<(Div, bool)> = (first..first + shown)
+        .map(|index| {
+            let row = rows[index].clone();
             let is_diff = matches!(row, OutlineRow::Diff(_));
             let body = row_body(row, Some(index) == selected);
-            let body = match action {
+            let body = match actions[index].clone() {
                 Some(action) => clickable(body, action, cx),
                 None => body,
             };
@@ -284,6 +274,26 @@ pub fn render_text_side(
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(pane_column(facts, framed(rows), scrolled, 0.0, width))
         .into_any_element()
+}
+
+/// The first of `rows` shown under `fact_count` facts in a window `height` tall: the
+/// first that keeps `selected` in sight.
+fn first_shown(
+    rows: &[OutlineRow],
+    fact_count: usize,
+    height: Pixels,
+    selected: Option<usize>,
+) -> usize {
+    let Some(selected) = selected else {
+        return 0;
+    };
+    let fitting = |first: usize| fitting_rows(&rows[first..], fact_count, false, height);
+    // No more rows than this fit, so none further back can be the first.
+    let mut first = selected.saturating_sub(max_outline_lines(height));
+    while first < selected && selected >= first + fitting(first) {
+        first += 1;
+    }
+    first
 }
 
 /// Where the text starts, past a side column `width` wide.
@@ -1081,4 +1091,58 @@ fn diff_line(diff: DiffRow, selected: bool) -> Div {
         .when(selected, |row| row.bg(rgba(glass::selection())))
         .child(div().flex_none().w(px(16.0)).text_center().child(prefix))
         .child(text)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Instant;
+
+    use remacs_core::FileState;
+
+    use super::*;
+
+    /// A heading over `files` file rows, as a commit's side column has them.
+    fn file_rows(files: usize) -> Vec<OutlineRow> {
+        let heading = OutlineRow::Heading {
+            title: "Files".into(),
+            count: files,
+            open: true,
+            tone: Tone::Plain,
+        };
+        let file = |index: usize| OutlineRow::File {
+            state: FileState::Added,
+            name: format!("file_{index}.rs"),
+            directory: "vendor/".into(),
+            lines: None,
+            note: None,
+            open: false,
+        };
+        std::iter::once(heading)
+            .chain((0..files).map(file))
+            .collect()
+    }
+
+    #[test]
+    fn the_selected_row_is_the_last_shown_once_past_the_first_screen() {
+        let rows = file_rows(3000);
+        let height = px(900.0);
+        let fit = fitting_rows(&rows, 3, false, height);
+        assert_eq!(first_shown(&rows, 3, height, None), 0);
+        assert_eq!(first_shown(&rows, 3, height, Some(fit - 1)), 0);
+        for selected in [fit, 1500, 3000] {
+            let first = first_shown(&rows, 3, height, Some(selected));
+            assert_eq!(
+                first + fitting_rows(&rows[first..], 3, false, height),
+                selected + 1
+            );
+        }
+        let start = Instant::now();
+        for _ in 0..100 {
+            std::hint::black_box(first_shown(&rows, 3, height, Some(3000)));
+        }
+        eprintln!(
+            "first_shown, last of 3000 rows: {:?}",
+            start.elapsed() / 100
+        );
+    }
 }

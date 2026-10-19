@@ -25,6 +25,10 @@ pub enum Face {
     SearchCurrent,
     /// A bracket or tag at point and the one it pairs with, like Emacs `show-paren-match`.
     MatchingPair,
+    /// What a diff's added or removed line changed against the line it replaces, like
+    /// Emacs `diff-refine-added` and `-removed`.
+    Added,
+    Removed,
     /// Text a program printed, styled by its ANSI escape codes.
     Console(ConsoleStyle),
     /// Followed by a key or a click, like a `file:line` in a program's output.

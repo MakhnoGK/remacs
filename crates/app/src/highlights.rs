@@ -53,6 +53,15 @@ pub fn face_style(face: Face) -> HighlightStyle {
             color: Some(hsla(color::accent_on_selection())),
             ..Default::default()
         },
+        // Over the band of their line, which is the same color.
+        Face::Added => HighlightStyle {
+            background_color: Some(rgba(color::fg_added() << 8 | 0x40).into()),
+            ..Default::default()
+        },
+        Face::Removed => HighlightStyle {
+            background_color: Some(rgba(color::fg_removed() << 8 | 0x40).into()),
+            ..Default::default()
+        },
         Face::Console(style) => console_style(style),
         Face::Link => HighlightStyle {
             color: Some(hsla(color::link())),

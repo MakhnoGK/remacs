@@ -802,10 +802,7 @@ fn a_commit_of_the_history_shows_its_message_files_and_diffs() {
     assert!(side_facts[2].starts_with("Parent: ") && side_facts[2].ends_with("Grow lib"));
     let side_rows = |editor: &Editor| -> Vec<String> {
         let side = editor.text_controls().unwrap().side.unwrap();
-        side.rows
-            .into_iter()
-            .map(|(row, _)| describe_row(row))
-            .collect()
+        side.rows.iter().cloned().map(describe_row).collect()
     };
     assert_eq!(
         side_rows(&editor),
@@ -866,8 +863,8 @@ fn a_commit_of_the_history_shows_its_message_files_and_diffs() {
         assert_eq!(editor.window_buffer().point_line(), line, "after {keys}");
     }
     assert_eq!(side(&editor).selected, Some(5));
-    let (_, click) = side(&editor).rows.swap_remove(4);
-    editor.run_action(&click.unwrap());
+    let click = side(&editor).actions[4].clone().unwrap();
+    editor.run_action(&click);
     assert_eq!(editor.window_buffer().point_line(), 0);
     press(&mut editor, "TAB");
     assert_eq!(side_rows(&editor)[..2], ["> Message 2", "v Files 2"]);
@@ -913,11 +910,7 @@ fn the_log_of_a_file_shows_its_commits_and_opens_them_at_the_file() {
     editor.run_action(&log.commits[0].open);
     wait_for_commit(&mut editor);
     let side = editor.text_controls().unwrap().side.unwrap();
-    let side_rows: Vec<_> = side
-        .rows
-        .into_iter()
-        .map(|(row, _)| describe_row(row))
-        .collect();
+    let side_rows: Vec<_> = side.rows.iter().cloned().map(describe_row).collect();
     assert_eq!(side_rows, ["v Files 1", "M ./lib.rs +1 -0"]);
     assert_eq!(editor.window_buffer().point_line(), 0);
     let text = editor.window_buffer().text().snapshot();
