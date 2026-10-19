@@ -706,7 +706,7 @@ fn program(server: &LanguageServer, root: &Path, downloaded: Option<Program>) ->
 /// `server`'s command in `node_modules/.bin`, else in that of a package its `when` names,
 /// where pnpm leaves the programs of the package's own dependencies (Vite+'s oxlint).
 /// Its directory goes first on `PATH`, as npx puts it, for the programs it runs in turn
-/// (oxlint's tsgolint).
+/// (oxlint's tsgolint), unless a `:` in its name keeps it off.
 fn node_program(node_modules: &Path, server: &LanguageServer) -> Option<Program> {
     let packages = server
         .when
@@ -721,12 +721,13 @@ fn node_program(node_modules: &Path, server: &LanguageServer) -> Option<Program>
     let bin = path.parent()?.to_path_buf();
     let path_variable = std::env::join_paths(std::iter::once(bin).chain(std::env::split_paths(
         &std::env::var_os("PATH").unwrap_or_default(),
-    )))
-    .ok()?;
-    Some(Program {
-        path,
-        env: vec![("PATH".into(), path_variable.to_string_lossy().into_owned())],
-    })
+    )));
+    let env = path_variable
+        .ok()
+        .map(|joined| ("PATH".into(), joined.to_string_lossy().into_owned()))
+        .into_iter()
+        .collect();
+    Some(Program { path, env })
 }
 
 /// Puts the servers built from `specs` in place, with the `lsp.toml` they came from;
@@ -1571,6 +1572,13 @@ mod tests {
         std::fs::write(root.join("node_modules/.bin/oxlint"), "").unwrap();
         let program = node_program(&modules, &server(&["vite-plus"])).unwrap();
         assert_eq!(program.path, root.join("node_modules/.bin/oxlint"));
+
+        // A `:` cannot go on `PATH`; the project's program still runs.
+        let colon = root.join("a:b/node_modules/.bin");
+        std::fs::create_dir_all(&colon).unwrap();
+        std::fs::write(colon.join("oxlint"), "").unwrap();
+        let program = node_program(&root.join("a:b/node_modules"), &server(&[])).unwrap();
+        assert_eq!((program.path, program.env), (colon.join("oxlint"), vec![]));
         std::fs::remove_dir_all(&root).unwrap();
     }
 
