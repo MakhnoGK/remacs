@@ -815,22 +815,49 @@ pub(crate) fn window_servers(editor: &Editor) -> Vec<&'static str> {
         .unwrap_or_default()
 }
 
-/// The server that answers questions about `path`'s buffer, the file's URI and the text
-/// the server has.
-pub(crate) fn first_server(editor: &Editor, path: &Path) -> Option<(Rc<Client>, Uri, Snapshot)> {
-    server_for(editor, path, false)
-}
-
-/// `first_server`, unless one of the file's servers formats ahead of it.
-fn formatter(editor: &Editor, path: &Path) -> Option<(Rc<Client>, Uri, Snapshot)> {
-    server_for(editor, path, true)
-}
-
-fn server_for(
+/// The server that answers questions about the code at `offset` in `path`'s buffer, as
+/// `routed` picks it, its document's URI and the text the server has.
+pub(crate) fn server_at(
     editor: &Editor,
     path: &Path,
-    formatting: bool,
+    offset: usize,
 ) -> Option<(Rc<Client>, Uri, Snapshot)> {
+    let buffer = (editor.buffers().iter()).find(|buffer| buffer.path() == Some(path))?;
+    let list = &buffer.local::<Documents>()?.list;
+    let asked = asked_at(editor, buffer, offset);
+    let document =
+        (list.iter().zip(asked)).find_map(|(document, asked)| asked.then_some(document))?;
+    Some((
+        Rc::clone(&document.client),
+        document.uri.clone(),
+        document.sent_text(),
+    ))
+}
+
+/// Which of `buffer`'s documents a question about the code at `offset` goes to.
+fn asked_at(editor: &Editor, buffer: &Buffer, offset: usize) -> Vec<bool> {
+    let list = buffer
+        .local::<Documents>()
+        .map_or(&[][..], |documents| &documents.list);
+    let speakers: Vec<_> = (list.iter())
+        .map(|document| document.speaks(buffer.mode()))
+        .collect();
+    routed(&speakers, editor.language_at(buffer, offset), buffer.mode())
+}
+
+/// Whether questions about `buffer` wait for its embedded code to be told, which takes
+/// milliseconds after opening it or an edit; asked now, they would all go to the file's
+/// server.
+pub(crate) fn code_untold(editor: &Editor, buffer: &Buffer) -> bool {
+    let clients = editor.find_plugin_state::<Clients>();
+    clients.is_none_or(|clients| clients.settings().embedded_code())
+        && buffer.local::<Documents>().is_some()
+        && editor.embedded(buffer).is_none()
+}
+
+/// The server that formats `path`'s buffer, its document's URI and the text the server has:
+/// the first, unless one of the file's servers formats ahead of it.
+fn formatter(editor: &Editor, path: &Path) -> Option<(Rc<Client>, Uri, Snapshot)> {
     let file = remacs_core::embedded_file(path);
     let list = &editor
         .buffers()
@@ -844,8 +871,7 @@ fn server_for(
         .find(|document| file.is_some() && document.path == path)
         .or_else(|| {
             let whole = || list.iter().filter(|document| document.mirror.is_none());
-            (whole().find(|document| formatting && document.server.formats_first))
-                .or_else(|| whole().next())
+            (whole().find(|document| document.server.formats_first)).or_else(|| whole().next())
         })?;
     Some((
         Rc::clone(&document.client),
@@ -1028,11 +1054,17 @@ fn gather_actions(editor: &mut Editor, id: u64, index: usize, menu: Vec<Action>)
 /// Sends the window buffer's requests to its servers; without any, questions are answered
 /// with nothing at once.
 fn send_requests(editor: &mut Editor) {
+    send_formats(editor);
+    // Left with their plugins, they are taken once the parser tells the code.
+    // shortcut: held questions are not tied to their buffer or text, so one followed within
+    // the parse by a switch or an edit goes out for what is shown then; tie them if seen.
+    if code_untold(editor, editor.window_buffer()) {
+        return;
+    }
     let completions = remacs_completion::take_requests(editor);
     let hovers = remacs_documentation::take_requests(editor);
     let definitions = remacs_xref::take_requests(editor);
     let actions = remacs_actions::take_requests(editor);
-    send_formats(editor);
     let Some(documents) = editor.window_buffer().local::<Documents>() else {
         for request in hovers {
             remacs_documentation::deliver(editor, request.id, None);
@@ -1047,11 +1079,7 @@ fn send_requests(editor: &mut Editor) {
         }
         return;
     };
-    let buffer = editor.window_buffer();
-    let speakers: Vec<_> = (documents.list.iter())
-        .map(|document| document.speaks(buffer.mode()))
-        .collect();
-    let asked = |offset| routed(&speakers, editor.language_at(buffer, offset), buffer.mode());
+    let asked = |offset| asked_at(editor, editor.window_buffer(), offset);
     let each = |asked: &[bool]| {
         let list = documents.list.iter().zip(asked.to_vec());
         list.filter_map(|(document, asked)| asked.then_some(document))

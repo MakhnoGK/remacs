@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use remacs_actions::ActionsPlugin;
 use remacs_completion::CompletionPlugin;
-use remacs_core::{Changes, Documentation, Editor, Elsewhere, Icon, Plugin, Popup};
+use remacs_core::{Changes, Documentation, Editor, Elsewhere, Icon, Plugin, Popup, Settings};
 use remacs_diagnostics::DiagnosticsPlugin;
 use remacs_dired::{DiredPlugin, list_directory};
 use remacs_documentation::DocumentationPlugin;
@@ -227,10 +227,6 @@ fn ask_at<T>(
     editor.visit_file(file).unwrap();
     let source = fs::read_to_string(file).unwrap();
     let point = source.find(symbol).unwrap() + 1;
-    // Until the file is parsed, code in another language is not told from the file's.
-    refresh_until(&mut editor, "parsing", |editor| {
-        editor.embedded(editor.window_buffer()).is_some()
-    });
     let started = Instant::now();
     loop {
         assert!(
@@ -1010,15 +1006,57 @@ fn servers_of_embedded_languages_format_and_explain_their_code() {
         "{script}"
     );
 
+    // Asked right after opening, before the page is parsed.
     assert_eq!(documentation(&page, "toUpperCase").kind, "method");
     let (path, line) = definition(&page, "helper();");
     assert_eq!(path, page.canonicalize().unwrap());
     assert_eq!(line, "function helper() {}");
+
+    rename_symbol(&page, "helper();", "assist");
+    let renamed = fs::read_to_string(&page).unwrap();
+    assert!(
+        renamed.contains("function assist() {}\nassist();"),
+        "{renamed}"
+    );
+}
+
+/// With `embedded-code = false` in `lsp.toml`, the page's code is its file's server's:
+/// no document of it is opened, so nothing checks it while the same page with the setting
+/// on has its problems, and the HTML server completes CSS.
+#[test]
+#[ignore]
+fn embedded_code_off_leaves_the_page_to_its_server() {
+    let web = project(
+        "html-embedded-off",
+        &[
+            ("package.json", "{}\n"),
+            (
+                "index.html",
+                "<style>\na { colo }\n</style>\n<script>\nlet x = ;\n</script>\n",
+            ),
+        ],
+    );
+    let page = web.join("index.html");
+    let mut off = Editor::new(PLUGINS);
+    let lsp_toml = (
+        PathBuf::from("lsp.toml"),
+        "embedded-code = false\n".to_owned(),
+    );
+    off.set_settings(Settings::from_files([lsp_toml]));
+    assert!(offers_in(&mut off, &page, "colo", "color", TIMEOUT));
+    // Opened later, the page with its code served shows how long checking it takes.
+    let mut on = Editor::new(PLUGINS);
+    on.visit_file(&page).unwrap();
+    let checked = wait_until(&mut on, |problems| problems.len() >= 2);
+    assert_eq!(problems(&mut off), [], "with the setting on: {checked:?}");
 }
 
 /// Whether completion after `before` offers `wanted` within `wait`.
 fn offers(file: &Path, before: &str, wanted: &str, wait: Duration) -> bool {
-    let mut editor = Editor::new(PLUGINS);
+    offers_in(&mut Editor::new(PLUGINS), file, before, wanted, wait)
+}
+
+fn offers_in(editor: &mut Editor, file: &Path, before: &str, wanted: &str, wait: Duration) -> bool {
     editor.visit_file(file).unwrap();
     let source = fs::read_to_string(file).unwrap();
     editor

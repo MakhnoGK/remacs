@@ -11,7 +11,7 @@ use remacs_text::Snapshot;
 
 use crate::LanguageServer;
 use crate::client::{Client, Outgoing, SymbolRenamed};
-use crate::document::{Clients, first_server};
+use crate::document::{Clients, code_untold, server_at};
 use crate::file_rename::{self, Asker};
 use crate::position::{Encoding, from_lsp};
 use crate::workspace_edit::file_changes;
@@ -30,6 +30,9 @@ pub(crate) fn sync(editor: &mut Editor, servers: &'static [LanguageServer]) {
     for (request, text) in held {
         send(editor, request, Some(text));
     }
+    if code_untold(editor, editor.window_buffer()) {
+        return;
+    }
     for request in remacs_rename::take_requests(editor) {
         send(editor, request, None);
     }
@@ -38,8 +41,8 @@ pub(crate) fn sync(editor: &mut Editor, servers: &'static [LanguageServer]) {
 /// Sends `request` unless its server is still loading the project; `held` is the text of
 /// a request held back, which is dropped if the buffer changed since.
 fn send(editor: &mut Editor, request: Request, held: Option<Snapshot>) {
-    let (Request::Name { path, .. } | Request::Rename { path, .. }) = &request;
-    let server = first_server(editor, path).ok_or("No language server for this buffer");
+    let (Request::Name { path, offset, .. } | Request::Rename { path, offset, .. }) = &request;
+    let server = server_at(editor, path, *offset).ok_or("No language server for this buffer");
     let server = server.and_then(|server| match &held {
         Some(held) if server.2.edit_from(held).is_some() => {
             Err("The buffer changed while the language server was loading")

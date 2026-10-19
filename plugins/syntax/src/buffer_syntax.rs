@@ -268,16 +268,23 @@ pub(crate) fn tree_at(buffer: &Buffer, range: Range<usize>) -> Option<&Tree> {
 }
 
 /// The code of the languages injected into the buffer that is a document of its own;
-/// `None` until it is parsed and while its trees lag behind the text.
+/// none for a buffer whose language holds no such code, and `None` for one that does
+/// until it is parsed and while its trees lag behind the text.
 pub(crate) fn embedded(buffer: &Buffer) -> Option<Vec<Embedded>> {
-    let syntax = current(buffer).filter(|syntax| syntax.tree.is_some())?;
+    let Some(syntax) = buffer.local::<BufferSyntax>() else {
+        return Some(Vec::new());
+    };
     let documents = syntax
         .injections
         .iter()
         .any(|injections| injections.host == syntax.grammar.mode && injections.documents);
+    if !documents {
+        return Some(Vec::new());
+    }
+    let syntax = current(buffer).filter(|syntax| syntax.tree.is_some())?;
     // One document per language: its combined code.
-    let layers = (syntax.layers.iter())
-        .filter(|layer| documents && layer.combined && layer.terminator.is_none());
+    let layers =
+        (syntax.layers.iter()).filter(|layer| layer.combined && layer.terminator.is_none());
     let embedded = layers.map(|layer| Embedded {
         mode: layer.grammar.mode,
         ranges: layer

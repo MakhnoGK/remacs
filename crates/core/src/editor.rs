@@ -185,8 +185,12 @@ impl Editor {
     }
 
     /// The code of other languages in `buffer`, like CSS in HTML's `<style>`; `None` while
-    /// it cannot be told, e.g. before the buffer is parsed again after an edit.
+    /// it cannot be told, e.g. before the buffer is parsed again after an edit. Empty
+    /// without a plugin that tells it.
     pub fn embedded(&self, buffer: &Buffer) -> Option<Vec<Embedded>> {
+        if self.registry.embedded_probes.is_empty() {
+            return Some(Vec::new());
+        }
         self.registry
             .embedded_probes
             .iter()
