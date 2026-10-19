@@ -84,7 +84,7 @@ pub fn compile(editor: &mut Editor) -> CommandResult {
     let prompt = Prompt {
         label: "Compile".into(),
         private: true,
-        prefix: with_slash(&abbreviate_home(&root)),
+        directory: with_slash(&abbreviate_home(&root)),
         placeholder: "A shell command, run from the project root",
         default,
         hints: HINTS,

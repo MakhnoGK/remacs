@@ -124,7 +124,7 @@ pub fn create_directory(editor: &mut Editor) -> CommandResult {
     let directory = listing_directory(editor)?;
     let prompt = Prompt {
         label: "New folder".into(),
-        prefix: with_slash(&abbreviate_home(&directory)),
+        directory: with_slash(&abbreviate_home(&directory)),
         placeholder: "name",
         hints: &[("↵", "Create"), ("C-g", "Cancel")],
         ..Prompt::default()

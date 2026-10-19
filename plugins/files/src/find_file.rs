@@ -6,8 +6,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use remacs_core::{
-    Buffer, Candidate, CommandResult, CompletionMemo, Completions, Count, Editor, FuzzyQuery, Icon, Prompt, filter,
-    filter_map_parallel, rank,
+    Buffer, Candidate, CommandResult, CompletionMemo, Completions, Count, Editor, FuzzyQuery, Icon,
+    Prompt, filter, filter_map_parallel, rank,
 };
 
 use crate::file_index::{FileIndex, FileIndexes};
@@ -48,7 +48,7 @@ fn read_file_name(
     let prompt = Prompt {
         label: "Find file".into(),
         category: FILE_CATEGORY,
-        prefix: with_slash(&abbreviate_home(&root)),
+        directory: with_slash(&abbreviate_home(&root)),
         initial_input,
         count: Count::Matches,
         wide: true,

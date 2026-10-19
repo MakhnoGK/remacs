@@ -164,6 +164,8 @@ pub mod color {
             fg_line_number,
             fg_muted,
             fg_directory,
+            /// The directory a prompt acts in, on its line by the input.
+            fg_prompt_directory,
 
             accent,
             accent_on_selection,

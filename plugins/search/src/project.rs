@@ -89,7 +89,7 @@ pub fn project_search(editor: &mut Editor) -> CommandResult {
 
 /// Opens `prompt` listing the project's lines that have what is typed, grouped by file,
 /// the window showing the one selected: every word, or with `phrase`, the whole input.
-/// The project's root goes before the input.
+/// The project's root is shown by the input.
 pub fn read_lines(
     editor: &mut Editor,
     prompt: Prompt,
@@ -102,7 +102,7 @@ pub fn read_lines(
         .settings_section::<SearchSettings>()
         .project_max_matches;
     let prompt = Prompt {
-        prefix: with_slash(&abbreviate_home(&root)),
+        directory: with_slash(&abbreviate_home(&root)),
         count: Count::Position,
         wide: true,
         ..prompt

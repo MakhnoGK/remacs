@@ -42,8 +42,9 @@ pub struct Prompt {
     /// Answers are left out of the history, which is saved across sessions, e.g. text
     /// from the kill ring.
     pub private: bool,
-    /// Dim text before the input, such as the directory the input is relative to.
-    pub prefix: String,
+    /// What the answer is resolved against or run in, shown on a line by the input, never
+    /// in it.
+    pub directory: String,
     pub placeholder: &'static str,
     pub initial_input: String,
     /// Selected first, and the answer when the input is empty.

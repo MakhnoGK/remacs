@@ -27,6 +27,7 @@ fg-placeholder = "#a1a1a6"
 fg-line-number = "#a6a6a6"
 fg-muted = "#b8b8bd"
 fg-directory = "#0040c0"
+fg-prompt-directory = "#6e6e73"
 
 accent = "#007aff"
 accent-on-selection = "#003d99"

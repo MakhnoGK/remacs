@@ -1497,7 +1497,7 @@ impl EditorView {
             surface: look.apply(render_minibuffer(
                 minibuffer,
                 &self.input_scroll,
-                px(self.prompts.input_margin),
+                self.prompts,
                 cx,
             )),
             scrim: look.in_place().apply(scrim),

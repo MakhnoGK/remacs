@@ -761,18 +761,32 @@ impl Default for ProblemsSettings {
     }
 }
 
-/// What a prompt's input keeps in view as it scrolls sideways.
+/// What a prompt's input keeps in view as it scrolls sideways, and where the directory it
+/// acts in goes.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct PromptsSettings {
     /// Pixels kept in view on each side of the cursor, where there is text to show.
     pub input_margin: f32,
+    pub directory: DirectoryPosition,
 }
 
 impl Default for PromptsSettings {
     fn default() -> Self {
-        Self { input_margin: 64.0 }
+        Self {
+            input_margin: 64.0,
+            directory: DirectoryPosition::default(),
+        }
     }
+}
+
+/// Where a prompt's directory line goes, beside its input.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DirectoryPosition {
+    #[default]
+    Above,
+    Below,
 }
 
 /// How the colors that text names, as language servers find them, are shown: under the
@@ -878,7 +892,7 @@ mod tests {
              [prefix-keys]\nshow = false\ndelay = 0\ncolumns = 3\n\
              [documentation]\nmax-width = 900\nmax-height = 300\n\
              [problems]\nmax-width = 700\nmax-height = 200\n\
-             [prompts]\ninput-margin = 20\n\
+             [prompts]\ninput-margin = 20\ndirectory = \"below\"\n\
              [swatches]\ninline = false\nthickness = 2\ncompletion = false\n\
              [transitions]\npane-duration = 0\npane-slide = 0\nprompt-duration = 100\n\
              prompt-slide = 12\npopup-duration = 40\npopup-slide = 4\n",
@@ -895,6 +909,7 @@ mod tests {
         );
         assert_eq!(settings.transitions.popup().slide, 4.0);
         assert_eq!(settings.prompts.input_margin, 20.0);
+        assert_eq!(settings.prompts.directory, DirectoryPosition::Below);
         assert_eq!(
             settings.swatches,
             SwatchesSettings {

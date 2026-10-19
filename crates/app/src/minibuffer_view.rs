@@ -16,6 +16,7 @@ use crate::dialog_view::render_dialog;
 use crate::display_line::DisplayLine;
 use crate::editor_view::EditorView;
 use crate::outline_view::ref_chip;
+use crate::settings::{DirectoryPosition, PromptsSettings};
 use crate::widgets::{
     GlassBlur, block_cursor, choice_chip, glass_surface, hsla, icon, kbd, list_items,
     modal_surface, modified_dot, option_chip, segment, segmented, shadow, text_with_cursor,
@@ -93,11 +94,11 @@ pub fn draws_input(minibuffer: &Minibuffer) -> bool {
 }
 
 /// `input_scroll` keeps the input's sideways scroll between frames; it keeps
-/// `input_margin` in view on each side of the cursor.
+/// `prompts.input_margin` in view on each side of the cursor.
 pub fn render_minibuffer(
     minibuffer: &Minibuffer,
     input_scroll: &ScrollHandle,
-    input_margin: Pixels,
+    prompts: PromptsSettings,
     cx: &mut Context<EditorView>,
 ) -> AnyElement {
     if let Some(dialog) = minibuffer.dialog() {
@@ -114,7 +115,11 @@ pub fn render_minibuffer(
         || prompt.options.iter().any(|option| !option.is_switch());
     let field = match &prompt.title {
         Some(title) => render_title(title).into_any_element(),
-        None => render_field(minibuffer, input_scroll, input_margin).into_any_element(),
+        None => render_field(minibuffer, input_scroll, px(prompts.input_margin)).into_any_element(),
+    };
+    let directory = |position| {
+        (prompts.directory == position && !prompt.directory.is_empty())
+            .then(|| render_directory(&prompt.directory, position))
     };
     let chips = render_chips(minibuffer, !has_switch, cx);
     let (chips_first, chips_last) = if prompt.chips_first {
@@ -127,7 +132,9 @@ pub fn render_minibuffer(
             has_switch || (!has_chip && !minibuffer.subject().is_empty()),
             |popover| popover.child(render_switches(minibuffer, cx)),
         )
+        .children(directory(DirectoryPosition::Above))
         .child(field)
+        .children(directory(DirectoryPosition::Below))
         .when(!prompt.summary.is_empty(), |popover| {
             popover.child(render_summary(&prompt.summary))
         })
@@ -196,6 +203,46 @@ fn render_title((title, note): &(String, String)) -> Div {
                 .text_color(rgb(color::fg_dim()))
                 .child(note.clone()),
         )
+}
+
+/// `in <directory>`: the parents give way to an ellipsis so the last directory stays
+/// whole.
+fn render_directory(directory: &str, position: DirectoryPosition) -> Div {
+    let (parents, last) = split_last_directory(directory);
+    let row = div()
+        .flex()
+        .items_baseline()
+        .gap(px(6.0))
+        .px(px(10.0))
+        .overflow_hidden()
+        .whitespace_nowrap()
+        .text_size(px(font::status_size()))
+        .child(
+            div()
+                .flex_none()
+                .text_color(rgb(color::fg_dim()))
+                .child("in"),
+        )
+        .child(
+            div()
+                .flex()
+                .min_w_0()
+                .font_family(font::mono())
+                .text_color(rgb(color::fg_prompt_directory()))
+                .child(div().min_w_0().truncate().child(parents.to_owned()))
+                .child(div().flex_none().child(last.to_owned())),
+        );
+    match position {
+        DirectoryPosition::Above => row.pt(px(2.0)).pb(px(8.0)),
+        DirectoryPosition::Below => row.pt(px(8.0)).pb(px(2.0)),
+    }
+}
+
+/// `~/a/b/` into `~/a` and `/b/`: the slash stays with the last directory, so the
+/// ellipsis of cut parents never runs into its name.
+fn split_last_directory(directory: &str) -> (&str, &str) {
+    let trimmed = directory.strip_suffix('/').unwrap_or(directory);
+    directory.split_at(trimmed.rfind('/').unwrap_or(0))
 }
 
 /// Chips and words under the title, e.g. how far two branches are apart.
@@ -476,16 +523,6 @@ fn render_field(
                 .text_color(rgb(color::fg_alt()))
                 .child(minibuffer.label().to_owned()),
         )
-        .when(!prompt.prefix.is_empty(), |field| {
-            field.child(
-                div()
-                    .flex_none()
-                    .font_family(font::mono())
-                    .text_size(px(font::input_size()))
-                    .text_color(rgb(color::fg_dim()))
-                    .child(prompt.prefix.clone()),
-            )
-        })
         .child(render_input(minibuffer, input_scroll, input_margin))
         .child(if is_problem_list(minibuffer) {
             render_severity_counts(minibuffer.candidates()).into_any_element()
@@ -1205,7 +1242,14 @@ fn render_hints(hints: &'static [(&'static str, &'static str)]) -> impl IntoElem
 mod tests {
     use remacs_core::{Editor, Prompt};
 
-    use super::draws_input;
+    use super::{draws_input, split_last_directory};
+
+    #[test]
+    fn the_last_directory_is_split_off_its_parents() {
+        assert_eq!(split_last_directory("~/a/b/"), ("~/a", "/b/"));
+        assert_eq!(split_last_directory("~/"), ("", "~/"));
+        assert_eq!(split_last_directory("/"), ("", "/"));
+    }
 
     /// Until the input is laid out, every frame asks for another; a question must not.
     #[test]
