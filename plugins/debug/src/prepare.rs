@@ -7,7 +7,7 @@ use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 
@@ -61,6 +61,8 @@ pub struct Built {
 }
 
 pub struct Preparation {
+    /// What the steps print, for the console; they wait while it is full.
+    output: Receiver<Event>,
     result: Receiver<Prepared>,
     control: Arc<Control>,
 }
@@ -75,7 +77,7 @@ struct Control {
 /// Tells the console what the steps print.
 #[derive(Clone)]
 struct Console {
-    output: Sender<Event>,
+    output: SyncSender<Event>,
     notifier: Notifier,
 }
 
@@ -87,7 +89,9 @@ impl Console {
 }
 
 impl Preparation {
-    pub fn start(plan: Plan, output: Sender<Event>, notifier: Notifier) -> Self {
+    /// At most `backlog` events of output wait for the console.
+    pub fn start(plan: Plan, backlog: usize, notifier: Notifier) -> Self {
+        let (output, events) = mpsc::sync_channel(backlog);
         let (send, result) = mpsc::channel();
         let control = Arc::new(Control::default());
         let shared = Arc::clone(&control);
@@ -103,7 +107,15 @@ impl Preparation {
                 notifier();
             })
             .expect("spawning a preparing thread");
-        Self { result, control }
+        Self {
+            output: events,
+            result,
+            control,
+        }
+    }
+
+    pub fn try_output(&self) -> Option<Event> {
+        self.output.try_recv().ok()
     }
 
     pub fn try_result(&self) -> Option<Prepared> {

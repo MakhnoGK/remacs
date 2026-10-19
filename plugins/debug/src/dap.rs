@@ -7,7 +7,7 @@ use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -35,11 +35,13 @@ pub struct Connection {
 }
 
 impl Connection {
-    /// Starts `program` and talks to it over its stdin and stdout.
+    /// Starts `program` and talks to it over its stdin and stdout. Once `backlog`
+    /// messages and logs wait to be received, the adapter waits too.
     pub fn stdio(
         program: &Path,
         args: &[String],
         cwd: &Path,
+        backlog: usize,
         notifier: Notifier,
     ) -> io::Result<Self> {
         let mut adapter = Command::new(program)
@@ -52,7 +54,7 @@ impl Connection {
         let stdin = adapter.stdin.take().expect("piped");
         let stdout = adapter.stdout.take().expect("piped");
         let stderr = adapter.stderr.take().expect("piped");
-        let (send, incoming) = mpsc::channel();
+        let (send, incoming) = mpsc::sync_channel(backlog);
         forward_log(stderr, send.clone(), notifier.clone());
         spawn_reader(stdout, send, notifier);
         Ok(Self::new(spawn_writer(stdin), incoming, Some(adapter)))
@@ -60,8 +62,8 @@ impl Connection {
 
     /// Talks to an adapter listening on `port`, waiting for it to start listening;
     /// `adapter` is the process listening, if this connection started it.
-    pub fn tcp(port: u16, adapter: Option<Child>, notifier: Notifier) -> Self {
-        let (send, incoming) = mpsc::channel();
+    pub fn tcp(port: u16, adapter: Option<Child>, backlog: usize, notifier: Notifier) -> Self {
+        let (send, incoming) = mpsc::sync_channel(backlog);
         let mut adapter = adapter;
         if let Some(adapter) = &mut adapter {
             if let Some(stdout) = adapter.stdout.take() {
@@ -219,7 +221,11 @@ pub fn read_message(reader: &mut impl BufRead) -> io::Result<Option<Value>> {
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
 }
 
-fn spawn_reader(stream: impl Read + Send + 'static, send: Sender<Incoming>, notifier: Notifier) {
+fn spawn_reader(
+    stream: impl Read + Send + 'static,
+    send: SyncSender<Incoming>,
+    notifier: Notifier,
+) {
     thread::Builder::new()
         .name("dap-read".into())
         .spawn(move || {
@@ -263,7 +269,7 @@ fn write_all(mut stream: impl Write, queued: &Receiver<Vec<u8>>) {
     }
 }
 
-fn forward_log(stream: impl Read + Send + 'static, send: Sender<Incoming>, notifier: Notifier) {
+fn forward_log(stream: impl Read + Send + 'static, send: SyncSender<Incoming>, notifier: Notifier) {
     thread::Builder::new()
         .name("dap-log".into())
         .spawn(move || {

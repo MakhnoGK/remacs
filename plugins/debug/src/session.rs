@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::sync::mpsc::{self, Sender};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use remacs_core::{Candidate, CommandResult, Editor, Prompt, Tone, filter_candidates};
 use remacs_run::{Configuration, Event, Exit, Launch, Program};
@@ -65,6 +65,9 @@ pub struct Session {
     rust: bool,
     adapter: Adapter,
     output: Sender<Event>,
+    /// `run.toml`'s `output-backlog`: events taken at once from the preparation and from
+    /// each connection, and what they queue before they wait.
+    backlog: usize,
     shared: Rc<Shared>,
     phase: Phase,
     /// The first to the adapter, then those it asked for.
@@ -172,7 +175,8 @@ pub fn start(
     let (output, events) = mpsc::channel();
     let shared = Rc::new(Shared::default());
     shared.set_state("starting", Tone::Faint);
-    let preparation = Preparation::start(plan, output.clone(), notifier.clone());
+    let backlog = remacs_run::output_backlog(editor);
+    let preparation = Preparation::start(plan, backlog, notifier.clone());
     let debugger = debugger(editor);
     debugger.next_id += 1;
     debugger.sessions.push(Session {
@@ -182,6 +186,7 @@ pub fn start(
         rust,
         adapter,
         output,
+        backlog,
         shared: Rc::clone(&shared),
         phase: Phase::Preparing(preparation),
         links: Vec::new(),
@@ -252,6 +257,17 @@ fn prepared(editor: &mut Editor, id: u64) {
     let Phase::Preparing(preparation) = &session.phase else {
         return;
     };
+    // The output first, as the result comes after it all; at most a backlog at once, as the
+    // console takes it.
+    let mut taken = 0;
+    for event in std::iter::from_fn(|| preparation.try_output()).take(session.backlog) {
+        session.say(event);
+        taken += 1;
+    }
+    if taken == session.backlog {
+        editor.refresh_after(Duration::ZERO);
+        return;
+    }
     match preparation.try_result() {
         None => {}
         Some(Prepared::Failed(exit)) => finish(editor, id, Some(exit)),
@@ -323,7 +339,13 @@ fn connect(editor: &mut Editor, id: u64, program: &Path, target: Target) {
         return;
     }
     let connection = match session.adapter {
-        Adapter::CodeLldb => Connection::stdio(program, &codelldb_args(), &target.cwd, notifier),
+        Adapter::CodeLldb => Connection::stdio(
+            program,
+            &codelldb_args(),
+            &target.cwd,
+            session.backlog,
+            notifier,
+        ),
         Adapter::JsDebug => free_port().and_then(|port| {
             let server = Command::new("node")
                 .arg(program)
@@ -335,7 +357,12 @@ fn connect(editor: &mut Editor, id: u64, program: &Path, target: Target) {
                 .stderr(Stdio::piped())
                 .spawn()?;
             session.port = Some(port);
-            Ok(Connection::tcp(port, Some(server), notifier))
+            Ok(Connection::tcp(
+                port,
+                Some(server),
+                session.backlog,
+                notifier,
+            ))
         }),
     };
     let connection = match connection {
@@ -444,17 +471,18 @@ pub fn request(
 }
 
 fn receive(editor: &mut Editor, id: u64) {
-    let links = find_session(editor, id).map_or(0, |session| session.links.len());
-    for index in 0..links {
+    let (links, backlog) =
+        find_session(editor, id).map_or((0, 0), |session| (session.links.len(), session.backlog));
+    'links: for index in 0..links {
         let address = Address {
             session: id,
             link: index,
         };
-        loop {
+        for _ in 0..backlog {
             let Some(incoming) =
                 find_link(editor, address).and_then(|link| link.connection.try_receive())
             else {
-                break;
+                continue 'links;
             };
             match incoming {
                 Incoming::Message(message) => handle(editor, address, message),
@@ -481,6 +509,8 @@ fn receive(editor: &mut Editor, id: u64) {
                 }
             }
         }
+        // A backlog taken and more may wait: an adapter as fast as the drain would never end it.
+        editor.refresh_after(Duration::ZERO);
     }
 }
 
@@ -780,7 +810,7 @@ fn reverse_request(editor: &mut Editor, address: Address, message: &Value) {
     parent.connection.respond(message, Ok(json!({})));
     let arguments = &message["arguments"];
     let command = arguments["request"].as_str().unwrap_or("launch").to_owned();
-    let connection = Connection::tcp(port, None, notifier);
+    let connection = Connection::tcp(port, None, session.backlog, notifier);
     add_link(
         editor,
         address.session,

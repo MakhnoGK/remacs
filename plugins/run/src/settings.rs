@@ -19,7 +19,8 @@ pub struct RunSettings {
     /// Lines a console keeps; older ones are dropped.
     pub console_lines: usize,
     /// Reads of output, 64 KB each, queued for a console busy elsewhere; the program
-    /// waits once there are this many.
+    /// waits once there are this many. Debugging bounds a build's output and a debug
+    /// adapter's messages by it too.
     pub output_backlog: usize,
     /// Milliseconds a process has to end after Stop asks it to, before it is killed.
     pub stop_timeout: u64,

@@ -178,6 +178,11 @@ fn read_settings(editor: &mut Editor) {
     sessions::sessions(editor).settings = settings;
 }
 
+/// `run.toml`'s `output-backlog`: what a console's program may queue before it waits.
+pub fn output_backlog(editor: &mut Editor) -> usize {
+    sessions::sessions(editor).settings.output_backlog
+}
+
 /// Keeps run files under `home`'s `run` directory, and which configuration each project
 /// runs and the commands it compiled in its state directory.
 pub fn keep_configurations_in(editor: &mut Editor, home: &Path) {

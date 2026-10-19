@@ -497,7 +497,9 @@ fn a_cargo_program_stops_at_a_breakpoint_steps_and_runs_to_its_end() {
     });
     press(&mut editor, "<f9>");
     wait_until(&mut editor, "the end", |editor| {
-        contents(editor, "*run: demo*").contains("Process exited with code 0")
+        editor
+            .find_plugin_state::<crate::session::Debugger>()
+            .is_some_and(|debugger| debugger.sessions.is_empty())
     });
     let console = contents(&editor, "*run: demo*");
     assert!(
@@ -505,7 +507,7 @@ fn a_cargo_program_stops_at_a_breakpoint_steps_and_runs_to_its_end() {
         "{console}"
     );
     assert!(console.contains("total 2788\n"), "{console}");
-    assert!(debugger(&mut editor).sessions.is_empty());
+    assert!(console.contains("Process exited with code 0"), "{console}");
     fs::remove_dir_all(home).unwrap();
 }
 
