@@ -263,7 +263,8 @@ impl Tree {
     }
 
     /// Directories entered under `directory` and their files, leaving out ignored ones;
-    /// empty when `directory` is gone.
+    /// empty when `directory` is gone. Past `max_files` it keeps the shallowest whole
+    /// levels of files, as a breadth-first walk would, however the parallel walk ran.
     fn walk(
         root: &Path,
         ignored: &Arc<Ignored>,
@@ -271,7 +272,12 @@ impl Tree {
         max_depth: Option<usize>,
         max_files: usize,
     ) -> Self {
-        let tree = Mutex::new(Self::default());
+        let walk = Mutex::new(CappedWalk {
+            tree: Self::default(),
+            max_files,
+            max_file_depth: usize::MAX,
+            files_at_depth: Vec::new(),
+        });
         ignored
             .walker(&root.join(directory))
             .max_depth(max_depth)
@@ -287,23 +293,24 @@ impl Tree {
                     let Ok(relative) = entry.path().strip_prefix(root) else {
                         return WalkState::Continue;
                     };
-                    let mut tree = tree.lock().expect("walker threads do not panic");
+                    let depth = relative.components().count();
+                    let mut walk = walk.lock().expect("walker threads do not panic");
                     if kind.is_dir() {
-                        tree.directories.entry(path_key(relative)).or_default();
-                    } else if kind.is_file() && entry.depth() > 0 {
-                        if tree.file_count == max_files {
-                            tree.truncated = true;
-                            return WalkState::Quit;
+                        if depth >= walk.max_file_depth {
+                            return WalkState::Skip;
                         }
+                        walk.tree.directories.entry(path_key(relative)).or_default();
+                    } else if kind.is_file() && entry.depth() > 0 {
                         let parent = relative.parent().map(path_key).unwrap_or_default();
                         let name = entry.file_name().to_string_lossy().into_owned();
-                        tree.directories.entry(parent).or_default().push(name);
-                        tree.file_count += 1;
+                        if !walk.add_file(parent, name, depth) {
+                            return WalkState::Quit;
+                        }
                     }
                     WalkState::Continue
                 })
             });
-        tree.into_inner().expect("walker threads do not panic")
+        walk.into_inner().expect("walker threads do not panic").tree
     }
 
     /// Brings the changed directories up to date; false when nothing changed.
@@ -398,6 +405,60 @@ impl Tree {
     }
 }
 
+/// A walk's tree while it is capped: always every file seen down to `max_file_depth`,
+/// which drops a level at a time as the cap is reached.
+struct CappedWalk {
+    tree: Tree,
+    max_files: usize,
+    max_file_depth: usize,
+    /// Kept files per depth, a file in the root being at depth 1; no trailing zeros.
+    files_at_depth: Vec<usize>,
+}
+
+impl CappedWalk {
+    /// False when the files of the shallowest level alone are over the cap, so the walk
+    /// stops with as many of them as fit.
+    fn add_file(&mut self, parent: String, name: String, depth: usize) -> bool {
+        if depth > self.max_file_depth {
+            return true;
+        }
+        if self.tree.file_count == self.max_files {
+            self.tree.truncated = true;
+            let deepest = self.files_at_depth.len().saturating_sub(1);
+            if depth > deepest {
+                self.max_file_depth = depth - 1;
+                return true;
+            }
+            if deepest <= 1 {
+                return false;
+            }
+            self.drop_level(deepest);
+            if depth == deepest {
+                return true;
+            }
+        }
+        if self.files_at_depth.len() <= depth {
+            self.files_at_depth.resize(depth + 1, 0);
+        }
+        self.files_at_depth[depth] += 1;
+        self.tree.directories.entry(parent).or_default().push(name);
+        self.tree.file_count += 1;
+        true
+    }
+
+    fn drop_level(&mut self, depth: usize) {
+        self.max_file_depth = depth - 1;
+        self.tree
+            .directories
+            .retain(|key, _| Path::new(key).components().count() < depth - 1);
+        self.tree.file_count -= self.files_at_depth[depth];
+        self.files_at_depth.truncate(depth);
+        while self.files_at_depth.last() == Some(&0) {
+            self.files_at_depth.pop();
+        }
+    }
+}
+
 fn path_key(relative: &Path) -> String {
     relative.to_string_lossy().into_owned()
 }
@@ -406,5 +467,53 @@ fn parent_key(key: &str) -> Option<&str> {
     match key.rfind('/') {
         Some(slash) => Some(&key[..slash]),
         None => (!key.is_empty()).then_some(""),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_tree_over_the_cap_keeps_its_shallowest_whole_levels() {
+        let root = std::env::temp_dir().join(format!("remacs-capped-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let deep = (0..20).map(|n| format!("go/pkg/mod/dep/{n}.go"));
+        let shallow = ["ui.toml", ".config/remacs/config/ui.toml", "notes/todo.md"];
+        for file in shallow.iter().map(|file| file.to_string()).chain(deep) {
+            let path = root.join(file);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, "").unwrap();
+        }
+        let ignored = Arc::new(Ignored::new(&root, &FilesSettings::default()));
+
+        let tree = Tree::walk(&root, &ignored, "", None, 10);
+
+        assert!(tree.truncated);
+        assert_eq!(
+            tree.files(),
+            ["ui.toml", "notes/todo.md", ".config/remacs/config/ui.toml"]
+        );
+        assert_eq!(tree.file_count, 3);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_root_alone_over_the_cap_keeps_as_many_of_its_files_as_fit() {
+        let root = std::env::temp_dir().join(format!("remacs-flat-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("deep")).unwrap();
+        fs::write(root.join("deep/file.txt"), "").unwrap();
+        for n in 0..15 {
+            fs::write(root.join(format!("{n}.txt")), "").unwrap();
+        }
+        let ignored = Arc::new(Ignored::new(&root, &FilesSettings::default()));
+
+        let tree = Tree::walk(&root, &ignored, "", None, 10);
+
+        assert!(tree.truncated);
+        assert_eq!(tree.file_count, 10);
+        assert!(tree.files().iter().all(|file| !file.contains('/')));
+        let _ = fs::remove_dir_all(&root);
     }
 }
