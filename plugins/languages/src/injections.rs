@@ -15,6 +15,7 @@ const HTML_INJECTIONS: &str = r#"
    (start_tag) @_tag
    (raw_text) @injection.content)
  (#match? @_tag "(?i)\\stype\\s*=\\s*[\"']?(module|(text|application)/(java|ecma)script)[\"'\\s>]")
+ (#not-match? @_tag "(?i)\\slang\\s*=\\s*[\"']?ts[\"'\\s>]")
  (#set! injection.language "javascript"))
 
 ((script_element

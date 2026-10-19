@@ -119,6 +119,7 @@ mod tests {
                     <script>let a = 1;</script>\n\
                     <script type=\"module\">export const b = 2;</script>\n\
                     <script lang=\"ts\">interface Card { id: number }</script>\n\
+                    <script type=\"module\" lang=\"ts\">let d: boolean;</script>\n\
                     <script type=\"application/json\">{\"on\": true}</script>\n\
                     <script type=\"text/template\">let c = 3;</script>\n";
         let mut editor = Editor::new(&[&SYNTAX]);
@@ -151,6 +152,7 @@ mod tests {
             ("export", Face::Keyword),
             ("interface", Face::Keyword),
             ("number", Face::Type),
+            ("boolean", Face::Type),
             ("\"on\"", Face::String),
         ] {
             assert!(
