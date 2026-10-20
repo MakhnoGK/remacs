@@ -1,5 +1,7 @@
 use std::fs;
-use std::path::PathBuf;
+use std::io;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -17,6 +19,7 @@ use crate::entry::{
     Entry, LocalTime, PARENT, SortKey, date_label, full_date_label, items_label, mode_label,
     size_label, sort,
 };
+use crate::file_ops::replace;
 use crate::listing::{DIRED_MODE, Listing};
 use crate::{DiredPlugin, deliver_rename_edits, take_rename_requests};
 
@@ -676,6 +679,96 @@ fn files_already_there_are_kept_unless_overwriting() {
     type_text(&mut editor, "sub/inside/");
     press(&mut editor, "RET");
     assert!(editor.echo().unwrap().contains("onto or into itself"));
+}
+
+#[test]
+fn replacing_a_file_keeps_it_until_its_replacement_is_complete() {
+    let tree = Tree::new("replace");
+    let (lib, target) = (tree.0.join("lib.rs"), tree.0.join("sub/inner.rs"));
+    let keep = |_: &Path| -> io::Result<()> { panic!("a file is replaced in one step") };
+    let inode = fs::metadata(&lib).unwrap().ino();
+    replace(&lib, &target, true, keep).unwrap();
+    assert_eq!(fs::metadata(&target).unwrap().ino(), inode, "one rename");
+    assert!(!lib.exists());
+
+    let source = tree.0.join("new");
+    fs::write(&source, "new").unwrap();
+    fs::set_permissions(&source, fs::Permissions::from_mode(0o000)).unwrap();
+    assert!(replace(&source, &target, false, keep).is_err());
+    assert_eq!(fs::read_to_string(&target).unwrap(), "fn main() {}\n");
+    let names = |path: PathBuf| fs::read_dir(path).unwrap().count();
+    assert_eq!(names(tree.0.join("sub")), 2, "no temporary is left");
+
+    fs::set_permissions(&source, fs::Permissions::from_mode(0o644)).unwrap();
+    replace(&source, &target, false, keep).unwrap();
+    assert_eq!(fs::read_to_string(&target).unwrap(), "new");
+    assert_eq!(names(tree.0.join("sub")), 2);
+}
+
+#[test]
+fn a_replaced_directory_is_discarded_before_its_replacement_arrives() {
+    let tree = Tree::new("replace-directory");
+    let (source, target) = (tree.0.join("source"), tree.0.join("sub"));
+    fs::create_dir(&source).unwrap();
+    fs::write(source.join("new.rs"), "").unwrap();
+    let discarded = tree.0.join("discarded");
+    replace(&source, &target, true, |path| fs::rename(path, &discarded)).unwrap();
+    assert!(target.join("new.rs").exists() && !source.exists());
+    assert!(discarded.join("inner.rs").exists() && !target.join("inner.rs").exists());
+}
+
+#[test]
+fn onto_itself_is_found_through_links_and_letter_case() {
+    let tree = Tree::new("onto-itself");
+    std::os::unix::fs::symlink(tree.0.join("sub"), tree.0.join("zlink")).unwrap();
+    let mut editor = editor();
+    open_directory(&mut editor, &tree.0, None, false).unwrap();
+    wait_for_listing(&mut editor);
+
+    press(&mut editor, "M-< n R");
+    type_text(&mut editor, "zlink/");
+    press(&mut editor, "RET");
+    assert!(editor.echo().unwrap().contains("onto or into itself"));
+
+    fs::create_dir(tree.0.join("sub/sub")).unwrap();
+    open_directory(&mut editor, &tree.0.join("sub"), None, false).unwrap();
+    wait_until(&mut editor, |editor| {
+        lines(editor).contains(&"sub".to_owned())
+    });
+    press(&mut editor, "M-<");
+    while line_at_point(&editor) != "sub" {
+        press(&mut editor, "n");
+    }
+    press(&mut editor, "R");
+    type_text(&mut editor, "..");
+    press(&mut editor, "M-o M-RET");
+    assert!(editor.echo().unwrap().contains("onto or into itself"));
+    assert!(tree.0.join("sub/inner.rs").exists());
+    open_directory(&mut editor, &tree.0, None, false).unwrap();
+
+    if !tree.0.join("LIB.RS").exists() {
+        return; // A case-sensitive volume has no other spelling of a name.
+    }
+    press(&mut editor, "M-< n n n n");
+    assert_eq!(line_at_point(&editor), "lib.rs");
+    press(&mut editor, "C");
+    type_text(&mut editor, "LIB.RS");
+    press(&mut editor, "M-o M-RET");
+    assert!(editor.echo().unwrap().contains("onto or into itself"));
+
+    press(&mut editor, "R");
+    type_text(&mut editor, "LIB.RS");
+    press(&mut editor, "M-RET");
+    wait_for_message(&mut editor, "Moved lib.rs to");
+    let names: Vec<_> = fs::read_dir(&tree.0)
+        .unwrap()
+        .map(|item| item.unwrap().file_name())
+        .collect();
+    assert!(names.contains(&"LIB.RS".into()) && !names.contains(&"lib.rs".into()));
+    assert_eq!(
+        fs::read_to_string(tree.0.join("LIB.RS")).unwrap(),
+        "fn main() {}\n"
+    );
 }
 
 /// A listing of a fresh tree with its names editable, point on `sub`.
