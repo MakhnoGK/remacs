@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use remacs_core::{
     Buffer, Button, Changes, CommandResult, Completions, Editor, Elsewhere, Prompt, StatusItem,
-    StatusSegment, Tone,
+    StatusSegment, Tone, quote,
 };
 
 use crate::commands::NOT_A_LISTING;
@@ -170,7 +170,7 @@ pub fn replace_in_names(editor: &mut Editor) -> CommandResult {
                 return Err("Nothing to replace".into());
             }
             let prompt = Prompt {
-                label: format!("Replace “{from}” with"),
+                label: format!("Replace “{}” with", quote(&from)),
                 category: REPLACE_WITH_CATEGORY,
                 placeholder: "text",
                 hints: &[("↵", "Replace"), ("C-g", "Cancel")],

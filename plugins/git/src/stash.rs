@@ -9,7 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use remacs_core::{
     Candidate, CommandResult, Completions, Dialog, Editor, EntryAction, Expansion, FileState,
-    Keymap, LineCounts, ListItem, Prompt, PromptOption,
+    Keymap, LineCounts, ListItem, Prompt, PromptOption, quote,
 };
 
 use crate::command::{git, output};
@@ -353,7 +353,7 @@ pub fn drop_stash(editor: &mut Editor) -> CommandResult {
         .find(|entry| entry.name == name)
         .map(|entry| entry.files.iter().map(file_item).collect())
         .unwrap_or_default();
-    let title = format!("Drop {name}?");
+    let title = format!("Drop {}?", quote(&name));
     editor.ask_dialog(
         false,
         move |_| Dialog {

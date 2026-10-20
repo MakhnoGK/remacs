@@ -1043,7 +1043,7 @@ fn a_commit_message_has_a_subject_and_a_description() {
     press(&mut editor, "c");
     let prompt = editor.minibuffer().unwrap().prompt();
     assert_eq!(prompt.items_summary, "1 file · +1 −1");
-    assert_eq!(prompt.subject, "Test → main");
+    assert_eq!(prompt.subject, "Test → `main`");
     type_text(&mut editor, "Say two");
     press(&mut editor, "RET");
     assert!(editor.minibuffer().unwrap().in_description());
@@ -1126,7 +1126,7 @@ fn a_rebase_replays_the_commits_as_chosen() {
     assert_eq!(steps(&editor), ["pick A", "pick B", "pick C"]);
     let minibuffer = editor.minibuffer().unwrap();
     assert_eq!(minibuffer.input_text(), "main");
-    assert_eq!(minibuffer.subject(), "feature onto main");
+    assert_eq!(minibuffer.subject(), "`feature` onto `main`");
     let (summary, _) = minibuffer.completions().outcome.clone().unwrap();
     assert_eq!(summary, "3 commits on top of main");
 
@@ -1170,7 +1170,7 @@ fn a_merge_brings_the_base_in() {
     press(&mut editor, "m");
     let minibuffer = editor.minibuffer().unwrap();
     assert_eq!(minibuffer.label(), "Merge");
-    assert_eq!(minibuffer.subject(), "main into feature");
+    assert_eq!(minibuffer.subject(), "`main` into `feature`");
     assert_eq!(minibuffer.candidates()[0].annotation, "Move main on");
     press(&mut editor, "RET");
     wait_until(&mut editor, "the merge", |_| {
@@ -1209,7 +1209,7 @@ fn the_branch_is_pushed_to_its_upstream_or_gets_one() {
     let prompt = editor.minibuffer().unwrap().prompt();
     assert_eq!(
         prompt.title,
-        Some(("Push main".to_owned(), "1 commit".to_owned()))
+        Some(("Push `main`".to_owned(), "1 commit".to_owned()))
     );
     assert_eq!(prompt.items.len(), 1);
     press(&mut editor, "u");
@@ -1500,7 +1500,7 @@ fn a_stash_is_dropped_after_asking_or_becomes_a_branch() {
     press(&mut editor, "k");
     assert_eq!(
         editor.minibuffer().unwrap().dialog().unwrap().title,
-        "Drop stash@{0}?"
+        "Drop `stash@{0}`?"
     );
     press(&mut editor, "y");
     wait_for_echo(&mut editor, "Dropped stash@{0}");

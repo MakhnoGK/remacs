@@ -3,7 +3,7 @@
 
 use std::borrow::Cow;
 
-use remacs_core::{Candidate, Command, CommandResult, Completions, Editor, Keymap, Prompt};
+use remacs_core::{Candidate, Command, CommandResult, Completions, Editor, Keymap, Prompt, quote};
 use remacs_files::abbreviate_home;
 
 use crate::catalog::ToolKind;
@@ -102,7 +102,7 @@ pub fn open(editor: &mut Editor) -> CommandResult {
         label: "Tools".into(),
         category: CATEGORY,
         read_only: true,
-        title: Some(("Tools".into(), dir)),
+        title: Some(("Tools".into(), quote(&dir))),
         wide: true,
         hints: HINTS,
         keymap: Some(keymap),

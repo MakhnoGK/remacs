@@ -10,7 +10,7 @@ use remacs_core::{
 use remacs_files::{abbreviate_home, expand_home, with_slash};
 
 use crate::commands::{NOT_A_LISTING, directory_completions};
-use crate::entry::{describe_entries, display_name, plural, size_label};
+use crate::entry::{describe_entries, describe_entries_quoted, display_name, plural, size_label};
 use crate::file_ops::{copy_path, move_path, replace, trash};
 use crate::jobs::{self, Report, failure_message};
 use crate::listing::file_icon;
@@ -97,7 +97,7 @@ fn read_destination(editor: &mut Editor, moving: bool) -> CommandResult {
         initial_input: with_slash(&abbreviate_home(&directory)),
         hints: MOVE_HINTS,
         options,
-        subject: describe_entries(&sources, if marked { "marked " } else { "" }),
+        subject: describe_entries_quoted(&sources, if marked { "marked " } else { "" }),
         items: sources
             .iter()
             .map(|entry| ListItem {

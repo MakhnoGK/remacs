@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use remacs_core::{
-    Candidate, CommandResult, Completions, Editor, Keymap, ListItem, Message, Prompt,
+    Candidate, CommandResult, Completions, Editor, Keymap, ListItem, Message, Prompt, quote,
 };
 use remacs_text::Text;
 
@@ -225,8 +225,8 @@ pub fn continue_operation(editor: &mut Editor) -> CommandResult {
         keymap: Some(keymap),
         subject: format!(
             "Continue rebase · Step {step} of {total} · {} onto {}",
-            operation.branch.as_deref().unwrap_or("HEAD"),
-            operation.other.label()
+            quote(operation.branch.as_deref().unwrap_or("HEAD")),
+            quote(operation.other.label())
         ),
         message: Some(Message {
             subject_limit: SUBJECT_LIMIT,
@@ -293,11 +293,16 @@ pub fn abort(editor: &mut Editor) -> CommandResult {
     editor.cancel_minibuffer();
     let (root, snapshot) = shown_status(editor)?;
     let operation = snapshot.operation.clone().ok_or("Nothing is in progress")?;
-    let branch = operation.branch.clone().unwrap_or_else(|| "HEAD".into());
+    let branch = quote(operation.branch.as_deref().unwrap_or("HEAD"));
     let (question, args) = match operation.kind {
         OperationKind::Rebase { .. } => (
             match &operation.original {
-                Some(original) => format!("Abort the rebase? {branch} goes back to {original}"),
+                Some(original) => {
+                    format!(
+                        "Abort the rebase? {branch} goes back to {}",
+                        quote(original)
+                    )
+                }
                 None => "Abort the rebase?".into(),
             },
             ["rebase", "--abort"],

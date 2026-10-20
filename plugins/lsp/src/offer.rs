@@ -7,7 +7,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use remacs_core::{Candidate, CommandResult, Dialog, Editor, ListItem, Prompt, filter_candidates};
+use remacs_core::{
+    Candidate, CommandResult, Dialog, Editor, ListItem, Prompt, filter_candidates, quote,
+};
 
 use crate::LanguageServer;
 use crate::document::{self, Clients};
@@ -201,12 +203,13 @@ fn confirm(
 
 fn dialog(project: &str, servers: &[&'static LanguageServer]) -> Dialog {
     let tools: Vec<_> = servers.iter().filter_map(|server| server.tool).collect();
+    let project = quote(project);
     let (title, wanted) = match tools.as_slice() {
         [tool] => (
-            format!("Download {}?", tool.name),
+            format!("Download {}?", quote(tool.name)),
             format!(
                 "{project} wants {}, which is not installed. Once downloaded, it serves",
-                tool.name
+                quote(tool.name)
             ),
         ),
         _ => (
@@ -252,7 +255,7 @@ fn choose(
         })
         .collect();
     let prompt = Prompt {
-        label: format!("{} wants a language server", project_name(project)),
+        label: format!("{} wants a language server", quote(&project_name(project))),
         placeholder: "Language server to download…",
         require_match: true,
         hints: &[("↵", "Download"), ("C-g", "Skip")],

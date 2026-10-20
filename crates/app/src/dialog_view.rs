@@ -8,7 +8,7 @@ use remacs_theme::{color, font, glass};
 use crate::assets::TRASH_ICON;
 use crate::editor_view::EditorView;
 use crate::minibuffer_view::modal;
-use crate::widgets::{kbd, list_items, option_chip, shadow};
+use crate::widgets::{kbd, list_items, option_chip, shadow, ui_text};
 
 const DIALOG_WIDTH: f32 = 520.0;
 /// From the panel's edge to the items, which line up with the title.
@@ -39,19 +39,18 @@ pub fn render_dialog(dialog: Dialog, cx: &mut Context<EditorView>) -> Div {
             div()
                 .flex()
                 .flex_col()
+                .min_w_0()
                 .gap(px(4.0))
-                .child(
-                    div()
-                        .text_size(px(font::ui_size() + 2.0))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(title),
-                )
+                .child(div().text_size(px(font::title_size())).child(ui_text(
+                    &title,
+                    FontWeight::SEMIBOLD,
+                    color::fg_main(),
+                )))
                 .child(
                     div()
                         .text_size(px(font::status_size()))
                         .line_height(px(17.0))
-                        .text_color(rgb(color::fg_dim()))
-                        .child(explanation),
+                        .child(ui_text(&explanation, FontWeight::NORMAL, color::fg_dim())),
                 ),
         );
     let items = div()

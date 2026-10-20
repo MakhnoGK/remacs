@@ -229,7 +229,7 @@ fn a_breakpoint_gets_a_condition_and_the_list_disables_and_deletes_breakpoints()
         press(&mut editor, "s-<f8>");
     }
     press(&mut editor, "s-S-<f8>");
-    assert_eq!(editor.minibuffer().unwrap().prompt().label, "main.rs:3");
+    assert_eq!(editor.minibuffer().unwrap().prompt().label, "`main.rs:3`");
     for key in ["a", "SPC", ">", "SPC", "0", "RET"] {
         press(&mut editor, key);
     }

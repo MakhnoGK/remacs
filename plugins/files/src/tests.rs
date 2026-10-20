@@ -304,7 +304,7 @@ fn write_file_visits_the_new_file() {
             .unwrap()
             .prompt()
             .label
-            .ends_with("Cargo.toml exists; overwrite? (y or n)")
+            .ends_with("Cargo.toml` exists; overwrite?")
     );
     press(&mut editor, "n");
     assert_eq!(editor.window_buffer().name(), "notes.md");
@@ -388,7 +388,7 @@ fn quitting_offers_to_save_each_modified_file() {
     press(&mut editor, "n");
     assert_eq!(
         editor.minibuffer().unwrap().prompt().label,
-        "Modified buffers exist; exit anyway? (y or n)"
+        "Modified buffers exist; exit anyway?"
     );
     press(&mut editor, "C-g");
     assert!(!editor.quit_requested());
@@ -431,7 +431,7 @@ fn quitting_asks_before_ending_running_programs() {
     ]);
     editor.visit_file(&project.path("Cargo.toml")).unwrap();
     type_text(&mut editor, "#");
-    let question = "Programs run in *term: vim*; kill them and exit anyway? (y or n)";
+    let question = "Programs run in `*term: vim*`; kill them and exit anyway?";
 
     press(&mut editor, "C-x C-c n y");
     assert_eq!(editor.minibuffer().unwrap().prompt().label, question);

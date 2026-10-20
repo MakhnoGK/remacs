@@ -7,7 +7,7 @@ use gpui::{
 };
 use remacs_core::{
     BannerPart, Candidate, CommitChain, Count, EntryAction, Expansion, Icon, Minibuffer,
-    PromptOption, RefKind, Tone, parse_sequence,
+    PromptOption, RefKind, Tone, parse_sequence, quote,
 };
 use remacs_theme::{color, font, glass};
 
@@ -20,7 +20,7 @@ use crate::settings::{DirectoryPosition, PromptsSettings};
 use crate::widgets::{
     GlassBlur, block_cursor, choice_chip, glass_surface, hsla, icon, kbd, list_items,
     modal_surface, modified_dot, option_chip, segment, segmented, shadow, text_with_cursor,
-    tone_color,
+    tone_color, ui_text,
 };
 
 const POPOVER_TOP: f32 = 60.0;
@@ -114,7 +114,8 @@ pub fn render_minibuffer(
     let has_chip = prompt.choices.iter().any(|choice| !choice.segmented)
         || prompt.options.iter().any(|option| !option.is_switch());
     let field = match &prompt.title {
-        Some(title) => render_title(title).into_any_element(),
+        Some((title, note)) => render_title(title, note).into_any_element(),
+        None if minibuffer.is_question() => render_title(&prompt.label, "").into_any_element(),
         None => render_field(minibuffer, input_scroll, px(prompts.input_margin)).into_any_element(),
     };
     let directory = |position| {
@@ -178,8 +179,9 @@ pub fn render_minibuffer(
     centered(popover)
 }
 
-/// In place of the field: what the prompt does, and a note on the right.
-fn render_title((title, note): &(String, String)) -> Div {
+/// In place of the field: what the prompt does or asks, as a dialog's title, and a note
+/// on the right.
+fn render_title(title: &str, note: &str) -> Div {
     div()
         .flex()
         .items_baseline()
@@ -191,17 +193,14 @@ fn render_title((title, note): &(String, String)) -> Div {
         .child(
             div()
                 .min_w_0()
-                .truncate()
-                .text_size(px(font::ui_size()))
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(title.clone()),
+                .text_size(px(font::title_size()))
+                .child(ui_text(title, FontWeight::SEMIBOLD, color::fg_main())),
         )
         .child(
             div()
                 .flex_none()
                 .text_size(px(font::status_size()))
-                .text_color(rgb(color::fg_dim()))
-                .child(note.clone()),
+                .child(ui_text(note, FontWeight::NORMAL, color::fg_dim())),
         )
 }
 
@@ -324,8 +323,11 @@ fn render_switches(minibuffer: &Minibuffer, cx: &mut Context<EditorView>) -> Div
                 .min_w_0()
                 .truncate()
                 .text_size(px(font::ui_size()))
-                .text_color(rgb(color::fg_body()))
-                .child(minibuffer.subject().to_owned()),
+                .child(ui_text(
+                    minibuffer.subject(),
+                    FontWeight::NORMAL,
+                    color::fg_body(),
+                )),
         )
 }
 
@@ -401,8 +403,11 @@ fn render_chips(
                     div()
                         .flex_none()
                         .text_size(px(font::status_size()))
-                        .text_color(rgb(color::fg_faint()))
-                        .child(minibuffer.subject().to_owned()),
+                        .child(ui_text(
+                            minibuffer.subject(),
+                            FontWeight::NORMAL,
+                            color::fg_faint(),
+                        )),
                 )
             })
     })
@@ -502,12 +507,10 @@ fn render_field(
         .border_color(field_border(
             !minibuffer.in_description() && !minibuffer.in_list(),
         ));
-    if minibuffer.is_question() {
-        return field
-            .text_size(px(font::input_size()))
-            .child(prompt.label.clone());
-    }
-    let typed_font = |typed: bool| if typed { font::mono() } else { font::ui() };
+    let label = match minibuffer.label() {
+        keys if parse_sequence(keys).is_some() => quote(keys),
+        label => label.to_owned(),
+    };
     field
         .child(
             div()
@@ -518,10 +521,8 @@ fn render_field(
                 .px(px(8.0))
                 .rounded(px(6.0))
                 .bg(rgba(glass::chip()))
-                .font_family(typed_font(parse_sequence(minibuffer.label()).is_some()))
                 .text_size(px(font::status_size()))
-                .text_color(rgb(color::fg_alt()))
-                .child(minibuffer.label().to_owned()),
+                .child(ui_text(&label, FontWeight::NORMAL, color::fg_alt())),
         )
         .child(render_input(minibuffer, input_scroll, input_margin))
         .child(if is_problem_list(minibuffer) {
@@ -542,7 +543,11 @@ fn render_field(
         } else {
             div()
                 .flex_none()
-                .font_family(typed_font(prompt.count == Count::Position))
+                .font_family(if prompt.count == Count::Position {
+                    font::mono()
+                } else {
+                    font::ui()
+                })
                 .text_size(px(font::status_size()))
                 .text_color(rgb(color::fg_dim()))
                 .child(match minibuffer.note() {

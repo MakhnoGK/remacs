@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use remacs_core::{CommandResult, Dialog, DialogOption, Editor, ListItem, Mark};
 
 use crate::commands::NOT_A_LISTING;
-use crate::entry::{Entry, describe_entries, display_name};
+use crate::entry::{Entry, describe_entries, describe_entries_quoted, display_name};
 use crate::file_ops::{remove, trash};
 use crate::jobs::{self, Report, failure_message};
 use crate::listing::Listing;
@@ -75,7 +75,7 @@ fn dialog(targets: &[Entry], mark: Option<Mark>, to_trash: bool) -> Dialog {
         (false, false, true) => "They are deleted for good, folders with everything in them.",
     };
     Dialog {
-        title: format!("Delete {}?", describe_entries(targets, adjective)),
+        title: format!("Delete {}?", describe_entries_quoted(targets, adjective)),
         explanation: explanation.into(),
         items: targets
             .iter()

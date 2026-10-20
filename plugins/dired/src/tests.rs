@@ -413,7 +413,7 @@ fn deleting_flagged_files_asks_first_and_keeps_marks_of_the_rest() {
     assert_eq!(line_at_point(&editor), "lib.rs");
     press(&mut editor, "x");
     let dialog = editor.minibuffer().unwrap().dialog().unwrap();
-    assert_eq!(dialog.title, "Delete lib.rs~?");
+    assert_eq!(dialog.title, "Delete `lib.rs~`?");
     assert_eq!(dialog.yes_label, "Move to Trash");
     assert_eq!(dialog.items[0].mark, Some(Mark::Flagged));
 
@@ -434,7 +434,7 @@ fn deleting_flagged_files_asks_first_and_keeps_marks_of_the_rest() {
     assert_eq!(line_at_point(&editor), "lib.rs");
     assert_eq!(
         editor.minibuffer().unwrap().dialog().unwrap().title,
-        "Delete lib.rs?"
+        "Delete `lib.rs`?"
     );
     press(&mut editor, "n");
     assert!(editor.minibuffer().is_none());
@@ -514,7 +514,7 @@ fn copying_a_file_to_a_new_name_keeps_its_modified_time() {
 
     press(&mut editor, "n n C");
     let minibuffer = editor.minibuffer().unwrap();
-    assert_eq!(minibuffer.prompt().subject, "lib.rs");
+    assert_eq!(minibuffer.prompt().subject, "`lib.rs`");
     assert_eq!(minibuffer.prompt().items_summary, "1 · 13 B");
     type_text(&mut editor, "copy.rs");
     let minibuffer = editor.minibuffer().unwrap();

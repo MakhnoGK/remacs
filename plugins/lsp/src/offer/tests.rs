@@ -90,7 +90,7 @@ fn a_project_is_offered_the_servers_remacs_can_download_once() {
     assert_eq!(
         offered(&editor),
         Some((
-            "Download downloadable?".to_owned(),
+            "Download `downloadable`?".to_owned(),
             vec!["downloadable".to_owned()]
         )),
         "the server remacs cannot download is passed over in silence"

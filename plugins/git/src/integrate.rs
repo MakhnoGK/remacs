@@ -9,7 +9,7 @@ use std::rc::Rc;
 
 use remacs_core::{
     Candidate, CommandResult, CommitChain, Completions, Count, Editor, Keymap, Prompt,
-    PromptOption, RefChip, RefKind, Tone,
+    PromptOption, RefChip, RefKind, Tone, quote,
 };
 
 use crate::command::{git, output};
@@ -315,9 +315,9 @@ fn completions(plan: &Plan, rebasing: bool, autostash: bool, changed: usize) -> 
         hints: Some(if rebasing { REBASE_HINTS } else { MERGE_HINTS }),
         label: Some(if rebasing { "Onto" } else { "Merge" }.into()),
         subject: Some(if rebasing {
-            format!("{} onto {target}", plan.head)
+            format!("{} onto {}", quote(&plan.head), quote(target))
         } else {
-            format!("{target} into {}", plan.head)
+            format!("{} into {}", quote(target), quote(&plan.head))
         }),
         count_groups: true,
         outcome: Some(outcome),

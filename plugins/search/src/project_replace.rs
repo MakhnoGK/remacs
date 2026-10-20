@@ -8,7 +8,7 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use remacs_core::{CommandResult, Completions, Editor, Keymap, Prompt};
+use remacs_core::{CommandResult, Completions, Editor, Keymap, Prompt, quote};
 use remacs_files::{FileIndex, FilePreview};
 
 use crate::preview::{self, Lit};
@@ -82,7 +82,7 @@ pub fn project_query_replace(editor: &mut Editor) -> CommandResult {
             .zip(Words::phrase(&from))
             .ok_or("Nothing to replace")?;
         let prompt = Prompt {
-            label: format!("Replace “{from}” with"),
+            label: format!("Replace “{}” with", quote(&from)),
             category: TO_CATEGORY,
             placeholder: "text",
             hints: &[("↵", "Replace…"), ("C-g", "Cancel")],
@@ -190,7 +190,10 @@ fn ask(editor: &mut Editor, replacing: Replacing, from: &str, to: &str) -> Comma
     let prompt = Prompt {
         category: ASK_CATEGORY,
         read_only: true,
-        title: Some((format!("Replace “{from}” with “{to}”"), String::new())),
+        title: Some((
+            format!("Replace “{}” with “{}”", quote(from), quote(to)),
+            String::new(),
+        )),
         keymap: Some(keymap),
         hints: &[
             ("y", "Replace"),
