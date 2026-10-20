@@ -2479,7 +2479,9 @@ impl Render for EditorView {
             }
             self.leave_window();
         }
-        let dividers = render_dividers(&dividers, px(settings.divider_grab_width), cx);
+        let grab = px(settings.divider_grab_width);
+        let text_bottom = frame_size.height - reserved;
+        let dividers = render_dividers(&dividers, grab, (area.bottom(), text_bottom), cx);
         let (hints, text_shown, popups) =
             selected_parts.unwrap_or_else(|| (Hints::default(), false, div()));
         let hints = match &shown_pane {
@@ -2796,12 +2798,32 @@ fn lay_out(
 }
 
 /// A 1px line centered in a strip `grab` wide that dragging moves.
-fn render_dividers(dividers: &[Divider], grab: Pixels, cx: &mut Context<EditorView>) -> Vec<Div> {
+/// A line between windows side by side goes on past the windows' area down to where
+/// their text ends, `text_bottom`, under the bottom row, where it takes no mouse: the
+/// key hints are often over it.
+fn render_dividers(
+    dividers: &[Divider],
+    grab: Pixels,
+    (area_bottom, text_bottom): (Pixels, Pixels),
+    cx: &mut Context<EditorView>,
+) -> Vec<Div> {
+    let line = || div().bg(rgba(glass::ink(0x14)));
     dividers
         .iter()
-        .map(|&divider| {
+        .flat_map(|&divider| {
             let Bounds { origin, size } = divider.bounds;
-            let line = div().bg(rgba(glass::ink(0x14)));
+            let below = (divider.axis == Axis::Columns
+                && divider.bounds.bottom() == area_bottom
+                && text_bottom > area_bottom)
+                .then(|| {
+                    line()
+                        .absolute()
+                        .left(divider.at - px(0.5))
+                        .top(area_bottom)
+                        .w(px(1.0))
+                        .h(text_bottom - area_bottom)
+                });
+            let line = line();
             let strip = div().absolute().flex().items_center().justify_center();
             let strip = match divider.axis {
                 Axis::Rows => strip
@@ -2819,14 +2841,15 @@ fn render_dividers(dividers: &[Divider], grab: Pixels, cx: &mut Context<EditorVi
                     .cursor_col_resize()
                     .child(line.h_full().w(px(1.0))),
             };
-            strip.occlude().on_mouse_down(
+            let strip = strip.occlude().on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |view, _: &MouseDownEvent, _, cx| {
                     cx.stop_propagation();
                     view.divider_drag = Some(divider);
                     cx.notify();
                 }),
-            )
+            );
+            iter::once(strip).chain(below)
         })
         .collect()
 }
