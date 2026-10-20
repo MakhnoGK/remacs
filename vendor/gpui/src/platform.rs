@@ -230,6 +230,9 @@ pub(crate) trait Platform: 'static {
 
     fn on_quit(&self, callback: Box<dyn FnMut()>);
     fn on_reopen(&self, callback: Box<dyn FnMut()>);
+    /// Asked before the system quits the application, e.g. from the Dock or at logout;
+    /// false keeps it running.
+    fn on_should_quit(&self, _callback: Box<dyn FnMut() -> bool>) {}
 
     fn set_menus(&self, menus: Vec<Menu>, keymap: &Keymap);
     fn get_menus(&self) -> Option<Vec<OwnedMenu>> {

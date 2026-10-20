@@ -26,6 +26,7 @@ use remacs_core::{
     TextLabel, describe_sequence,
 };
 use remacs_echo::VIEW_MESSAGES;
+use remacs_files::QUIT;
 use remacs_frame::TEXT_CONFIGURED;
 use remacs_theme::font::CodeFont;
 use remacs_theme::{Appearance, color, font, glass};
@@ -1785,6 +1786,17 @@ impl EditorView {
     pub fn run_command(&mut self, name: &str, cx: &mut Context<Self>) {
         self.editor.run_command(name);
         self.after_input(cx);
+    }
+
+    /// Whether the app may quit now, for the close button, the Dock and logout: once the
+    /// user agreed, or when quitting as ⌘Q does has nothing to ask.
+    pub fn may_quit(&mut self, cx: &mut Context<Self>) -> bool {
+        if !self.editor.quit_requested() {
+            // The gate asks in the minibuffer: an open prompt, its own included, gives way.
+            self.editor.cancel_minibuffer();
+            self.run_command(QUIT, cx);
+        }
+        self.editor.quit_requested()
     }
 
     /// Opens what Finder or the Dock hand over, the last one shown.

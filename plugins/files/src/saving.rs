@@ -75,20 +75,39 @@ pub fn save_some_buffers(editor: &mut Editor) -> CommandResult {
     offer_to_save(editor, names, |_| Ok(()))
 }
 
-/// Offers to save each unsaved file, then quits, asking again if some stay unsaved.
+/// Offers to save each unsaved file, then quits, asking again if some stay unsaved or
+/// programs still run.
 pub fn save_buffers_kill_terminal(editor: &mut Editor) -> CommandResult {
     let names = unsaved_files(editor);
     offer_to_save(editor, names, |editor| {
         if unsaved_files(editor).is_empty() {
-            editor.request_quit();
-            return Ok(());
+            return quit_ending_programs(editor);
         }
         editor.ask_y_or_n("Modified buffers exist; exit anyway?", |editor, yes| {
             if yes {
-                editor.request_quit();
+                quit_ending_programs(editor)
+            } else {
+                Ok(())
             }
-            Ok(())
         })
+    })
+}
+
+fn quit_ending_programs(editor: &mut Editor) -> CommandResult {
+    let running = editor.running_programs();
+    if running.is_empty() {
+        editor.request_quit();
+        return Ok(());
+    }
+    let question = format!(
+        "Programs run in {}; kill them and exit anyway?",
+        running.join(", ")
+    );
+    editor.ask_y_or_n(question, |editor, yes| {
+        if yes {
+            editor.request_quit();
+        }
+        Ok(())
     })
 }
 

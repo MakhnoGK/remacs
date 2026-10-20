@@ -44,6 +44,9 @@ pub struct Registry {
     /// Run when the settings are read: at startup and whenever their files change. Each
     /// reads its plugin's section with `Editor::settings_section`.
     pub settings_hooks: Vec<Hook>,
+    /// Name the buffers whose programs quitting would end, e.g. a terminal running more
+    /// than its shell, like Emacs's `process-query-on-exit-flag`; quitting asks first.
+    pub quit_queries: Vec<fn(&Editor) -> Vec<String>>,
     pub decorators: Vec<Decorator>,
     /// Tell strings and comments from code; the first that knows the buffer does.
     pub syntax_probes: Vec<SyntaxProbe>,

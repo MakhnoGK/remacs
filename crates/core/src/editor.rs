@@ -814,6 +814,15 @@ impl Editor {
         self.quit_requested
     }
 
+    /// The buffers whose programs quitting now would end, all plugins' together.
+    pub fn running_programs(&self) -> Vec<String> {
+        self.registry
+            .quit_queries
+            .iter()
+            .flat_map(|query| query(self))
+            .collect()
+    }
+
     pub fn request_frame(&mut self, request: FrameRequest) {
         self.frame_requests.push(request);
     }

@@ -143,6 +143,7 @@ impl Plugin for TerminalPlugin {
         registry.status_providers.push(Rc::new(view::status));
         registry.settings_hooks.push(Rc::new(read_settings));
         registry.post_command_hooks.push(Rc::new(update));
+        registry.quit_queries.push(terminals::running);
     }
 }
 

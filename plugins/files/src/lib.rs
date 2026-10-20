@@ -24,6 +24,10 @@ pub use project::{abbreviate_home, default_directory, expand_home, project_root,
 
 pub struct FilesPlugin;
 
+/// Asks before losing unsaved changes or running programs, then quits; every way out of
+/// the app goes through it.
+pub const QUIT: &str = "save-buffers-kill-terminal";
+
 #[rustfmt::skip]
 const COMMANDS: &[Command] = &[
     Command::new("find-file", "Visit a file of the project, or any file by path", find_file::find_file),
@@ -33,7 +37,7 @@ const COMMANDS: &[Command] = &[
     Command::new("save-buffer", "Save current buffer in its visited file", saving::save_buffer),
     Command::new("write-file", "Write current buffer into a new file and visit it", saving::write_file),
     Command::new("save-some-buffers", "Offer to save each modified buffer", saving::save_some_buffers),
-    Command::new("save-buffers-kill-terminal", "Offer to save modified buffers, then exit", saving::save_buffers_kill_terminal),
+    Command::new(QUIT, "Offer to save modified buffers, ask about running programs, then exit", saving::save_buffers_kill_terminal),
 ];
 
 const BINDINGS: &[(&str, &str)] = &[
@@ -47,8 +51,8 @@ const BINDINGS: &[(&str, &str)] = &[
     ("C-x C-w", "write-file"),
     ("s-S", "write-file"),
     ("C-x s", "save-some-buffers"),
-    ("C-x C-c", "save-buffers-kill-terminal"),
-    ("s-q", "save-buffers-kill-terminal"),
+    ("C-x C-c", QUIT),
+    ("s-q", QUIT),
 ];
 
 #[rustfmt::skip]

@@ -123,6 +123,20 @@ pub fn any_running(editor: &Editor) -> bool {
         .is_some_and(|sessions| sessions.list.iter().any(Session::is_running))
 }
 
+/// The consoles of runs, compiles and debug sessions still going.
+pub fn running_consoles(editor: &Editor) -> Vec<String> {
+    editor
+        .buffers()
+        .iter()
+        .filter(|buffer| {
+            buffer.local::<Console>().is_some_and(|console| {
+                get(editor, console.session).is_some_and(Session::is_running)
+            })
+        })
+        .map(|buffer| buffer.name().to_owned())
+        .collect()
+}
+
 pub fn get(editor: &Editor, id: u64) -> Option<&Session> {
     editor
         .find_plugin_state::<Sessions>()?
