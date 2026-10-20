@@ -10,7 +10,7 @@ use std::sync::{Arc, PoisonError, RwLock};
 use std::time::{Duration, Instant, SystemTime};
 
 use remacs_config::{Section, Settings, project_cache_dir};
-use remacs_text::Text;
+use remacs_text::{Encoding, Text};
 
 use crate::buffer::{Buffer, FileEdits};
 use crate::command::{CommandResult, Commands};
@@ -1361,8 +1361,20 @@ impl Editor {
             }
             Err(error) => return Err(error),
         };
+        let encoding = text.format().encoding;
         let mode = self.mode_for(Some(&path));
-        Ok(self.push_buffer(Buffer::new(file_buffer_name(&path), text, mode).with_file(path)))
+        let mut buffer = Buffer::new(file_buffer_name(&path), text, mode).with_file(path);
+        match encoding {
+            Encoding::Binary => {
+                buffer.set_read_only(true);
+                self.set_message("Binary file: opened read-only");
+            }
+            Encoding::Latin1 => {
+                self.set_message("Not UTF-8: read as Latin-1, and saved back as it was")
+            }
+            Encoding::Utf8 | Encoding::Utf16Le | Encoding::Utf16Be => {}
+        }
+        Ok(self.push_buffer(buffer))
     }
 
     /// Adds `buffer` as the least recent one under a unique name and returns its index.
@@ -1482,6 +1494,28 @@ mod tests {
             "the second took its place"
         );
         assert_eq!(editor.minibuffer().unwrap().prompt().label, "second");
+    }
+
+    #[test]
+    fn a_binary_file_opens_read_only_and_one_not_utf8_says_how_it_was_read() {
+        let mut editor = Editor::new(&[]);
+        let directory =
+            std::env::temp_dir().join(format!("remacs-encodings-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let mut visit = |name: &str, contents: &[u8]| {
+            let path = directory.join(name);
+            std::fs::write(&path, contents).unwrap();
+            editor.visit_file(&path).unwrap();
+            let message = editor.message().map(|message| message.text.clone());
+            (editor.buffer().is_read_only(), message)
+        };
+        let (read_only, message) = visit("tool", b"\x7fELF\x00\x00\xff");
+        assert!(read_only);
+        assert_eq!(message.as_deref(), Some("Binary file: opened read-only"));
+        let (read_only, message) = visit("latin1.txt", b"caf\xe9");
+        assert!(!read_only);
+        assert!(message.unwrap().starts_with("Not UTF-8"));
+        std::fs::remove_dir_all(&directory).unwrap();
     }
 
     #[test]

@@ -5,6 +5,7 @@ use std::os::unix::fs::FileExt;
 use std::thread;
 
 use crate::newline;
+use crate::utf8::Utf8Check;
 
 const BLOCK_SIZE: usize = 16 * 1024;
 const BLOCKS_PER_READ: usize = 64;
@@ -21,14 +22,15 @@ impl LineIndex {
     }
 
     /// Reads with `pread` rather than through the mapping, so indexing leaves no
-    /// resident pages behind in this process.
-    pub fn from_file(file: &File, file_len: usize) -> io::Result<Self> {
+    /// resident pages behind in this process. Also tells whether the file is UTF-8, while
+    /// its bytes are read anyway.
+    pub fn from_file(file: &File, file_len: usize) -> io::Result<(Self, bool)> {
         let block_count = file_len.div_ceil(BLOCK_SIZE);
         let worker_count = thread::available_parallelism().map_or(1, NonZero::get);
         let blocks_per_worker = block_count.div_ceil(worker_count).max(1);
         let mut block_counts = vec![0; block_count];
 
-        thread::scope(|scope| {
+        let utf8 = thread::scope(|scope| {
             let workers: Vec<_> = block_counts
                 .chunks_mut(blocks_per_worker)
                 .enumerate()
@@ -39,10 +41,13 @@ impl LineIndex {
                 .collect();
             workers
                 .into_iter()
-                .try_for_each(|worker| worker.join().expect("line index worker panicked"))
+                .try_fold(Utf8Check::default(), |mut utf8, worker| {
+                    utf8.join(worker.join().expect("line index worker panicked")?);
+                    io::Result::Ok(utf8)
+                })
         })?;
 
-        Ok(Self::from_block_counts(block_counts))
+        Ok((Self::from_block_counts(block_counts), utf8.is_valid()))
     }
 
     fn from_block_counts(block_counts: impl IntoIterator<Item = usize>) -> Self {
@@ -88,8 +93,9 @@ fn count_blocks(
     file_len: usize,
     first_block: usize,
     counts: &mut [usize],
-) -> io::Result<()> {
+) -> io::Result<Utf8Check> {
     let mut buffer = vec![0; BLOCK_SIZE * BLOCKS_PER_READ];
+    let mut utf8 = Utf8Check::default();
     for (batch_index, batch) in counts.chunks_mut(BLOCKS_PER_READ).enumerate() {
         let offset = (first_block + batch_index * BLOCKS_PER_READ) * BLOCK_SIZE;
         let read_len = (batch.len() * BLOCK_SIZE).min(file_len - offset);
@@ -98,8 +104,9 @@ fn count_blocks(
         for (count, block) in batch.iter_mut().zip(bytes.chunks(BLOCK_SIZE)) {
             *count = newline::count(block);
         }
+        utf8.feed(bytes);
     }
-    Ok(())
+    Ok(utf8)
 }
 
 #[cfg(test)]
@@ -133,16 +140,26 @@ mod tests {
 
     #[test]
     fn file_index_equals_bytes_index() {
-        let bytes = sample();
+        let mut bytes = sample();
         let path = std::env::temp_dir().join(format!("remacs-line-index-{}", std::process::id()));
-        std::fs::write(&path, &bytes).unwrap();
-        let file_index = LineIndex::from_file(&File::open(&path).unwrap(), bytes.len()).unwrap();
-        std::fs::remove_file(&path).unwrap();
-
+        let index_file = |bytes: &[u8]| {
+            std::fs::write(&path, bytes).unwrap();
+            LineIndex::from_file(&File::open(&path).unwrap(), bytes.len()).unwrap()
+        };
+        let (file_index, utf8) = index_file(&bytes);
+        assert!(utf8);
         assert_eq!(
             file_index.newlines_before_block,
             LineIndex::from_bytes(&bytes).newlines_before_block
         );
+
+        // "€" across the block a worker starts at, then a Latin-1 "é" after it.
+        let boundary = BLOCK_SIZE * 2;
+        bytes[boundary - 1..boundary + 2].copy_from_slice("€".as_bytes());
+        assert!(index_file(&bytes).1);
+        bytes[boundary + 100] = 0xE9;
+        assert!(!index_file(&bytes).1);
+        std::fs::remove_file(&path).unwrap();
     }
 
     fn memchr_offsets(bytes: &[u8]) -> Vec<usize> {

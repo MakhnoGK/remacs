@@ -2,6 +2,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use crate::add_buffer::AddBuffer;
+use crate::encoding::Format;
 use crate::newline;
 use crate::original::Original;
 use crate::piece::{Piece, SourceKind};
@@ -20,6 +21,10 @@ impl Sources {
             original: Arc::new(original),
             added: AddBuffer::default(),
         }
+    }
+
+    pub fn format(&self) -> Format {
+        self.original.format
     }
 
     pub fn original_piece(&self) -> Option<Piece> {

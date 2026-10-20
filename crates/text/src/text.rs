@@ -1,5 +1,7 @@
+use std::borrow::Cow;
 use std::fs::File;
 use std::io;
+use std::iter;
 use std::mem;
 use std::ops::{Deref, Range};
 use std::path::Path;
@@ -177,8 +179,15 @@ impl Text {
         self.save_as(path)
     }
 
+    /// Writes the text in the format of the file it was loaded from; fails, leaving the
+    /// file as it was, when that can't hold one of its characters.
     pub fn save_as(&mut self, path: impl AsRef<Path>) -> io::Result<()> {
-        let chunks = self.snapshot.chunks(0..self.snapshot.len());
+        let format = self.snapshot.format();
+        let chunks = iter::once(Ok(Cow::Borrowed(format.byte_order_mark()))).chain(
+            self.snapshot
+                .chunks(0..self.snapshot.len())
+                .map(|chunk| format.encode(chunk)),
+        );
         self.disk_file = Some(DiskFile::write(path.as_ref(), chunks)?);
         self.saved = self.snapshot.pieces.clone();
         self.saves += 1;
@@ -220,6 +229,7 @@ impl Default for Text {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{Encoding, Format};
 
     /// xorshift64: deterministic and dependency-free.
     struct Rng(u64);
@@ -400,5 +410,51 @@ mod tests {
         std::fs::write(&path, "changed elsewhere\n").unwrap();
         assert!(text.changed_on_disk().unwrap());
         std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn a_crlf_latin1_file_is_edited_as_utf8_and_saved_as_it_was() {
+        let path = temporary_path("latin1-crlf");
+        std::fs::write(&path, b"caf\xe9\r\nna\xefve\r\n").unwrap();
+        let mut text = Text::open(&path).unwrap();
+        assert_eq!(
+            text.format(),
+            Format {
+                encoding: Encoding::Latin1,
+                crlf: true
+            }
+        );
+        assert_eq!(text.bytes_in(0..text.len()), "café\nnaïve\n".as_bytes());
+
+        text.insert(text.len(), "über\n");
+        text.save().unwrap();
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            b"caf\xe9\r\nna\xefve\r\n\xfcber\r\n"
+        );
+
+        text.insert(0, "Ж");
+        let error = text.save().unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(text.is_modified());
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            b"caf\xe9\r\nna\xefve\r\n\xfcber\r\n"
+        );
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn a_mapped_file_that_is_not_utf8_is_decoded() {
+        let path = temporary_path("mapped-latin1");
+        let mut contents = "line\n".repeat((32 << 20) / 5 + 1).into_bytes();
+        let last = contents.len() - 2;
+        contents[last] = 0xE9;
+        std::fs::write(&path, &contents).unwrap();
+        let text = Text::open(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(text.format().encoding, Encoding::Latin1);
+        assert_eq!(text.len(), contents.len() + 1);
+        assert_eq!(text.bytes_in(text.len() - 3..text.len()), "é\n".as_bytes());
     }
 }

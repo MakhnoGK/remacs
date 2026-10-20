@@ -1,10 +1,11 @@
 use std::ops::Range;
 
+use crate::encoding::Format;
 use crate::piece_tree::PieceTree;
 use crate::source::Sources;
 
 /// An immutable view of a text, cheap to clone and safe to read from any thread.
-/// Offsets are bytes; lines are separated by `\n`.
+/// Offsets are bytes of UTF-8; lines are separated by `\n`.
 #[derive(Clone)]
 pub struct Snapshot {
     pub(crate) sources: Sources,
@@ -18,6 +19,11 @@ impl Snapshot {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// The format of the file the text was loaded from, which saving writes it in.
+    pub fn format(&self) -> Format {
+        self.sources.format()
     }
 
     pub fn line_count(&self) -> usize {

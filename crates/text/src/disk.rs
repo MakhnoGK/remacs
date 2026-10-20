@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::fs::{self, File, Metadata};
 use std::io::{self, BufWriter, Write};
 use std::os::unix::fs::MetadataExt;
@@ -45,7 +46,10 @@ impl DiskFile {
 
     /// Writes a temporary file and renames it over `path`: readers never see a partial
     /// file, and the old inode — possibly still mapped — is never truncated.
-    pub fn write<'a>(path: &Path, chunks: impl Iterator<Item = &'a [u8]>) -> io::Result<Self> {
+    pub fn write<'a>(
+        path: &Path,
+        chunks: impl Iterator<Item = io::Result<Cow<'a, [u8]>>>,
+    ) -> io::Result<Self> {
         let target = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         let temporary = temporary_path(&target);
         let written = write_and_rename(&target, &temporary, chunks);
@@ -62,7 +66,7 @@ impl DiskFile {
 fn write_and_rename<'a>(
     target: &Path,
     temporary: &Path,
-    chunks: impl Iterator<Item = &'a [u8]>,
+    chunks: impl Iterator<Item = io::Result<Cow<'a, [u8]>>>,
 ) -> io::Result<Stamp> {
     let file = File::create(temporary)?;
     if let Ok(metadata) = fs::metadata(target) {
@@ -70,7 +74,7 @@ fn write_and_rename<'a>(
     }
     let mut writer = BufWriter::with_capacity(1 << 20, file);
     for chunk in chunks {
-        writer.write_all(chunk)?;
+        writer.write_all(&chunk?)?;
     }
     let file = writer
         .into_inner()
