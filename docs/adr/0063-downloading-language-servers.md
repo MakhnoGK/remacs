@@ -16,7 +16,11 @@ Status: accepted, 2026-10-14 (issue #10, tier 2 of ADR 0052's plan; the server p
   leak is a few kilobytes a change.
 - **Where a server's program is looked for**: `lsp.toml` `command`, run as it is; the
   project's `node_modules/.bin` for servers that prefer it (linters); `PATH`; then the
-  copy remacs downloaded. A server's own install always wins over a download.
+  copy remacs downloaded. A server's own install always wins over a download, unless
+  it is older than the server's `min-version` (issue #94): TypeScript 5's `tsc` has no
+  `--lsp`, so tsc wants 7. A program found is asked its `--version` once, on a thread of
+  its own, the server waiting meanwhile; `lsp-restart` asks again. With no download
+  yet, the echo area says which program was too old, and the download is offered.
 - **Add-on servers say when they serve** (`when`, any of): `files` in the file's directory
   or above, up to the Git work tree, `*` matching part of a name (`tailwind.config.*`);
   `dependencies` of a `package.json` there, `@scope/*` a whole scope (Tailwind 4's

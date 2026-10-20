@@ -13,6 +13,8 @@
 #               (as `when`; without it, for every project)
 # formats-first formats its files ahead of the language's own server
 # node-modules  the project's own copy in node_modules/.bin comes first
+# min-version   a program found in node_modules or on PATH whose `--version` names an
+#               older major version, or none, is passed over for the downloaded copy
 # install       where it is downloaded from when a project wants it and it is nowhere:
 #               `from = "github"` with `package` (owner/name), `asset`, `tag-prefix`; or
 #               an installer of tools.toml (npm, go, pip, gem, dotnet, cargo, coursier,
@@ -41,11 +43,13 @@ root-markers = ["compile_commands.json", "compile_flags.txt", ".clangd"]
 install = { from = "github", package = "clangd/clangd", asset = "clangd-mac-{tag}.zip", program = "clangd_{version}/bin/clangd" }
 
 # TypeScript 7's own server, native and much leaner than typescript-language-server. A
-# project's own `tsc` is mostly TypeScript 5, which has no `--lsp`.
+# project's own `tsc` is mostly TypeScript 5, which has no `--lsp`, and so may be one on
+# PATH.
 [[servers]]
 name = "tsc"
 command = "tsc"
 args = ["--lsp", "--stdio"]
+min-version = 7
 languages = { TypeScript = "typescript", TSX = "typescriptreact", JavaScript = "javascript", JSX = "javascriptreact" }
 root-markers = ["package.json", "tsconfig.json", "jsconfig.json"]
 pull-diagnostics = true

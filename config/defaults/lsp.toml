@@ -4,10 +4,11 @@
 # `command` and `languages` adds a server, in the same form as the catalog's.
 #
 # A server is looked for in the project's node_modules (linters), then on PATH, then
-# among those remacs downloaded (tools.toml). One a project wants that is nowhere is
-# offered for download, once per project; of a group of alternatives (Python's), you
-# choose one. Edit ▸ Download Language Servers offers them again, the Tools panel (C-c t)
-# downloads any. One remacs cannot download is passed over in silence.
+# among those remacs downloaded (tools.toml); one found older than the server's
+# `min-version` (tsc's 7), as its `--version` says, is passed over. One a project wants
+# that is nowhere is offered for download, once per project; of a group of alternatives
+# (Python's), you choose one. Edit ▸ Download Language Servers offers them again, the
+# Tools panel (C-c t) downloads any. One remacs cannot download is passed over in silence.
 offer-downloads = true
 
 # Whether code of other languages in a file, like CSS and scripts in HTML, goes to their
@@ -26,6 +27,9 @@ signature-help-on-typing = true
 # enabled = true
 # initialization-options = { check = { command = "clippy" } }
 # configuration = {}                 # answered for workspace/configuration
+#
+# [servers.tsc]
+# min-version = 7                    # a tsc found older is passed over; 0 takes any
 #
 # [servers.oxfmt]
 # formats-first = false              # leave formatting to tsc

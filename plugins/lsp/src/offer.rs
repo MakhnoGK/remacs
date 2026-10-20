@@ -208,13 +208,13 @@ fn dialog(project: &str, servers: &[&'static LanguageServer]) -> Dialog {
         [tool] => (
             format!("Download {}?", quote(tool.name)),
             format!(
-                "{project} wants {}, which is not installed. Once downloaded, it serves",
+                "{project} wants {}. Once downloaded, it serves",
                 quote(tool.name)
             ),
         ),
         _ => (
             format!("Download {} language servers?", tools.len()),
-            format!("{project} wants these, which are not installed. Once downloaded, they serve"),
+            format!("{project} wants these. Once downloaded, they serve"),
         ),
     };
     Dialog {

@@ -31,6 +31,7 @@ mod symbol_rename;
 mod symbols;
 mod transport;
 mod uri;
+mod version;
 mod workspace_edit;
 
 use std::path::Path;
@@ -70,6 +71,9 @@ pub struct LanguageServer {
     /// so its version matches the project's; else from that of a package `when` names,
     /// where pnpm puts it.
     pub node_modules: bool,
+    /// The major version a program found in `node_modules` or on `PATH` must have, as its
+    /// `--version` says; an older one is passed over for the downloaded copy. 0: any.
+    pub min_version: u64,
     /// The server runs only for projects where this holds, e.g. a linter's config is
     /// there; empty, for every file.
     pub when: When,
