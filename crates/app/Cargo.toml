@@ -51,6 +51,7 @@ remacs-xref.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
+remacs-text.workspace = true
 toml.workspace = true
 
 [lints]
