@@ -1360,6 +1360,7 @@ impl Editor {
             .iter()
             .position(|buffer| buffer.path() == Some(&path))
         {
+            self.sync_with_disk(index);
             return Ok(index);
         }
         let text = match Text::open(&path) {
@@ -1383,6 +1384,49 @@ impl Editor {
             ));
         }
         Ok(self.push_buffer(buffer))
+    }
+
+    /// Brings the buffers visiting the files `which` picks up to date with them, after
+    /// those changed on disk.
+    pub fn sync_buffers_with_disk(&mut self, which: impl Fn(&Path) -> bool) {
+        for index in 0..self.buffers.len() {
+            if self.buffers[index].path().is_some_and(&which) {
+                self.sync_with_disk(index);
+            }
+        }
+    }
+
+    /// If the buffer's file changed on disk since it was read or saved, reads an unmodified
+    /// buffer again; a modified one keeps its edits, which saving asks before writing over
+    /// the file. A file gone is reported, not read; each is reported once.
+    fn sync_with_disk(&mut self, index: usize) {
+        /// Marks a buffer already reported to be behind its file.
+        struct Reported;
+
+        let buffer = &mut self.buffers[index];
+        if !buffer.text().changed_on_disk().unwrap_or(false) {
+            buffer.remove_local::<Reported>();
+            return;
+        }
+        let message = if !buffer.path().is_some_and(Path::exists) {
+            "its file was deleted".to_owned()
+        } else if buffer.is_modified() {
+            "its file changed on disk; saving asks before writing over it".to_owned()
+        } else {
+            match buffer.revert() {
+                Ok(()) => {
+                    buffer.remove_local::<Reported>();
+                    return;
+                }
+                Err(error) => format!("reading its file again: {error}"),
+            }
+        };
+        if buffer.local::<Reported>().is_some() {
+            return;
+        }
+        buffer.set_local(Reported);
+        let message = format!("{}: {message}", buffer.name());
+        self.set_error(message);
     }
 
     /// Adds `buffer` as the least recent one under a unique name and returns its index.

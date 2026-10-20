@@ -1517,3 +1517,42 @@ fn a_stash_is_dropped_after_asking_or_becomes_a_branch() {
     assert_eq!(repository.git(&["branch", "--show-current"]), "rescued\n");
     assert_eq!(stash_list(&repository), "");
 }
+
+#[test]
+fn open_buffers_follow_discards_and_branch_switches_without_auto_revert() {
+    let repository = Repository::new("follow");
+    repository.git(&["switch", "-q", "-c", "other"]);
+    commit(&repository, "kept.rs", "kept on other\n", "Other");
+    repository.git(&["switch", "-q", "main"]);
+    repository.write("lib.rs", "changed\n");
+    let mut editor = editor();
+    let settings = [(
+        PathBuf::from("files.toml"),
+        "auto-revert = false\n".to_owned(),
+    )];
+    editor.set_settings(Settings::from_files(settings));
+    editor.visit_file(&repository.0.join("kept.rs")).unwrap();
+    editor.visit_file(&repository.0.join("lib.rs")).unwrap();
+    editor.run_command("git-status");
+    wait_until(&mut editor, "the change", |editor| {
+        rows(editor).contains(&"M ./lib.rs +1 -1".to_owned())
+    });
+    let contents = |editor: &Editor, name: &str| {
+        let buffer = editor.buffers().iter().find(|buffer| buffer.name() == name);
+        let buffer = buffer.unwrap();
+        buffer.contents(0..buffer.text().len())
+    };
+
+    go_to_row(&mut editor, "M ./lib.rs +1 -1");
+    press(&mut editor, "k y");
+    wait_until(&mut editor, "lib.rs read again", |editor| {
+        contents(editor, "lib.rs") == "one\n"
+    });
+
+    press(&mut editor, "b");
+    type_text(&mut editor, "other");
+    press(&mut editor, "RET");
+    wait_until(&mut editor, "kept.rs read again", |editor| {
+        contents(editor, "kept.rs") == "kept on other\n"
+    });
+}

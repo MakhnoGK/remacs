@@ -18,7 +18,7 @@ pub fn save_buffer(editor: &mut Editor) -> CommandResult {
         return Ok(());
     }
     let name = buffer.name().to_owned();
-    save(editor, &name)
+    save_unless_superseded(editor, name, |_| Ok(()))
 }
 
 /// Saves the buffer under a new file name and visits that file from then on; a directory
@@ -129,9 +129,47 @@ fn offer_to_save(
         .map_or_else(|| name.clone(), |path| path.display().to_string());
     editor.ask_y_or_n(format!("Save file {path}?"), move |editor, yes| {
         if yes {
-            save(editor, &name)?;
+            return save_unless_superseded(editor, name, |editor| {
+                offer_to_save(editor, names, then)
+            });
         }
         offer_to_save(editor, names, then)
+    })
+}
+
+/// Saves, first asking if the file changed on disk or went away since it was read or
+/// saved, then continues with `then`.
+fn save_unless_superseded(
+    editor: &mut Editor,
+    name: String,
+    then: impl FnOnce(&mut Editor) -> CommandResult + 'static,
+) -> CommandResult {
+    let buffer = editor
+        .buffers()
+        .iter()
+        .find(|buffer| buffer.name() == name)
+        .ok_or_else(|| format!("No buffer named {name}"))?;
+    let path = buffer.path().ok_or("The buffer visits no file")?;
+    let text = buffer.text();
+    // A text never read nor saved was for a new file, which someone may have made since.
+    let superseded = match text.path() {
+        Some(_) => text.changed_on_disk().unwrap_or(false),
+        None => path.exists(),
+    };
+    if !superseded {
+        save(editor, &name)?;
+        return then(editor);
+    }
+    let question = if path.exists() {
+        format!("{} changed on disk; save over it?", abbreviate_home(path))
+    } else {
+        format!("{} was deleted; save it again?", abbreviate_home(path))
+    };
+    editor.ask_y_or_n(question, move |editor, yes| {
+        if yes {
+            save(editor, &name)?;
+        }
+        then(editor)
     })
 }
 

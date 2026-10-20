@@ -22,6 +22,8 @@ pub struct FilesSettings {
     pub use_gitignore: bool,
     /// `kill-buffer` asks which buffer to kill; off, it kills the current one.
     pub kill_buffer_prompt: bool,
+    /// An unmodified buffer reads its file again when another program changes it.
+    pub auto_revert: bool,
 }
 
 /// Left out whatever the settings say.
@@ -41,6 +43,7 @@ impl Default for FilesSettings {
             ignore: ignore.map(str::to_owned).to_vec(),
             use_gitignore: false,
             kill_buffer_prompt: true,
+            auto_revert: true,
         }
     }
 }

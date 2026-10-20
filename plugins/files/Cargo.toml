@@ -22,5 +22,9 @@ remacs-minibuffer.workspace = true
 name = "find_file"
 harness = false
 
+[[bench]]
+name = "auto_revert"
+harness = false
+
 [lints]
 workspace = true
