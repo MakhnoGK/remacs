@@ -338,6 +338,32 @@ mod tests {
     }
 
     #[test]
+    fn only_regular_files_open_and_others_are_refused_without_blocking() {
+        let directory =
+            std::env::temp_dir().join(format!("remacs-file-types-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let fifo = directory.join("pipe");
+        let fifo_name = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: a valid NUL-terminated path.
+        assert_eq!(unsafe { libc::mkfifo(fifo_name.as_ptr(), 0o600) }, 0);
+        let file = directory.join("file.txt");
+        std::fs::write(&file, "text").unwrap();
+        let link = directory.join("link.txt");
+        std::os::unix::fs::symlink(&file, &link).unwrap();
+
+        let mut editor = Editor::new(&[]);
+        for refused in [fifo.as_path(), Path::new("/dev/zero"), Path::new("/dev/null")] {
+            let error = editor.visit_file(refused).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::InvalidInput, "{refused:?}");
+            assert!(error.to_string().ends_with("is not a regular file"));
+        }
+        assert_eq!(editor.buffers().len(), 1);
+        editor.visit_file(&link).unwrap();
+        assert_eq!(editor.window_buffer().contents(0..4), "text");
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
     fn buffers_follow_their_files_when_moved() {
         let mut editor = Editor::new(&[]);
         let file = |path: &str| {

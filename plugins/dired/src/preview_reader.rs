@@ -1,4 +1,4 @@
-use std::fs::{self, File};
+use std::fs;
 use std::io::{self, Read};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
@@ -6,6 +6,7 @@ use std::thread;
 use std::time::SystemTime;
 
 use remacs_core::Notifier;
+use remacs_text::open_regular_file;
 
 use crate::entry::compare_names;
 
@@ -151,7 +152,7 @@ fn read_items(request: &PreviewRequest) -> io::Result<Body> {
 
 fn read_head(request: &PreviewRequest) -> io::Result<Body> {
     let mut head = Vec::with_capacity(HEAD_BYTES);
-    File::open(&request.path)?
+    open_regular_file(&request.path)?
         .take(HEAD_BYTES as u64)
         .read_to_end(&mut head)?;
     if memchr::memchr(0, &head).is_some() {
@@ -203,7 +204,7 @@ fn push_display(line: &str, out: &mut String) {
 
 /// Lines of the file, counted a chunk at a time so a newer request can cut it short.
 fn count_lines(request: &PreviewRequest, requests: &Receiver<PreviewRequest>) -> LineCount {
-    let Ok(mut file) = File::open(&request.path) else {
+    let Ok(mut file) = open_regular_file(&request.path) else {
         return LineCount::Failed;
     };
     let mut chunk = vec![0; COUNT_CHUNK_BYTES];

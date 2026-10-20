@@ -2,7 +2,6 @@
 //! they are found.
 
 use std::collections::{BTreeMap, HashSet};
-use std::fs::File;
 use std::io::{self, Read};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -14,7 +13,7 @@ use std::time::{Duration, Instant};
 use memchr::{memchr, memchr_iter};
 use memmap2::Mmap;
 use remacs_core::Notifier;
-use remacs_text::Snapshot;
+use remacs_text::{Snapshot, open_regular_file};
 
 use crate::words::Words;
 
@@ -234,7 +233,7 @@ fn hit(words: &Words, line: usize, text: &str) -> Hit {
 
 /// Reads a smaller file into `buffer`, replacing what it held; maps a larger one.
 fn read(path: &Path, buffer: &mut Vec<u8>) -> io::Result<Option<Mmap>> {
-    let mut file = File::open(path)?;
+    let mut file = open_regular_file(path)?;
     if file.metadata()?.len() < MAP_THRESHOLD {
         buffer.clear();
         file.read_to_end(buffer)?;
