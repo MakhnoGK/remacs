@@ -1,0 +1,13 @@
+# The environment remacs and the programs it starts (language servers, cargo, git,
+# terminals) see. Read at startup.
+#
+# Started from Finder or the Dock, an app gets the short PATH macOS gives apps; remacs
+# then takes the environment your login shell ($SHELL -l -i) sets up, as a terminal has it.
+# "auto": unless started from a terminal, whose environment it already has; "always"; "never".
+from-login-shell = "auto"
+# The shell whose environment is taken, a path or a name; "" is your account's login
+# shell. Set it when your terminal runs another one, so remacs finds the same programs;
+# terminals then run it too.
+shell = ""
+# Milliseconds the shell may take to start; past it remacs keeps the environment it has.
+timeout = 5000

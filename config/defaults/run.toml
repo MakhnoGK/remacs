@@ -1,0 +1,68 @@
+# How programs run. Changes apply as soon as the file is saved.
+#
+# The run configurations themselves live in ~/.config/remacs/run/, one file per project;
+# running an entry point (the ▶ beside it) for the first time adds one there.
+
+# Lines a console keeps; older ones are dropped: 100 to 1000000.
+console-lines = 10000
+
+# Reads of a program's output (64 KB each) waiting for a busy window; the program waits
+# once there are this many, and the window takes at most this many at once: 1 to 1024.
+# Debugging uses it too, for a build's output and a debug adapter's messages.
+output-backlog = 16
+
+# Milliseconds a program has to end after Stop asks it to (SIGTERM) before it is killed
+# (SIGKILL), with everything it started: 0 to 60000.
+stop-timeout = 2000
+
+# Milliseconds of quiet after an edit before a file's entry points are found again:
+# 0 to 5000.
+entry-point-delay = 300
+
+# What runs TypeScript files: "auto" is Node when it can strip types itself (22.6 and
+# later), else tsx from node_modules; "node" or "tsx" always that one.
+typescript = "auto"
+
+# Set for every program run, so that it prints colors though not to a terminal. A table
+# here replaces this whole one.
+[env]
+CARGO_TERM_COLOR = "always"
+CLICOLOR_FORCE = "1"
+FORCE_COLOR = "1"
+
+# compile (⌘F9), as in Emacs: a shell command run from the project root, its output in
+# the project's *compile* console; M-g M-n and M-g M-p visit its file:line locations.
+# Run configurations of kind = "shell" run on the same shell.
+[compile]
+# The shell given the command with -c: a path or a name on PATH; "" is $SHELL.
+shell = ""
+# Commands remembered for each project, newest first: 1 to 1000.
+history = 50
+
+# Offered in a project that has compiled nothing yet: the command of the first whose
+# file is at the project root, containing `contains` if given. Entries here replace this
+# whole list.
+[[compile.defaults]]
+file = "Cargo.toml"
+command = "cargo build"
+
+[[compile.defaults]]
+file = "package.json"
+contains = '"vite-plus"'
+command = "vp check"
+
+[[compile.defaults]]
+file = "package.json"
+command = "npm run build"
+
+[[compile.defaults]]
+file = "go.mod"
+command = "go build ./..."
+
+[[compile.defaults]]
+file = "CMakeLists.txt"
+command = "cmake --build build"
+
+[[compile.defaults]]
+file = "Makefile"
+command = "make -k"

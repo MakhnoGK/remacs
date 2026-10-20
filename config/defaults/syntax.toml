@@ -1,0 +1,10 @@
+# Parsing and highlighting code. Changes apply as soon as the file is saved.
+
+# Whether the bracket at point, or the tag point is on (HTML, XML, JSX), is highlighted
+# with the one it pairs with.
+matching-pairs = true
+
+# Whether code of other languages in a file, like CSS in HTML's <style> and scripts in
+# <script>, is parsed as its own language: highlighted, commented, paired and formatted as
+# such, and sent to its servers. Off, it is the file's language throughout.
+embedded-languages = true

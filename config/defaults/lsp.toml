@@ -1,0 +1,49 @@
+# Language servers: changes to the built-in ones, by name, and servers of your own. The
+# built-in catalog is plugins/languages/servers.toml in the remacs sources; an entry here
+# changes only what it names, and a server that changes restarts. A new name with a
+# `command` and `languages` adds a server, in the same form as the catalog's.
+#
+# A server is looked for in the project's node_modules (linters), then on PATH, then
+# among those remacs downloaded (tools.toml). One a project wants that is nowhere is
+# offered for download, once per project; of a group of alternatives (Python's), you
+# choose one. Edit ▸ Download Language Servers offers them again, the Tools panel (C-c t)
+# downloads any. One remacs cannot download is passed over in silence.
+offer-downloads = true
+
+# Whether code of other languages in a file, like CSS and scripts in HTML, goes to their
+# servers too: completed, checked, explained and formatted by them. Off, the file's server
+# alone has it, and the HTML server still leaves checking it to theirs.
+embedded-code = true
+
+# Whether typing a call's `(`, or what else its server starts arguments with, shows the
+# call's signature above the line, the parameter being typed in bold; it follows the call
+# until point leaves it. Off, ⌘P (signature-help) shows it, and again the next overload.
+signature-help-on-typing = true
+
+# [servers.rust-analyzer]
+# command = "~/bin/rust-analyzer"    # a path, or a name looked up on PATH, run as it is
+# args = []
+# enabled = true
+# initialization-options = { check = { command = "clippy" } }
+# configuration = {}                 # answered for workspace/configuration
+#
+# [servers.oxfmt]
+# formats-first = false              # leave formatting to tsc
+# env = { VP_VERSION = "1" }         # added to its environment where env-when holds
+# env-when = { dependencies = ["vite-plus"] }
+#
+# [servers.eslint]
+# enabled = false
+#
+# [servers.harper-ls]                # off until turned on, like emmet
+# enabled = true
+#
+# [servers.tailwindcss]              # a Tailwind 4 project without a package.json
+# when = { files = ["src/app.css"] }
+# configuration = { classFunctions = ["cn", "clsx", "tv"] }   # whose strings hold classes
+#
+# [servers.jedi]                     # a server of your own, one more Python choice
+# command = "jedi-language-server"
+# languages = { Python = "python" }
+# group = "python"
+# install = { from = "pip", package = "jedi-language-server" }

@@ -100,6 +100,11 @@ mod tests {
     }
 
     #[test]
+    fn the_default_file_reads_as_the_defaults() {
+        remacs_config::assert_default_file::<LspSettings>();
+    }
+
+    #[test]
     fn unknown_keys_are_rejected() {
         assert!(parse("[servers.clangd]\ncomand = \"clangd\"\n").is_err());
         assert!(parse("[server.clangd]\n").is_err());

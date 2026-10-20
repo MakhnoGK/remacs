@@ -1,0 +1,19 @@
+# Debugging run configurations. Changes apply as soon as the file is saved.
+#
+# Breakpoints are kept in ~/.config/remacs/state/breakpoints.json; the debug adapters
+# (codelldb, js-debug) are downloaded on first use, see tools.toml.
+
+# Pixels the pane of frames, variables and watches takes under the text: 160 to 1200.
+pane-height = 404
+
+# Lines above the paused one whose variables show their values after them, as IntelliJ's
+# inline values do; 0 shows none: 0 to 500.
+inline-value-lines = 40
+
+# Characters of a value shown after a line; longer ones are cut: 10 to 1000.
+inline-value-length = 60
+
+# Set for every program debugged, under run.toml's and the configuration's own. A table
+# here replaces this whole one.
+[env]
+MTL_HUD_ENABLED = "0"   # keeps Metal's performance HUD from showing

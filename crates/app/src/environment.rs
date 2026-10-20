@@ -155,3 +155,11 @@ fn run_shell(shell: &str, timeout: Duration) -> Result<String, String> {
         RecvTimeoutError::Disconnected => format!("{shell} printed no environment"),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_default_file_reads_as_the_defaults() {
+        remacs_config::assert_default_file::<super::EnvironmentSettings>();
+    }
+}

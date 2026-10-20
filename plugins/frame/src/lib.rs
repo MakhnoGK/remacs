@@ -1,5 +1,6 @@
 //! Built-in plugin: the application and its window, like Emacs frames, and their menus.
 
+mod default_settings;
 mod theme;
 
 use remacs_config::{config_dir, home};
@@ -13,6 +14,7 @@ pub struct FramePlugin;
 
 const ABOUT: &str = "about-remacs";
 const OPEN_SETTINGS: &str = "open-settings";
+const WRITE_DEFAULT_SETTINGS: &str = "write-default-settings";
 const SELECT_THEME: &str = "select-theme";
 const HIDE: &str = "hide-remacs";
 const HIDE_OTHERS: &str = "hide-others";
@@ -31,6 +33,7 @@ const VIEW_MENU: &str = "View";
 const COMMANDS: &[Command] = &[
     Command::new(ABOUT, "Show the version of remacs", |editor| request(editor, FrameRequest::About)),
     Command::new(OPEN_SETTINGS, "List the settings files", open_settings),
+    Command::new(WRITE_DEFAULT_SETTINGS, "Write a settings file of the defaults, each one explained, to change", default_settings::write_default_settings),
     Command::new(SELECT_THEME, "Choose the theme, kept in ui.toml", theme::select_theme),
     Command::new(HIDE, "Hide remacs", |editor| request(editor, FrameRequest::Hide)),
     Command::new(HIDE_OTHERS, "Hide the other applications", |editor| request(editor, FrameRequest::HideOthers)),
@@ -73,6 +76,7 @@ const MENUS: &[Menu] = &[
 const MENU_ITEMS: &[MenuItem] = &[
     MenuItem::new(APP_MENU, "about", "About Remacs", ABOUT),
     MenuItem::new(APP_MENU, "settings", "Settings…", OPEN_SETTINGS),
+    MenuItem::new(APP_MENU, "settings", "Default Settings File…", WRITE_DEFAULT_SETTINGS),
     MenuItem::new(APP_MENU, "hide", "Hide Remacs", HIDE),
     MenuItem::new(APP_MENU, "hide", "Hide Others", HIDE_OTHERS),
     MenuItem::new(APP_MENU, "hide", "Show All", SHOW_ALL),

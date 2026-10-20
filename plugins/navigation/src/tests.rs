@@ -4,6 +4,11 @@ use remacs_text::Text;
 
 use crate::{NavigationPlugin, NavigationSettings};
 
+#[test]
+fn the_default_file_reads_as_the_defaults() {
+    remacs_core::assert_default_file::<NavigationSettings>();
+}
+
 fn editor_with(text: &str) -> Editor {
     let mut editor = Editor::new(&[&EditingPlugin, &NavigationPlugin]);
     editor.add_buffer(Buffer::new("test", Text::from(text), "Fundamental"));

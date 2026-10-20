@@ -1,0 +1,27 @@
+# Programs remacs downloads when they are first wanted. Debug adapters, on the first
+# debug: codelldb (Rust, C, C++) and js-debug (JavaScript, TypeScript). Language servers,
+# when a project wants one that is nowhere and you agree (lsp.toml). They come from
+# GitHub releases, checked against the release's checksum, or from an installer below.
+# All are kept in ~/.config/remacs/cache/tools/. C-c t shows them. Changes apply once
+# the file is saved.
+
+# Look for newer releases of the tools installed when the Tools panel opens.
+check-updates = true
+
+# A tool's release instead of the latest, or a program of one's own instead of a download:
+#
+# [tools.codelldb]
+# version = "1.12.3"
+#
+# [tools.js-debug]
+# path = "~/src/vscode-js-debug/dist/src/dapDebugServer.js"
+
+# Installers: npm, go, pip, gem, dotnet, cargo, coursier and url are built in
+# (plugins/tools/installers.toml). One here changes a built-in one or adds one, for
+# servers' `install = { from = "<name>", package = "…" }`. In commands and paths: {dir}
+# is the version's directory, {package}, {version}, {program} the tool's.
+#
+# [installers.luarocks]
+# needs = ["luarocks"]
+# install = [["luarocks", "install", "--tree", "{dir}", "{package}"]]
+# program = "bin/{program}"

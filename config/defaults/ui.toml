@@ -1,0 +1,188 @@
+# How remacs looks. Changes apply as soon as the file is saved.
+
+[theme]
+# The colors of everything: "modus-vivendi" (dark), "mac-classic" (light, TextMate's), or
+# a file <name>.toml of yours in ~/.config/remacs/themes. A theme file sets only what it
+# changes; the rest comes from `inherits = "<theme>"`, else from the built-in theme of its
+# `appearance` ("light" or "dark"). M-x select-theme (View > Theme…) writes this line.
+name = "modus-vivendi"
+
+[font]
+# The font of code, everywhere monospace text is shown.
+family = "Monaco"
+
+# Of the text in buffers: 6 to 72.
+size = 13
+
+# Times the size, 1.0 to 3.0; rows are rounded to whole pixels.
+line-height = 1.7
+
+# Of the face: "thin", "extra-light", "light", "regular", "medium", "semibold", "bold",
+# "extra-bold", "black", or 100 to 900. Bold text takes a face as much heavier; a weight
+# the family lacks takes its nearest face.
+weight = "regular"
+
+# "thick" draws glyphs slightly bolder, "thin" as the font's outlines are.
+strokes = "thick"
+
+# Whether the font may join characters into one glyph, e.g. => into an arrow, if it has
+# such ligatures.
+ligatures = true
+
+[ui-font]
+# The font of the interface's own text: the mode line, menus, popups' prose, chips.
+# Code, terminals and tables keep the [font] family.
+family = "SF Pro Text"
+
+# Of the interface's text, 10 to 16; status, small and input text follow it, rows keep
+# their heights.
+size = 13
+
+# As [font] weight; bold and medium text take a face as much heavier. With [font]'s
+# family, it takes [font]'s weight.
+weight = "regular"
+
+[zoom]
+# ⌘= or ⌘+ makes the text in buffers larger, ⌘- smaller, ⌘0 gives it [font] size back;
+# so does ⌘ with the wheel or the trackpad, up larger. Prompts, popups, the pane,
+# terminals and the bottom row keep [font] size. Keys are in keys.toml.
+
+# Points each step changes the size by: 0.5 to 8.
+step = 1
+
+# The smallest and largest size steps reach: 6 to 72.
+min-size = 8
+max-size = 36
+
+# Pixels a trackpad or a smooth-scrolling mouse moves with ⌘ held for each step: 10 to
+# 1000. A notch of a plain wheel is one step.
+wheel-step = 100
+
+[glass]
+# Of the window's tint, the theme's background, over the desktop: 0.0 (the desktop as it
+# is) to 1.0 (opaque). Left out, the theme's own: 0.8 for modus-vivendi, 0.92 for
+# mac-classic, whose light tint lets a dark desktop through as gray.
+# At 1.0 the window is opaque: the desktop is neither drawn nor blurred behind it.
+# opacity = 0.8
+
+# Pixels the desktop behind the window is blurred by: 0 (sharp) to 64; 0 also stops
+# prompts, popups and the pill from blurring the editor under them.
+blur = 60
+
+[cursor]
+# "line": the whole row; "font": the font's height, centered in the row.
+height = "line"
+# Pixels the block's corners are rounded by, in text, tables, prompts and terminals: 0 to 4.
+radius = 1
+
+[mouse]
+# Milliseconds between lines scrolled while a selection is dragged past the text's
+# top or bottom: 5 to 1000.
+drag-scroll-interval = 40
+
+[scroll]
+# Milliseconds text, tables and outlines take to glide where a command or a mouse wheel
+# notch scrolled them, up or down and sideways: 0 to 1000; 0 jumps at once. Trackpads
+# always move the content under the fingers.
+animation-duration = 150
+
+# Lines or table rows a mouse wheel notch scrolls, or as many lines' worth sideways: 1 to
+# 20. Notches faster than the glide add up into one.
+lines-per-notch = 3
+
+[echo]
+# Lines of a message opened whole from its pill at the bottom left; longer ones scroll:
+# 3 to 40.
+lines = 12
+
+# Messages kept in *Messages* (C-h e): 10 to 100000.
+history = 1000
+
+# Milliseconds an info or done message stays at the bottom left before it fades out, as
+# popups do in [transitions]: 0 to 60000; 0 keeps it until the next key. Errors stay
+# until the next key, and a message opened whole until it is closed.
+hide-after = 4000
+
+[hints]
+# Whether the keys of the view are shown under it, centered on the window.
+show = true
+
+# Pixels kept free on each side of the keys, for the message and the status: 0 to 800.
+# Keys that do not fit between go under a +N chip; C-h k lists them.
+side-room = 280
+
+[prefix-keys]
+# Whether the keys that may follow a prefix like C-x are listed above the bottom row.
+show = true
+
+# Milliseconds after the prefix before they are: 0 to 5000.
+delay = 600
+
+# Columns they are listed in: 1 to 8.
+columns = 4
+
+[documentation]
+# Pixels the documentation of a symbol, alone (C-h .) or beside completions, grows wide
+# with its code before the code wraps after commas and before arrows: 240 to 2000. Code
+# with nowhere to break scrolls sideways.
+max-width = 760
+
+# Pixels it grows tall before it scrolls: 120 to 2000.
+max-height = 480
+
+[problems]
+# Pixels the problems at the cursor grow wide before their messages wrap: 240 to 2000.
+# They show above the line, or below it when they fit only there or it has more room.
+max-width = 560
+
+# Pixels they grow tall before they scroll: 120 to 2000.
+max-height = 360
+
+[diff]
+# Pixels of the column beside a diff shown as text, like a commit's facts, message and
+# files: 240 to 900. A window too narrow for both shows only the diff.
+side-width = 480
+
+# Percent of opacity of the bands behind added and removed lines: 0 to 60.
+band-opacity = 15
+
+[prompts]
+# Pixels of text kept in view on each side of the cursor as a long input in a prompt
+# (C-s, C-x C-f, M-x…) scrolls sideways: 0 to 400. At the end of the input, the text
+# before the cursor fills the field.
+input-margin = 64
+
+# Where a prompt that acts in a directory (C-x C-f, M-x compile, project search, a new
+# folder in a listing) shows it, outside its input: "above" or "below" it. The theme's
+# fg-prompt-directory colors it.
+directory = "above"
+
+[swatches]
+# Colors that text names, as language servers find them: Tailwind's classes like
+# bg-red-500 or text-[#1e90ff], CSS's #1e90ff or rgb(…).
+
+# Whether such text is underlined in its color.
+inline = true
+
+# Pixels thick that line: 1 to 6.
+thickness = 3
+
+# Whether completions naming a color show it in place of their kind.
+completion = true
+
+[transitions]
+# Milliseconds the pane under the text (terminal, debugger), prompts and popups take to
+# fade in and out: 0 to 250; 0 shows and hides them at once. Popups are those by the text
+# (completions, documentation, problems) and the cards over the bottom row (the keys after
+# a prefix, the keys that do not fit, a message whole). Keys and clicks act at once all
+# the same.
+pane-duration = 120
+prompt-duration = 110
+popup-duration = 100
+
+# Pixels each slides by as it fades: 0 to 32; 0 only fades. The pane rises from below,
+# prompts and popups by the text come down from above, the problem list and the cards
+# rise from the bottom row.
+pane-slide = 16
+prompt-slide = 8
+popup-slide = 4

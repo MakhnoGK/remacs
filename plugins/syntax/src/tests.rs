@@ -7,6 +7,11 @@ use remacs_text::Text;
 
 use super::*;
 
+#[test]
+fn the_default_file_reads_as_the_defaults() {
+    remacs_core::assert_default_file::<SyntaxSettings>();
+}
+
 const GRAMMARS: &[Grammar] = &[
     Grammar {
         mode: "Rust",

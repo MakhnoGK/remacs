@@ -1,0 +1,5 @@
+# Editing. Changes apply as soon as the file is saved.
+
+# Cursors a buffer has at most, point included (C->, C-c C-<, C-S-c C-S-c, C-;): each edit
+# moves every cursor after it, so a key costs about 7 ms at 1000 and 0.8 s at 10000.
+max-cursors = 1000

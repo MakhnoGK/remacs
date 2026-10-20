@@ -1,0 +1,12 @@
+# The Git status and history. Changes apply as soon as the file is saved.
+
+# Untracked files larger than this, in bytes, are summarized instead of shown as added
+# lines when unfolded.
+untracked-max-bytes = 1048576
+
+# Files an unfolded untracked directory lists at most; the rest are counted.
+untracked-max-files = 500
+
+# A commit's diffs kept at most, in bytes; a file whose diff does not fit what is left
+# shows its size instead.
+commit-max-bytes = 8388608

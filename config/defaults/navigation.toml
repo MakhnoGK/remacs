@@ -1,0 +1,17 @@
+# Moving around: back and forward through where point was, and jumping to text on screen
+# by label (avy). Changes apply as soon as the file is saved.
+
+# Places navigate-back (⌘[, C-x C-SPC) keeps at most.
+history-size = 100
+
+# Lines point has to move across within a buffer for the move to count as a jump that
+# navigate-back comes back from; moving to another buffer always counts. Paging does not.
+jump-lines = 10
+
+# The characters avy's labels are made of, the first ones on the places nearest point:
+# two or more, each once.
+avy-keys = "asdfghjkl"
+
+# Milliseconds of quiet after the last character typed for avy-goto-char-timer (M-j)
+# before its matches get labels; RET labels them at once: 0 to 5000.
+avy-timeout = 500

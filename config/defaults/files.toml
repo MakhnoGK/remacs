@@ -1,0 +1,14 @@
+# What find-file and project-search leave out, and how buffers are killed. Changes apply
+# as soon as the file is saved.
+
+# Files and folders, in .gitignore syntax: "name/" a folder anywhere, "/name" only at the
+# project's root, "*.min.js" a glob. .git/ is always left out.
+ignore = ["node_modules/", "target/", "dist/", "build/", ".next/", ".DS_Store"]
+
+# Also leave out what the project's .gitignore files do; off, so .env and the like are
+# found.
+use-gitignore = false
+
+# C-x k asks which buffer to kill; off, it kills the current one at once (still asking
+# first if it has unsaved changes).
+kill-buffer-prompt = true

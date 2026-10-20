@@ -11,6 +11,11 @@ use crate::{Failure, FormatPlugin, Request, deliver, edits, take_requests};
 const UGLY: &str = "fn main(){\n    call(a,b);\n}\n";
 const PRETTY: &str = "fn main() {\n    call(a, b);\n}\n";
 
+#[test]
+fn the_default_file_reads_as_the_defaults() {
+    remacs_core::assert_default_file::<crate::FormatSettings>();
+}
+
 fn editor() -> Editor {
     let mut editor = Editor::new(&[&EditingPlugin, &FormatPlugin]);
     let path = PathBuf::from("/project/main.rs");

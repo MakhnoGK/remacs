@@ -8,7 +8,7 @@ use crate::keymap::Keymap;
 
 /// `keys.toml`: key sequences in Emacs notation bound to commands over the built-in
 /// bindings, e.g. `"C-r" = "run"`; an empty command unbinds the keys.
-#[derive(Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct KeysSettings {
     bindings: BTreeMap<String, String>,
@@ -52,6 +52,11 @@ mod tests {
             Binding::Command(command) => Some(command),
             _ => None,
         }
+    }
+
+    #[test]
+    fn the_default_file_reads_as_the_defaults() {
+        remacs_config::assert_default_file::<KeysSettings>();
     }
 
     #[test]
