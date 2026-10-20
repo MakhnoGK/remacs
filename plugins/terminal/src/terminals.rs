@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use remacs_core::{Buffer, Editor, Key};
+use remacs_core::{Buffer, Editor, Key, TabState};
 use remacs_files::{default_directory, project_root};
 use remacs_text::Text;
 
@@ -53,6 +53,20 @@ pub fn all(editor: &Editor) -> Vec<&Terminal> {
         .collect();
     all.sort_by_key(|terminal| terminal.id);
     all
+}
+
+/// The buffers of terminals running more than their shell.
+pub fn running(editor: &Editor) -> Vec<String> {
+    editor
+        .buffers()
+        .iter()
+        .filter(|buffer| {
+            buffer
+                .local::<Terminal>()
+                .is_some_and(|terminal| terminal.tab_state() == TabState::Running)
+        })
+        .map(|buffer| buffer.name().to_owned())
+        .collect()
 }
 
 pub fn find(editor: &Editor, id: u64) -> Option<&Terminal> {

@@ -168,6 +168,35 @@ fn a_terminal_moves_between_the_panel_and_the_window() {
     assert_eq!(editor.pane().and_then(|pane| pane.count), Some(2));
 }
 
+/// Refreshes until quitting would, or would not, end what the terminal runs.
+fn wait_for_running(editor: &mut Editor, running: bool) {
+    let start = Instant::now();
+    while editor.running_programs().is_empty() == running {
+        assert!(
+            start.elapsed() < WAIT,
+            "gave up waiting for running = {running}"
+        );
+        editor.refresh();
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn quitting_asks_only_while_a_terminal_runs_more_than_its_shell() {
+    let mut editor = editor(SH);
+    press(&mut editor, "C-`");
+    wait_for(&mut editor, "the prompt", |screen| screen.notice.is_none());
+    assert_eq!(editor.running_programs(), Vec::<String>::new());
+
+    type_text(&mut editor, "sleep 30\n");
+    wait_for_running(&mut editor, true);
+    let name = terminals::buffer_name(&editor, in_panel(&editor).unwrap()).unwrap();
+    assert_eq!(editor.running_programs(), [name]);
+
+    press(&mut editor, "C-c");
+    wait_for_running(&mut editor, false);
+}
+
 #[test]
 fn an_ended_shell_restarts_or_closes() {
     let mut editor = editor(SH);

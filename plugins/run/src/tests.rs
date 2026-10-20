@@ -645,12 +645,16 @@ fn a_running_program_reads_input_and_stops_when_asked() {
         press(&mut editor, key);
     }
     wait_until(&mut editor, |editor| contents(editor).contains("got hi"));
+    // Quitting asks about it while it runs.
+    let console = editor.window_buffer().name().to_owned();
+    assert_eq!(editor.running_programs(), [console]);
     press(&mut editor, "s-<f2>");
     wait_until(&mut editor, |editor| {
         contents(editor).ends_with("Process stopped\n")
     });
     let id = of_window(&editor).unwrap();
     assert_eq!(sessions::get(&editor, id).unwrap().state, State::Stopped);
+    assert_eq!(editor.running_programs(), Vec::<String>::new());
     fs::remove_dir_all(home).unwrap();
 }
 

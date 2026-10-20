@@ -1788,6 +1788,16 @@ impl App {
         subscription
     }
 
+    /// Register a callback asked before the application quits, by [`App::quit`], the Dock
+    /// or a logout; returning false keeps it running. Only the last one registered is asked.
+    pub fn on_should_quit(&self, mut should_quit: impl FnMut(&mut App) -> bool + 'static) {
+        let this = self.this.clone();
+        self.platform.on_should_quit(Box::new(move || {
+            this.upgrade()
+                .is_none_or(|app| should_quit(&mut app.borrow_mut()))
+        }));
+    }
+
     /// Register a callback to be invoked when the application is about to restart.
     ///
     /// These callbacks are called before any `on_app_quit` callbacks.

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
-use remacs_core::{Editor, Key, SCRATCH_BUFFER, Settings, parse_sequence};
+use remacs_core::{Editor, Key, Plugin, Registry, SCRATCH_BUFFER, Settings, parse_sequence};
 use remacs_editing::EditingPlugin;
 use remacs_minibuffer::MinibufferPlugin;
 
@@ -399,4 +399,47 @@ fn quitting_offers_to_save_each_modified_file() {
         fs::read_to_string(project.path("Cargo.toml")).unwrap(),
         "#[package]\n"
     );
+}
+
+/// A terminal running something other than its shell.
+struct RunningPlugin;
+
+impl Plugin for RunningPlugin {
+    fn register(&self, registry: &mut Registry) {
+        registry
+            .quit_queries
+            .push(|_| vec!["*term: vim*".to_owned()]);
+    }
+}
+
+#[test]
+fn quitting_with_nothing_to_lose_asks_nothing() {
+    let mut editor = Editor::new(&[&EditingPlugin, &MinibufferPlugin, &FilesPlugin]);
+    press(&mut editor, "s-q");
+    assert!(editor.minibuffer().is_none());
+    assert!(editor.quit_requested());
+}
+
+#[test]
+fn quitting_asks_before_ending_running_programs() {
+    let project = Project::new("quit-running");
+    let mut editor = Editor::new(&[
+        &EditingPlugin,
+        &MinibufferPlugin,
+        &FilesPlugin,
+        &RunningPlugin,
+    ]);
+    editor.visit_file(&project.path("Cargo.toml")).unwrap();
+    type_text(&mut editor, "#");
+    let question = "Programs run in *term: vim*; kill them and exit anyway? (y or n)";
+
+    press(&mut editor, "C-x C-c n y");
+    assert_eq!(editor.minibuffer().unwrap().prompt().label, question);
+    press(&mut editor, "n");
+    assert!(!editor.quit_requested());
+
+    press(&mut editor, "s-q n y");
+    assert_eq!(editor.minibuffer().unwrap().prompt().label, question);
+    press(&mut editor, "y");
+    assert!(editor.quit_requested());
 }

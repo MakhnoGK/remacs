@@ -162,6 +162,7 @@ impl Plugin for RunPlugin {
         });
         registry.settings_hooks.push(Rc::new(read_settings));
         registry.post_command_hooks.push(Rc::new(sessions::pick_up));
+        registry.quit_queries.push(sessions::running_consoles);
         registry.post_command_hooks.push(Rc::new(window::update));
         registry.post_command_hooks.push(Rc::new(menu::update));
         registry.decorators.push(Rc::new(console::style_spans));

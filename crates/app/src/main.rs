@@ -163,11 +163,22 @@ fn main() -> ExitCode {
         let window = cx
             .open_window(options, |window, cx| {
                 let view = cx.new(|cx| EditorView::new(editor, &ui, window, cx));
+                let gate = view.downgrade();
+                window.on_window_should_close(cx, move |_, cx| {
+                    gate.update(cx, |view, cx| view.may_quit(cx))
+                        .unwrap_or(true)
+                });
                 window.focus(view.read(cx).focus_handle());
                 watch_settings(view.downgrade(), cx);
                 view
             })
             .expect("failed to open window");
+        // `cx.quit()` comes here too, once the gate has agreed.
+        cx.on_should_quit(move |cx| {
+            window
+                .update(cx, |view, _, cx| view.may_quit(cx))
+                .unwrap_or(true)
+        });
         cx.spawn(async move |cx| {
             while let Some(paths) = to_open.next().await {
                 if window
