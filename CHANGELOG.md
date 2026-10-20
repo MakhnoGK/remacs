@@ -1,0 +1,166 @@
+# Changelog
+
+What changed for people using remacs, release by release; written by `cargo xtask changelog` from the commit subjects.
+
+## Unreleased
+
+### Added
+
+- dired creates a file through the prompt like a folder, and the in-place row is gone (#99)
+- default settings ship as commented files in config/defaults, each tested against its Default, and write-default-settings copies one into the config folder (#84)
+- a commit opens as its diff in text, its facts and files in a column beside it (#73)
+- find references (M-?) and signature help while typing a call, from language servers (#67)
+- prettier formats a region of CSS as the rules it touches (#69)
+- a prompt's directory goes on an info line above its input, not inside it (#75)
+- style and on… attributes, tagged templates and injections inside injections are highlighted as their languages (#65)
+- word steps and kills like IntelliJ's macOS keymap: M-f, M-b, M-d, M-DEL (#74)
+- editing commands: multiple cursors, iedit, rectangles, sexp edits, line commands and editable search results (#71)
+- navigation commands: mark ring, back and forward, last change, sexp motion, imenu and avy (#71)
+- oxlint and oxfmt with Vite+'s vite.config.ts settings, oxfmt formatting ahead of tsc, and fix-all (#70)
+- offer vp check to compile in projects using Vite+ (#70)
+- highlight interpolations in template, f- and Rust format strings as code (#4)
+- format regions of HTML's style and script blocks as their own languages, with switches for embedded code (#42)
+- send code in HTML's style and script blocks to its languages' servers (#42)
+- comments, pairs and the mode line follow the language at point in HTML (#42)
+- highlight scripts and styles in HTML as their own languages, with tree-sitter injections (#42)
+- configure the UI font in ui.toml [ui-font]: family, size and weight, live (#26)
+- Tailwind completion and hover beside the language's server, with color swatches (#50)
+- draw inline code in documentation as mono chips like diagnostic notes
+- themes from TOML with a light Mac Classic theme, select-theme and the system appearance following the theme (#61)
+- compile shell commands from the project root like Emacs M-x compile, with recompile, next-error over the output's locations and shell run configurations
+- open a commit's changes from the history or a file's log, unfold untracked files and directories, git.toml limits (#31, #33)
+- offer language servers for 29 modes from a TOML catalog, once per project, downloaded from GitHub or installers described as data (#10)
+- zoom the editor text with ⌘= ⌘- ⌘0 and ⌘-wheel, ui.toml [zoom], the zoom shown in the status pill
+- show the pane under tables and outlines, mode keymaps yield to it while it has the keys
+- glide mouse wheel notches into one another, wheels sent as pixels and outline history too, ui.toml [scroll] lines-per-notch
+- kill the current buffer at once on C-x k when files.toml kill-buffer-prompt is off
+- fade the cards over the bottom row in and out too, and ease fades evenly enough to be seen
+- fade and slide the pane, prompts and popups in and out, timed in ui.toml [transitions], input never waiting on them
+- set the code font's weight in ui.toml, by name or number, bold text drawn as much heavier
+- move by paragraphs with M-{ and M-}, select one with M-h, and kill to the end of one
+- show or hide every file's diff in the Git status at once, with ⇧⇥ and from the Git menu
+- name the app Remacs in macOS, and fill the menu bar from the plugins' commands with their keys, disabling what cannot run
+- round the block cursor the same everywhere, by a radius set in ui.toml
+- give terminal programs the mouse and the keys they tell apart, follow links with ⌘, report zsh and bash commands, and pad the terminal
+- give the echo area, the keys and the status their own places along the bottom, keep every message in *Messages*, and list the keys after a prefix
+- match prompts the way fzf does, and find files by fuzzy matching their whole path
+- take the login shell's environment when started from Finder, and open files and folders handed over by Finder and the Dock
+- bundle remacs as Remacs.app and install it with cargo xtask install, with its icon and precompiled Metal shaders
+- terminal in a panel under the text or in the window, any shell, one buffer per terminal, with copy mode and command marks
+- highlight the bracket or tag at point with the one it pairs with
+- run and debug cargo tests, from configurations or the ▶ beside each test and module of tests
+- expand and contract the region over brackets and quotes, and move by words one run of letters or other characters at a time
+- bundle tree-sitter grammars of 25 more languages, choosing some modes by file name
+- set the window's glass opacity and blur and the code font's ligatures from ui.toml
+- debug run configurations with breakpoints, a pane of frames, variables and watches, and adapters downloaded on first use
+- run configurations from entry points in the gutter, each in a console with colored output, links and input
+- put the conflict view on glass, its conflicts as blurred cards over the code
+- show the selected symbol of a project symbol search in the window, putting it back on quit
+- replace text across the project, asking at each match file by file and saving every file changed
+- scroll text, tables and outlines smoothly, by pixels on the trackpad and gliding for wheels and commands
+- select text with the mouse by characters, words or lines, extending with shift and scrolling past the edges
+- ignored files in search
+- show the selected line of a project search in the window, putting it back on quit
+- search the project's text for lines with every word typed, grouped by file
+- rename symbols and move files across the workspace through language servers, saving every file changed
+- scroll text sideways with the trackpad, leaving point where it is
+- scroll long lines sideways before point reaches an edge, fading the cut sides
+- change built-in language servers from lsp.toml, restarting them on change
+- search symbols across the project with xref-find-apropos
+- cache each project's file index so find-file lists files at once
+- keep the minibuffer history across sessions in ~/.config/remacs/state
+- let plugins read their own settings files, starting with format.toml on-save
+- apply settings as soon as their files change, text strokes included
+- read code font, text strokes and cursor height from ~/.config/remacs/config/ui.toml
+- replace in the buffer asking at each match
+- light search matches and preview the selected one in the buffer
+- search the buffer from a prompt of matching lines
+- dired create new file
+- git changes on gutter
+- lsp information bubble
+- panes, modal and status pill on glass
+- prompts, completion and documentation float on glass
+- translucent blurred window, backdrop blur and fades into the glass
+- thick and thin font rendering
+- format files after each save when format-on-save-mode is on
+- format the buffer or region with prettier or the language server
+- eslint checks projects with an eslint config, loading their own eslint
+- oxlint checks JavaScript and TypeScript projects that use it
+- open a buffer on every language server for its mode, diagnostics per server
+- JSX markup lines comment out as {/* */}
+- toggle comments on the line or region with the major mode's syntax
+- quotes and braces autoclose
+- brackets close themselves per major mode, typed over, deleted and wrapped in pairs
+- open an indented line below or above without breaking the current one
+- new lines indented by brackets, with the unit the file already uses
+- git stashes with a message, listed to apply, pop, branch, show or drop
+- git push and pull from the title bar
+- git conflicts resolved in the status, rebase and merge continued or aborted
+- git rebase and merge prompt with editable steps
+- git branch prompt that switches or creates from a remembered base
+- git commit prompt with subject, description and options
+- git history beside the status with a commit graph
+- git status buffer with sections, diffs and staging
+- git file states in dired and moves recorded as git mv
+- dired name editing in place with reference updates from the language server
+- dired copy and move through one destination prompt
+- dired marks, flags and deletion confirmed in a dialog
+- dired preview pane with highlighted file head and details
+- dired directory listing drawn as a table with background refresh
+- code actions popup and error navigation via language servers
+- highlighted code and scrolling in documentation popups
+- documentation popup at point and go to definition via language servers
+- completion popup with documentation panel fed by language servers
+- language server client with diagnostics, problem list and status counts
+- tree-sitter syntax highlighting with background incremental parsing
+- write-file and background project file index with fsevents
+- minibuffer with M-x, find-file, buffer switching and kill ring
+- emacs editing core with keymaps, plugins and interactive editor view
+- persistent piece tree with snapshots, undo and atomic save
+- scaffold workspace with piece-table text core and gpui viewer
+
+### Fixed
+
+- files are decoded in their detected encoding a chunk at a time with bounded memory, binary files aren't read, and revert-buffer-with-coding-system rereads one (#80)
+- dired overwrites by renaming over the target, sends replaced folders to the Trash, and finds onto-itself through links and letter case (#79)
+- files that aren't UTF-8 are decoded on open and saved back in their encoding, binary ones open read-only, CRLF line ends are kept (#80)
+- the close button, ⌘Q, C-x C-c, the Dock's Quit and logout all ask before losing unsaved buffers or running terminals, runs and debug sessions (#76)
+- conflict markers are matched on bytes, so a line like Привет мир no longer panics the parser (#78)
+- a file index over its cap keeps the shallowest whole levels, so find-file in ~ lists ~/.config
+- debug connections share one output budget and take turns, and a build's last lines reach the console (#63)
+- a project's own language server runs even when a ':' in its path keeps its folder off PATH
+- language servers never root at the home directory, find pnpm's nested programs, and exit once dropped
+- oxfmt installs from npm, as the native GitHub build has no --lsp
+- rename in embedded code goes to its language's server, and questions asked before the page is parsed wait for it (#68)
+- maximized terminal's title bar drops the duplicate New button and centered title, chips use the full width and long titles keep their start (#72)
+- <script type="module" lang="ts"> is highlighted as TypeScript (#66)
+- S- with a character in key notation folds into the character, so C-S-c C-S-c runs mc/edit-lines (#71)
+- avy labels blank lines, back returns to where scrolling left point, and skips deleted files (#71)
+- avy searches only the columns on screen, and back keeps clicks and jumps after scrolling (#71)
+- read an installer's errors while it runs, so one writing more than a pipe holds never hangs the install (#52)
+- write run console input on a thread of its own, so a program not reading it never holds the UI up (#55)
+- re-read a dired listing at least every 500 ms while a file keeps changing (#60)
+- free run console text redrawn with carriage returns (#54)
+- give terminal command marks room only while one shows and no program draws its own interface
+- scroll long problems at the cursor, place them on the side they fit, size from ui.toml [problems]
+- keep the cursor over the selection, a margin around it in prompt inputs, info at buffer edges and a fading message pill; one CharClass
+- step words by a word with the whitespace to its left, whitespace before punctuation or across lines on its own
+- name the app Remacs in the window title
+- wrap long code in hover and completion documentation where it reads well, and let the popups grow to a size set in ui.toml before they scroll
+- take the environment from a configured shell, say why a language server exited, and restart one with lsp-restart
+- format Rust only once rust-analyzer has loaded the project, so rustfmt gets the crate's edition
+- cover descenders with the font-height cursor and center it on the glyphs
+- text in warning bubble are trimmed
+- fade only scrolled lists at edges with more, point kept off the faded line
+- prettier finds the plugins of a project's config in its node_modules
+- minibuffer input scrolls sideways to keep the cursor in view
+
+### Faster
+
+- a commit's side column is built once and drawn from its selected row, and its paired lines mark what changed (#73)
+- bound debug output so a flooding build or adapter waits for a busy console (#63)
+- open commits in the background, their diffs capped by commit-max-bytes (#56)
+- bound run output so a fast program waits for a busy console (#53)
+- share the git status snapshot and draw only the shown status buffer (#57)
+- measure and fix hot paths: O(1) snapshots, one decoration pass a frame, search in blocks, entry points off the main thread, fewer UI wakes (#36)
+- make the window opaque and unblurred when the glass tint is opaque, and skip the surfaces' blur passes when glass.blur is 0

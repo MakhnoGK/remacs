@@ -16,9 +16,14 @@ Status: accepted, 2026-10-10 (icon: board AppIcon, direction A "Parens and curso
   tools category); the icon is made with `sips` and `iconutil` from three masters, 16 and
   32 px drawn heavier than the 1024 one. Signed ad hoc (`codesign -s -`), enough for the
   Mac that built it.
-- **Version**: `CFBundleShortVersionString` is the workspace's; `CFBundleVersion` the
-  number of commits; `RemacsCommit` the short hash, `-dirty` when installed from a tree
-  with changes.
+- **Version** (from the tag since 2026-10-20, #86): `CFBundleShortVersionString` is
+  `git describe --tags --match 'v[0-9]*'` without its `v` — `0.1.0-alpha.1` on the tag,
+  `0.1.0-alpha.1-5-gabc1234` five commits past it, the workspace's before the first tag;
+  `CFBundleVersion` the number of commits; `RemacsCommit` the short hash, `-dirty` when
+  built from a tree with changes. The xtask builds the binary with the same two as
+  `REMACS_VERSION` and `REMACS_COMMIT`, so `remacs --version`, the About panel (version,
+  commit in parentheses) and crash reports say them; a plain `cargo build` says the
+  workspace's version and "unknown commit".
 - **`remacs` on the command line** is a script in `~/.local/bin` written by the install:
   it starts the installed binary with the shell's environment and directory, detached
   (`nohup`), so closing the terminal tab does not quit it; what it prints goes to
@@ -48,6 +53,20 @@ Status: accepted, 2026-10-10 (icon: board AppIcon, direction A "Parens and curso
   folders, both at rank Alternate, so remacs is offered but never made the default.
   gpui's `on_open_urls` hands the `file://` URLs over a channel to the window, which may
   not be open yet; each opens in it as on the command line, a folder in dired.
+
+## Releases
+
+Tagged `v0.1.0-alpha.1`, `v0.1.0-alpha.2`, …, then `v0.1.0`. `CHANGELOG.md` is written
+by `cargo xtask changelog [version]` from the history: a section per tag of the `feat`,
+`fix` and `perf` subjects since the one before, the untagged commits under `version` (or
+"Unreleased"); the other types change nothing people see. It is regenerated whole, so
+fix a wording in the commit, not in the file. Cutting a release, on a clean `main`:
+
+1. `cargo xtask changelog 0.1.0-alpha.2`, read it, commit
+   `chore: release v0.1.0-alpha.2`.
+2. `git tag -a v0.1.0-alpha.2 -m v0.1.0-alpha.2`, then
+   `git push origin main v0.1.0-alpha.2`.
+3. `cargo xtask bundle` (or `install`): the bundle is `0.1.0-alpha.2`, not `-dirty`.
 
 ## Later
 

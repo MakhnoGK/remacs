@@ -24,6 +24,7 @@ mod table_view;
 mod tabs_view;
 mod text_zoom;
 mod transition;
+mod version;
 mod widgets;
 
 use std::path::PathBuf;
@@ -67,6 +68,7 @@ use editor_view::EditorView;
 use environment::EnvironmentSettings;
 use opening::{file_paths, open};
 use settings::{ReadSettings, read_settings, report, watch_settings};
+use version::{COMMIT, VERSION};
 
 const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
     // First, as it lays out the menu bar the others add items to.
@@ -101,6 +103,13 @@ const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
 ];
 
 fn main() -> ExitCode {
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|arg| arg == "--version")
+    {
+        println!("remacs {VERSION} ({COMMIT})");
+        return ExitCode::SUCCESS;
+    }
     let ReadSettings {
         settings,
         ui,

@@ -11,10 +11,19 @@ use std::process::{Command, ExitCode, Stdio};
 const APP: &str = "Remacs.app";
 const PREVIOUS: &str = "Remacs.previous.app";
 const EXECUTABLE: &str = "remacs";
-const USAGE: &str = "usage: cargo xtask <bundle | install | rollback>
-  bundle    build target/bundle/Remacs.app
-  install   bundle, then install it in ~/Applications and `remacs` in ~/.local/bin
-  rollback  swap the installed app with the one it replaced";
+const USAGE: &str = "usage: cargo xtask <bundle | install | rollback | changelog [version]>
+  bundle     build target/bundle/Remacs.app
+  install    bundle, then install it in ~/Applications and `remacs` in ~/.local/bin
+  rollback   swap the installed app with the one it replaced
+  changelog  write CHANGELOG.md from the history, what is untagged under `version`";
+
+/// The commit types that make a changelog's groups, in its order; the others (chore, ci,
+/// docs, refactor, style, test) change nothing people see.
+const CHANGELOG_GROUPS: &[(&[&str], &str)] = &[
+    (&["feat", "feature"], "Added"),
+    (&["fix"], "Fixed"),
+    (&["perf"], "Faster"),
+];
 
 /// The iconset's images: its name, the master it comes from, its size in pixels. 16 and
 /// 32 px have masters of their own, drawn heavier.
@@ -34,10 +43,13 @@ const ICONS: &[(&str, &str, u32)] = &[
 type Result<T = ()> = std::result::Result<T, String>;
 
 fn main() -> ExitCode {
-    let result = match env::args().nth(1).as_deref() {
-        Some("bundle") => bundle().map(|app| println!("{}", app.display())),
-        Some("install") => install(),
-        Some("rollback") => rollback(),
+    let args: Vec<String> = env::args().skip(1).collect();
+    let result = match args.iter().map(String::as_str).collect::<Vec<_>>()[..] {
+        ["bundle"] => bundle().map(|app| println!("{}", app.display())),
+        ["install"] => install(),
+        ["rollback"] => rollback(),
+        ["changelog"] => changelog(None),
+        ["changelog", version] => changelog(Some(version)),
         _ => Err(USAGE.to_owned()),
     };
     match result {
@@ -64,13 +76,13 @@ fn home() -> Result<PathBuf> {
 
 fn bundle() -> Result<PathBuf> {
     let root = root();
+    let version = Version::read(&root)?;
     let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
-    run(Command::new(cargo).current_dir(&root).args([
-        "build",
-        "--release",
-        "--package",
-        "remacs-app",
-    ]))?;
+    run(Command::new(cargo)
+        .current_dir(&root)
+        .args(["build", "--release", "--package", "remacs-app"])
+        .env("REMACS_VERSION", &version.version)
+        .env("REMACS_COMMIT", &version.commit))?;
 
     let sources = root.join("crates/app/bundle");
     let out = root.join("target/bundle");
@@ -87,7 +99,6 @@ fn bundle() -> Result<PathBuf> {
     )
     .map_err(|error| format!("copying the binary: {error}"))?;
     let plist = read(&sources.join("Info.plist"))?;
-    let version = Version::read(&root)?;
     write(&contents.join("Info.plist"), &version.fill(&plist))?;
     icon(
         &sources,
@@ -163,6 +174,7 @@ fn launcher_script(app: &Path, home: &Path) -> String {
     format!(
         "#!/bin/sh\n\
          # Written by `cargo xtask install`.\n\
+         [ \"$1\" = --version ] && exec '{binary}' --version\n\
          mkdir -p '{dir}'\n\
          nohup '{binary}' \"$@\" </dev/null >>'{log}' 2>&1 &\n",
         dir = log.parent().expect("a file in a directory").display(),
@@ -194,8 +206,83 @@ fn rollback() -> Result {
     Ok(())
 }
 
+/// Writes CHANGELOG.md from the history: a section per `v*` tag, newest first, of the
+/// commits people notice; those after the last tag go under `version`, or "Unreleased".
+fn changelog(version: Option<&str>) -> Result {
+    let root = root();
+    // Newest version first, with `0.1.0-alpha.1` before `0.1.0`.
+    let tags = git(
+        &root,
+        &[
+            "-c",
+            "versionsort.suffix=-",
+            "tag",
+            "--list",
+            "v[0-9]*",
+            "--merged",
+            "HEAD",
+            "--sort=-v:refname",
+        ],
+    )?;
+    let mut title = match version {
+        Some(version) => format!("{} — {}", version.trim_start_matches('v'), today()?),
+        None => "Unreleased".to_owned(),
+    };
+    let mut upper = "HEAD".to_owned();
+    let mut text = "# Changelog\n\nWhat changed for people using remacs, release by release; \
+                    written by `cargo xtask changelog` from the commit subjects.\n"
+        .to_owned();
+    for tag in tags.lines().map(Some).chain([None]) {
+        let range = tag.map_or(upper.clone(), |tag| format!("{tag}..{upper}"));
+        let subjects = git(&root, &["log", "--no-merges", "--format=%s", &range])?;
+        text.push_str(&changelog_section(&title, subjects.lines()));
+        if let Some(tag) = tag {
+            let date = git(&root, &["log", "-1", "--format=%cs", tag])?;
+            title = format!("{} — {date}", &tag[1..]);
+            upper = tag.to_owned();
+        }
+    }
+    write(&root.join("CHANGELOG.md"), &text)
+}
+
+/// `title`'s section of the subjects in their groups, or nothing when none is in one.
+fn changelog_section<'a>(title: &str, subjects: impl Iterator<Item = &'a str>) -> String {
+    let mut groups = vec![String::new(); CHANGELOG_GROUPS.len()];
+    for subject in subjects {
+        let Some((kind, change)) = subject.split_once(": ") else {
+            continue;
+        };
+        let kind = kind.split(['(', '!']).next().unwrap_or(kind);
+        if let Some(group) = CHANGELOG_GROUPS
+            .iter()
+            .position(|(kinds, _)| kinds.contains(&kind))
+        {
+            groups[group].push_str(&format!("- {change}\n"));
+        }
+    }
+    if groups.iter().all(String::is_empty) {
+        return String::new();
+    }
+    let mut section = format!("\n## {title}\n");
+    for ((_, name), lines) in CHANGELOG_GROUPS.iter().zip(&groups) {
+        if !lines.is_empty() {
+            section.push_str(&format!("\n### {name}\n\n{lines}"));
+        }
+    }
+    section
+}
+
+fn today() -> Result<String> {
+    let output = Command::new("date")
+        .arg("+%F")
+        .output()
+        .map_err(|error| format!("date: {error}"))?;
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+}
+
 struct Version {
-    /// The workspace's.
+    /// The tag's, without its `v`, and how far past it when not on it, e.g.
+    /// `0.1.0-alpha.1-5-gabc1234`; the workspace's before the first tag.
     version: String,
     /// The number of commits, growing with every one.
     build: String,
@@ -208,8 +295,13 @@ impl Version {
         let build = git(root, &["rev-list", "--count", "HEAD"])?;
         let hash = git(root, &["rev-parse", "--short", "HEAD"])?;
         let dirty = !git(root, &["status", "--porcelain"])?.is_empty();
+        // Fails only when no tag is reachable.
+        let tag = git(root, &["describe", "--tags", "--match", "v[0-9]*"]).ok();
         Ok(Self {
-            version: env!("CARGO_PKG_VERSION").to_owned(),
+            version: tag.map_or_else(
+                || env!("CARGO_PKG_VERSION").to_owned(),
+                |tag| tag[1..].to_owned(),
+            ),
             build,
             commit: if dirty { format!("{hash}-dirty") } else { hash },
         })
@@ -275,5 +367,30 @@ fn remove(path: &Path) -> Result {
             Err(format!("{}: {error}", path.display()))
         }
         _ => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::changelog_section;
+
+    #[test]
+    fn a_changelog_section_groups_what_people_notice() {
+        let subjects = [
+            "fix(git): a conflict no longer panics (#78)",
+            "chore: release v0.1.0-alpha.1",
+            "feat!: dired creates files through the prompt",
+            "Merge branch 'x'",
+            "perf: faster index",
+            "feature: avy",
+        ];
+        assert_eq!(
+            changelog_section("0.1.0 — 2026-10-20", subjects.into_iter()),
+            "\n## 0.1.0 — 2026-10-20\n\
+             \n### Added\n\n- dired creates files through the prompt\n- avy\n\
+             \n### Fixed\n\n- a conflict no longer panics (#78)\n\
+             \n### Faster\n\n- faster index\n"
+        );
+        assert_eq!(changelog_section("Unreleased", ["ci: x"].into_iter()), "");
     }
 }
