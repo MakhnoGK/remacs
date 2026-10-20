@@ -436,6 +436,16 @@ pub fn block_cursor() -> Div {
         .text_color(rgb(color::bg_main()))
 }
 
+/// Where point is in a window that is not selected, like Emacs
+/// `cursor-in-non-selected-windows`: an outline, the text under it left as it is.
+pub fn hollow_cursor() -> Div {
+    div()
+        .flex_none()
+        .rounded(px(cursor::radius()))
+        .border_1()
+        .border_color(rgb(color::fg_dim()))
+}
+
 /// `text` with the block cursor over its bytes `at`, the text on either side of it
 /// styled by `highlights`.
 pub fn text_with_cursor(text: &str, highlights: &Highlights, at: Range<usize>) -> Div {

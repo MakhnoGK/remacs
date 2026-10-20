@@ -12,6 +12,7 @@ use remacs_core::{
 
 use crate::file_index::{FileIndex, FileIndexes};
 use crate::project::{abbreviate_home, default_directory, expand_home, project_root, with_slash};
+use crate::windows::pop_to_other_window;
 
 pub const FILE_CATEGORY: &str = "file";
 /// Matches turned into rows; the counter still reports all of them.
@@ -24,9 +25,19 @@ type FileRank = (Reverse<u32>, bool, usize, usize);
 /// Opens a file of the current project, matched fzf-style over its whole relative path;
 /// input starting with `/` or `~` browses the file system instead.
 pub fn find_file(editor: &mut Editor) -> CommandResult {
+    start_reading_file_name(editor, false)
+}
+
+/// Opens a file as `find-file` does, in another window, splitting the selected one if it
+/// is alone, and selects it.
+pub fn find_file_other_window(editor: &mut Editor) -> CommandResult {
+    start_reading_file_name(editor, true)
+}
+
+fn start_reading_file_name(editor: &mut Editor, other_window: bool) -> CommandResult {
     let root = project_root(&default_directory(editor));
     let index = project_files(editor, &root);
-    read_file_name(editor, Rc::new(root), index, String::new())
+    read_file_name(editor, Rc::new(root), index, String::new(), other_window)
 }
 
 /// The files of the project at `root`, indexed in the background from the first call on
@@ -44,9 +55,15 @@ fn read_file_name(
     root: Rc<PathBuf>,
     index: Arc<FileIndex>,
     initial_input: String,
+    other_window: bool,
 ) -> CommandResult {
     let prompt = Prompt {
-        label: "Find file".into(),
+        label: if other_window {
+            "Find file in other window"
+        } else {
+            "Find file"
+        }
+        .into(),
         category: FILE_CATEGORY,
         directory: with_slash(&abbreviate_home(&root)),
         initial_input,
@@ -80,7 +97,10 @@ fn read_file_name(
             };
             if path.is_dir() {
                 let input = with_slash(&abbreviate_home(&path));
-                return read_file_name(editor, root, index, input);
+                return read_file_name(editor, root, index, input, other_window);
+            }
+            if other_window {
+                pop_to_other_window(editor)?;
             }
             Ok(editor.visit_file(&path)?)
         },

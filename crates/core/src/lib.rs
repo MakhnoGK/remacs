@@ -29,8 +29,9 @@ mod syntax;
 mod table;
 mod vc;
 mod viewport;
+mod window;
 
-pub use buffer::{Buffer, Cursor, FileEdits};
+pub use buffer::{Buffer, BufferId, Cursor, FileEdits};
 pub use char_class::CharClass;
 pub use command::{Command, CommandError, CommandResult, Commands};
 pub use completion::{
@@ -82,3 +83,4 @@ pub use table::{
 };
 pub use vc::{ChangedLines, FileState, FileStatus, LineChange, LineCounts, VersionControl};
 pub use viewport::Viewport;
+pub use window::{Axis, Layout, WindowId};

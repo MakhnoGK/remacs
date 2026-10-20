@@ -207,7 +207,7 @@ fn visit_location(editor: &mut Editor, forward: bool) -> CommandResult {
     if let Some(console) = buffer.local_mut::<Console>() {
         console.location = Some(start);
     }
-    follow(editor, &target, &directories)
+    follow(editor, &target, &directories, in_window)
 }
 
 /// The console of the window buffer's project's compile, else of the latest run.

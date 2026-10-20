@@ -11,7 +11,7 @@ mod snippet;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use remacs_core::{Command, MenuItem, Plugin, Registry, Section};
+use remacs_core::{Command, Hook, MenuItem, Plugin, Registry, Section};
 use serde::Deserialize;
 pub use tree_sitter_language::LanguageFn;
 
@@ -146,7 +146,7 @@ impl Plugin for SyntaxPlugin {
             let settings = Rc::clone(&settings);
             move |editor| settings.set(editor.settings_section::<SyntaxSettings>())
         }));
-        registry.post_command_hooks.push(Rc::new({
+        let sync: Hook = Rc::new({
             let settings = Rc::clone(&settings);
             move |editor| {
                 let injections = if settings.get().embedded_languages {
@@ -156,7 +156,9 @@ impl Plugin for SyntaxPlugin {
                 };
                 buffer_syntax::sync(editor, grammars, injections)
             }
-        }));
+        });
+        registry.post_command_hooks.push(Rc::clone(&sync));
+        registry.display_hooks.push(sync);
         registry.decorators.push(Rc::new(buffer_syntax::highlight));
         registry.decorators.push(Rc::new(move |buffer, range| {
             if settings.get().matching_pairs {

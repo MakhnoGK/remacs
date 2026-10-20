@@ -38,19 +38,31 @@ pub fn links_in(line: &str) -> Vec<Link> {
 }
 
 /// Opens a web address in the browser, or visits the file at its line and column, a
-/// relative path looked for in `directories` in order.
-pub fn follow(editor: &mut Editor, target: &Target, directories: &[PathBuf]) -> CommandResult {
+/// relative path looked for in `directories` in order. A link in the window buffer
+/// (`from_window`) shows the file in another window, which keeps the list in view
+/// (ADR 0073); others, as from the pane, in the selected window.
+pub fn follow(
+    editor: &mut Editor,
+    target: &Target,
+    directories: &[PathBuf],
+    from_window: bool,
+) -> CommandResult {
     match target {
         Target::Url(url) => {
             Command::new("open").arg(url).spawn()?;
         }
         Target::File { path, line, column } => {
             let file = resolve(path, directories).ok_or_else(|| format!("No file {path}"))?;
-            editor.visit_file(&file)?;
-            editor.set_point_at(
+            let (line, column) = (
                 line.saturating_sub(1),
                 column.unwrap_or(1).saturating_sub(1),
             );
+            if from_window {
+                editor.display_file(&file, |editor| editor.set_point_at(line, column))?;
+            } else {
+                editor.visit_file(&file)?;
+                editor.set_point_at(line, column);
+            }
         }
     }
     Ok(())
