@@ -1,6 +1,7 @@
 //! Built-in plugin: visiting and saving files, switching and killing buffers, quitting.
 
 mod buffers;
+mod encoding;
 mod file_index;
 mod find_file;
 mod ignored;
@@ -34,6 +35,7 @@ const COMMANDS: &[Command] = &[
     Command::new("write-file", "Write current buffer into a new file and visit it", saving::write_file),
     Command::new("save-some-buffers", "Offer to save each modified buffer", saving::save_some_buffers),
     Command::new("save-buffers-kill-terminal", "Offer to save modified buffers, then exit", saving::save_buffers_kill_terminal),
+    Command::new("revert-buffer-with-coding-system", "Read the file again in an encoding chosen, and save it so", encoding::revert_buffer_with_coding_system),
 ];
 
 const BINDINGS: &[(&str, &str)] = &[
@@ -55,6 +57,8 @@ const BINDINGS: &[(&str, &str)] = &[
 const MENU_ITEMS: &[MenuItem] = &[
     MenuItem::new("File", "open", "Open…", "find-file"),
     MenuItem::new("File", "open", "Switch to Buffer…", "switch-to-buffer"),
+    MenuItem::new("File", "open", "Reopen with Encoding…", "revert-buffer-with-coding-system")
+        .enabled_when(encoding::visits_file),
     MenuItem::new("File", "save", "Save", "save-buffer"),
     MenuItem::new("File", "save", "Save As…", "write-file"),
     MenuItem::new("File", "save", "Save All…", "save-some-buffers"),

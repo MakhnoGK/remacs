@@ -10,7 +10,7 @@ use std::sync::{Arc, PoisonError, RwLock};
 use std::time::{Duration, Instant, SystemTime};
 
 use remacs_config::{Section, Settings, project_cache_dir};
-use remacs_text::{Encoding, Text};
+use remacs_text::{Text, UTF_8};
 
 use crate::buffer::{Buffer, FileEdits};
 use crate::command::{CommandResult, Commands};
@@ -1361,18 +1361,17 @@ impl Editor {
             }
             Err(error) => return Err(error),
         };
-        let encoding = text.format().encoding;
+        let format = text.format();
         let mode = self.mode_for(Some(&path));
         let mut buffer = Buffer::new(file_buffer_name(&path), text, mode).with_file(path);
-        match encoding {
-            Encoding::Binary => {
-                buffer.set_read_only(true);
-                self.set_message("Binary file: opened read-only");
-            }
-            Encoding::Latin1 => {
-                self.set_message("Not UTF-8: read as Latin-1, and saved back as it was")
-            }
-            Encoding::Utf8 | Encoding::Utf16Le | Encoding::Utf16Be => {}
+        if format.binary {
+            buffer.set_read_only(true);
+            self.set_message("Binary file: not shown");
+        } else if format.encoding != UTF_8 {
+            self.set_message(format!(
+                "Read as {}, and saved so; if that's wrong, M-x revert-buffer-with-coding-system",
+                format.encoding.name()
+            ));
         }
         Ok(self.push_buffer(buffer))
     }
@@ -1511,10 +1510,10 @@ mod tests {
         };
         let (read_only, message) = visit("tool", b"\x7fELF\x00\x00\xff");
         assert!(read_only);
-        assert_eq!(message.as_deref(), Some("Binary file: opened read-only"));
+        assert_eq!(message.as_deref(), Some("Binary file: not shown"));
         let (read_only, message) = visit("latin1.txt", b"caf\xe9");
         assert!(!read_only);
-        assert!(message.unwrap().starts_with("Not UTF-8"));
+        assert!(message.unwrap().starts_with("Read as windows-1252"));
         std::fs::remove_dir_all(&directory).unwrap();
     }
 
