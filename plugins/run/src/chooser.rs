@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use remacs_core::{
     Candidate, CommandResult, Completions, Count, Editor, Icon, Keymap, Prompt, filter_candidates,
+    quote,
 };
 use remacs_files::{FileIndex, project_files};
 
@@ -100,7 +101,7 @@ impl Listing {
         completions.subject = Some(format!(
             "{} configurations · {}",
             self.saved.len(),
-            self.root.file_name().unwrap_or_default().to_string_lossy()
+            quote(&self.root.file_name().unwrap_or_default().to_string_lossy())
         ));
         if !self.scanned {
             completions.note = Some("Looking through the project…".into());

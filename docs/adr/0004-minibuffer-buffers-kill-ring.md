@@ -16,6 +16,16 @@ Status: accepted, 2026-10-04 (M3)
   the selected candidate (`C-x k` in the buffer prompt). Answers are kept as history per
   category.
 - **Questions** (`y-or-n-p`) are prompts without a source; `y`/`n` answer them directly.
+  The question is drawn as the prompt's title, as a dialog draws its own, and wraps;
+  it has no `(y or n)`, since the keys are listed under it (#100).
+- **Prompt and dialog text** (#100): monospace (`[font]`) for what the user types or
+  names — paths, file and buffer names, branches, code, typed text, key sequences;
+  the UI font (`[ui-font]`) for everything the interface says — labels, questions,
+  titles, explanations, hints. Text mixing both marks each name with `remacs_core::quote`
+  (backticks, with backticks and backslashes in the name escaped:
+  ``Save file `~/a/b.css`?``), and `widgets::ui_text` sets the quoted parts in the code
+  font as one wrapping text. Questions, prompt titles and dialog titles share one style
+  (`font::title_size`, semibold); sizes follow `[ui-font] size`.
 - **Kill ring** is global, at most 120 entries; consecutive kills append to the newest
   entry. It syncs with the macOS clipboard: kills are written out after each key, and text
   copied elsewhere is taken in when the window becomes active.

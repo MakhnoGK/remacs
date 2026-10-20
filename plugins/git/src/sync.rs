@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use remacs_core::{
     BannerPart, Candidate, CommandResult, CommitChain, Completions, Editor, Keymap, ListItem,
-    Prompt, PromptChoice, PromptOption, RefChip, RefKind, filter_candidates,
+    Prompt, PromptChoice, PromptOption, RefChip, RefKind, filter_candidates, quote,
 };
 
 use crate::command::{git, output};
@@ -80,7 +80,10 @@ pub fn push(editor: &mut Editor) -> CommandResult {
     let prompt = Prompt {
         read_only: true,
         from_toolbar: true,
-        title: Some((format!("Push {branch}"), plural_commits(outgoing.len()))),
+        title: Some((
+            format!("Push {}", quote(&branch)),
+            plural_commits(outgoing.len()),
+        )),
         keymap: Some(keymap),
         hints: PUSH_HINTS,
         options: vec![
@@ -248,7 +251,10 @@ pub fn pull(editor: &mut Editor) -> CommandResult {
     let prompt = Prompt {
         read_only: true,
         from_toolbar: true,
-        title: Some((format!("Pull into {branch}"), upstream.name.clone())),
+        title: Some((
+            format!("Pull into {}", quote(&branch)),
+            quote(&upstream.name),
+        )),
         summary,
         keymap: Some(keymap),
         hints: PULL_HINTS,

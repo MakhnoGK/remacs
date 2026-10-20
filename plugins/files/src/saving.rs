@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use remacs_core::{CommandResult, Count, Editor, Prompt};
+use remacs_core::{CommandResult, Count, Editor, Prompt, quote};
 
 use crate::buffers::has_unsaved_changes;
 use crate::find_file::{FILE_CATEGORY, directory_candidates};
@@ -49,7 +49,8 @@ pub fn write_file(editor: &mut Editor) -> CommandResult {
             }
             let current_file = fs::canonicalize(&path).ok();
             if path.exists() && current_file.as_deref() != editor.window_buffer().path() {
-                let question = format!("File {} exists; overwrite?", abbreviate_home(&path));
+                let question =
+                    format!("File {} exists; overwrite?", quote(&abbreviate_home(&path)));
                 return editor.ask_y_or_n(question, move |editor, yes| {
                     if yes { write_to(editor, &path) } else { Ok(()) }
                 });
@@ -99,9 +100,10 @@ fn quit_ending_programs(editor: &mut Editor) -> CommandResult {
         editor.request_quit();
         return Ok(());
     }
+    let names: Vec<String> = running.iter().map(|name| quote(name)).collect();
     let question = format!(
         "Programs run in {}; kill them and exit anyway?",
-        running.join(", ")
+        names.join(", ")
     );
     editor.ask_y_or_n(question, |editor, yes| {
         if yes {
@@ -126,15 +128,18 @@ fn offer_to_save(
         .iter()
         .find(|buffer| buffer.name() == name)
         .and_then(|buffer| buffer.path())
-        .map_or_else(|| name.clone(), |path| path.display().to_string());
-    editor.ask_y_or_n(format!("Save file {path}?"), move |editor, yes| {
-        if yes {
-            return save_unless_superseded(editor, name, |editor| {
-                offer_to_save(editor, names, then)
-            });
-        }
-        offer_to_save(editor, names, then)
-    })
+        .map_or_else(|| name.clone(), abbreviate_home);
+    editor.ask_y_or_n(
+        format!("Save file {}?", quote(&path)),
+        move |editor, yes| {
+            if yes {
+                return save_unless_superseded(editor, name, |editor| {
+                    offer_to_save(editor, names, then)
+                });
+            }
+            offer_to_save(editor, names, then)
+        },
+    )
 }
 
 /// Saves, first asking if the file changed on disk or went away since it was read or
@@ -161,9 +166,15 @@ fn save_unless_superseded(
         return then(editor);
     }
     let question = if path.exists() {
-        format!("{} changed on disk; save over it?", abbreviate_home(path))
+        format!(
+            "{} changed on disk; save over it?",
+            quote(&abbreviate_home(path))
+        )
     } else {
-        format!("{} was deleted; save it again?", abbreviate_home(path))
+        format!(
+            "{} was deleted; save it again?",
+            quote(&abbreviate_home(path))
+        )
     };
     editor.ask_y_or_n(question, move |editor, yes| {
         if yes {

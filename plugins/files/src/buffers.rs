@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use remacs_core::{
-    Buffer, Candidate, CommandResult, Completions, Count, Editor, Prompt, filter_candidates,
+    Buffer, Candidate, CommandResult, Completions, Count, Editor, Prompt, filter_candidates, quote,
 };
 use remacs_text::Text;
 
@@ -96,7 +96,7 @@ fn kill_confirming_changes(editor: &mut Editor, name: String) -> CommandResult {
         return Ok(());
     }
     editor.ask_y_or_n(
-        format!("Buffer {name} modified; kill anyway?"),
+        format!("Buffer {} modified; kill anyway?", quote(&name)),
         move |editor, yes| {
             if yes {
                 editor.kill_buffer(&name);

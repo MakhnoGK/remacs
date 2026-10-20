@@ -6,7 +6,7 @@ use std::path::Path;
 use std::rc::Rc;
 
 use remacs_core::{
-    CommandResult, Completions, Editor, LineCounts, ListItem, Message, Prompt, PromptOption,
+    CommandResult, Completions, Editor, LineCounts, ListItem, Message, Prompt, PromptOption, quote,
 };
 
 use crate::command::{git, output, output_with_input};
@@ -140,12 +140,13 @@ fn author(root: &Path) -> String {
     let ident = output(git(root).args(["var", "GIT_AUTHOR_IDENT"])).unwrap_or_default();
     let ident = String::from_utf8_lossy(&ident);
     let name = ident.split(" <").next().unwrap_or_default().trim();
-    short_author(name)
+    // A backtick would start a quoted name in the prompt's subject.
+    short_author(name).replace('`', "'")
 }
 
 fn branch(head: &Head) -> String {
     match head {
-        Head::Branch(name) | Head::Unborn(name) => name.clone(),
+        Head::Branch(name) | Head::Unborn(name) => quote(name),
         Head::Detached(_) => "detached HEAD".into(),
     }
 }

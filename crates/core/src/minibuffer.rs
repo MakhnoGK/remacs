@@ -276,7 +276,7 @@ impl Minibuffer {
 
     pub(crate) fn question(question: String, on_answer: AnswerHandler) -> Self {
         let prompt = Prompt {
-            label: format!("{question} (y or n)"),
+            label: question,
             hints: QUESTION_HINTS,
             ..Prompt::default()
         };
@@ -620,4 +620,64 @@ fn replace_text(buffer: &mut Buffer, text: &str) {
 fn split_message(message: &str) -> (&str, &str) {
     let (subject, description) = message.split_once('\n').unwrap_or((message, ""));
     (subject, description.trim_start_matches('\n'))
+}
+
+/// `text` as a name in a prompt's or a dialog's text, drawn in the code font (ADR 0004);
+/// its backticks and backslashes are escaped.
+pub fn quote(text: &str) -> String {
+    let mut quoted = String::with_capacity(text.len() + 2);
+    quoted.push('`');
+    for character in text.chars() {
+        if matches!(character, '`' | '\\') {
+            quoted.push('\\');
+        }
+        quoted.push(character);
+    }
+    quoted.push('`');
+    quoted
+}
+
+/// The parts of a prompt's or a dialog's text, each with whether `quote` made it a name;
+/// empty ones are left out.
+pub fn quoted_parts(text: &str) -> Vec<(String, bool)> {
+    let mut parts = Vec::new();
+    let (mut part, mut quoted) = (String::new(), false);
+    let mut characters = text.chars();
+    while let Some(character) = characters.next() {
+        match character {
+            '`' => {
+                parts.push((std::mem::take(&mut part), quoted));
+                quoted = !quoted;
+            }
+            '\\' if quoted => part.extend(characters.next()),
+            _ => part.push(character),
+        }
+    }
+    parts.push((part, quoted));
+    parts.retain(|(part, _)| !part.is_empty());
+    parts
+}
+
+#[cfg(test)]
+mod quoting_tests {
+    use super::{quote, quoted_parts};
+
+    #[test]
+    fn quoted_names_come_back_whole_with_their_backticks() {
+        let text = format!("Replace “{}” with {}?", quote("a`b\\c"), quote("~/x y.css"));
+        assert_eq!(
+            quoted_parts(&text),
+            [
+                ("Replace “".to_owned(), false),
+                ("a`b\\c".to_owned(), true),
+                ("” with ".to_owned(), false),
+                ("~/x y.css".to_owned(), true),
+                ("?".to_owned(), false),
+            ]
+        );
+        assert_eq!(
+            quoted_parts("C:\\ is not quoted"),
+            [("C:\\ is not quoted".to_owned(), false)]
+        );
+    }
 }

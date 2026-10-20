@@ -5,7 +5,9 @@ use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use remacs_core::{Command, CommandResult, Completions, Editor, Keymap, Prompt, PromptChoice};
+use remacs_core::{
+    Command, CommandResult, Completions, Editor, Keymap, Prompt, PromptChoice, quote,
+};
 use remacs_files::project_root;
 
 use crate::breakpoints::Breakpoint;
@@ -108,7 +110,7 @@ pub fn open(editor: &mut Editor, path: &Path, line: usize) -> CommandResult {
     keymap.bind("s-S-<f8>", OPEN_LIST);
     editor.plugin_state::<Editing>().at = Some((path.to_path_buf(), line));
     let prompt = Prompt {
-        label: location(path, line),
+        label: quote(&location(path, line)),
         placeholder: "Empty for none",
         initial_input,
         hints: HINTS,

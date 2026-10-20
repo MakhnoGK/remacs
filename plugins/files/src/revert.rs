@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use remacs_core::{Buffer, CommandResult, Editor, Notifier};
+use remacs_core::{Buffer, CommandResult, Editor, Notifier, quote};
 
 use crate::project::abbreviate_home;
 
@@ -18,7 +18,10 @@ pub fn revert_buffer(editor: &mut Editor) -> CommandResult {
     if !buffer.is_modified() {
         return revert(editor);
     }
-    let question = format!("Discard edits and read {} again?", abbreviate_home(path));
+    let question = format!(
+        "Discard edits and read {} again?",
+        quote(&abbreviate_home(path))
+    );
     editor.ask_y_or_n(
         question,
         |editor, yes| {

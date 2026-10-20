@@ -542,6 +542,11 @@ pub mod font {
         ui_size() - 2.0
     }
 
+    /// Of a question or a prompt's title, as a dialog asks it.
+    pub fn title_size() -> f32 {
+        ui_size() + 2.0
+    }
+
     /// Of monospace text on surfaces, e.g. prompts and tables.
     pub fn mono_size() -> f32 {
         ui_size()

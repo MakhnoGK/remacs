@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use remacs_core::{
     Command, CommandResult, Completions, Editor, LineExtra, Pane, PaneBody, PaneButton, PaneColumn,
-    PaneRow, Prompt, Tone,
+    PaneRow, Prompt, Tone, quote,
 };
 
 use crate::edit::location;
@@ -507,7 +507,7 @@ fn edit(editor: &mut Editor) -> CommandResult {
             ..
         } => {
             let prompt = Prompt {
-                label: format!("Set {name}"),
+                label: format!("Set {}", quote(&name)),
                 initial_input: value,
                 ..Prompt::default()
             };

@@ -2,11 +2,11 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use gpui::{
-    BoxShadow, Div, FontFeatures, HighlightStyle, Hsla, IntoElement, ParentElement, Rgba, Styled,
-    StyledText, Svg, canvas, div, linear_color_stop, linear_gradient, point,
-    prelude::FluentBuilder, px, rgb, rgba, svg, transparent_black,
+    BoxShadow, Div, Font, FontFeatures, FontWeight, HighlightStyle, Hsla, IntoElement,
+    ParentElement, Rgba, Styled, StyledText, Svg, TextRun, canvas, div, linear_color_stop,
+    linear_gradient, point, prelude::FluentBuilder, px, rgb, rgba, svg, transparent_black,
 };
-use remacs_core::{FileState, Icon, LineCounts, ListItem, Mark, Tone};
+use remacs_core::{FileState, Icon, LineCounts, ListItem, Mark, Tone, quoted_parts};
 use remacs_theme::{color, cursor, font, glass};
 
 use crate::assets::{
@@ -18,6 +18,29 @@ use crate::highlights::{Highlights, slice};
 
 pub fn hsla(hex: u32) -> Hsla {
     rgb(hex).into()
+}
+
+/// Interface text whose names, as `quote` marks them, are set in the code font; it wraps
+/// as one text, breaking a name too long for a line.
+pub fn ui_text(text: &str, weight: FontWeight, color: u32) -> StyledText {
+    let mut shown = String::with_capacity(text.len());
+    let mut runs = Vec::new();
+    for (part, quoted) in quoted_parts(text) {
+        let family = if quoted { font::mono() } else { font::ui() };
+        shown.push_str(&part);
+        runs.push(TextRun {
+            len: part.len(),
+            font: Font {
+                weight,
+                ..gpui::font(family)
+            },
+            color: hsla(color),
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+        });
+    }
+    StyledText::new(shown).with_runs(runs)
 }
 
 pub trait GlassBlur: Styled {

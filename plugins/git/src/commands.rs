@@ -2,7 +2,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use remacs_core::{Buffer, CommandResult, Dialog, Editor, Icon, ListItem};
+use remacs_core::{Buffer, CommandResult, Dialog, Editor, Icon, ListItem, quote};
 use remacs_text::Text;
 use trash::TrashContext;
 use trash::macos::{DeleteMethod, TrashContextExtMacos};
@@ -216,7 +216,7 @@ pub fn discard(editor: &mut Editor) -> CommandResult {
             git_job(["restore", "--worktree", "--", "."]),
         ),
         Line::File(Section::Unstaged, path) => (
-            format!("Discard the changes to {}?", file_name(path)),
+            format!("Discard the changes to {}?", quote(&file_name(path))),
             "The file goes back to what is staged, or to the last commit.",
             Vec::new(),
             git_job(args(["restore", "--worktree", "--"], [path.clone()])),
@@ -227,7 +227,7 @@ pub fn discard(editor: &mut Editor) -> CommandResult {
             hunk,
             ..
         } => (
-            format!("Discard this change to {}?", file_name(path)),
+            format!("Discard this change to {}?", quote(&file_name(path))),
             "The lines go back to what is staged, or to the last commit.",
             Vec::new(),
             apply_job(&snapshot, path, *hunk, false, &["--reverse"])?,
@@ -255,7 +255,7 @@ pub fn discard(editor: &mut Editor) -> CommandResult {
         | Line::MoreFiles(path) => {
             let (_, job) = untracked(vec![path.clone()]);
             (
-                format!("Move {} to the Trash?", file_name(path)),
+                format!("Move {} to the Trash?", quote(&file_name(path))),
                 "You can still restore it from the Trash.",
                 Vec::new(),
                 job,

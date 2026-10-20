@@ -52,7 +52,7 @@ pub use kill_ring::KillRing;
 pub use menu::{APP_MENU, FrameRequest, Menu, MenuItem, MenuLayout, TextSize, visiting_file};
 pub use minibuffer::{
     AnswerCheck, Count, Dialog, DialogOption, ListItem, Message, Minibuffer, Prompt, PromptChoice,
-    PromptOption, VISIBLE_CANDIDATES,
+    PromptOption, VISIBLE_CANDIDATES, quote, quoted_parts,
 };
 pub use mode::{CommentSyntax, FUNDAMENTAL_MODE, Mode, Modes};
 pub use mouse::MouseSelection;

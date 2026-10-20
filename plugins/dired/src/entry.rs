@@ -170,6 +170,14 @@ pub fn plural(count: usize, noun: &str) -> String {
     }
 }
 
+/// As `describe_entries`, a single name quoted as prompts and dialogs quote names.
+pub fn describe_entries_quoted(entries: &[Entry], adjective: &str) -> String {
+    match entries {
+        [single] => remacs_core::quote(&single.name),
+        _ => describe_entries(entries, adjective),
+    }
+}
+
 /// `buffer.rs`, `2 files`, `3 flagged folders` or `4 marked items`.
 pub fn describe_entries(entries: &[Entry], adjective: &str) -> String {
     if let [single] = entries {

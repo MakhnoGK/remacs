@@ -305,7 +305,7 @@ fn write_file_visits_the_new_file() {
             .unwrap()
             .prompt()
             .label
-            .ends_with("Cargo.toml exists; overwrite? (y or n)")
+            .ends_with("Cargo.toml` exists; overwrite?")
     );
     press(&mut editor, "n");
     assert_eq!(editor.window_buffer().name(), "notes.md");
@@ -389,7 +389,7 @@ fn quitting_offers_to_save_each_modified_file() {
     press(&mut editor, "n");
     assert_eq!(
         editor.minibuffer().unwrap().prompt().label,
-        "Modified buffers exist; exit anyway? (y or n)"
+        "Modified buffers exist; exit anyway?"
     );
     press(&mut editor, "C-g");
     assert!(!editor.quit_requested());
@@ -432,7 +432,7 @@ fn quitting_asks_before_ending_running_programs() {
     ]);
     editor.visit_file(&project.path("Cargo.toml")).unwrap();
     type_text(&mut editor, "#");
-    let question = "Programs run in *term: vim*; kill them and exit anyway? (y or n)";
+    let question = "Programs run in `*term: vim*`; kill them and exit anyway?";
 
     press(&mut editor, "C-x C-c n y");
     assert_eq!(editor.minibuffer().unwrap().prompt().label, question);
@@ -513,7 +513,7 @@ fn a_modified_buffer_keeps_its_edits_and_saving_over_a_changed_file_asks() {
     assert!(editor.echo().unwrap().contains("changed on disk"));
 
     press(&mut editor, "C-x C-s");
-    assert!(prompt_label(&editor).ends_with("Cargo.toml changed on disk; save over it? (y or n)"));
+    assert!(prompt_label(&editor).ends_with("Cargo.toml` changed on disk; save over it?"));
     press(&mut editor, "n");
     assert_eq!(fs::read_to_string(&path).unwrap(), "[workspace]\n");
 
@@ -533,7 +533,7 @@ fn saving_a_new_file_asks_if_someone_made_it_meanwhile() {
     type_text(&mut editor, "mine");
     fs::write(&path, "theirs").unwrap();
     press(&mut editor, "C-x C-s");
-    assert!(prompt_label(&editor).ends_with("new.rs changed on disk; save over it? (y or n)"));
+    assert!(prompt_label(&editor).ends_with("new.rs` changed on disk; save over it?"));
     press(&mut editor, "n");
     assert_eq!(fs::read_to_string(&path).unwrap(), "theirs");
 }
@@ -553,7 +553,7 @@ fn a_deleted_file_is_reported_and_saving_asks_before_writing_it_again() {
 
     type_text(&mut editor, "#");
     press(&mut editor, "C-x C-s");
-    assert!(prompt_label(&editor).ends_with("Cargo.toml was deleted; save it again? (y or n)"));
+    assert!(prompt_label(&editor).ends_with("Cargo.toml` was deleted; save it again?"));
     press(&mut editor, "n");
     assert!(!path.exists());
     press(&mut editor, "C-x C-s y");

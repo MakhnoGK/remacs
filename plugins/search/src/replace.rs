@@ -2,7 +2,7 @@
 
 use std::ops::Range;
 
-use remacs_core::{Buffer, CommandResult, Completions, Editor, Keymap, Prompt};
+use remacs_core::{Buffer, CommandResult, Completions, Editor, Keymap, Prompt, quote};
 
 use crate::preview::{self, Lit};
 use crate::query::Query;
@@ -44,7 +44,7 @@ pub fn query_replace(editor: &mut Editor) -> CommandResult {
             preview::end(editor);
             let query = Query::new(&from).ok_or("Nothing to replace")?;
             let prompt = Prompt {
-                label: format!("Replace “{from}” with"),
+                label: format!("Replace “{}” with", quote(&from)),
                 category: TO_CATEGORY,
                 placeholder: "text",
                 hints: &[("↵", "Replace…"), ("C-g", "Cancel")],
@@ -137,7 +137,10 @@ fn ask(editor: &mut Editor, query: Query, from: String, to: String) -> CommandRe
     let prompt = Prompt {
         category: QUERY_CATEGORY,
         read_only: true,
-        title: Some((format!("Replace “{from}” with “{to}”"), String::new())),
+        title: Some((
+            format!("Replace “{}” with “{}”", quote(&from), quote(&to)),
+            String::new(),
+        )),
         keymap: Some(keymap),
         hints: &[
             ("y", "Replace"),
