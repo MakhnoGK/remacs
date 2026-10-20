@@ -6,7 +6,7 @@ use std::mem;
 use std::ops::{Range, RangeInclusive};
 use std::path::{Path, PathBuf};
 
-use remacs_text::Text;
+use remacs_text::{Text, UTF_8};
 
 use crate::command::CommandResult;
 use crate::kill_ring::KillRing;
@@ -515,6 +515,29 @@ impl Buffer {
             .clone()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "buffer has no file"))?;
         self.text.save_as(path)
+    }
+
+    /// Reads the file again in the encoding it was read in, dropping unsaved changes and
+    /// undo history; point keeps its line and column.
+    pub fn revert(&mut self) -> io::Result<()> {
+        let path = self
+            .file
+            .as_deref()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "buffer has no file"))?;
+        let format = self.text.format();
+        let text = if format.binary || format.encoding == UTF_8 {
+            Text::open(path)?
+        } else {
+            Text::open_with_encoding(path, format.encoding)?
+        };
+        let (line, column) = (self.point_line(), self.point_column());
+        let binary = text.format().binary;
+        self.replace_text(text);
+        self.point = self.text.offset_at_char_column(line, column);
+        if binary != format.binary {
+            self.read_only = binary;
+        }
+        Ok(())
     }
 
     /// Undo replaces the whole text, so the mark may no longer fall on a character.

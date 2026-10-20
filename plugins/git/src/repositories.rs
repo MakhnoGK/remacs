@@ -77,6 +77,7 @@ pub fn track(editor: &mut Editor) {
         }
     }
     let mut said = None;
+    let mut ran = false;
     for (root, repository) in &mut repositories.open {
         let wants = wanted.remove(root).unwrap_or_default();
         if wants != repository.wants {
@@ -92,6 +93,7 @@ pub fn track(editor: &mut Editor) {
                 }
                 Update::Failed(message) => said = Some((message, true)),
                 Update::Done(message) => said = Some((message, false)),
+                Update::Ran => ran = true,
             }
         }
     }
@@ -99,6 +101,10 @@ pub fn track(editor: &mut Editor) {
         Some((message, true)) => editor.set_error(message),
         Some((message, false)) => editor.set_done(message),
         None => {}
+    }
+    // Not waiting for the file watcher: the buffers are up to date once the job's message shows.
+    if ran {
+        editor.sync_buffers_with_disk(|_| true);
     }
 }
 

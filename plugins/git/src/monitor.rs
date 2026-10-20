@@ -48,6 +48,8 @@ pub enum Update {
     Failed(String),
     /// A job is done, as it says.
     Done(String),
+    /// A job ran, so open buffers may be behind their files.
+    Ran,
 }
 
 /// What is read besides the status, for the status buffers showing the tree.
@@ -204,7 +206,10 @@ impl Worker {
                     return true;
                 }
                 Ok(Message::Run(job, done)) => {
-                    match job(&self.root) {
+                    let ran = job(&self.root);
+                    // Even a failed job may have changed files.
+                    self.send(Update::Ran);
+                    match ran {
                         Err(error) => self.send(Update::Failed(error)),
                         Ok(()) => {
                             if let Some(done) = done {

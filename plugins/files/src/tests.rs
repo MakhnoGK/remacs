@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
@@ -442,4 +443,139 @@ fn quitting_asks_before_ending_running_programs() {
     assert_eq!(editor.minibuffer().unwrap().prompt().label, question);
     press(&mut editor, "y");
     assert!(editor.quit_requested());
+}
+
+fn contents(editor: &Editor) -> String {
+    let buffer = editor.window_buffer();
+    buffer.contents(0..buffer.text().len())
+}
+
+fn prompt_label(editor: &Editor) -> String {
+    editor.minibuffer().unwrap().prompt().label.to_string()
+}
+
+#[test]
+fn an_unmodified_buffer_follows_its_file_and_only_its_changes_wake_the_editor() {
+    let project = Project::new("follow");
+    let path = project.path("Cargo.toml");
+    fs::write(&path, "[package]\nname = \"one\"\n").unwrap();
+    let mut editor = editor_visiting(&path);
+    let wakeups = Arc::new(AtomicUsize::new(0));
+    let (sender, notifications) = mpsc::channel();
+    let counted = Arc::clone(&wakeups);
+    editor.set_notifier(Arc::new(move || {
+        counted.fetch_add(1, Ordering::SeqCst);
+        let _ = sender.send(());
+    }));
+    press(&mut editor, "C-n C-f C-f");
+
+    for file in 0..20 {
+        fs::write(project.path(&format!("other_{file}.txt")), "x").unwrap();
+    }
+    std::thread::sleep(Duration::from_millis(300));
+    editor.refresh();
+    assert_eq!(wakeups.load(Ordering::SeqCst), 0);
+
+    let expected = "[package]\nname = \"two\"\n";
+    fs::write(&path, expected).unwrap();
+    let deadline = Instant::now() + INDEX_TIMEOUT;
+    while contents(&editor) != expected && Instant::now() < deadline {
+        let _ = notifications.recv_timeout(deadline - Instant::now());
+        editor.refresh();
+    }
+    assert_eq!(contents(&editor), expected);
+    let buffer = editor.window_buffer();
+    assert!(!buffer.is_modified());
+    assert_eq!((buffer.point_line(), buffer.point_column()), (1, 2));
+    // One write is several events; a refresh landing between them may let a second wake.
+    assert!(wakeups.load(Ordering::SeqCst) <= 2);
+}
+
+#[test]
+fn visiting_a_file_changed_on_disk_reads_it_again() {
+    let project = Project::new("revisit");
+    let path = project.path("Cargo.toml");
+    let mut editor = editor_visiting(&path);
+    fs::write(&path, "[workspace]\n").unwrap();
+    editor.visit_file(&path).unwrap();
+    assert_eq!(contents(&editor), "[workspace]\n");
+}
+
+#[test]
+fn a_modified_buffer_keeps_its_edits_and_saving_over_a_changed_file_asks() {
+    let project = Project::new("superseded");
+    let path = project.path("Cargo.toml");
+    let mut editor = editor_visiting(&path);
+    type_text(&mut editor, "#");
+    fs::write(&path, "[workspace]\n").unwrap();
+    editor.visit_file(&path).unwrap();
+    assert_eq!(contents(&editor), "#[package]\n");
+    assert!(editor.echo().unwrap().contains("changed on disk"));
+
+    press(&mut editor, "C-x C-s");
+    assert!(prompt_label(&editor).ends_with("Cargo.toml changed on disk; save over it? (y or n)"));
+    press(&mut editor, "n");
+    assert_eq!(fs::read_to_string(&path).unwrap(), "[workspace]\n");
+
+    press(&mut editor, "C-x C-s y");
+    assert_eq!(fs::read_to_string(&path).unwrap(), "#[package]\n");
+    type_text(&mut editor, "#");
+    press(&mut editor, "C-x C-s");
+    assert!(editor.minibuffer().is_none());
+    assert_eq!(fs::read_to_string(&path).unwrap(), "##[package]\n");
+}
+
+#[test]
+fn saving_a_new_file_asks_if_someone_made_it_meanwhile() {
+    let project = Project::new("made-meanwhile");
+    let path = project.path("new.rs");
+    let mut editor = editor_visiting(&path);
+    type_text(&mut editor, "mine");
+    fs::write(&path, "theirs").unwrap();
+    press(&mut editor, "C-x C-s");
+    assert!(prompt_label(&editor).ends_with("new.rs changed on disk; save over it? (y or n)"));
+    press(&mut editor, "n");
+    assert_eq!(fs::read_to_string(&path).unwrap(), "theirs");
+}
+
+#[test]
+fn a_deleted_file_is_reported_and_saving_asks_before_writing_it_again() {
+    let project = Project::new("deleted");
+    let path = project.path("Cargo.toml");
+    let mut editor = editor_visiting(&path);
+    fs::remove_file(&path).unwrap();
+    editor.visit_file(&path).unwrap();
+    assert_eq!(contents(&editor), "[package]\n");
+    assert!(editor.echo().unwrap().contains("its file was deleted"));
+    editor.clear_message();
+    editor.visit_file(&path).unwrap();
+    assert_eq!(editor.echo(), None, "reported once");
+
+    type_text(&mut editor, "#");
+    press(&mut editor, "C-x C-s");
+    assert!(prompt_label(&editor).ends_with("Cargo.toml was deleted; save it again? (y or n)"));
+    press(&mut editor, "n");
+    assert!(!path.exists());
+    press(&mut editor, "C-x C-s y");
+    assert_eq!(fs::read_to_string(&path).unwrap(), "#[package]\n");
+}
+
+#[test]
+fn revert_buffer_reads_the_file_again_asking_first_when_modified() {
+    let project = Project::new("revert");
+    let path = project.path("Cargo.toml");
+    let mut editor = editor_visiting(&path);
+    fs::write(&path, "[workspace]\n").unwrap();
+    editor.run_command("revert-buffer");
+    assert_eq!(contents(&editor), "[workspace]\n");
+
+    type_text(&mut editor, "#");
+    editor.run_command("revert-buffer");
+    assert!(prompt_label(&editor).starts_with("Discard edits and read"));
+    press(&mut editor, "n");
+    assert_eq!(contents(&editor), "#[workspace]\n");
+    editor.run_command("revert-buffer");
+    press(&mut editor, "y");
+    assert_eq!(contents(&editor), "[workspace]\n");
+    assert!(!editor.window_buffer().is_modified());
 }

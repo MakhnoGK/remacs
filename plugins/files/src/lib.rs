@@ -8,6 +8,7 @@ mod ignored;
 pub mod links;
 mod preview;
 mod project;
+mod revert;
 mod saving;
 
 use std::rc::Rc;
@@ -17,6 +18,7 @@ use remacs_core::{Command, CommandResult, Editor, MenuItem, Plugin, Registry};
 use crate::buffers::KillBufferPrompt;
 use crate::file_index::FileIndexes;
 use crate::ignored::FilesSettings;
+use crate::revert::AutoRevert;
 
 pub use file_index::FileIndex;
 pub use find_file::{directory_candidates, project_files};
@@ -39,6 +41,7 @@ const COMMANDS: &[Command] = &[
     Command::new("write-file", "Write current buffer into a new file and visit it", saving::write_file),
     Command::new("save-some-buffers", "Offer to save each modified buffer", saving::save_some_buffers),
     Command::new(QUIT, "Offer to save modified buffers, ask about running programs, then exit", saving::save_buffers_kill_terminal),
+    Command::new("revert-buffer", "Read the file again, dropping unsaved changes after asking", revert::revert_buffer),
     Command::new("revert-buffer-with-coding-system", "Read the file again in an encoding chosen, and save it so", encoding::revert_buffer_with_coding_system),
 ];
 
@@ -61,6 +64,8 @@ const BINDINGS: &[(&str, &str)] = &[
 const MENU_ITEMS: &[MenuItem] = &[
     MenuItem::new("File", "open", "Open…", "find-file"),
     MenuItem::new("File", "open", "Switch to Buffer…", "switch-to-buffer"),
+    MenuItem::new("File", "open", "Revert to Saved", "revert-buffer")
+        .enabled_when(encoding::visits_file),
     MenuItem::new("File", "open", "Reopen with Encoding…", "revert-buffer-with-coding-system")
         .enabled_when(encoding::visits_file),
     MenuItem::new("File", "save", "Save", "save-buffer"),
@@ -80,6 +85,9 @@ impl Plugin for FilesPlugin {
         }
         registry.menu_items.extend_from_slice(MENU_ITEMS);
         registry.settings_hooks.push(Rc::new(read_settings));
+        registry
+            .post_command_hooks
+            .push(Rc::new(revert::follow_files));
     }
 }
 
@@ -94,6 +102,7 @@ fn other_window(editor: &mut Editor) -> CommandResult {
 fn read_settings(editor: &mut Editor) {
     let settings = editor.settings_section::<FilesSettings>();
     editor.plugin_state::<KillBufferPrompt>().0 = settings.kill_buffer_prompt;
+    editor.plugin_state::<AutoRevert>().enabled = settings.auto_revert;
     editor.plugin_state::<FileIndexes>().set_settings(settings);
 }
 

@@ -70,6 +70,12 @@ mod tests {
             std::fs::read(&path).unwrap(),
             b"\xc6\xcf\xf0\xe8\xe2\xe5\xf2\n"
         );
+
+        // "Пока", read again in the encoding chosen.
+        std::fs::write(&path, b"\xcf\xee\xea\xe0\n").unwrap();
+        crate::revert::revert_buffer(&mut editor).unwrap();
+        let buffer = editor.window_buffer();
+        assert_eq!(buffer.contents(0..buffer.text().len()), "Пока\n");
         std::fs::remove_file(&path).unwrap();
     }
 }
