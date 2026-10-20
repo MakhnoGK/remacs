@@ -13,6 +13,7 @@ use remacs_dired::list_directory;
 pub struct FramePlugin;
 
 const ABOUT: &str = "about-remacs";
+const VIEW_NOTICES: &str = "view-third-party-notices";
 const OPEN_SETTINGS: &str = "open-settings";
 const WRITE_DEFAULT_SETTINGS: &str = "write-default-settings";
 const SELECT_THEME: &str = "select-theme";
@@ -32,6 +33,7 @@ const VIEW_MENU: &str = "View";
 #[rustfmt::skip]
 const COMMANDS: &[Command] = &[
     Command::new(ABOUT, "Show the version of remacs", |editor| request(editor, FrameRequest::About)),
+    Command::new(VIEW_NOTICES, "Show the licenses of the code remacs is built from", view_notices),
     Command::new(OPEN_SETTINGS, "List the settings files", open_settings),
     Command::new(WRITE_DEFAULT_SETTINGS, "Write a settings file of the defaults, each one explained, to change", default_settings::write_default_settings),
     Command::new(SELECT_THEME, "Choose the theme, kept in ui.toml", theme::select_theme),
@@ -69,7 +71,7 @@ const MENUS: &[Menu] = &[
     Menu { title: "Git", groups: &["status", "history", "changes", "branches", "sync"], trailing: false },
     Menu { title: "Run", groups: &["run", "compile", "debug", "step", "breakpoints"], trailing: false },
     Menu { title: WINDOW_MENU, groups: &["size", "windows"], trailing: true },
-    Menu { title: "Help", groups: &["help"], trailing: true },
+    Menu { title: "Help", groups: &["help", "about"], trailing: true },
 ];
 
 #[rustfmt::skip]
@@ -88,6 +90,7 @@ const MENU_ITEMS: &[MenuItem] = &[
     MenuItem::new(VIEW_MENU, "text-size", "Zoom Out", TEXT_SMALLER),
     MenuItem::new(VIEW_MENU, "text-size", "Actual Size", TEXT_CONFIGURED),
     MenuItem::new(VIEW_MENU, "theme", "Theme…", SELECT_THEME),
+    MenuItem::new("Help", "about", "Third-Party Notices", VIEW_NOTICES),
 ];
 
 impl Plugin for FramePlugin {
@@ -105,6 +108,29 @@ impl Plugin for FramePlugin {
 
 fn request(editor: &mut Editor, request: FrameRequest) -> CommandResult {
     editor.request_frame(request);
+    Ok(())
+}
+
+/// `THIRD-PARTY-NOTICES` in the bundle's Resources, read-only; `cargo xtask bundle` puts
+/// it there.
+fn view_notices(editor: &mut Editor) -> CommandResult {
+    let binary = std::env::current_exe().map_err(|error| error.to_string())?;
+    let notices = binary
+        .ancestors()
+        .nth(2)
+        .ok_or("No app bundle")?
+        .join("Resources/THIRD-PARTY-NOTICES");
+    if !notices.is_file() {
+        return Err(
+            "No third-party notices: they come with the app, made by `cargo xtask bundle`".into(),
+        );
+    }
+    let error = |error: std::io::Error| format!("{}: {error}", notices.display());
+    editor
+        .find_file_noselect(&notices)
+        .map_err(error)?
+        .set_read_only(true);
+    editor.visit_file(&notices).map_err(error)?;
     Ok(())
 }
 

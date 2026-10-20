@@ -11,6 +11,8 @@ use std::process::{Command, ExitCode, Stdio};
 const APP: &str = "Remacs.app";
 const PREVIOUS: &str = "Remacs.previous.app";
 const EXECUTABLE: &str = "remacs";
+/// In the bundle's Resources, where `view-third-party-notices` finds it.
+const NOTICES: &str = "THIRD-PARTY-NOTICES";
 const USAGE: &str = "usage: cargo xtask <bundle | install | rollback | changelog [version]>
   bundle     build target/bundle/Remacs.app
   install    bundle, then install it in ~/Applications and `remacs` in ~/.local/bin
@@ -78,7 +80,7 @@ fn bundle() -> Result<PathBuf> {
     let root = root();
     let version = Version::read(&root)?;
     let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
-    run(Command::new(cargo)
+    run(Command::new(&cargo)
         .current_dir(&root)
         .args(["build", "--release", "--package", "remacs-app"])
         .env("REMACS_VERSION", &version.version)
@@ -86,6 +88,7 @@ fn bundle() -> Result<PathBuf> {
 
     let sources = root.join("crates/app/bundle");
     let out = root.join("target/bundle");
+    let notices = notices(&cargo, &root, &sources, &out)?;
     let app = out.join(APP);
     remove(&app)?;
     let contents = app.join("Contents");
@@ -98,6 +101,8 @@ fn bundle() -> Result<PathBuf> {
         contents.join("MacOS").join(EXECUTABLE),
     )
     .map_err(|error| format!("copying the binary: {error}"))?;
+    fs::copy(&notices, resources.join(NOTICES))
+        .map_err(|error| format!("copying the notices: {error}"))?;
     let plist = read(&sources.join("Info.plist"))?;
     write(&contents.join("Info.plist"), &version.fill(&plist))?;
     icon(
@@ -111,6 +116,45 @@ fn bundle() -> Result<PathBuf> {
         .args(["--force", "--sign", "-"])
         .arg(&app))?;
     Ok(app)
+}
+
+/// The licenses of every crate built in, the tree-sitter grammars among them, from their
+/// own files (`--offline`); made again only when the lock file or the template changed,
+/// as it takes half a minute.
+fn notices(cargo: &str, root: &Path, sources: &Path, out: &Path) -> Result<PathBuf> {
+    let notices = out.join(NOTICES);
+    let (config, template) = (sources.join("about.toml"), sources.join("notices.hbs"));
+    let made = modified(&notices);
+    if made.is_some()
+        && [root.join("Cargo.lock"), config.clone(), template.clone()]
+            .iter()
+            .all(|input| modified(input) < made)
+    {
+        return Ok(notices);
+    }
+    create(out)?;
+    // Written aside first, so that a failure leaves no half file to be taken as made.
+    let written = out.join(format!(".{NOTICES}.new"));
+    run(Command::new(cargo)
+        .current_dir(root)
+        .args(["about", "generate", "--offline", "--locked", "--config"])
+        .arg(&config)
+        .arg("--manifest-path")
+        .arg(root.join("crates/app/Cargo.toml"))
+        .arg("--output-file")
+        .arg(&written)
+        .arg(&template))
+    .map_err(|error| {
+        format!("{error}; it is installed by `cargo install cargo-about --locked --features cli`")
+    })?;
+    rename(&written, &notices)?;
+    Ok(notices)
+}
+
+fn modified(path: &Path) -> Option<std::time::SystemTime> {
+    fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .ok()
 }
 
 fn icon(sources: &Path, out: &Path, icns: &Path) -> Result {

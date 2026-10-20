@@ -37,6 +37,16 @@ Status: accepted, 2026-10-10 (icon: board AppIcon, direction A "Parens and curso
   report exists and where (reports newer than `crashes/.shown`); a panic on a worker
   thread (git monitor, LSP readers…), which leaves remacs running, is said at once.
   `logs.toml`: `log-size`, `crash-reports` kept.
+- **Third-party notices** (#87): `cargo xtask bundle` puts `THIRD-PARTY-NOTICES` in the
+  bundle's Resources: the license texts of every crate built in, the tree-sitter
+  grammars among them, each text once with the crates under it, written by
+  [cargo-about](https://github.com/EmbarkStudios/cargo-about) (`cargo install
+  cargo-about --locked --features cli`) from `crates/app/bundle/about.toml` and
+  `notices.hbs`, offline, from the crates' own license files. It takes half a minute, so
+  `target/bundle/THIRD-PARTY-NOTICES` is kept and made again only when `Cargo.lock` or
+  those two files are newer. Help → Third-Party Notices (`view-third-party-notices`)
+  opens it read-only. remacs's own crates (`publish = false`) and its icons are not in
+  it.
 - **Metal shaders are compiled at build time** (Xcode's Metal Toolchain:
   `xcodebuild -downloadComponent MetalToolchain`); the `runtime-shaders` feature
   compiles them at startup instead, for a Mac without it.
