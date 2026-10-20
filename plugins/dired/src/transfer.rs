@@ -1,5 +1,6 @@
 use std::cell::Cell;
 use std::fs;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -10,7 +11,7 @@ use remacs_files::{abbreviate_home, expand_home, with_slash};
 
 use crate::commands::{NOT_A_LISTING, directory_completions};
 use crate::entry::{describe_entries, display_name, plural, size_label};
-use crate::file_ops::{copy_path, move_path, remove};
+use crate::file_ops::{copy_path, move_path, replace, trash};
 use crate::jobs::{self, Report, failure_message};
 use crate::listing::file_icon;
 use crate::marks::marked_or_at_point;
@@ -233,7 +234,10 @@ fn start(editor: &mut Editor, transfer: Transfer, answer: &str) -> CommandResult
         })
         .collect();
     let verb = if moving { "move" } else { "copy" };
-    if let Some((from, _)) = pairs.iter().find(|(from, to)| to.starts_with(from)) {
+    if let Some((from, _)) = pairs
+        .iter()
+        .find(|(from, to)| onto_or_into_itself(from, to) && !(moving && renames_case(from, to)))
+    {
         return Err(format!("Cannot {verb} {} onto or into itself", file_name(from)).into());
     }
     if into && !destination.exists() {
@@ -270,7 +274,7 @@ fn start(editor: &mut Editor, transfer: Transfer, answer: &str) -> CommandResult
     let moves = job
         .pairs
         .iter()
-        .filter(|(_, to)| overwrite || fs::symlink_metadata(to).is_err())
+        .filter(|(from, to)| overwrite || !taken(from, to))
         .cloned()
         .collect();
     references::ask_before_moving(
@@ -317,17 +321,14 @@ fn run(editor: &mut Editor, job: Job, updated: Vec<String>) {
         let (mut skipped, mut failures, mut moved) = (0, Vec::new(), Vec::new());
         for (from, to) in pairs {
             let name = file_name(&from);
-            if fs::symlink_metadata(&to).is_ok() {
-                if !overwrite {
-                    skipped += 1;
-                    continue;
-                }
-                if let Err(error) = remove(&to) {
-                    failures.push(format!("{name}: {error}"));
-                    continue;
-                }
+            let replacing = taken(&from, &to);
+            if replacing && !overwrite {
+                skipped += 1;
+                continue;
             }
-            let result = if moving {
+            let result = if replacing {
+                replace(&from, &to, moving, trash)
+            } else if moving {
                 move_path(&from, &to)
             } else {
                 copy_path(&from, &to)
@@ -359,6 +360,52 @@ fn run(editor: &mut Editor, job: Job, updated: Vec<String>) {
             message,
         }
     });
+}
+
+/// Whether something other than `from` is at `to`.
+fn taken(from: &Path, to: &Path) -> bool {
+    fs::symlink_metadata(to).is_ok() && !same_entry(from, to)
+}
+
+/// Whether `to` is `from`, inside it or holds it, through links and the volume's case
+/// rules; replacing it would take `from` along.
+fn onto_or_into_itself(from: &Path, to: &Path) -> bool {
+    let (from_resolved, to_resolved) = (resolved(from), resolved(to));
+    same_entry(from, to)
+        || to_resolved.starts_with(&from_resolved)
+        || from_resolved.starts_with(&to_resolved)
+}
+
+/// Whether `to` names `from` itself, written in other letter case.
+fn renames_case(from: &Path, to: &Path) -> bool {
+    let lowercase = |path: &Path| {
+        path.file_name()
+            .map(|name| name.to_string_lossy().to_lowercase())
+    };
+    same_entry(from, to) && from.file_name() != to.file_name() && lowercase(from) == lowercase(to)
+}
+
+fn same_entry(a: &Path, b: &Path) -> bool {
+    match (fs::symlink_metadata(a), fs::symlink_metadata(b)) {
+        (Ok(a), Ok(b)) => (a.dev(), a.ino()) == (b.dev(), b.ino()),
+        _ => false,
+    }
+}
+
+/// `path` with links and letter case resolved as far as it exists; a link at its end stays.
+fn resolved(path: &Path) -> PathBuf {
+    if fs::symlink_metadata(path).is_ok_and(|metadata| !metadata.is_symlink())
+        && let Ok(path) = path.canonicalize()
+    {
+        return path;
+    }
+    let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+        return path.to_path_buf();
+    };
+    match parent.canonicalize() {
+        Ok(parent) => parent.join(name),
+        Err(_) => resolved(parent).join(name),
+    }
 }
 
 fn file_name(path: &Path) -> String {

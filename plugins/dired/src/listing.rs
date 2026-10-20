@@ -12,7 +12,6 @@ use remacs_text::Text;
 
 use crate::commands::{FIND_FILE, open_directory, sort_by};
 use crate::entry::{Entry, PARENT, SortKey, display_name, is_dim_name, items_label, sort};
-use crate::new_file;
 use crate::preview::{self, PreviewState};
 use crate::reader::DirectoryReader;
 use crate::wdired::{self, Editing};
@@ -72,9 +71,6 @@ pub struct Listing {
     /// While the names are edited, the lines stand for the entries as they are, so the
     /// listing is neither read again nor sorted.
     pub editing: Option<Editing>,
-    /// The line of the row naming a file to create, an empty entry until it is created;
-    /// meanwhile, too, the listing is neither read again nor sorted.
-    pub new_file: Option<usize>,
 }
 
 impl Listing {
@@ -84,7 +80,7 @@ impl Listing {
 
     /// Whether the lines are being edited, so they must stay as they are.
     fn is_frozen(&self) -> bool {
-        self.editing.is_some() || self.new_file.is_some()
+        self.editing.is_some()
     }
 }
 
@@ -108,19 +104,13 @@ pub fn new_listing(directory: PathBuf, select: Option<String>, notifier: Notifie
         preview,
         marks: HashMap::new(),
         editing: None,
-        new_file: None,
     });
     buffer
 }
 
-/// The entry on point's line, unless that is the row of a file yet to be created.
 pub fn entry_at_point(buffer: &Buffer) -> Option<&Entry> {
     let listing = buffer.local::<Listing>()?;
-    let line = buffer.point_line();
-    if listing.new_file == Some(line) {
-        return None;
-    }
-    listing.entries.get(line)
+    listing.entries.get(buffer.point_line())
 }
 
 /// Takes in what the background readers have read since the last call.
@@ -238,9 +228,6 @@ pub fn table(editor: &Editor, lines: Range<usize>) -> Option<Table> {
         .iter()
         .zip(shown)
         .map(|(entry, line)| {
-            if listing.new_file == Some(line) {
-                return new_file_row(line_text(buffer, line));
-            }
             let edited = editing
                 .filter(|_| entry.name != PARENT)
                 .map(|_| line_text(buffer, line));
@@ -275,10 +262,10 @@ pub fn table(editor: &Editor, lines: Range<usize>) -> Option<Table> {
                 .and_then(|entry| preview::describe(editor, listing, directory, entry))
         })
         .flatten();
-    let hints = match (editing, listing.new_file) {
-        (Some(_), _) => wdired::HINTS,
-        (None, Some(_)) => new_file::HINTS,
-        (None, None) => HINTS,
+    let hints = if editing.is_some() {
+        wdired::HINTS
+    } else {
+        HINTS
     };
     Some(Table {
         crumbs: crumbs(directory),
@@ -296,7 +283,7 @@ pub fn table(editor: &Editor, lines: Range<usize>) -> Option<Table> {
     })
 }
 
-pub fn line_text(buffer: &Buffer, line: usize) -> String {
+fn line_text(buffer: &Buffer, line: usize) -> String {
     let range = buffer.text().line_range(line).unwrap_or_default();
     buffer.contents(range)
 }
@@ -309,7 +296,7 @@ pub fn status(editor: &Editor) -> Option<StatusSegment> {
             .first()
             .is_some_and(|entry| entry.name == PARENT);
         let listed = listing.entries.len() - usize::from(has_parent);
-        items_label((listed - usize::from(listing.new_file.is_some())) as u64)
+        items_label(listed as u64)
     } else {
         "Reading…".into()
     };
@@ -360,20 +347,6 @@ fn row(entry: &Entry, mark: Option<Mark>, edited: Option<String>, state: Option<
         face: file_face(&entry.name, entry.is_directory),
         field,
         state,
-    }
-}
-
-/// The row of a file yet to be created, its name in a field.
-fn new_file_row(name: String) -> Row {
-    let mut cells = vec![String::new(); COLUMNS.len()];
-    cells[0] = name;
-    Row {
-        mark: None,
-        icon: Some(file_icon(false)),
-        cells,
-        face: RowFace::Normal,
-        field: Some(Field { original: None }),
-        state: None,
     }
 }
 

@@ -1,12 +1,10 @@
 use std::path::{Path, PathBuf};
 
 use remacs_core::{CommandResult, Dialog, DialogOption, Editor, ListItem, Mark};
-use trash::TrashContext;
-use trash::macos::{DeleteMethod, TrashContextExtMacos};
 
 use crate::commands::NOT_A_LISTING;
 use crate::entry::{Entry, describe_entries, display_name};
-use crate::file_ops::remove;
+use crate::file_ops::{remove, trash};
 use crate::jobs::{self, Report, failure_message};
 use crate::listing::Listing;
 use crate::marks::marked_or_at_point;
@@ -132,17 +130,14 @@ fn start(
 }
 
 fn delete(directory: &Path, names: &[String], to_trash: bool) -> Vec<String> {
-    let mut trash = TrashContext::default();
-    // Finder's way asks for permission to script it, and plays a sound.
-    trash.set_delete_method(DeleteMethod::NsFileManager);
     names
         .iter()
         .filter_map(|name| {
             let path = directory.join(name);
             let deleted = if to_trash {
-                trash.delete(&path).map_err(|error| error.to_string())
+                trash(&path)
             } else {
-                remove(&path).map_err(|error| error.to_string())
+                remove(&path)
             };
             deleted.err().map(|error| format!("{name}: {error}"))
         })

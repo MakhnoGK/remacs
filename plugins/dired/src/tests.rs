@@ -1,5 +1,7 @@
 use std::fs;
-use std::path::PathBuf;
+use std::io;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -17,6 +19,7 @@ use crate::entry::{
     Entry, LocalTime, PARENT, SortKey, date_label, full_date_label, items_label, mode_label,
     size_label, sort,
 };
+use crate::file_ops::replace;
 use crate::listing::{DIRED_MODE, Listing};
 use crate::{DiredPlugin, deliver_rename_edits, take_rename_requests};
 
@@ -454,79 +457,38 @@ fn a_new_folder_is_listed_with_point_on_it() {
 }
 
 #[test]
-fn a_new_file_is_named_in_a_row_under_point_and_listed_with_point_on_it() {
+fn a_new_file_is_named_in_the_prompt_and_listed_with_point_on_it() {
     let tree = Tree::new("new-file");
     let mut editor = editor();
     open_directory(&mut editor, &tree.0, None, false).unwrap();
     wait_for_listing(&mut editor);
-    let before = lines(&editor);
-    assert_eq!(line_at_point(&editor), "sub");
 
     press(&mut editor, "c");
-    assert!(!editor.window_buffer().is_read_only());
-    assert_eq!(editor.window_buffer().point_line(), 2);
+    let prompt = editor.minibuffer().unwrap().prompt();
+    assert_eq!(prompt.label, "New file");
+    assert_eq!(prompt.hints[0], ("↵", "Create"));
     type_text(&mut editor, "notes.md");
-    let table = editor.table(0..20).unwrap();
-    assert_eq!(table.rows[2].cells[0], "notes.md");
-    assert_eq!(table.rows[2].field.as_ref().unwrap().original, None);
-    assert!(table.sort.is_empty() && table.preview.is_none());
-    assert_eq!(table.hints[0], ("↵", "Create"));
-
     press(&mut editor, "RET");
-    assert!(tree.0.join("notes.md").is_file());
-    assert!(editor.window_buffer().is_read_only());
+    assert_eq!(fs::read_to_string(tree.0.join("notes.md")).unwrap(), "");
     wait_until(&mut editor, |editor| line_at_point(editor) == "notes.md");
-    assert_eq!(lines(&editor).len(), before.len() + 1);
-}
-
-#[test]
-fn a_name_already_listed_is_refused_and_the_row_stays() {
-    let tree = Tree::new("new-file-exists");
-    let mut editor = editor();
-    open_directory(&mut editor, &tree.0, None, false).unwrap();
-    wait_for_listing(&mut editor);
 
     press(&mut editor, "c");
-    type_text(&mut editor, "LIB.rs");
+    type_text(&mut editor, "docs/a/b.md");
     press(&mut editor, "RET");
-    assert_eq!(editor.echo().as_deref(), Some("lib.rs already exists"));
-    assert!(!editor.window_buffer().is_read_only());
-    assert_eq!(line_at_point(&editor), "LIB.rs");
+    assert!(tree.0.join("docs/a/b.md").is_file());
+    wait_until(&mut editor, |editor| line_at_point(editor) == "docs");
 
-    press(&mut editor, "C-a C-k");
-    type_text(&mut editor, "a/b");
+    press(&mut editor, "c");
+    type_text(&mut editor, "lib.rs");
     press(&mut editor, "RET");
+    assert!(editor.echo().unwrap().ends_with("lib.rs already exists"));
     assert_eq!(
-        editor.echo().as_deref(),
-        Some("Cannot create a/b: the name contains /")
+        fs::read_to_string(tree.0.join("lib.rs")).unwrap(),
+        "fn main() {}\n"
     );
-}
 
-#[test]
-fn the_name_stays_on_its_line_and_cancelling_removes_the_row() {
-    let tree = Tree::new("new-file-cancel");
-    let mut editor = editor();
-    open_directory(&mut editor, &tree.0, None, false).unwrap();
-    wait_for_listing(&mut editor);
-    let before = lines(&editor);
-
-    press(&mut editor, "c");
-    type_text(&mut editor, "x");
-    let typed = lines(&editor);
-    press(&mut editor, "C-a DEL");
-    assert_eq!(lines(&editor), typed);
-    assert_eq!(editor.echo().as_deref(), Some("The name stays on one line"));
-    press(&mut editor, "C-n");
-    assert_eq!(line_at_point(&editor), "x");
-
-    press(&mut editor, "C-g");
-    assert_eq!(lines(&editor), before);
-    assert_eq!(line_at_point(&editor), "sub");
-    assert!(editor.window_buffer().is_read_only());
-    assert!(!tree.0.join("x").exists());
-
-    press(&mut editor, "c RET");
-    assert_eq!(lines(&editor), before);
+    press(&mut editor, "c x C-g");
+    assert!(editor.minibuffer().is_none() && !tree.0.join("x").exists());
 }
 
 /// Types `text` into the prompt, a key per character.
@@ -676,6 +638,96 @@ fn files_already_there_are_kept_unless_overwriting() {
     type_text(&mut editor, "sub/inside/");
     press(&mut editor, "RET");
     assert!(editor.echo().unwrap().contains("onto or into itself"));
+}
+
+#[test]
+fn replacing_a_file_keeps_it_until_its_replacement_is_complete() {
+    let tree = Tree::new("replace");
+    let (lib, target) = (tree.0.join("lib.rs"), tree.0.join("sub/inner.rs"));
+    let keep = |_: &Path| -> io::Result<()> { panic!("a file is replaced in one step") };
+    let inode = fs::metadata(&lib).unwrap().ino();
+    replace(&lib, &target, true, keep).unwrap();
+    assert_eq!(fs::metadata(&target).unwrap().ino(), inode, "one rename");
+    assert!(!lib.exists());
+
+    let source = tree.0.join("new");
+    fs::write(&source, "new").unwrap();
+    fs::set_permissions(&source, fs::Permissions::from_mode(0o000)).unwrap();
+    assert!(replace(&source, &target, false, keep).is_err());
+    assert_eq!(fs::read_to_string(&target).unwrap(), "fn main() {}\n");
+    let names = |path: PathBuf| fs::read_dir(path).unwrap().count();
+    assert_eq!(names(tree.0.join("sub")), 2, "no temporary is left");
+
+    fs::set_permissions(&source, fs::Permissions::from_mode(0o644)).unwrap();
+    replace(&source, &target, false, keep).unwrap();
+    assert_eq!(fs::read_to_string(&target).unwrap(), "new");
+    assert_eq!(names(tree.0.join("sub")), 2);
+}
+
+#[test]
+fn a_replaced_directory_is_discarded_before_its_replacement_arrives() {
+    let tree = Tree::new("replace-directory");
+    let (source, target) = (tree.0.join("source"), tree.0.join("sub"));
+    fs::create_dir(&source).unwrap();
+    fs::write(source.join("new.rs"), "").unwrap();
+    let discarded = tree.0.join("discarded");
+    replace(&source, &target, true, |path| fs::rename(path, &discarded)).unwrap();
+    assert!(target.join("new.rs").exists() && !source.exists());
+    assert!(discarded.join("inner.rs").exists() && !target.join("inner.rs").exists());
+}
+
+#[test]
+fn onto_itself_is_found_through_links_and_letter_case() {
+    let tree = Tree::new("onto-itself");
+    std::os::unix::fs::symlink(tree.0.join("sub"), tree.0.join("zlink")).unwrap();
+    let mut editor = editor();
+    open_directory(&mut editor, &tree.0, None, false).unwrap();
+    wait_for_listing(&mut editor);
+
+    press(&mut editor, "M-< n R");
+    type_text(&mut editor, "zlink/");
+    press(&mut editor, "RET");
+    assert!(editor.echo().unwrap().contains("onto or into itself"));
+
+    fs::create_dir(tree.0.join("sub/sub")).unwrap();
+    open_directory(&mut editor, &tree.0.join("sub"), None, false).unwrap();
+    wait_until(&mut editor, |editor| {
+        lines(editor).contains(&"sub".to_owned())
+    });
+    press(&mut editor, "M-<");
+    while line_at_point(&editor) != "sub" {
+        press(&mut editor, "n");
+    }
+    press(&mut editor, "R");
+    type_text(&mut editor, "..");
+    press(&mut editor, "M-o M-RET");
+    assert!(editor.echo().unwrap().contains("onto or into itself"));
+    assert!(tree.0.join("sub/inner.rs").exists());
+    open_directory(&mut editor, &tree.0, None, false).unwrap();
+
+    if !tree.0.join("LIB.RS").exists() {
+        return; // A case-sensitive volume has no other spelling of a name.
+    }
+    press(&mut editor, "M-< n n n n");
+    assert_eq!(line_at_point(&editor), "lib.rs");
+    press(&mut editor, "C");
+    type_text(&mut editor, "LIB.RS");
+    press(&mut editor, "M-o M-RET");
+    assert!(editor.echo().unwrap().contains("onto or into itself"));
+
+    press(&mut editor, "R");
+    type_text(&mut editor, "LIB.RS");
+    press(&mut editor, "M-RET");
+    wait_for_message(&mut editor, "Moved lib.rs to");
+    let names: Vec<_> = fs::read_dir(&tree.0)
+        .unwrap()
+        .map(|item| item.unwrap().file_name())
+        .collect();
+    assert!(names.contains(&"LIB.RS".into()) && !names.contains(&"lib.rs".into()));
+    assert_eq!(
+        fs::read_to_string(tree.0.join("LIB.RS")).unwrap(),
+        "fn main() {}\n"
+    );
 }
 
 /// A listing of a fresh tree with its names editable, point on `sub`.

@@ -1,9 +1,12 @@
-use std::ffi::CString;
+use std::ffi::{CString, OsString};
 use std::fs::{self, File};
 use std::io;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::symlink;
 use std::path::Path;
+
+use trash::TrashContext;
+use trash::macos::{DeleteMethod, TrashContextExtMacos};
 
 /// A directory with everything in it; a link, not what it points to.
 pub fn remove(path: &Path) -> io::Result<()> {
@@ -23,6 +26,49 @@ pub fn move_path(from: &Path, to: &Path) -> io::Result<()> {
         }
         result => result,
     }
+}
+
+/// `from` in place of what is at `to`, which stays until its replacement is complete: a
+/// move is one rename, a copy is made under a temporary name and renamed over it. A
+/// directory on either side cannot be swapped in one step, so `discard` takes the old one
+/// first.
+pub fn replace(
+    from: &Path,
+    to: &Path,
+    moving: bool,
+    discard: impl Fn(&Path) -> io::Result<()>,
+) -> io::Result<()> {
+    if fs::symlink_metadata(from)?.is_dir() || fs::symlink_metadata(to)?.is_dir() {
+        discard(to)?;
+        return if moving {
+            move_path(from, to)
+        } else {
+            copy_path(from, to)
+        };
+    }
+    if moving {
+        match fs::rename(from, to) {
+            Err(error) if error.kind() == io::ErrorKind::CrossesDevices => {}
+            result => return result,
+        }
+    }
+    let mut temporary_name = OsString::from(format!(".remacs-replace-{}-", std::process::id()));
+    temporary_name.push(to.file_name().unwrap_or_default());
+    let temporary = to.with_file_name(temporary_name);
+    let copied = copy_path(from, &temporary).and_then(|()| fs::rename(&temporary, to));
+    if copied.is_err() {
+        let _ = remove(&temporary);
+    }
+    copied?;
+    if moving { remove(from) } else { Ok(()) }
+}
+
+/// Moves `path` to the Trash.
+pub fn trash(path: &Path) -> io::Result<()> {
+    let mut trash = TrashContext::default();
+    // Finder's way asks for permission to script it, and plays a sound.
+    trash.set_delete_method(DeleteMethod::NsFileManager);
+    trash.delete(path).map_err(io::Error::other)
 }
 
 /// `from` to `to` on one volume, failing rather than replacing what is at `to`.
