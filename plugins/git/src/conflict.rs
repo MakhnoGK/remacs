@@ -90,14 +90,16 @@ pub fn parse(text: &str) -> ConflictFile {
     let mut plain: Vec<String> = Vec::new();
     let mut open: Option<(Part, Conflict, Vec<String>)> = None;
     for line in text.split('\n') {
-        let marker = |sign: char| {
-            line.len() >= 7
-                && line[..7].chars().all(|character| character == sign)
-                && line[7..].chars().next().is_none_or(|next| next == ' ')
+        // On bytes: byte 7 can fall inside a character of a line that is not a marker.
+        let marker = |sign: u8| {
+            let bytes = line.as_bytes();
+            bytes.len() >= 7
+                && bytes[..7].iter().all(|&byte| byte == sign)
+                && bytes.get(7).is_none_or(|&next| next == b' ')
         };
         let mut finished = false;
         match &mut open {
-            None if marker('<') => {
+            None if marker(b'<') => {
                 open = Some((
                     Part::Ours,
                     Conflict {
@@ -111,12 +113,12 @@ pub fn parse(text: &str) -> ConflictFile {
             None => plain.push(line.to_owned()),
             Some((part, conflict, raw)) => {
                 raw.push(line.to_owned());
-                if marker('|') && *part == Part::Ours {
+                if marker(b'|') && *part == Part::Ours {
                     *part = Part::Base;
                     conflict.base = Some(Vec::new());
                 } else if line == "=======" && *part != Part::Theirs {
                     *part = Part::Theirs;
-                } else if marker('>') && *part == Part::Theirs {
+                } else if marker(b'>') && *part == Part::Theirs {
                     finished = true;
                 } else {
                     match part {
@@ -217,5 +219,15 @@ mod tests {
         assert_eq!(second.text, "a\nB\nc\nx\ny\n");
         assert_eq!((second.start, second.replaced, second.kept), (3, 7, 2));
         assert_eq!(resolve(&second.text, 0, Keep::Ours), None);
+    }
+
+    #[test]
+    fn lines_with_multibyte_characters_are_not_markers() {
+        let text = "Привет мир\n<<<<<<< HEAD\nПривет\n=======\nмир\n>>>>>>> feat\n<<<<<<<é\n";
+        let file = parse(text);
+        assert_eq!(file.count(), 1);
+        assert_eq!(file.conflicts().next().unwrap().theirs, ["мир"]);
+        let resolved = resolve(text, 0, Keep::Ours).unwrap();
+        assert_eq!(resolved.text, "Привет мир\nПривет\n<<<<<<<é\n");
     }
 }
