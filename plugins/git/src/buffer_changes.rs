@@ -185,7 +185,10 @@ fn run(requests: Receiver<Request>, notifier: Notifier) {
                 continue;
             }
             let changes = match base_text(&request) {
-                Some(base) => compare(&base, &request.text.bytes_in(0..request.text.len())),
+                Some(base) => compare(
+                    &request.text.format().decode(&base),
+                    &request.text.bytes_in(0..request.text.len()),
+                ),
                 None => Vec::new(),
             };
             // Each wake costs the UI a full refresh; most keys change no line's mark.

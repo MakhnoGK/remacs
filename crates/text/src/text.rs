@@ -4,6 +4,8 @@ use std::mem;
 use std::ops::{Deref, Range};
 use std::path::Path;
 
+use encoding_rs::Encoding;
+
 use crate::diff::Edit;
 use crate::disk::DiskFile;
 use crate::history::History;
@@ -24,11 +26,23 @@ pub struct Text {
 }
 
 impl Text {
+    /// Reads the file at `path` in the encoding its bytes look like.
     pub fn open(path: impl AsRef<Path>) -> io::Result<Self> {
-        let path = path.as_ref();
+        Self::open_in(path.as_ref(), None)
+    }
+
+    /// Reads the file at `path` in `encoding`, failing if its bytes aren't.
+    pub fn open_with_encoding(
+        path: impl AsRef<Path>,
+        encoding: &'static Encoding,
+    ) -> io::Result<Self> {
+        Self::open_in(path.as_ref(), Some(encoding))
+    }
+
+    fn open_in(path: &Path, encoding: Option<&'static Encoding>) -> io::Result<Self> {
         let file = File::open(path)?;
         let disk_file = DiskFile::opened(path, &file)?;
-        let mut text = Self::from_original(Original::load(file)?);
+        let mut text = Self::from_original(Original::load(&file, encoding)?);
         text.disk_file = Some(disk_file);
         Ok(text)
     }
@@ -177,9 +191,15 @@ impl Text {
         self.save_as(path)
     }
 
+    /// Writes the text in the format of the file it was loaded from; fails, leaving the
+    /// file as it was, when that can't hold one of its characters or the file is binary.
     pub fn save_as(&mut self, path: impl AsRef<Path>) -> io::Result<()> {
-        let chunks = self.snapshot.chunks(0..self.snapshot.len());
-        self.disk_file = Some(DiskFile::write(path.as_ref(), chunks)?);
+        let snapshot = &self.snapshot;
+        let chunks = snapshot.chunks(0..snapshot.len());
+        let disk_file = DiskFile::write(path.as_ref(), |output| {
+            snapshot.format().write(chunks, output)
+        })?;
+        self.disk_file = Some(disk_file);
         self.saved = self.snapshot.pieces.clone();
         self.saves += 1;
         Ok(())
@@ -220,6 +240,7 @@ impl Default for Text {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use encoding_rs::{UTF_8, WINDOWS_1251, WINDOWS_1252, WINDOWS_1253};
 
     /// xorshift64: deterministic and dependency-free.
     struct Rng(u64);
@@ -399,6 +420,99 @@ mod tests {
 
         std::fs::write(&path, "changed elsewhere\n").unwrap();
         assert!(text.changed_on_disk().unwrap());
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn a_crlf_latin1_file_is_edited_as_utf8_and_saved_as_it_was() {
+        let path = temporary_path("latin1-crlf");
+        std::fs::write(&path, b"caf\xe9\r\nna\xefve\r\n").unwrap();
+        let mut text = Text::open(&path).unwrap();
+        let format = text.format();
+        assert_eq!((format.encoding, format.crlf), (WINDOWS_1252, true));
+        assert_eq!(text.bytes_in(0..text.len()), "café\nnaïve\n".as_bytes());
+
+        text.insert(text.len(), "über\n");
+        text.save().unwrap();
+        let saved = b"caf\xe9\r\nna\xefve\r\n\xfcber\r\n";
+        assert_eq!(std::fs::read(&path).unwrap(), saved);
+
+        text.insert(0, "Ж");
+        let error = text.save().unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(text.is_modified());
+        assert_eq!(std::fs::read(&path).unwrap(), saved);
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    /// Above the size files are mapped at, the decoded text goes to a mapped temporary file.
+    #[test]
+    fn a_large_windows_1251_file_is_decoded_and_saved_back() {
+        let path = temporary_path("mapped-1251");
+        let line = "Съешь же ещё этих мягких французских булок, да выпей чаю.\r\n";
+        let contents = WINDOWS_1251
+            .encode(&line.repeat((33 << 20) / 60))
+            .0
+            .into_owned();
+        std::fs::write(&path, &contents).unwrap();
+        let mut text = Text::open(&path).unwrap();
+        let format = text.format();
+        assert_eq!((format.encoding, format.crlf), (WINDOWS_1251, true));
+        let first = text.line_range(0).unwrap();
+        assert_eq!(text.bytes_in(first), line.trim_end().as_bytes());
+        assert_eq!(text.line_count(), (33 << 20) / 60 + 1);
+
+        text.save().unwrap();
+        assert!(std::fs::read(&path).unwrap() == contents);
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn a_binary_file_is_neither_read_nor_saved() {
+        let path = temporary_path("binary");
+        std::fs::write(&path, b"\x7fELF\x02\x01\x00\x00\xff").unwrap();
+        let mut text = Text::open(&path).unwrap();
+        assert!(text.format().binary);
+        assert_eq!(
+            text.bytes_in(0..text.len()),
+            b"Binary file of 9 bytes: not shown.\n"
+        );
+        assert_eq!(text.save().unwrap_err().kind(), io::ErrorKind::Unsupported);
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            b"\x7fELF\x02\x01\x00\x00\xff"
+        );
+
+        let reread = Text::open_with_encoding(&path, WINDOWS_1252).unwrap();
+        assert_eq!(reread.bytes_in(0..4), b"\x7fELF");
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    /// The guess sees only the start; a byte its encoding has no character for, later on,
+    /// sends the file to windows-1252, which has one for every byte.
+    #[test]
+    fn a_byte_the_guessed_encoding_lacks_falls_back_to_windows_1252() {
+        let path = temporary_path("fallback");
+        let line = "Η γρήγορη καφέ αλεπού πηδάει πάνω από τον τεμπέλη σκύλο.\n";
+        let mut contents = WINDOWS_1253.encode(&line.repeat(2000)).0.into_owned();
+        // 0xFF has no character in windows-1253.
+        contents.extend_from_slice(b"\xff\n");
+        std::fs::write(&path, &contents).unwrap();
+        let mut text = Text::open(&path).unwrap();
+        assert_eq!(text.format().encoding, WINDOWS_1252);
+        text.save().unwrap();
+        assert!(std::fs::read(&path).unwrap() == contents);
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn an_encoding_chosen_must_fit_the_bytes() {
+        let path = temporary_path("chosen");
+        std::fs::write(&path, b"caf\xe9\n").unwrap();
+        let error = Text::open_with_encoding(&path, UTF_8).err().unwrap();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        let text = Text::open_with_encoding(&path, WINDOWS_1251).unwrap();
+        assert_eq!(text.bytes_in(0..text.len()), "cafй\n".as_bytes());
         std::fs::remove_file(&path).unwrap();
     }
 }

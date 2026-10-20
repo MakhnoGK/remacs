@@ -64,6 +64,15 @@ fn save(bencher: Bencher, len: usize) {
     let _ = std::fs::remove_dir_all(directory);
 }
 
+/// Opening a UTF-8 file of `len` bytes: read into memory below 32 MiB, mapped above.
+#[divan::bench(args = [1 << 20, 16 << 20, 64 << 20], sample_count = 20)]
+fn open(bencher: Bencher, len: usize) {
+    let path = std::env::temp_dir().join(format!("remacs-bench-open-{len}-{}", std::process::id()));
+    std::fs::write(&path, lines(len / 40)).unwrap();
+    bencher.bench_local(|| black_box(Text::open(&path).unwrap()));
+    let _ = std::fs::remove_file(path);
+}
+
 #[divan::bench(args = [4 << 20])]
 fn bytes_in_whole_text(bencher: Bencher, len: usize) {
     let source = lines(len / 40);

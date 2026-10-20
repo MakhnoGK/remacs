@@ -1,5 +1,5 @@
 use std::fs::{self, File, Metadata};
-use std::io::{self, BufWriter, Write};
+use std::io::{self, BufWriter};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -45,10 +45,13 @@ impl DiskFile {
 
     /// Writes a temporary file and renames it over `path`: readers never see a partial
     /// file, and the old inode — possibly still mapped — is never truncated.
-    pub fn write<'a>(path: &Path, chunks: impl Iterator<Item = &'a [u8]>) -> io::Result<Self> {
+    pub fn write(
+        path: &Path,
+        contents: impl FnOnce(&mut BufWriter<File>) -> io::Result<()>,
+    ) -> io::Result<Self> {
         let target = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         let temporary = temporary_path(&target);
-        let written = write_and_rename(&target, &temporary, chunks);
+        let written = write_and_rename(&target, &temporary, contents);
         if written.is_err() {
             let _ = fs::remove_file(&temporary);
         }
@@ -59,19 +62,17 @@ impl DiskFile {
     }
 }
 
-fn write_and_rename<'a>(
+fn write_and_rename(
     target: &Path,
     temporary: &Path,
-    chunks: impl Iterator<Item = &'a [u8]>,
+    contents: impl FnOnce(&mut BufWriter<File>) -> io::Result<()>,
 ) -> io::Result<Stamp> {
     let file = File::create(temporary)?;
     if let Ok(metadata) = fs::metadata(target) {
         file.set_permissions(metadata.permissions())?;
     }
     let mut writer = BufWriter::with_capacity(1 << 20, file);
-    for chunk in chunks {
-        writer.write_all(chunk)?;
-    }
+    contents(&mut writer)?;
     let file = writer
         .into_inner()
         .map_err(io::IntoInnerError::into_error)?;

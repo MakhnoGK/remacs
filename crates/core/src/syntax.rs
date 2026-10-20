@@ -132,4 +132,16 @@ mod tests {
         assert_eq!(blank_outside(&text, 2..7, &codes), "2  5 ");
         assert_eq!(blank_outside(&text, 3..5, &codes), "  ");
     }
+
+    /// A Latin-1 byte used to stay in the text and make the blanked code not UTF-8.
+    #[test]
+    fn blanking_a_file_that_is_not_utf8_keeps_its_code() {
+        let path = std::env::temp_dir().join(format!("remacs-latin1-{}.html", std::process::id()));
+        std::fs::write(&path, b"<script>let caf\xe9 = 1;</script>\n").unwrap();
+        let text = Text::open(&path).unwrap().snapshot();
+        std::fs::remove_file(&path).unwrap();
+        let script = 8..text.len() - 10;
+        let blanked = blank_outside(&text, 0..text.len(), &[script]);
+        assert_eq!(blanked, "        let café = 1;         \n");
+    }
 }
