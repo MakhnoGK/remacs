@@ -1534,9 +1534,16 @@ impl EditorView {
     }
 
     /// Popups next to the text they belong to, e.g. completions under the word or the
-    /// documentation of a symbol.
-    fn render_popups(&mut self, metrics: Metrics, gutter_width: Pixels) -> Vec<AnyElement> {
-        let window_size = self.window_state.frame.size;
+    /// documentation of a symbol; placed in the whole `frame_size`, as one may reach over
+    /// other windows.
+    fn render_popups(
+        &mut self,
+        metrics: Metrics,
+        gutter_width: Pixels,
+        frame_size: Size<Pixels>,
+    ) -> Vec<AnyElement> {
+        let origin = self.window_state.frame.origin;
+        let window_bottom = self.window_state.clip.bottom();
         let line_height = px(self.text_font().line_height);
         let transition = self.transitions.popup();
         let slots: Vec<Option<Popup>> = self.editor.popup_slots().collect();
@@ -1571,8 +1578,8 @@ impl EditorView {
                 if row < 0.0 {
                     return None;
                 }
-                let line_top = px(TEXT_TOP) + line_height * row;
-                if line_top >= window_size.height {
+                let line_top = origin.y + px(TEXT_TOP) + line_height * row;
+                if line_top >= window_bottom {
                     return None;
                 }
                 let (display_line, visible) = self.display_line(line);
@@ -1582,7 +1589,8 @@ impl EditorView {
                     + display_line.text[..byte].chars().count())
                     as f32
                     - self.window_state.sideways.shown();
-                let anchor_left = self.window_state.text_left
+                let anchor_left = origin.x
+                    + self.window_state.text_left
                     + px(ROW_MARGIN)
                     + gutter_width
                     + metrics.char_width * column.max(0.0);
@@ -1591,8 +1599,8 @@ impl EditorView {
                     line_top,
                     line_bottom: line_top + line_height,
                     area_top: px(TITLE_BAR_HEIGHT),
-                    window_width: window_size.width,
-                    window_height: window_size.height,
+                    window_width: frame_size.width,
+                    window_height: frame_size.height,
                 };
                 Some(shown.look.apply(render_popup(popup, placement, &view)))
             })
@@ -1819,7 +1827,7 @@ impl EditorView {
         let last_line = (first_line + drawn_rows + 1).min(line_count);
         // Popups belong to the selected window.
         let popups = if self.drawing_selected() {
-            self.render_popups(metrics, gutter_width)
+            self.render_popups(metrics, gutter_width, window.viewport_size())
         } else {
             Vec::new()
         };
@@ -2468,13 +2476,7 @@ impl Render for EditorView {
                     ),
             );
             if id == selected {
-                let popups = div()
-                    .absolute()
-                    .left(frame.origin.x)
-                    .top(frame.origin.y)
-                    .w(frame.size.width)
-                    .h(frame.size.height)
-                    .children(parts.popups);
+                let popups = div().absolute().inset_0().children(parts.popups);
                 selected_parts = Some((parts.hints, parts.text_shown, popups));
             }
             self.leave_window();
