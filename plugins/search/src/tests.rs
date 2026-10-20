@@ -12,6 +12,11 @@ use remacs_text::Text;
 use crate::SearchPlugin;
 use crate::query::Query;
 
+#[test]
+fn the_default_file_reads_as_the_defaults() {
+    remacs_core::assert_default_file::<crate::project::SearchSettings>();
+}
+
 const TEXT: &str =
     "fn main() {\n    let total = sum();\n}\n\nfn sum() -> u32 {\n    Total + total\n}\n";
 

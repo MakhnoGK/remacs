@@ -94,6 +94,42 @@ fn changes_settings(event: &Event) -> bool {
             .any(|path| path.extension() == Some(OsStr::new("toml")))
 }
 
+/// Each section's settings file of the defaults, with comments on every setting:
+/// `config/defaults/` in the sources.
+#[rustfmt::skip]
+pub const DEFAULT_FILES: &[(&str, &str)] = &[
+    ("debug", include_str!("../../../config/defaults/debug.toml")),
+    ("editing", include_str!("../../../config/defaults/editing.toml")),
+    ("environment", include_str!("../../../config/defaults/environment.toml")),
+    ("files", include_str!("../../../config/defaults/files.toml")),
+    ("format", include_str!("../../../config/defaults/format.toml")),
+    ("git", include_str!("../../../config/defaults/git.toml")),
+    ("keys", include_str!("../../../config/defaults/keys.toml")),
+    ("lsp", include_str!("../../../config/defaults/lsp.toml")),
+    ("navigation", include_str!("../../../config/defaults/navigation.toml")),
+    ("run", include_str!("../../../config/defaults/run.toml")),
+    ("search", include_str!("../../../config/defaults/search.toml")),
+    ("syntax", include_str!("../../../config/defaults/syntax.toml")),
+    ("terminal", include_str!("../../../config/defaults/terminal.toml")),
+    ("tools", include_str!("../../../config/defaults/tools.toml")),
+    ("ui", include_str!("../../../config/defaults/ui.toml")),
+];
+
+/// For each section's tests: panics unless its file in [`DEFAULT_FILES`] reads, as
+/// settings files are read, to exactly `T::default()`.
+pub fn assert_default_file<T: Section + PartialEq + fmt::Debug>() {
+    let file = format!("{}.toml", T::NAME);
+    let (_, text) = DEFAULT_FILES
+        .iter()
+        .find(|(name, _)| *name == T::NAME)
+        .unwrap_or_else(|| panic!("no {file} in DEFAULT_FILES"));
+    let settings = Settings::from_files([(PathBuf::from(&file), (*text).to_owned())]);
+    let section = settings
+        .section::<T>()
+        .map_err(|(error, _)| error.to_string());
+    assert_eq!(section, Ok(T::default()), "{file}");
+}
+
 /// Settings read from one file; what is left out keeps its default.
 pub trait Section: DeserializeOwned + Default {
     /// The file's name without `.toml`.
@@ -262,6 +298,63 @@ mod tests {
         }
         let (settings, errors) = Settings::load(&dir);
         (dir, settings, errors)
+    }
+
+    #[test]
+    fn every_file_of_the_defaults_is_listed_once() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/defaults");
+        let mut on_disk: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        on_disk.sort();
+        let listed: Vec<String> = DEFAULT_FILES
+            .iter()
+            .map(|(name, _)| format!("{name}.toml"))
+            .collect();
+        assert_eq!(listed, on_disk);
+    }
+
+    /// The `NAME` of each `impl Section` in the sources under `dir`.
+    fn section_names(dir: &Path, names: &mut Vec<String>) {
+        for path in fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+        {
+            if path.is_dir() {
+                section_names(&path, names);
+            } else if path.extension() == Some(OsStr::new("rs")) {
+                let text = fs::read_to_string(&path).unwrap();
+                let lines: Vec<&str> = text.lines().collect();
+                for pair in lines.windows(2) {
+                    let name = pair[1].trim().strip_prefix("const NAME: &str = \"");
+                    if let (true, Some(name)) = (pair[0].contains("Section for "), name) {
+                        names.push(name.trim_end_matches("\";").to_owned());
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_section_has_a_file_of_the_defaults() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let mut names = Vec::new();
+        for crates in ["crates", "plugins"] {
+            for krate in fs::read_dir(root.join(crates)).unwrap() {
+                let krate = krate.unwrap().path();
+                if !krate.ends_with("config") && krate.join("src").is_dir() {
+                    section_names(&krate.join("src"), &mut names);
+                }
+            }
+        }
+        assert!(names.len() >= DEFAULT_FILES.len(), "{names:?}");
+        for name in names {
+            assert!(
+                DEFAULT_FILES.iter().any(|(file, _)| *file == name),
+                "no config/defaults/{name}.toml"
+            );
+        }
     }
 
     #[test]

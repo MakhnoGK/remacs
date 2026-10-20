@@ -13,7 +13,7 @@ const OUTPUT_BACKLOGS: std::ops::RangeInclusive<u64> = 1..=1_024;
 const FALLBACK_SHELL: &str = "/bin/sh";
 
 /// `run.toml`.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct RunSettings {
     /// Lines a console keeps; older ones are dropped.
@@ -172,5 +172,13 @@ impl Section for RunSettings {
             &COMPILE_HISTORY,
             "compile.history",
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_default_file_reads_as_the_defaults() {
+        remacs_core::assert_default_file::<super::RunSettings>();
     }
 }

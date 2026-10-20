@@ -9,8 +9,10 @@ Emacs-inspired IDE from scratch in Rust + gpui. Everything is a plugin.
 - Readable, descriptive names for variables, types and functions.
 - Everything tunable goes into config, not code constants: colors, sizes, timings, limits,
   key bindings, behavior toggles. When adding or changing a feature, expose its settings
-  and update the default config in `~/.config/remacs/config/` (`ui.toml`, `lsp.toml`,
-  `format.toml`, or a new file) to match.
+  and document them, with their `Default` values, in the section's file in
+  `config/defaults/` (a new section adds its file there and to `DEFAULT_FILES` in
+  `crates/config`); each section's test checks its file reads as its `Default`.
+  `write-default-settings` copies a file into the user's `~/.config/remacs/config/`.
 - Menus follow commands: when adding, renaming or removing a command a person would look
   for, update the menu items its plugin declares (`MenuItem` in `Registry::menu_items`,
   with `enabled_when` if it cannot always run); a new group or menu goes into the `frame`

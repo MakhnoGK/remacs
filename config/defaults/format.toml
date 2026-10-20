@@ -1,0 +1,4 @@
+# Formatting. Changes apply as soon as the file is saved.
+
+# Start with format-on-save-mode on; the command still turns it on or off for the session.
+on-save = false

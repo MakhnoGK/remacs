@@ -66,7 +66,7 @@ pub use pane::{
 };
 pub use plugin::{Hook, MinorKeymap, Plugin, Registry};
 pub use popup::{Code, CodeHighlighter, DocBlock, Documentation, Note, Popup, PopupProvider};
-pub use remacs_config::{Section, Settings};
+pub use remacs_config::{Section, Settings, assert_default_file};
 pub use screen::{
     CellFace, CellHighlight, CellRun, CursorShape, KeySink, RowMark, Screen, ScreenBanner,
     ScreenButton, ScreenCursor, ScreenMode, ScreenMouse, ScreenNotice, ScreenPadding,

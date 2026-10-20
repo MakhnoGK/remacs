@@ -123,6 +123,11 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_default_file_reads_as_the_defaults() {
+        remacs_core::assert_default_file::<FilesSettings>();
+    }
+
+    #[test]
     fn folders_and_globs_are_left_out_with_what_is_in_them() {
         let root = Path::new("/project");
         let settings = FilesSettings {

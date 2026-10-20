@@ -903,6 +903,11 @@ mod tests {
     }
 
     #[test]
+    fn the_default_file_reads_as_the_defaults() {
+        remacs_config::assert_default_file::<UiSettings>();
+    }
+
+    #[test]
     fn defaults_match_the_built_in_code_font() {
         assert_eq!(UiSettings::default().font.code_font(), CodeFont::default());
     }

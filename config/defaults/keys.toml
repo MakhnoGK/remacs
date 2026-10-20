@@ -1,0 +1,126 @@
+# Key bindings over the built-in ones. Changes apply as soon as the file is saved.
+#
+# A key sequence in Emacs notation and the command it runs; "" unbinds the keys.
+# C- is Control, M- Option, s- Command, S- Shift for named keys; function keys are
+# <f1> to <f12>, e.g. "s-<f2>" is ⌘F2.
+
+[bindings]
+# Moving around, navigation.toml sets the history and the labels:
+# "C-l" = "recenter-top-bottom"        # middle, top, bottom
+# "M-r" = "move-to-window-line-top-bottom"
+# "C-u C-SPC" = "pop-to-mark-command"  # then C-SPC for the marks before
+# "s-[" = "navigate-back"              # ⌘[, also C-x C-SPC: before the last jump
+# "s-]" = "navigate-forward"           # ⌘]
+# "C-x C-\\" = "goto-last-change"      # again for the changes before
+# "C-x C-|" = "goto-last-change-reverse"
+# "M-j" = "avy-goto-char-timer"        # type, pause, then the label
+# "M-g w" = "avy-goto-word-1"          # a word's first character, then the label
+# "M-g l" = "avy-goto-line"
+# "M-g i" = "imenu"                    # also ⌘F12: a symbol of the file
+# Over the syntax tree:
+# "C-M-f" = "forward-sexp"             # C-M-b back
+# "C-M-u" = "backward-up-list"         # to the opening bracket around point
+# "C-M-d" = "down-list"                # into the next list
+# "C-M-n" = "forward-list"             # C-M-p back
+# "C-M-t" = "transpose-sexps"
+# "C-M-k" = "kill-sexp"                # C-M-DEL backward-kill-sexp
+# "C-M-SPC" = "mark-sexp"              # again for the next one too
+# "C-)" = "slurp-forward"              # the closing bracket over the next expression
+# "C-}" = "barf-forward"               # and back before the last one
+# "C-(" = "slurp-backward"             # the opening bracket over the previous one
+# "C-{" = "barf-backward"
+# "M-D" = "splice-sexp"                # drop the brackets around point
+# "C-M-r" = "raise-sexp"               # the expression at point in place of its list
+#
+# Selecting inside brackets and quotes, a pair further out each time:
+# "C-=" = "expand-region"              # also ⌥↑
+# "C--" = "contract-region"            # also ⌥↓: back to what the last expansion grew from
+#
+# Editing:
+# "C-t" = "transpose-chars"            # M-t words, C-x C-t lines
+# "M-z" = "zap-to-char"                # kill through the character typed next; M-Z up to it
+# "M-^" = "join-line"                  # onto the line above, or the region's lines into one
+# "M-SPC" = "cycle-spacing"            # one space, none, as it was
+# "M-u" = "upcase-dwim"                # M-l downcase, M-c capitalize: the word or the region
+# "s-d" = "duplicate-dwim"             # ⌘D: the line or the region, point to the copy
+# "M-S-<up>" = "move-line-up"          # ⌥⇧↑, ⌥⇧↓ down: the line or the region's lines
+# "C-x \\" = "align-regexp"            # the region's first matches in one column
+# "C-x |" = "align-regexp-repeat"      # every match, in columns
+#                                      # M-x only: sort-lines, keep-lines, flush-lines,
+#                                      # delete-duplicate-lines, on the region or the buffer
+#
+# More cursors, which editing commands also run at; C-g takes their regions away, then them:
+# "C->" = "mc/mark-next-like-this"     # at the next match of the region, else the next line
+# "C-<" = "mc/mark-previous-like-this"
+# "C-c C->" = "mc/skip-to-next-like-this"
+# "C-c C-<" = "mc/mark-all-like-this"
+# "C-S-c C-S-c" = "mc/edit-lines"      # one on each line of the region
+# "C-;" = "iedit-mode"                 # at each occurrence of the symbol at point; again to stop
+#
+# Rectangles: the columns between point and mark on the lines between them:
+# "C-x SPC" = "rectangle-mark-mode"    # the region drawn and killed as a rectangle
+# "C-x r t" = "string-rectangle"       # a string in place of each line of it
+# "C-x r k" = "kill-rectangle"         # C-x r M-w copy-rectangle-as-kill
+# "C-x r y" = "yank-rectangle"         # its corner at point
+# "C-x r d" = "delete-rectangle"
+# "C-x r o" = "open-rectangle"         # blank space over it, its text moved right
+#
+# In the project search (s-F, M-s g): C-x C-q lists its lines in a buffer to edit, then
+# "C-c C-c" = "edit-search-results-finish"   # also C-x C-s: write the changed lines
+# "C-c C-k" = "edit-search-results-abort"
+#
+# Running programs, as in IntelliJ:
+# "C-r" = "run"                        # ⌃R: the project's chosen configuration
+# "C-R" = "run-at-point"               # ⌃⇧R: the entry point at point
+# "M-R" = "run-choose-configuration"   # ⌥⇧R
+# "s-<f2>" = "run-stop"                # ⌘F2
+#
+# Compiling, as in Emacs M-x compile: a shell command from the project root:
+# "s-<f9>" = "compile"                 # ⌘F9: asks for the command, the last one first
+# "s-S-<f9>" = "recompile"             # ⌘⇧F9: the last one again; g in a console
+# "M-g M-n" = "compile-next-error"     # also C-x `: the next file:line of the output
+# "M-g M-p" = "compile-previous-error"
+#
+# Debugging, as in IntelliJ but for ⌃D, which deletes a character:
+# "S-<f9>" = "debug"                   # ⇧F9: the project's chosen configuration
+# "C-D" = "debug-at-point"             # ⌃⇧D: the entry point at point
+# "<f9>" = "debug-continue"            # F9
+# "<f8>" = "debug-step-over"           # F8
+# "<f7>" = "debug-step-into"           # F7
+# "S-<f8>" = "debug-step-out"          # ⇧F8
+# "M-<f9>" = "debug-pause"             # ⌥F9
+# "s-<f8>" = "debug-toggle-breakpoint" # ⌘F8
+# "s-S-<f8>" = "debug-edit-breakpoint" # ⌘⇧F8: the line's breakpoint, else all of them
+# "M-<f8>" = "debug-evaluate"          # ⌥F8: an expression, printed to the console
+# "C-c t" = "tools"                    # the tools remacs downloads
+#
+# The size of the text in buffers, steps and limits in ui.toml [zoom]:
+# "s-=" = "text-scale-increase"        # ⌘=, also ⌘+
+# "s--" = "text-scale-decrease"        # ⌘-
+# "s-0" = "text-scale-reset"           # ⌘0: ui.toml [font] size
+#
+# Panes under the text (debug, terminal):
+# "C-x o" = "other-window"             # keys to the pane and back
+#
+# In the Git status (C-x g):
+# "S-TAB" = "git-toggle-all"           # ⇧⇥: every file's diff, shown or hidden
+#                                      # also git-expand-all, git-collapse-all
+#
+# Terminals; while one has the keys, all but ⌘ chords and terminal.toml's editor-keys
+# go to its shell:
+# "C-`" = "terminal"                   # ⌃`, also ⌥F12: show, give the keys, hide
+# "s-t" = "terminal-new"               # ⌘T
+# "s-RET" = "terminal-maximize"        # ⌘↩: panel ⇄ whole window
+# While a terminal has the keys:
+# "s-}" = "terminal-next"              # ⌘}
+# "s-{" = "terminal-previous"          # ⌘{
+# "C-x k" = "terminal-close"
+# "C-x r" = "terminal-rename"
+# "C-x C-b" = "terminal-list"
+# "C-x [" = "terminal-copy-mode"       # Emacs keys over the scrollback, M-w copies
+# "s-f" = "terminal-search"
+# "s-c" = "terminal-copy"              # what the mouse selected
+# "s-v" = "terminal-paste"
+# "s-k" = "terminal-clear"
+# "s-<up>" = "terminal-previous-prompt"   # when the shell reports prompts, as fish does
+# "s-<down>" = "terminal-next-prompt"

@@ -44,3 +44,11 @@ impl ToolsSettings {
 impl Section for ToolsSettings {
     const NAME: &str = "tools";
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_default_file_reads_as_the_defaults() {
+        remacs_core::assert_default_file::<super::ToolsSettings>();
+    }
+}

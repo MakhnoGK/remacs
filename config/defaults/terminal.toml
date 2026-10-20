@@ -1,0 +1,56 @@
+# Terminals. Changes apply as soon as the file is saved; shell, args, env and
+# scrollback-lines to terminals started after.
+
+# The shell new terminals run: a path, or a name on PATH (also looked for in
+# /opt/homebrew/bin and /usr/local/bin). "" is $SHELL, else your login shell.
+shell = ""
+
+# Given to the shell; --login reads your profile, as Terminal.app does.
+args = ["--login"]
+
+# Where `terminal` (⌃` or ⌥F12) and `terminal-new` (⌘T) show a terminal: "panel" under
+# the text, or "buffer" in the whole window. ⌘↩ moves one between the two.
+open-in = "panel"
+
+# Pixels the panel takes under the text: 120 to 1200.
+panel-height = 320
+
+# Pixels between the text and the terminal's left and right edges, and its top and
+# bottom ones: 0 to 64. The marks of commands take room of their own on the left.
+padding-x = 10
+padding-y = 6
+
+# Lines a terminal keeps above its screen: 0 to 1000000.
+scrollback-lines = 10000
+
+# Where a new terminal starts: "project" (the window buffer's project), "file" (its
+# directory) or "home".
+directory = "project"
+
+# "block", "bar" or "underline"; programs may change it, as vim does.
+cursor = "block"
+
+# Close a terminal as soon as its shell exits; else it waits for ↵ to restart or q.
+close-on-exit = false
+
+# zsh and bash start with hooks that report their prompts, commands and directory, as
+# fish does by itself; false leaves them alone.
+shell-integration = true
+
+# Programs that ask for the kitty keyboard protocol get it, telling keys like ⇧↵ from ↵
+# (Claude Code breaks the line with ⇧↵).
+kitty-keyboard = true
+
+# Milliseconds a closed terminal's programs have to end after the hangup signal before
+# they are killed: 0 to 60000.
+kill-timeout = 2000
+
+# Keys remacs keeps while a terminal has the keys, in Emacs notation; a prefix keeps
+# every sequence it starts. ⌘ keys always stay with remacs.
+editor-keys = ["C-x", "M-x", "C-`", "M-<f12>"]
+
+# Set for every shell started. A table here replaces this whole one.
+[env]
+TERM = "xterm-256color"
+COLORTERM = "truecolor"
+TERM_PROGRAM = "remacs"

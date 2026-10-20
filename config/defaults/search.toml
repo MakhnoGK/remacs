@@ -1,0 +1,4 @@
+# Searching. Changes apply to the next search.
+
+# Lines project-search lists at most; the search stops there.
+project-max-matches = 10000

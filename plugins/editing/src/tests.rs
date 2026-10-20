@@ -6,10 +6,15 @@ use remacs_core::{
 };
 use remacs_text::Text;
 
-use crate::EditingPlugin;
+use crate::{EditingPlugin, EditingSettings};
 
 const CODE_MODE: &str = "Code";
 const STYLE_MODE: &str = "Style";
+
+#[test]
+fn the_default_file_reads_as_the_defaults() {
+    remacs_core::assert_default_file::<EditingSettings>();
+}
 
 struct CodeModePlugin;
 
