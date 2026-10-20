@@ -1,4 +1,3 @@
-use std::fs::File;
 use std::io;
 use std::mem;
 use std::ops::{Deref, Range};
@@ -7,7 +6,7 @@ use std::path::Path;
 use encoding_rs::Encoding;
 
 use crate::diff::Edit;
-use crate::disk::DiskFile;
+use crate::disk::{DiskFile, open_regular_file};
 use crate::history::History;
 use crate::original::Original;
 use crate::piece_tree::PieceTree;
@@ -40,7 +39,7 @@ impl Text {
     }
 
     fn open_in(path: &Path, encoding: Option<&'static Encoding>) -> io::Result<Self> {
-        let file = File::open(path)?;
+        let file = open_regular_file(path)?;
         let disk_file = DiskFile::opened(path, &file)?;
         let mut text = Self::from_original(Original::load(&file, encoding)?);
         text.disk_file = Some(disk_file);

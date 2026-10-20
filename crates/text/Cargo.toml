@@ -9,13 +9,13 @@ publish.workspace = true
 [dependencies]
 chardetng.workspace = true
 encoding_rs.workspace = true
+libc.workspace = true
 memchr.workspace = true
 memmap2.workspace = true
 simdutf8.workspace = true
 
 [dev-dependencies]
 divan.workspace = true
-libc.workspace = true
 
 [[bench]]
 name = "text"

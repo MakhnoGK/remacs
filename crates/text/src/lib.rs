@@ -16,6 +16,7 @@ mod text;
 mod utf8;
 
 pub use diff::Edit;
+pub use disk::open_regular_file;
 pub use encoding::{Format, encodings};
 pub use encoding_rs::{Encoding, UTF_8};
 pub use snapshot::Snapshot;
