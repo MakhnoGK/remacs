@@ -10,6 +10,7 @@ mod environment;
 mod frame;
 mod highlights;
 mod key_input;
+mod logs;
 mod menu_bar;
 mod minibuffer_view;
 mod opening;
@@ -24,6 +25,7 @@ mod table_view;
 mod tabs_view;
 mod text_zoom;
 mod transition;
+mod version;
 mod widgets;
 
 use std::path::PathBuf;
@@ -65,8 +67,10 @@ use remacs_xref::XrefPlugin;
 use assets::Assets;
 use editor_view::EditorView;
 use environment::EnvironmentSettings;
+use logs::LogSettings;
 use opening::{file_paths, open};
 use settings::{ReadSettings, read_settings, report, watch_settings};
+use version::{COMMIT, VERSION};
 
 const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
     // First, as it lays out the menu bar the others add items to.
@@ -101,11 +105,29 @@ const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
 ];
 
 fn main() -> ExitCode {
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|arg| arg == "--version")
+    {
+        println!("remacs {VERSION} ({COMMIT})");
+        return ExitCode::SUCCESS;
+    }
     let ReadSettings {
         settings,
         ui,
         mut errors,
     } = read_settings();
+    let logs = settings
+        .section::<LogSettings>()
+        .unwrap_or_else(|(error, defaults)| {
+            errors.push(error);
+            defaults
+        });
+    // First, so that what goes wrong from here on is kept.
+    let crashed = home().and_then(|home| logs::start(&state_dir(&home), &logs));
+    // Before the plugins start their threads; shown once the window is open.
+    let (reported, mut reports) = mpsc::unbounded();
+    logs::report_to(reported);
     let environment =
         settings
             .section::<EnvironmentSettings>()
@@ -137,6 +159,9 @@ fn main() -> ExitCode {
     if let Err(error) = imported {
         eprintln!("remacs: {error}");
         editor.set_error(format!("Not the login shell's environment: {error}"));
+    }
+    if let Some(crashed) = crashed {
+        editor.set_error(crashed);
     }
 
     // Finder's and the Dock's, which may come before the window is open.
@@ -183,6 +208,18 @@ fn main() -> ExitCode {
             while let Some(paths) = to_open.next().await {
                 if window
                     .update(cx, |view, _, cx| view.open_paths(paths, cx))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
+        cx.spawn(async move |cx| {
+            while let Some(report) = reports.next().await {
+                let text = logs::reported(&report);
+                if window
+                    .update(cx, |view, _, cx| view.show_error(text, cx))
                     .is_err()
                 {
                     break;

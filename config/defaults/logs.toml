@@ -1,0 +1,11 @@
+# What remacs keeps of what goes wrong. Read at startup.
+#
+# Its own output goes to ~/.config/remacs/state/remacs.log, unless started from a terminal,
+# which shows it; a crash, of the app or of a part of it, writes a report with its
+# backtrace, the version and the commit to ~/.config/remacs/state/crashes/, and the next
+# start (or the window, for a part) says where.
+
+# Bytes remacs.log may reach; past it, the next start moves it to remacs.log.old.
+log-size = 1048576
+# Crash reports kept; each start removes the oldest past it.
+crash-reports = 20

@@ -4066,6 +4066,7 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "gpui",
+ "libc",
  "objc2",
  "remacs-actions",
  "remacs-completion",

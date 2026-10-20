@@ -1,8 +1,12 @@
+use std::ffi::{CStr, CString};
+
 use gpui::{AnyWindowHandle, App};
 use objc2::runtime::AnyObject;
 use objc2::{class, msg_send};
 use remacs_core::FrameRequest;
 use remacs_theme::Appearance;
+
+use crate::version::{COMMIT, VERSION};
 
 /// Does what commands asked of the application and of `window`, once the update that
 /// asked is over, as the window cannot be reached during it.
@@ -51,13 +55,28 @@ pub fn set_appearance(appearance: Appearance) {
     }
 }
 
-/// macOS's own, with the name, icon and version of the bundle; gpui has none.
+/// macOS's own, with the bundle's name and icon, and the version and commit built in, so
+/// that a `cargo run` build shows them too; gpui has none.
 fn show_about_panel() {
+    let options = [
+        (
+            c"ApplicationVersion",
+            CString::new(VERSION).unwrap_or_default(),
+        ),
+        (c"Version", CString::new(COMMIT).unwrap_or_default()),
+    ];
     // SAFETY: called on the main thread, as every gpui callback is; NSApplication exists
-    // once gpui runs, and the panel takes nil for its default options.
+    // once gpui runs; the panel's option keys are the strings given, and every string is
+    // NUL-terminated UTF-8.
     unsafe {
+        let ns_string = |text: &CStr| -> *mut AnyObject {
+            msg_send![class!(NSString), stringWithUTF8String: text.as_ptr()]
+        };
+        let dictionary: *mut AnyObject = msg_send![class!(NSMutableDictionary), dictionary];
+        for (key, value) in &options {
+            let _: () = msg_send![dictionary, setObject: ns_string(value), forKey: ns_string(key)];
+        }
         let application: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
-        let no_options: *mut AnyObject = std::ptr::null_mut();
-        let _: () = msg_send![application, orderFrontStandardAboutPanel: no_options];
+        let _: () = msg_send![application, orderFrontStandardAboutPanelWithOptions: dictionary];
     }
 }

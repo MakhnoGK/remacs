@@ -1,0 +1,16 @@
+Third-party notices for Remacs
+
+Remacs is built from the open-source crates below, the tree-sitter grammars among
+them; each license is given once, with the crates under it.
+{{#each licenses}}
+
+================================================================================
+{{{name}}} ({{{id}}})
+
+Used by:
+{{#each used_by}}
+  {{{crate.name}}} {{{crate.version}}}{{#if crate.repository}} — {{{crate.repository}}}{{/if}}
+{{/each}}
+
+{{{text}}}
+{{/each}}
