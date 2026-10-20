@@ -114,6 +114,7 @@ pub const DEFAULT_FILES: &[(&str, &str)] = &[
     ("terminal", include_str!("../../../config/defaults/terminal.toml")),
     ("tools", include_str!("../../../config/defaults/tools.toml")),
     ("ui", include_str!("../../../config/defaults/ui.toml")),
+    ("windows", include_str!("../../../config/defaults/windows.toml")),
 ];
 
 /// For each section's tests: panics unless its file in [`DEFAULT_FILES`] reads, as

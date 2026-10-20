@@ -41,6 +41,10 @@ pub struct Registry {
     /// Run after every command and whenever background work has results, like Emacs
     /// `post-command-hook`.
     pub post_command_hooks: Vec<Hook>,
+    /// Keep what is drawn of the window buffer current, e.g. its syntax tree, in the
+    /// windows not selected: run after the post-command hooks for each, displayed in turn.
+    /// The selected window's are among the post-command hooks, in their order.
+    pub display_hooks: Vec<Hook>,
     /// Run when the settings are read: at startup and whenever their files change. Each
     /// reads its plugin's section with `Editor::settings_section`.
     pub settings_hooks: Vec<Hook>,

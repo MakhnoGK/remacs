@@ -2,20 +2,28 @@ use std::any::{Any, TypeId};
 use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::io;
+use std::iter;
 use std::mem;
 use std::ops::{Range, RangeInclusive};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use remacs_text::{Text, UTF_8};
 
 use crate::command::CommandResult;
 use crate::kill_ring::KillRing;
+use crate::window::WindowId;
 
 /// Like Emacs `mark-ring-max`.
 const MARK_RING_MAX: usize = 16;
 
+/// Names a buffer for good, as its name changes with renames and the files it visits.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct BufferId(u64);
+
 /// A text with a point (cursor), a mark, a name and a major mode.
 pub struct Buffer {
+    id: BufferId,
     name: String,
     mode: &'static str,
     text: Text,
@@ -34,6 +42,9 @@ pub struct Buffer {
     rectangle: bool,
     /// First line shown when the buffer was last in the window, like Emacs `last-window-start`.
     pub window_start: usize,
+    /// Points of the windows showing the buffer but the selected one, which edits move
+    /// like the mark.
+    window_points: Vec<(WindowId, usize)>,
     /// More places commands run at, ordered by point, none at point.
     cursors: Vec<Cursor>,
     /// Where the cursors were at the last undo boundary, before each undo group since, and
@@ -68,7 +79,9 @@ impl Cursor {
 
 impl Buffer {
     pub fn new(name: impl Into<String>, text: Text, mode: &'static str) -> Self {
+        static NEXT_ID: AtomicU64 = AtomicU64::new(1);
         Self {
+            id: BufferId(NEXT_ID.fetch_add(1, Ordering::Relaxed)),
             name: name.into(),
             mode,
             text,
@@ -82,6 +95,7 @@ impl Buffer {
             mark_active: false,
             rectangle: false,
             window_start: 0,
+            window_points: Vec::new(),
             cursors: Vec::new(),
             cursors_at_boundary: Vec::new(),
             cursors_before_groups: Vec::new(),
@@ -157,8 +171,29 @@ impl Buffer {
         Ok(())
     }
 
+    pub fn id(&self) -> BufferId {
+        self.id
+    }
+
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// Keeps point as `window`'s, for when that window shows the buffer unselected.
+    pub(crate) fn park_point(&mut self, window: WindowId) {
+        self.forget_window(window);
+        self.window_points.push((window, self.point));
+    }
+
+    /// Makes point `window`'s parked one again, if it has one.
+    pub(crate) fn unpark_point(&mut self, window: WindowId) {
+        if let Some(index) = self.window_points.iter().position(|(id, _)| *id == window) {
+            self.point = self.window_points.remove(index).1;
+        }
+    }
+
+    pub(crate) fn forget_window(&mut self, window: WindowId) {
+        self.window_points.retain(|(id, _)| *id != window);
     }
 
     pub(crate) fn set_name(&mut self, name: String) {
@@ -190,6 +225,9 @@ impl Buffer {
         self.cursors_undone.clear();
         self.mark_active = false;
         self.set_point(self.point);
+        for (_, point) in &mut self.window_points {
+            *point = on_character(&self.text, *point);
+        }
     }
 
     pub fn contents(&self, range: Range<usize>) -> String {
@@ -402,10 +440,15 @@ impl Buffer {
     /// Appends output nobody typed, like a program's, unrecorded for undo; point at the
     /// end follows it, like an Emacs process marker.
     pub fn append_output(&mut self, text: &str) {
-        let follow = self.point == self.text.len();
+        let end = self.text.len();
         self.text.append_output(text);
-        if follow {
-            self.point = self.text.len();
+        let new_end = self.text.len();
+        for point in
+            iter::once(&mut self.point).chain(self.window_points.iter_mut().map(|(_, point)| point))
+        {
+            if *point == end {
+                *point = new_end;
+            }
         }
     }
 
@@ -544,17 +587,13 @@ impl Buffer {
     fn restore_point(&mut self, offset: Option<usize>) -> bool {
         self.mark_active = false;
         let text = &self.text;
-        let on_character = |mark: usize| {
-            let mark = mark.min(text.len());
-            if text.is_char_boundary(mark) {
-                mark
-            } else {
-                text.previous_char_boundary(mark)
-            }
-        };
+        let on_character = |mark| on_character(text, mark);
         self.mark = self.mark.map(on_character);
         for mark in &mut self.mark_ring {
             *mark = on_character(*mark);
+        }
+        for (_, point) in &mut self.window_points {
+            *point = on_character(*point);
         }
         for cursor in &mut self.cursors {
             cursor.point = on_character(cursor.point);
@@ -576,6 +615,18 @@ impl Buffer {
             cursor.point = shift(cursor.point);
             cursor.mark = cursor.mark.map(&shift);
         }
+        for (_, point) in &mut self.window_points {
+            *point = shift(*point);
+        }
+    }
+}
+
+fn on_character(text: &Text, offset: usize) -> usize {
+    let offset = offset.min(text.len());
+    if text.is_char_boundary(offset) {
+        offset
+    } else {
+        text.previous_char_boundary(offset)
     }
 }
 

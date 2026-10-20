@@ -158,7 +158,8 @@ impl ScreenSource for TerminalScreens {
         match mouse::take(terminal, pointer) {
             mouse::Outcome::Changed(changed) => changed,
             mouse::Outcome::Follow(target) => {
-                if let Err(error) = follow(editor, &target, &[directory]) {
+                let from_window = in_window(editor) == Some(id);
+                if let Err(error) = follow(editor, &target, &[directory], from_window) {
                     editor.set_error(error.0);
                 }
                 true
@@ -421,7 +422,8 @@ fn copy_key(editor: &mut Editor, id: u64, key: Key, kept: bool) -> bool {
             true
         }
         Outcome::Follow(target) => {
-            if let Err(error) = follow(editor, &target, &[directory]) {
+            let from_window = in_window(editor) == Some(id);
+            if let Err(error) = follow(editor, &target, &[directory], from_window) {
                 editor.set_error(error.0);
             }
             true

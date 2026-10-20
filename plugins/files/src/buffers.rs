@@ -6,15 +6,30 @@ use remacs_core::{
 use remacs_text::Text;
 
 use crate::project::{default_directory, project_root, relative_directory};
+use crate::windows::pop_to_other_window;
 
 const BUFFER_CATEGORY: &str = "buffer";
 
 /// Shows another buffer; a new name creates an empty buffer, as in Emacs.
 pub fn switch_to_buffer(editor: &mut Editor) -> CommandResult {
+    read_buffer(editor, false)
+}
+
+/// Shows a buffer in another window, splitting the selected one if it is alone, and
+/// selects it.
+pub fn switch_to_buffer_other_window(editor: &mut Editor) -> CommandResult {
+    read_buffer(editor, true)
+}
+
+fn read_buffer(editor: &mut Editor, other_window: bool) -> CommandResult {
     let prompt = Prompt {
         label: "Buffer".into(),
         category: BUFFER_CATEGORY,
-        placeholder: "Switch to buffer…",
+        placeholder: if other_window {
+            "Switch to buffer in other window…"
+        } else {
+            "Switch to buffer…"
+        },
         default: editor
             .buffers()
             .get(1)
@@ -23,7 +38,10 @@ pub fn switch_to_buffer(editor: &mut Editor) -> CommandResult {
         hints: &[("↵", "Switch"), ("C-x k", "Kill buffer"), ("C-g", "Cancel")],
         ..Prompt::default()
     };
-    editor.read(prompt, buffer_candidates, |editor, name| {
+    editor.read(prompt, buffer_candidates, move |editor, name| {
+        if other_window {
+            pop_to_other_window(editor)?;
+        }
         if !editor.switch_to_buffer(&name) {
             let mode = editor.mode_for(None);
             editor.add_buffer(Buffer::new(name, Text::default(), mode));
@@ -91,6 +109,10 @@ pub fn kill_buffer(editor: &mut Editor) -> CommandResult {
 }
 
 fn kill_confirming_changes(editor: &mut Editor, name: String) -> CommandResult {
+    // Shown in other windows too, it leaves only this one (user, 2026-10-20).
+    if editor.window_buffer().name() == name && editor.leave_shared_buffer() {
+        return Ok(());
+    }
     if !has_unsaved_changes(editor, &name) {
         editor.kill_buffer(&name);
         return Ok(());

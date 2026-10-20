@@ -1,0 +1,27 @@
+# Windows: splitting the frame with C-x 2 (one above the other) and C-x 3 (side by
+# side), deleting with C-x 0 and C-x 1, moving between them with C-x o, resizing with
+# C-x ^, C-x }, C-x { and the divider, balancing with C-x +. Changes apply as soon as the
+# file is saved.
+
+# Lines of text each window keeps at least, splitting one above the other or resizing; a
+# smaller window is not split.
+min-lines = 4
+
+# Columns each window keeps at least, splitting side by side or resizing.
+min-columns = 20
+
+# Lines or columns C-x ^ (taller), C-x } (wider) and C-x { (narrower) move a window's
+# edge by.
+resize-step = 2
+
+# Pixels of the strip naming the buffer at the top of a window under another: 16 to 64.
+# Windows at the top name theirs in the title bar.
+header-height = 28.0
+
+# Pixels of the strip around the 1px line between windows where the mouse drags it to
+# resize them: 1 to 16.
+divider-grab-width = 6.0
+
+# Opacity of what the windows but the selected one show, which dims them a little: 0.5 to
+# 1.0, where 1.0 does not dim them.
+inactive-opacity = 0.85

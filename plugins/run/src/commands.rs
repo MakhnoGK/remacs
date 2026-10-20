@@ -177,7 +177,7 @@ pub fn open_link_or_input(editor: &mut Editor) -> CommandResult {
         .local::<Console>()
         .map(|console| console.directories.to_vec())
         .unwrap_or_default();
-    follow(editor, &target, &directories)
+    follow(editor, &target, &directories, true)
 }
 
 fn read_input(editor: &mut Editor, id: u64) -> CommandResult {

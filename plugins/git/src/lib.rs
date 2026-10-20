@@ -238,6 +238,8 @@ impl Plugin for GitPlugin {
         registry
             .post_command_hooks
             .push(Rc::new(buffer_changes::sync));
+        registry.display_hooks.push(Rc::new(status_view::sync));
+        registry.display_hooks.push(Rc::new(buffer_changes::sync));
         registry.outlines.push(Rc::new(status_view::outline));
         registry.decorators.push(Rc::new(commit_view::decorate));
         registry

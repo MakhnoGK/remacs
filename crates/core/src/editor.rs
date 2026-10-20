@@ -36,6 +36,11 @@ use crate::syntax::{self, Embedded, SyntaxContext};
 use crate::table::{Action, Table};
 use crate::vc::{ChangedLines, FileStatus, VersionControl};
 use crate::viewport::Viewport;
+use crate::window::Windows;
+
+mod windows;
+
+use windows::Displayed;
 
 pub const SELF_INSERT_COMMAND: &str = "self-insert-command";
 pub const SCRATCH_BUFFER: &str = "*scratch*";
@@ -91,6 +96,9 @@ pub struct Editor {
     pane_focused: bool,
     /// See [`Editor::scrolled_to`].
     scrolled_to: Option<(String, usize)>,
+    windows: Windows,
+    /// See [`Editor::display_window`].
+    displayed: Option<Displayed>,
 }
 
 impl Editor {
@@ -135,6 +143,8 @@ impl Editor {
             selected_pane: None,
             pane_focused: false,
             scrolled_to: None,
+            windows: Windows::default(),
+            displayed: None,
         }
     }
 
@@ -342,7 +352,7 @@ impl Editor {
         let Some(index) = self.buffer_index(name) else {
             return false;
         };
-        self.buffers.remove(index);
+        let killed = self.buffers.remove(index).id();
         if self.buffers.is_empty() {
             let mode = self.mode_for(None);
             self.buffers
@@ -351,6 +361,7 @@ impl Editor {
         if index == 0 {
             self.viewport.first_line = self.buffers[0].window_start;
         }
+        self.replace_in_windows(killed);
         true
     }
 
@@ -683,6 +694,10 @@ impl Editor {
             let visible_line = self.viewport.clamp(point_line, line_count);
             if visible_line != point_line {
                 self.window_buffer_mut().move_to_line(visible_line);
+            }
+            // Another window's point is not where the selected one read on to.
+            if self.displayed.is_some() {
+                return;
             }
             let buffer = &self.buffers[0];
             match &mut self.scrolled_to {
@@ -1045,7 +1060,7 @@ impl Editor {
     /// Whether the keys go to `buffer()`, the prompt's or the window's, not to a pane;
     /// a keymap of the window buffer's mode holds only while they do.
     pub fn buffer_has_keys(&self) -> bool {
-        !self.pane_focused()
+        !self.pane_focused() && self.displayed.is_none()
     }
 
     /// Whether the pane named `name` is shown and has the keys.
@@ -1246,6 +1261,7 @@ impl Editor {
         for hook in self.registry.post_command_hooks.clone() {
             hook(self);
         }
+        self.run_display_hooks();
         self.scrolled_to = None;
         // A pane shown later must not find the keys already given to it.
         if self.shown_pane().is_none() {

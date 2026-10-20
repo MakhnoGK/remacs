@@ -728,7 +728,8 @@ fn frame(value: &Value, root: &Path) -> Frame {
     }
 }
 
-/// Visits the selected frame's source at its line.
+/// Shows the selected frame's source at its line, in a window already showing it, else
+/// in another window than the selected one (ADR 0073).
 pub fn show_frame(editor: &mut Editor, address: Address) {
     let Some(link) = find_link(editor, address) else {
         return;
@@ -739,9 +740,8 @@ pub fn show_frame(editor: &mut Editor, address: Address) {
     let Some(path) = frame.path.filter(|path| path.is_file()) else {
         return;
     };
-    if editor.visit_file(&path).is_ok() {
-        editor.set_point_at(frame.line.saturating_sub(1), frame.column.saturating_sub(1));
-    }
+    let (line, column) = (frame.line.saturating_sub(1), frame.column.saturating_sub(1));
+    let _ = editor.display_file(&path, |editor| editor.set_point_at(line, column));
 }
 
 fn continued(editor: &mut Editor, address: Address) {
