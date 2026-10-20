@@ -27,6 +27,7 @@ use crate::embedded::{self, Mirror};
 use crate::markdown::CodeModes;
 use crate::position::{Encoding, from_lsp};
 use crate::settings::LspSettings;
+use crate::version::Versions;
 use crate::{code_action, definition, offer, uri};
 
 /// Servers hold whole files in memory and reparse them; larger ones stay unsynced.
@@ -549,6 +550,8 @@ pub(crate) struct Clients {
     declined: HashMap<&'static str, HashSet<PathBuf>>,
     /// Per server, directories of files that wanted it while its program was nowhere.
     missing: HashMap<&'static str, (&'static LanguageServer, HashSet<PathBuf>)>,
+    /// The versions of programs found for servers with a `min-version`.
+    versions: Versions,
     settings: LspSettings,
     /// The servers, once built from the catalog and `lsp.toml`.
     servers: Option<&'static [LanguageServer]>,
@@ -558,8 +561,9 @@ pub(crate) struct Clients {
 
 /// Why a server wanted for a file is not running for it.
 pub(crate) enum NotStarted {
-    /// Its program is on neither `PATH` nor in `node_modules`, nor downloaded.
-    Missing,
+    /// Its program is on neither `PATH` nor in `node_modules`, nor downloaded; or only
+    /// the program held, one older than its `min-version`, the first time.
+    Missing(Option<PathBuf>),
     Failed(String),
 }
 
@@ -624,8 +628,8 @@ impl Clients {
 
     /// The server for `path`'s project, started on first use; `Err` the one time it
     /// fails to start or is found missing. `None` for a server that failed or is missing,
-    /// or that the file's project does not use. `downloaded` is the server's program as
-    /// remacs downloaded it, if it did.
+    /// that the file's project does not use, or whose program's version is still being
+    /// asked. `downloaded` is the server's program as remacs downloaded it, if it did.
     pub(crate) fn client_for(
         &mut self,
         server: &'static LanguageServer,
@@ -646,17 +650,22 @@ impl Clients {
         if let Some(client) = self.running.get(&(server.name, root.clone())) {
             return Ok(Some(Rc::clone(client)));
         }
-        let Some(Program {
+        let Program {
             path: program,
             mut env,
-        }) = program(server, &root, downloaded)
-        else {
-            let (_, missing) = self
-                .missing
-                .entry(server.name)
-                .or_insert_with(|| (server, HashSet::new()));
-            missing.insert(directory.to_path_buf());
-            return Err(NotStarted::Missing);
+        } = match program(server, &root, downloaded, &self.versions, &notifier) {
+            Found::Program(program) => program,
+            Found::Asking => return Ok(None),
+            Found::Nowhere { too_old } => {
+                // Said once per server, until it is downloaded or restarted.
+                let too_old = too_old.filter(|_| !self.missing.contains_key(server.name));
+                let (_, missing) = self
+                    .missing
+                    .entry(server.name)
+                    .or_insert_with(|| (server, HashSet::new()));
+                missing.insert(directory.to_path_buf());
+                return Err(NotStarted::Missing(too_old));
+            }
         };
         if server.env_when.holds(&root) {
             let own = server
@@ -682,25 +691,77 @@ impl Clients {
 
 /// The program set in `lsp.toml`; else the project's own copy in `node_modules` of the
 /// root or above, for servers that prefer it; else the command found on `PATH`; else
-/// the one remacs downloaded.
-fn program(server: &LanguageServer, root: &Path, downloaded: Option<Program>) -> Option<Program> {
+/// the one remacs downloaded. A program found older than the server's `min-version` is
+/// passed over, once its version is known.
+fn program(
+    server: &LanguageServer,
+    root: &Path,
+    downloaded: Option<Program>,
+    versions: &Versions,
+    notifier: &Notifier,
+) -> Found {
     let own = |path: PathBuf| Program {
         path,
         env: Vec::new(),
     };
     if let Some(program) = server.own_program {
-        return Some(own(program.to_path_buf()));
+        return Found::Program(own(program.to_path_buf()));
     }
-    if server.node_modules
-        && let Some(program) = root
-            .ancestors()
-            .find_map(|directory| node_program(&directory.join("node_modules"), server))
-    {
-        return Some(program);
+    let project = server
+        .node_modules
+        .then(|| {
+            root.ancestors()
+                .find_map(|directory| node_program(&directory.join("node_modules"), server))
+        })
+        .flatten();
+    let on_path = std::iter::once_with(|| remacs_tools::find_on_path(server.command).map(own));
+    let found = project.into_iter().chain(on_path.flatten());
+    first_suitable(
+        found,
+        server.min_version,
+        root,
+        downloaded,
+        versions,
+        notifier,
+    )
+}
+
+/// The first of `found` whose major version is at least `minimum`, asked in turn; else
+/// `downloaded`.
+fn first_suitable(
+    found: impl IntoIterator<Item = Program>,
+    minimum: u64,
+    root: &Path,
+    downloaded: Option<Program>,
+    versions: &Versions,
+    notifier: &Notifier,
+) -> Found {
+    let mut too_old = None;
+    for program in found {
+        let suits = match minimum {
+            0 => Some(true),
+            minimum => versions.at_least(&program, root, minimum, notifier),
+        };
+        match suits {
+            None => return Found::Asking,
+            Some(true) => return Found::Program(program),
+            Some(false) => {
+                too_old.get_or_insert(program.path);
+            }
+        }
     }
-    remacs_tools::find_on_path(server.command)
-        .map(own)
-        .or(downloaded)
+    downloaded.map_or(Found::Nowhere { too_old }, Found::Program)
+}
+
+/// Where a server's program is, as `program` looks for it.
+enum Found {
+    Program(Program),
+    /// Its version is being asked; a sync looks again once it is known.
+    Asking,
+    /// `too_old`: the program found, passed over for its version.
+    Nowhere {
+        too_old: Option<PathBuf>,
+    },
 }
 
 /// `server`'s command in `node_modules/.bin`, else in that of a package its `when` names,
@@ -760,6 +821,7 @@ pub(crate) fn restart(editor: &mut Editor, name: &'static str) {
     clients.running.retain(|(server, _), _| *server != name);
     clients.failed.remove(name);
     clients.missing.remove(name);
+    clients.versions.forget();
     detach(editor, name);
 }
 
@@ -1390,13 +1452,16 @@ fn attach_once(editor: &mut Editor, index: usize, servers: &'static [LanguageSer
         return false;
     }
     let buffer = &mut editor.buffers_mut()[index];
-    let (mut kept, closed): (Vec<_>, Vec<_>) = buffer
+    let mut previous = buffer
         .local_mut::<Documents>()
         .map(mem::take)
-        .unwrap_or_default()
-        .list
+        .unwrap_or_default();
+    let (mut kept, closed): (Vec<_>, Vec<_>) = mem::take(&mut previous.list)
         .into_iter()
         .partition(|document| wanted.iter().any(|want| document.serves(want)));
+    // A server still being looked for, e.g. its version asked, leaves the list as it was,
+    // and the requests its documents are answering stand.
+    let mut unchanged = closed.is_empty();
     for document in closed {
         diagnostics::clear(buffer, document.checker());
     }
@@ -1408,7 +1473,10 @@ fn attach_once(editor: &mut Editor, index: usize, servers: &'static [LanguageSer
             continue;
         }
         match open(editor, index, &want) {
-            Some(document) => list.push(document),
+            Some(document) => {
+                unchanged = false;
+                list.push(document);
+            }
             None => {
                 next_of_group |= want.server.group.is_some()
                     && editor
@@ -1421,10 +1489,12 @@ fn attach_once(editor: &mut Editor, index: usize, servers: &'static [LanguageSer
     if list.is_empty() {
         buffer.remove_local::<Documents>();
     } else {
-        buffer.set_local(Documents {
-            list,
-            ..Documents::default()
-        });
+        let requests = if unchanged {
+            previous
+        } else {
+            Documents::default()
+        };
+        buffer.set_local(Documents { list, ..requests });
     }
     next_of_group
 }
@@ -1442,7 +1512,30 @@ fn open(editor: &mut Editor, index: usize, want: &Want) -> Option<Document> {
         .client_for(server, &want.path, downloaded, notifier)
     {
         Ok(client) => client?,
-        Err(NotStarted::Missing) => {
+        Err(NotStarted::Missing(too_old)) => {
+            if let Some(program) = too_old {
+                let (name, minimum) = (server.name, server.min_version);
+                // That command, unlike the Tools panel, starts the server once downloaded;
+                // with offers off it offers nothing.
+                let offers = editor
+                    .plugin_state::<Clients>()
+                    .settings()
+                    .offer_downloads();
+                let download = if offers
+                    && server
+                        .tool
+                        .is_some_and(|tool| remacs_tools::can_install(editor, tool))
+                {
+                    ": download it with Edit ▸ Download Language Servers"
+                } else {
+                    ""
+                };
+                editor.set_error(format!(
+                    "{name} needs version {minimum} or later, and {} does not say it is \
+                     one{download}",
+                    program.display(),
+                ));
+            }
             let mode = editor.buffers()[index].mode();
             let mode = want.embedded.as_ref().map_or(mode, |code| code.mode);
             offer::missing(editor, server, &want.path, mode);
@@ -1579,6 +1672,136 @@ mod tests {
         std::fs::write(colon.join("oxlint"), "").unwrap();
         let program = node_program(&root.join("a:b/node_modules"), &server(&[])).unwrap();
         assert_eq!((program.path, program.env), (colon.join("oxlint"), vec![]));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn a_program_older_than_the_min_version_is_passed_over_for_the_download() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::sync::{Arc, mpsc};
+        use std::time::Duration;
+
+        let root = std::env::temp_dir().join(format!("remacs-min-version-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let tsc = |version: &str| {
+            let path = root.join(format!("tsc-{version}"));
+            std::fs::write(&path, format!("#!/bin/sh\necho 'Version {version}'\n")).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            &*path.to_string_lossy().into_owned().leak()
+        };
+        let downloaded = Program {
+            path: PathBuf::from("/downloaded/tsc"),
+            env: Vec::new(),
+        };
+        let versions = Versions::default();
+        let (answered, answers) = mpsc::channel();
+        let notifier: Notifier = Arc::new(move || {
+            let _ = answered.send(());
+        });
+        let look = |command: &'static str, downloaded: Option<Program>| {
+            let server = LanguageServer {
+                command,
+                min_version: 7,
+                ..LanguageServer::default()
+            };
+            let found = || program(&server, &root, downloaded.clone(), &versions, &notifier);
+            assert!(matches!(found(), Found::Asking));
+            answers.recv_timeout(Duration::from_secs(10)).unwrap();
+            match found() {
+                Found::Program(program) => Ok(program.path),
+                Found::Asking => panic!("still asking"),
+                Found::Nowhere { too_old } => Err(too_old),
+            }
+        };
+
+        let old = tsc("5.7.2");
+        assert_eq!(look(old, Some(downloaded.clone())), Ok(downloaded.path));
+        let new = tsc("7.0.2");
+        assert_eq!(look(new, None), Ok(PathBuf::from(new)));
+        versions.forget();
+        // Nowhere: the download is offered, saying why the one found is not used.
+        assert_eq!(look(old, None), Err(Some(PathBuf::from(old))));
+
+        // Through `client_for`, it is named for the first project only.
+        let server: &'static LanguageServer = Box::leak(Box::new(LanguageServer {
+            name: "tsc",
+            command: old,
+            min_version: 7,
+            ..LanguageServer::default()
+        }));
+        let mut clients = Clients::default();
+        let mut too_old = |directory: &str| {
+            std::fs::create_dir_all(root.join(directory)).unwrap();
+            let file = root.join(directory).join("index.ts");
+            loop {
+                match clients.client_for(server, &file, None, Arc::clone(&notifier)) {
+                    Ok(None) => answers.recv_timeout(Duration::from_secs(10)).unwrap(),
+                    Err(NotStarted::Missing(too_old)) => return too_old,
+                    _ => panic!("tsc started or failed"),
+                }
+            }
+        };
+        assert_eq!(too_old("a"), Some(PathBuf::from(old)));
+        assert_eq!(too_old("b"), None);
+
+        // A project's own copy too old, the one on `PATH` is asked next.
+        let versions = Versions::default();
+        let own = |path: &str| Program {
+            path: PathBuf::from(path),
+            env: Vec::new(),
+        };
+        let pick = || first_suitable([own(old), own(new)], 7, &root, None, &versions, &notifier);
+        for _ in [old, new] {
+            assert!(matches!(pick(), Found::Asking));
+            answers.recv_timeout(Duration::from_secs(10)).unwrap();
+        }
+        assert!(matches!(pick(), Found::Program(program) if program.path == Path::new(new)));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn requests_stand_while_a_server_s_version_is_asked() {
+        use std::os::unix::fs::PermissionsExt;
+
+        use remacs_text::Text;
+
+        let root = std::env::temp_dir().join(format!("remacs-asking-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let stuck = root.join("stuck");
+        std::fs::write(&stuck, "#!/bin/sh\nexec sleep 5\n").unwrap();
+        std::fs::set_permissions(&stuck, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let catalog = format!(
+            "[[servers]]\nname = \"running\"\ncommand = \"sh\"\n\
+             args = [\"-c\", \"cat >/dev/null\"]\nlanguages = {{ Fundamental = \"plaintext\" }}\n\
+             [[servers]]\nname = \"asking\"\ncommand = \"{}\"\nmin-version = 7\n\
+             languages = {{ Fundamental = \"plaintext\" }}\n",
+            stuck.display()
+        );
+        let plugin: &'static crate::LspPlugin =
+            Box::leak(Box::new(crate::LspPlugin::new(catalog.leak())));
+        let mut editor = Editor::new(&[plugin]);
+        let file = root.join("notes.txt");
+        editor.add_buffer(Buffer::new("notes.txt", Text::default(), "Fundamental").with_file(file));
+        editor.refresh();
+        let index = (editor.buffers().iter())
+            .position(|buffer| buffer.name() == "notes.txt")
+            .unwrap();
+        fn documents(
+            editor: &mut Editor,
+            index: usize,
+        ) -> Option<(usize, &mut Option<Gathering<List>>)> {
+            editor.buffers_mut()[index]
+                .local_mut::<Documents>()
+                .map(|documents| (documents.list.len(), &mut documents.completions))
+        }
+
+        let (attached, completions) = documents(&mut editor, index).unwrap();
+        assert_eq!(attached, 1, "the other server waits for its version");
+        *completions = Gathering::new(1, &[true]);
+        editor.refresh();
+        let (attached, completions) = documents(&mut editor, index).unwrap();
+        assert_eq!(attached, 1);
+        assert!(completions.is_some(), "the completion asked still waits");
         std::fs::remove_dir_all(&root).unwrap();
     }
 

@@ -45,6 +45,7 @@ pub(crate) struct ServerSpec {
     pull_diagnostics: Option<bool>,
     reports_loading: Option<bool>,
     node_modules: Option<bool>,
+    min_version: Option<u64>,
     when: Option<WhenSpec>,
     /// Added to the server's environment for projects where `env_when` holds.
     env: Option<BTreeMap<String, String>>,
@@ -208,6 +209,7 @@ impl ServerSpec {
             pull_diagnostics: change.pull_diagnostics.or(self.pull_diagnostics),
             reports_loading: change.reports_loading.or(self.reports_loading),
             node_modules: change.node_modules.or(self.node_modules),
+            min_version: change.min_version.or(self.min_version),
             when: change.when.or(self.when),
             env: change.env.or(self.env),
             env_when: change.env_when.or(self.env_when),
@@ -248,6 +250,7 @@ impl ServerSpec {
             pull_diagnostics: self.pull_diagnostics.unwrap_or(false),
             reports_loading: self.reports_loading.unwrap_or(false),
             node_modules: self.node_modules.unwrap_or(false),
+            min_version: self.min_version.unwrap_or(0),
             when: leak_when(self.when.as_ref()),
             env: (self.env.iter().flatten())
                 .map(|(name, value)| (leak(name), leak(value)))
