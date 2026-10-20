@@ -457,79 +457,38 @@ fn a_new_folder_is_listed_with_point_on_it() {
 }
 
 #[test]
-fn a_new_file_is_named_in_a_row_under_point_and_listed_with_point_on_it() {
+fn a_new_file_is_named_in_the_prompt_and_listed_with_point_on_it() {
     let tree = Tree::new("new-file");
     let mut editor = editor();
     open_directory(&mut editor, &tree.0, None, false).unwrap();
     wait_for_listing(&mut editor);
-    let before = lines(&editor);
-    assert_eq!(line_at_point(&editor), "sub");
 
     press(&mut editor, "c");
-    assert!(!editor.window_buffer().is_read_only());
-    assert_eq!(editor.window_buffer().point_line(), 2);
+    let prompt = editor.minibuffer().unwrap().prompt();
+    assert_eq!(prompt.label, "New file");
+    assert_eq!(prompt.hints[0], ("↵", "Create"));
     type_text(&mut editor, "notes.md");
-    let table = editor.table(0..20).unwrap();
-    assert_eq!(table.rows[2].cells[0], "notes.md");
-    assert_eq!(table.rows[2].field.as_ref().unwrap().original, None);
-    assert!(table.sort.is_empty() && table.preview.is_none());
-    assert_eq!(table.hints[0], ("↵", "Create"));
-
     press(&mut editor, "RET");
-    assert!(tree.0.join("notes.md").is_file());
-    assert!(editor.window_buffer().is_read_only());
+    assert_eq!(fs::read_to_string(tree.0.join("notes.md")).unwrap(), "");
     wait_until(&mut editor, |editor| line_at_point(editor) == "notes.md");
-    assert_eq!(lines(&editor).len(), before.len() + 1);
-}
-
-#[test]
-fn a_name_already_listed_is_refused_and_the_row_stays() {
-    let tree = Tree::new("new-file-exists");
-    let mut editor = editor();
-    open_directory(&mut editor, &tree.0, None, false).unwrap();
-    wait_for_listing(&mut editor);
 
     press(&mut editor, "c");
-    type_text(&mut editor, "LIB.rs");
+    type_text(&mut editor, "docs/a/b.md");
     press(&mut editor, "RET");
-    assert_eq!(editor.echo().as_deref(), Some("lib.rs already exists"));
-    assert!(!editor.window_buffer().is_read_only());
-    assert_eq!(line_at_point(&editor), "LIB.rs");
+    assert!(tree.0.join("docs/a/b.md").is_file());
+    wait_until(&mut editor, |editor| line_at_point(editor) == "docs");
 
-    press(&mut editor, "C-a C-k");
-    type_text(&mut editor, "a/b");
+    press(&mut editor, "c");
+    type_text(&mut editor, "lib.rs");
     press(&mut editor, "RET");
+    assert!(editor.echo().unwrap().ends_with("lib.rs already exists"));
     assert_eq!(
-        editor.echo().as_deref(),
-        Some("Cannot create a/b: the name contains /")
+        fs::read_to_string(tree.0.join("lib.rs")).unwrap(),
+        "fn main() {}\n"
     );
-}
 
-#[test]
-fn the_name_stays_on_its_line_and_cancelling_removes_the_row() {
-    let tree = Tree::new("new-file-cancel");
-    let mut editor = editor();
-    open_directory(&mut editor, &tree.0, None, false).unwrap();
-    wait_for_listing(&mut editor);
-    let before = lines(&editor);
-
-    press(&mut editor, "c");
-    type_text(&mut editor, "x");
-    let typed = lines(&editor);
-    press(&mut editor, "C-a DEL");
-    assert_eq!(lines(&editor), typed);
-    assert_eq!(editor.echo().as_deref(), Some("The name stays on one line"));
-    press(&mut editor, "C-n");
-    assert_eq!(line_at_point(&editor), "x");
-
-    press(&mut editor, "C-g");
-    assert_eq!(lines(&editor), before);
-    assert_eq!(line_at_point(&editor), "sub");
-    assert!(editor.window_buffer().is_read_only());
-    assert!(!tree.0.join("x").exists());
-
-    press(&mut editor, "c RET");
-    assert_eq!(lines(&editor), before);
+    press(&mut editor, "c x C-g");
+    assert!(editor.minibuffer().is_none() && !tree.0.join("x").exists());
 }
 
 /// Types `text` into the prompt, a key per character.

@@ -1,4 +1,5 @@
-use std::fs;
+use std::fs::{self, File};
+use std::io;
 use std::path::{Path, PathBuf};
 
 use remacs_core::{Candidate, CommandResult, Completions, Editor, Icon, Prompt};
@@ -8,10 +9,11 @@ use remacs_files::{
 
 use crate::entry::{PARENT, SortKey};
 use crate::listing::{DIRED_MODE, Listing, entry_at_point, new_listing, select_entry, set_sort};
-use crate::new_file::is_creating;
 use crate::wdired::is_editing;
 
 pub const FIND_FILE: &str = "dired-find-file";
+pub const CREATE_DIRECTORY: &str = "dired-create-directory";
+pub const CREATE_EMPTY_FILE: &str = "dired-create-empty-file";
 const DIRECTORY_CATEGORY: &str = "directory";
 pub const NOT_A_LISTING: &str = "Not a directory listing";
 
@@ -54,9 +56,6 @@ pub fn dired_jump(editor: &mut Editor) -> CommandResult {
 
 /// Visits the file at point, or lists the directory at point in place of this listing.
 pub fn find_file(editor: &mut Editor) -> CommandResult {
-    if is_creating(editor) {
-        return Err("Create or cancel the new file first".into());
-    }
     let buffer = editor.window_buffer();
     let entry = entry_at_point(buffer).ok_or("No file on this line")?;
     let directory = buffer.default_directory().ok_or(NOT_A_LISTING)?;
@@ -121,9 +120,30 @@ pub fn sort_by(editor: &mut Editor, key: SortKey) -> CommandResult {
 /// Reads a name and creates that directory in the listing, with point on it once it is
 /// listed, like Emacs `dired-create-directory`.
 pub fn create_directory(editor: &mut Editor) -> CommandResult {
+    create(editor, "New folder", |path| fs::create_dir_all(path))
+}
+
+/// Reads a name and creates that empty file, its missing folders too, with point on it
+/// once it is listed, like Emacs `dired-create-empty-file`.
+pub fn create_empty_file(editor: &mut Editor) -> CommandResult {
+    create(editor, "New file", |path| {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        File::create_new(path).map(drop)
+    })
+}
+
+/// Reads a name in the listed directory, refusing one already there, and makes it with
+/// `make`; point goes to what appears in the listing, the first folder of a deeper path.
+fn create(
+    editor: &mut Editor,
+    label: &str,
+    make: impl Fn(&Path) -> io::Result<()> + 'static,
+) -> CommandResult {
     let directory = listing_directory(editor)?;
     let prompt = Prompt {
-        label: "New folder".into(),
+        label: label.into(),
         directory: with_slash(&abbreviate_home(&directory)),
         placeholder: "name",
         hints: &[("↵", "Create"), ("C-g", "Cancel")],
@@ -141,7 +161,7 @@ pub fn create_directory(editor: &mut Editor) -> CommandResult {
             if fs::symlink_metadata(&path).is_ok() {
                 return Err(format!("{} already exists", abbreviate_home(&path)).into());
             }
-            fs::create_dir_all(&path)?;
+            make(&path)?;
             let created = path
                 .strip_prefix(&directory)
                 .ok()

@@ -1,21 +1,21 @@
-# 0039 — Creating a file from dired in a row of its own
+# 0039 — Creating a file from dired through the prompt, like a folder
 
-Status: accepted, 2026-10-05
+Status: accepted, 2026-10-05; revised 2026-10-20 (#99): the in-place row is gone.
 
 ## Decision
 
-- **`c` (`dired-create-empty-file`) opens a row under point** with a field for the name,
-  drawn like a name wdired edits. `RET` (or `C-c C-c`) creates the file; `C-g`, `ESC`
-  (or `C-c C-k`) and an empty name remove the row. Emacs leaves its command unbound and
-  `+` already makes folders.
-- **The row is an empty entry in the listing** (`Listing::new_file` holds its line), so
-  lines and entries stay one to one. Meanwhile the listing is frozen like wdired's: not
-  read again, not sorted, no preview. Not wdired itself: that mode undoes any change to
-  the number of lines.
-- **The name stays on its line**: a command that changes the line count is undone, and
-  point is kept in the row.
-- **A name already listed is refused**, compared case-insensitively as macOS volumes are
-  by default; the echo says so and the row stays to correct it. `File::create_new` refuses
-  what appeared since the read. Names are checked like wdired's (`invalid_name`).
-- **After creating, point is on the new file, which is not opened**, so it can be
-  renamed or opened next.
+- **`c` (`dired-create-empty-file`) reads the name in the minibuffer prompt**, the same
+  one `+` (`dired-create-directory`) uses: label "New file", the listed directory on its
+  info line, ↵ Create / C-g Cancel. One way of creating things. Emacs leaves its command
+  unbound.
+- **A name with `/` creates the missing folders**, as `+` does; an existing name is an
+  error (`symlink_metadata`, which a case-insensitive volume answers for any letter case),
+  and `File::create_new` refuses what appeared meanwhile.
+- **After creating, the listing is read again with point on the new file**, or on the
+  first folder of a deeper path; the file is not opened, so it can be renamed or opened
+  next.
+- **File → New File… and New Folder…** run the two commands, enabled in a listing.
+
+The first version opened an editable row under point, with its own finish and cancel
+commands and keys and a frozen listing meanwhile; two ways of naming a new entry was one
+too many.
