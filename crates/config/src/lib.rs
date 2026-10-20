@@ -105,6 +105,7 @@ pub const DEFAULT_FILES: &[(&str, &str)] = &[
     ("format", include_str!("../../../config/defaults/format.toml")),
     ("git", include_str!("../../../config/defaults/git.toml")),
     ("keys", include_str!("../../../config/defaults/keys.toml")),
+    ("logs", include_str!("../../../config/defaults/logs.toml")),
     ("lsp", include_str!("../../../config/defaults/lsp.toml")),
     ("navigation", include_str!("../../../config/defaults/navigation.toml")),
     ("run", include_str!("../../../config/defaults/run.toml")),

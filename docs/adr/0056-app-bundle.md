@@ -26,8 +26,17 @@ Status: accepted, 2026-10-10 (icon: board AppIcon, direction A "Parens and curso
   workspace's version and "unknown commit".
 - **`remacs` on the command line** is a script in `~/.local/bin` written by the install:
   it starts the installed binary with the shell's environment and directory, detached
-  (`nohup`), so closing the terminal tab does not quit it; what it prints goes to
-  `~/.config/remacs/state/remacs.log`. One window per call, as before.
+  (`nohup`), so closing the terminal tab does not quit it. One window per call, as
+  before. `remacs --version` runs the binary in the foreground and prints its version.
+- **Logs and crash reports** (#81): unless stderr is a terminal (`cargo run`), the app
+  points its own stdout and stderr at `~/.config/remacs/state/remacs.log`, so what it
+  prints is kept whether Finder, the Dock or the launcher started it; past `log-size`
+  bytes a start moves it to `remacs.log.old`. A panic hook, on every thread, writes the
+  message, the backtrace, the version and the commit to `state/crashes/<time>.log`
+  before the default hook prints the panic. The next start says in the echo area that a
+  report exists and where (reports newer than `crashes/.shown`); a panic on a worker
+  thread (git monitor, LSP readers…), which leaves remacs running, is said at once.
+  `logs.toml`: `log-size`, `crash-reports` kept.
 - **Metal shaders are compiled at build time** (Xcode's Metal Toolchain:
   `xcodebuild -downloadComponent MetalToolchain`); the `runtime-shaders` feature
   compiles them at startup instead, for a Mac without it.

@@ -151,7 +151,7 @@ fn install() -> Result {
 
     let launcher = home.join(".local/bin").join(EXECUTABLE);
     create(launcher.parent().expect("a file in a directory"))?;
-    write(&launcher, &launcher_script(&installed, &home))?;
+    write(&launcher, &launcher_script(&installed))?;
     fs::set_permissions(&launcher, fs::Permissions::from_mode(0o755))
         .map_err(|error| format!("{}: {error}", launcher.display()))?;
 
@@ -167,19 +167,16 @@ fn install() -> Result {
 }
 
 /// Starts the installed app with this shell's environment and directory, apart from the
-/// terminal, so that closing its tab does not quit remacs.
-fn launcher_script(app: &Path, home: &Path) -> String {
+/// terminal, so that closing its tab does not quit remacs; the app sends what it prints to
+/// its log.
+fn launcher_script(app: &Path) -> String {
     let binary = app.join("Contents/MacOS").join(EXECUTABLE);
-    let log = home.join(".config/remacs/state/remacs.log");
     format!(
         "#!/bin/sh\n\
          # Written by `cargo xtask install`.\n\
          [ \"$1\" = --version ] && exec '{binary}' --version\n\
-         mkdir -p '{dir}'\n\
-         nohup '{binary}' \"$@\" </dev/null >>'{log}' 2>&1 &\n",
-        dir = log.parent().expect("a file in a directory").display(),
+         nohup '{binary}' \"$@\" </dev/null >/dev/null 2>&1 &\n",
         binary = binary.display(),
-        log = log.display(),
     )
 }
 

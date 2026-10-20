@@ -1799,6 +1799,11 @@ impl EditorView {
         self.editor.quit_requested()
     }
 
+    pub fn show_error(&mut self, text: String, cx: &mut Context<Self>) {
+        self.editor.set_error(text);
+        cx.notify();
+    }
+
     /// Opens what Finder or the Dock hand over, the last one shown.
     pub fn open_paths(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
         for path in paths {
