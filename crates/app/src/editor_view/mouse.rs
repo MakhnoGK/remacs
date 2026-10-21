@@ -22,6 +22,7 @@ impl EditorView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.cancel_composition(cx);
         if event.modifiers.platform {
             if self
                 .text_zoom

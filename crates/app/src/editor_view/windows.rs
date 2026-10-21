@@ -201,6 +201,13 @@ impl EditorView {
                     below: table.rows.len() > table_rows + usize::from(top.fract() > 0.0),
                 };
                 table.rows.truncate(table_rows + 1);
+                let hints = table.hints;
+                let fits = fits_preview(frame_size.width);
+                let side = match (table.changes.take(), table.preview.take()) {
+                    _ if !fits => None,
+                    (Some(changes), _) => Some(render_changes(changes, cx)),
+                    (None, preview) => preview.map(|preview| self.render_preview(preview)),
+                };
                 let buffer = self.editor.window_buffer();
                 let cursor = TableCursor {
                     line: buffer.point_line(),
@@ -208,13 +215,8 @@ impl EditorView {
                     regions: (first_line..first_line + table.rows.len())
                         .map(|line| self.region_columns(line))
                         .collect(),
-                };
-                let hints = table.hints;
-                let fits = fits_preview(frame_size.width);
-                let side = match (table.changes.take(), table.preview.take()) {
-                    _ if !fits => None,
-                    (Some(changes), _) => Some(render_changes(changes, cx)),
-                    (None, preview) => preview.map(|preview| self.render_preview(preview)),
+                    composition: (self.drawing_selected() && self.editor.minibuffer().is_none())
+                        .then_some(&self.composition),
                 };
                 let body = render_table(table, first_line, scrolled, top.fract(), cursor, side, cx);
                 (above_pane(body, rows_area_height), hints, Vec::new())

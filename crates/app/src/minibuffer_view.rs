@@ -688,7 +688,7 @@ fn render_description(minibuffer: &Minibuffer) -> Option<impl IntoElement> {
             let mut line = DisplayLine::new(source);
             let text = if active && index == point_line {
                 let cursor = line.cursor_cell(description.point_column());
-                text_with_cursor(&line.text, &Vec::new(), cursor)
+                text_with_cursor(&line.text, &Vec::new(), cursor, None)
             } else {
                 div().child(line.text)
             };

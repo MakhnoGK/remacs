@@ -21,10 +21,12 @@ Status: accepted, 2026-10-21 (issue #92)
   accent menu.
 - **The input method sees only the marked text**, not the buffer (`text_for_range` is
   none). The marked text is drawn underlined at the cursor that takes typed text: over
-  the text after point in the editor, in the input of a typing prompt. The candidate
-  window is placed at that cursor's last drawn bounds. `unmarkText` accepts the marked
-  text, as AppKit documents. A click or a menu command, which the input method does not
-  see, first commits the marked text where it is and has the input method discard it.
+  the text after point in the editor, with the cursor after it; before the cursor in a
+  typing prompt and in a table's edited field. The candidate window is placed at that
+  cursor's last drawn bounds. `unmarkText` accepts the marked text, as AppKit
+  documents. A click, a scroll or a menu command, which the input method does not see,
+  first drops the marked text and has the input method discard it: committed, it would
+  land where point moved to, or change a list the click picks from.
 - **Which Option is Meta** is `ui.toml` `[keyboard] meta`: `"both"` (default),
   `"left"` or `"right"`. The side is read from the current `NSEvent`'s device-dependent
   flags, which gpui's `Modifiers` leave out. An Option key that is not Meta types what
@@ -37,4 +39,8 @@ Status: accepted, 2026-10-21 (issue #92)
   full-width space and then ASCII ones.
 - Long marked text near the editor's right edge is clipped: it is drawn over the text
   and sideways scroll follows point, not the marked text's end.
+- While text is composed, gpui gives every key to the input method first, so a Meta
+  chord then (e.g. a dead key, then `M-f`) is typed as Option's character by layouts
+  that have one; committing the marked text before an Option key needs a vendored gpui
+  patch, as gpui does not know which Option is Meta.
 - IME in terminals, which take keys through their key sink.

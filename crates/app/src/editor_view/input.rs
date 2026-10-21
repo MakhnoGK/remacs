@@ -158,14 +158,14 @@ impl EditorView {
         self.after_input(cx);
     }
 
-    /// Commits the text being composed before a click or a menu command moves where it
-    /// would go; the input method, which sees neither, is told to drop it too.
-    pub(super) fn finish_composition(&mut self, cx: &mut Context<Self>) {
-        let marked = mem::take(&mut self.composition.marked);
-        if marked.is_empty() {
+    /// Drops the text being composed before a click, a scroll or a menu command moves
+    /// where it would go or acts on what it would change, e.g. a list it would filter;
+    /// the input method, which sees none of them, is told to drop it too.
+    pub(super) fn cancel_composition(&mut self, cx: &mut Context<Self>) {
+        if mem::take(&mut self.composition.marked).is_empty() {
             return;
         }
-        self.commit_text(&marked, cx);
+        cx.notify();
         // Later: the input method calls back into the view, which is being updated now.
         cx.defer(|_| discard_marked_text());
     }
@@ -176,7 +176,7 @@ impl EditorView {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.finish_composition(cx);
+        self.cancel_composition(cx);
         self.hints_open = false;
         self.message_open = false;
         self.editor.run_command(&action.name);
