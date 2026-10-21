@@ -4356,6 +4356,7 @@ dependencies = [
  "divan",
  "remacs-core",
  "remacs-editing",
+ "remacs-minibuffer",
  "remacs-text",
  "serde",
 ]
