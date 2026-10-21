@@ -1,7 +1,8 @@
 //! Built-in plugin: going back and forward through where point was before each jump, to
-//! the last changes, and to text on screen by label.
+//! the last changes, to a line by number, and to text on screen by label.
 
 mod avy;
+mod goto_line;
 mod history;
 mod last_change;
 
@@ -70,6 +71,7 @@ const COMMANDS: &[Command] = &[
     Command::new(history::NAVIGATE_FORWARD, "Go forward again to where navigate-back left", history::navigate_forward),
     Command::new(last_change::GOTO_LAST_CHANGE, "Go to where the buffer was last changed, then to the changes before", last_change::goto_last_change),
     Command::new(last_change::GOTO_LAST_CHANGE_REVERSE, "Go back to the later change goto-last-change came from", last_change::goto_last_change_reverse),
+    Command::new(goto_line::GOTO_LINE, "Go to a line by its number, or line:column", goto_line::goto_line),
     Command::new(avy::AVY_GOTO_CHAR_TIMER, "Jump to text on screen: type it, pause, then type the label on the place", avy::avy_goto_char_timer),
     Command::new(avy::AVY_GOTO_WORD, "Jump to a word on screen: type its first character, then its label", avy::avy_goto_word),
     Command::new(avy::AVY_GOTO_LINE, "Jump to a line on screen by the label at its start", avy::avy_goto_line),
@@ -84,6 +86,8 @@ const BINDINGS: &[(&str, &str)] = &[
     ("M-j", avy::AVY_GOTO_CHAR_TIMER),
     ("M-g w", avy::AVY_GOTO_WORD),
     ("M-g l", avy::AVY_GOTO_LINE),
+    ("M-g g", goto_line::GOTO_LINE),
+    ("M-g M-g", goto_line::GOTO_LINE),
 ];
 
 #[rustfmt::skip]
@@ -91,6 +95,7 @@ const MENU_ITEMS: &[MenuItem] = &[
     MenuItem::new("Go", "history", "Back", history::NAVIGATE_BACK),
     MenuItem::new("Go", "history", "Forward", history::NAVIGATE_FORWARD),
     MenuItem::new("Go", "history", "Last Change", last_change::GOTO_LAST_CHANGE),
+    MenuItem::new("Go", "jump", "Go to Line Number…", goto_line::GOTO_LINE),
     MenuItem::new("Go", "jump", "Jump to Text…", avy::AVY_GOTO_CHAR_TIMER),
     MenuItem::new("Go", "jump", "Jump to Word…", avy::AVY_GOTO_WORD),
     MenuItem::new("Go", "jump", "Jump to Line…", avy::AVY_GOTO_LINE),

@@ -1,6 +1,6 @@
 [package]
 name = "remacs-navigation"
-description = "Built-in plugin: going back and forward through where point was, to the last change, and to text on screen by label"
+description = "Built-in plugin: going back and forward through where point was, to the last change, to a line by number, and to text on screen by label"
 version.workspace = true
 edition.workspace = true
 license-file.workspace = true
@@ -13,6 +13,7 @@ serde.workspace = true
 [dev-dependencies]
 divan.workspace = true
 remacs-editing.workspace = true
+remacs-minibuffer.workspace = true
 remacs-text.workspace = true
 
 [[bench]]

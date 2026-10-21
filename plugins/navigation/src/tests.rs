@@ -1,5 +1,6 @@
 use remacs_core::{Buffer, Editor, parse_sequence};
 use remacs_editing::EditingPlugin;
+use remacs_minibuffer::MinibufferPlugin;
 use remacs_text::Text;
 
 use crate::{NavigationPlugin, NavigationSettings};
@@ -10,7 +11,7 @@ fn the_default_file_reads_as_the_defaults() {
 }
 
 fn editor_with(text: &str) -> Editor {
-    let mut editor = Editor::new(&[&EditingPlugin, &NavigationPlugin]);
+    let mut editor = Editor::new(&[&EditingPlugin, &MinibufferPlugin, &NavigationPlugin]);
     editor.add_buffer(Buffer::new("test", Text::from(text), "Fundamental"));
     editor.viewport.set_height(10);
     editor
@@ -326,5 +327,25 @@ fn paging_is_not_a_jump_and_a_new_jump_drops_the_way_forward() {
     assert_eq!(
         editor.echo().as_deref(),
         Some("At the end of the navigation history")
+    );
+}
+
+#[test]
+fn goto_line_goes_to_a_line_and_column_counted_from_1() {
+    let mut editor = editor_with(&"abcdef\n".repeat(100));
+    press(&mut editor, "C-f M-g g 5 0 : 3 RET");
+    let buffer = editor.window_buffer();
+    assert_eq!((buffer.point_line(), buffer.point_column()), (49, 2));
+    assert!(editor.viewport.contains(49));
+    press(&mut editor, "s-[");
+    assert_eq!(place(&editor).1, 0);
+
+    press(&mut editor, "M-g M-g 9 9 9 : 9 9 RET");
+    assert_eq!(place(&editor).1, 100);
+    press(&mut editor, "M-g g 3 x RET");
+    assert_eq!(place(&editor).1, 100);
+    assert_eq!(
+        editor.echo().as_deref(),
+        Some("Type a line, or line:column")
     );
 }

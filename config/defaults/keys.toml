@@ -16,6 +16,7 @@
 # "M-j" = "avy-goto-char-timer"        # type, pause, then the label
 # "M-g w" = "avy-goto-word-1"          # a word's first character, then the label
 # "M-g l" = "avy-goto-line"
+# "M-g g" = "goto-line"                # also M-g M-g: a line number, or line:column
 # "M-g i" = "imenu"                    # also ⌘F12: a symbol of the file
 # Over the syntax tree:
 # "C-M-f" = "forward-sexp"             # C-M-b back
