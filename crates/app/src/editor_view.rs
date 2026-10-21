@@ -365,6 +365,8 @@ impl EditorView {
             .message_log_mut()
             .set_limit(self.bottom.echo.history);
         self.editor.set_settings(read.settings);
+        // Their styles hold the colors of the theme they were drawn with.
+        self.code_faces.get_mut().clear();
         report(&read.errors, &mut self.editor);
         // Shows the keys `keys.toml` binds now.
         menu_bar::set_menus(&self.editor, cx);
