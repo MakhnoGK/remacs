@@ -140,9 +140,14 @@ impl Editor {
     /// from the emoji picker, each character as if its key had been typed; a newline, as
     /// dictation gives one, as `RET`.
     pub fn type_text(&mut self, text: &str) {
+        let in_prompt = self.minibuffer.is_some();
         for character in text.chars() {
-            // A newline may have submitted a prompt or opened something typing is not for.
-            if !self.pending_keys.is_empty() || !self.takes_typing() {
+            // A newline may have submitted a prompt, opened one, or opened something typing
+            // is not for: the rest was not meant for it.
+            if !self.pending_keys.is_empty()
+                || !self.takes_typing()
+                || self.minibuffer.is_some() != in_prompt
+            {
                 return;
             }
             if character == '\n' {
@@ -406,6 +411,9 @@ mod tests {
                 registry
                     .commands
                     .add(crate::Command::new("newline", "", |editor| {
+                        if editor.minibuffer().is_some() {
+                            return editor.exit_minibuffer(true);
+                        }
                         editor.buffer_mut().insert("\n");
                         Ok(())
                     }));
@@ -417,6 +425,14 @@ mod tests {
         assert_eq!(dispatch("a"), KeyOutcome::Typed);
         assert_eq!(dispatch("M-a"), KeyOutcome::Unhandled);
         editor.type_text("é\u{1}愛\nb");
+        let buffer = editor.buffer();
+        assert_eq!(buffer.contents(0..buffer.text().len()), "é愛\nb");
+        // What follows a newline that answers a prompt was not meant for the buffer.
+        let none = |_: &Editor, _: &str| crate::Completions::default();
+        let prompt = crate::minibuffer::Prompt::default();
+        editor.read(prompt, none, |_, _| Ok(())).unwrap();
+        editor.type_text("x\ny");
+        assert!(editor.minibuffer().is_none());
         let buffer = editor.buffer();
         assert_eq!(buffer.contents(0..buffer.text().len()), "é愛\nb");
         editor.buffer_mut().set_read_only(true);

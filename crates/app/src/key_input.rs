@@ -17,7 +17,9 @@ pub fn to_key(keystroke: &Keystroke, option_is_meta: bool) -> Option<Key> {
         return Some(Key::new(Modifiers::default(), KeyCode::Char(character)));
     }
     let mut modifiers = to_modifiers(&keystroke.modifiers);
-    modifiers.meta &= option_is_meta;
+    // An Option key that types is Meta still where it types nothing: in chords with
+    // Control or Command, and on named keys.
+    modifiers.meta &= option_is_meta || keystroke.key_char.is_none();
     let code = match keystroke.key.as_str() {
         "enter" => KeyCode::Return,
         "tab" => KeyCode::Tab,
@@ -137,6 +139,21 @@ mod tests {
         assert_eq!(to_key(&at, false), Key::parse("@"));
         // A key the layout gives nothing with Option is still not Meta.
         assert_eq!(to_key(&option("x", ""), false), Key::parse("x"));
+        // gpui gives no character for named keys and Command or Control chords.
+        let named = |key: &str, platform| Keystroke {
+            modifiers: gpui::Modifiers {
+                alt: true,
+                platform,
+                ..Default::default()
+            },
+            key: key.to_owned(),
+            key_char: None,
+        };
+        assert_eq!(
+            to_key(&named("backspace", false), false),
+            Key::parse("M-DEL")
+        );
+        assert_eq!(to_key(&named("h", true), false), Key::parse("M-s-h"));
     }
 
     #[test]
