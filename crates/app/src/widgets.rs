@@ -14,6 +14,7 @@ use crate::assets::{
     PACKAGE_ICON, PLUS_ICON, PULL_ICON, PUSH_ICON, REMOTE_ICON, RERUN_ICON, RUN_ICON, SCRIPT_ICON,
     STOP_ICON, TERMINAL_ICON, WARNING_ICON,
 };
+use crate::composition::Composition;
 use crate::highlights::{Highlights, slice};
 
 pub fn hsla(hex: u32) -> Hsla {
@@ -447,8 +448,14 @@ pub fn hollow_cursor() -> Div {
 }
 
 /// `text` with the block cursor over its bytes `at`, the text on either side of it
-/// styled by `highlights`.
-pub fn text_with_cursor(text: &str, highlights: &Highlights, at: Range<usize>) -> Div {
+/// styled by `highlights`; `composition`, where the cursor takes typed text, is drawn
+/// before it.
+pub fn text_with_cursor(
+    text: &str,
+    highlights: &Highlights,
+    at: Range<usize>,
+    composition: Option<&Composition>,
+) -> Div {
     let part = |range: Range<usize>| {
         let styled = slice(highlights, range.clone());
         div()
@@ -458,7 +465,12 @@ pub fn text_with_cursor(text: &str, highlights: &Highlights, at: Range<usize>) -
     div()
         .flex()
         .child(part(0..at.start))
-        .child(block_cursor().child(text[at.clone()].to_owned()))
+        .children(composition.and_then(Composition::render_marked))
+        .child(
+            block_cursor()
+                .children(composition.map(Composition::track_caret))
+                .child(text[at.clone()].to_owned()),
+        )
         .child(part(at.end..text.len()))
 }
 

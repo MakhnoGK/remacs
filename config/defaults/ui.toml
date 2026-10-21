@@ -75,6 +75,12 @@ height = "line"
 # Pixels the block's corners are rounded by, in text, tables, prompts and terminals: 0 to 4.
 radius = 1
 
+[keyboard]
+# The Option keys that are Meta: "both", "left" or "right". The other one types what
+# the keyboard layout gives it, like @ or | on many European layouts, or a dead key's
+# accent; input methods and dead keys compose text at the cursor either way.
+meta = "both"
+
 [mouse]
 # Milliseconds between lines scrolled while a selection is dragged past the text's
 # top or bottom: 5 to 1000.

@@ -4,7 +4,7 @@ use std::ops::Range;
 
 use super::{Editor, SELF_INSERT_COMMAND};
 use crate::command::{CommandResult, Commands};
-use crate::key::{Key, describe_sequence};
+use crate::key::{Key, KeyCode, Modifiers, describe_sequence};
 use crate::keymap::{Binding, Keymap};
 use crate::minibuffer::Minibuffer;
 use crate::table::Action;
@@ -12,6 +12,17 @@ use crate::table::Action;
 const ABORT_KEY: &str = "C-g";
 /// Like Emacs, consecutive self-inserts undo together, at most this many at a time.
 const MAX_AMALGAMATED_INSERTS: usize = 20;
+
+/// What `Editor::dispatch_key` did with a key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyOutcome {
+    Handled,
+    /// A key of its own that nothing binds, nor types, so that it may still mean something
+    /// to the system, e.g. a menu's key equivalent.
+    Unhandled,
+    /// Nothing binds it and it types its character: the caller's to insert.
+    Typed,
+}
 
 impl Editor {
     /// Text another program put on the clipboard becomes the newest kill, at every cursor
@@ -45,11 +56,23 @@ impl Editor {
     /// False when the key is a sequence of its own that nothing binds, nor types, so
     /// that it may still mean something to the system, e.g. a menu's key equivalent.
     pub fn handle_key(&mut self, key: Key) -> bool {
+        match self.dispatch_key(key) {
+            KeyOutcome::Typed => {
+                self.run_command(SELF_INSERT_COMMAND);
+                true
+            }
+            outcome => outcome == KeyOutcome::Handled,
+        }
+    }
+
+    /// Like `handle_key`, but a key that would type its character is left to the caller,
+    /// which has the input method turn it into text for `type_text`.
+    pub fn dispatch_key(&mut self, key: Key) -> KeyOutcome {
         self.clear_echo();
         if Key::parse(ABORT_KEY) == Some(key) && self.abort() {
             // Hooks see a prompt closed by quitting, e.g. to undo what it previewed.
             self.after_command();
-            return true;
+            return KeyOutcome::Handled;
         }
         if self
             .minibuffer
@@ -57,7 +80,7 @@ impl Editor {
             .is_some_and(Minibuffer::is_question)
         {
             self.answer_question_key(key);
-            return true;
+            return KeyOutcome::Handled;
         }
         if self.pending_keys.is_empty()
             && let Some(index) = self
@@ -66,7 +89,7 @@ impl Editor {
                 .and_then(|minibuffer| minibuffer.option_for_key(key))
         {
             self.toggle_prompt_option(index);
-            return true;
+            return KeyOutcome::Handled;
         }
         if self.pending_keys.is_empty()
             && let Some(index) = self
@@ -75,13 +98,13 @@ impl Editor {
                 .and_then(|minibuffer| minibuffer.choice_for_key(key))
         {
             self.next_prompt_choice(index);
-            return true;
+            return KeyOutcome::Handled;
         }
         if self.pending_keys.is_empty() && self.minibuffer.is_none() {
             for sink in self.registry.key_sinks.clone() {
                 if sink(self, key) {
                     self.last_key = Some(key);
-                    return true;
+                    return KeyOutcome::Handled;
                 }
             }
         }
@@ -95,23 +118,63 @@ impl Editor {
             Binding::Prefix => {}
             Binding::Unbound => {
                 let keys = mem::take(&mut self.pending_keys);
-                let typed = match &self.minibuffer {
-                    Some(minibuffer) => minibuffer.is_typed(),
-                    None => !self
-                        .registry
-                        .typing_blockers
-                        .iter()
-                        .any(|blocks| blocks(self)),
-                };
-                if typed && keys.len() == 1 && key.printable_char().is_some() {
-                    self.run_command(SELF_INSERT_COMMAND);
-                } else {
-                    self.set_message(format!("{} is undefined", describe_sequence(&keys)));
-                    return keys.len() > 1;
+                if self.takes_typing() && keys.len() == 1 && key.printable_char().is_some() {
+                    // Refused at once: the input method would compose text, and swallow the
+                    // keys after it, for a buffer that cannot take it.
+                    if self.buffer().is_read_only() {
+                        self.run_command(SELF_INSERT_COMMAND);
+                        return KeyOutcome::Handled;
+                    }
+                    return KeyOutcome::Typed;
+                }
+                self.set_message(format!("{} is undefined", describe_sequence(&keys)));
+                if keys.len() == 1 {
+                    return KeyOutcome::Unhandled;
                 }
             }
         }
-        true
+        KeyOutcome::Handled
+    }
+
+    /// Inserts text an input method made, e.g. a composed or accented character, or one
+    /// from the emoji picker, each character as if its key had been typed; a newline, as
+    /// dictation gives one, as `RET`.
+    pub fn type_text(&mut self, text: &str) {
+        let in_prompt = self.minibuffer.is_some();
+        for character in text.chars() {
+            // Refused once, as a key is; a newline would still run what RET does there, e.g.
+            // open a file the rest would land in.
+            if let Err(error) = self.buffer().ensure_writable() {
+                self.set_error(error.0);
+                return;
+            }
+            // A newline may have submitted a prompt, opened one, or opened something typing
+            // is not for: the rest was not meant for it.
+            if !self.pending_keys.is_empty()
+                || !self.takes_typing()
+                || self.minibuffer.is_some() != in_prompt
+            {
+                return;
+            }
+            if character == '\n' {
+                self.handle_key(Key::new(Modifiers::default(), KeyCode::Return));
+            } else if !character.is_control() {
+                self.last_key = Some(Key::new(Modifiers::default(), KeyCode::Char(character)));
+                self.run_command(SELF_INSERT_COMMAND);
+            }
+        }
+    }
+
+    /// Whether a key nothing binds types its character.
+    fn takes_typing(&self) -> bool {
+        match &self.minibuffer {
+            Some(minibuffer) => minibuffer.is_typed(),
+            None => !self
+                .registry
+                .typing_blockers
+                .iter()
+                .any(|blocks| blocks(self)),
+        }
     }
 
     pub fn run_command(&mut self, name: &str) {
@@ -332,5 +395,60 @@ mod tests {
         assert!(!press("s-m"));
         assert!(press("C-x"));
         assert!(press("s-m"));
+    }
+
+    #[test]
+    fn a_typing_key_is_left_to_the_input_method_whose_text_self_inserts() {
+        struct Typing;
+        impl Plugin for Typing {
+            fn register(&self, registry: &mut Registry) {
+                registry
+                    .commands
+                    .add(crate::Command::new(SELF_INSERT_COMMAND, "", |editor| {
+                        let character = editor
+                            .last_key()
+                            .and_then(|key| key.printable_char())
+                            .ok_or("Not printable")?;
+                        editor.buffer().ensure_writable()?;
+                        editor
+                            .buffer_mut()
+                            .insert(character.encode_utf8(&mut [0; 4]));
+                        Ok(())
+                    }));
+                registry
+                    .commands
+                    .add(crate::Command::new("newline", "", |editor| {
+                        if editor.minibuffer().is_some() {
+                            return editor.exit_minibuffer(true);
+                        }
+                        editor.buffer_mut().insert("\n");
+                        Ok(())
+                    }));
+                registry.keymap.bind("RET", "newline");
+            }
+        }
+        let mut editor = Editor::new(&[&Typing]);
+        let mut dispatch = |notation| editor.dispatch_key(Key::parse(notation).unwrap());
+        assert_eq!(dispatch("a"), KeyOutcome::Typed);
+        assert_eq!(dispatch("M-a"), KeyOutcome::Unhandled);
+        editor.type_text("é\u{1}愛\nb");
+        let buffer = editor.buffer();
+        assert_eq!(buffer.contents(0..buffer.text().len()), "é愛\nb");
+        // What follows a newline that answers a prompt was not meant for the buffer.
+        let none = |_: &Editor, _: &str| crate::Completions::default();
+        let prompt = crate::minibuffer::Prompt::default();
+        editor.read(prompt, none, |_, _| Ok(())).unwrap();
+        editor.type_text("x\ny");
+        assert!(editor.minibuffer().is_none());
+        let buffer = editor.buffer();
+        assert_eq!(buffer.contents(0..buffer.text().len()), "é愛\nb");
+        editor.buffer_mut().set_read_only(true);
+        assert_eq!(
+            editor.dispatch_key(Key::parse("a").unwrap()),
+            KeyOutcome::Handled
+        );
+        editor.type_text("a\nb");
+        let buffer = editor.buffer();
+        assert_eq!(buffer.contents(0..buffer.text().len()), "é愛\nb");
     }
 }

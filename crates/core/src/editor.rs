@@ -29,6 +29,7 @@ mod prompts;
 mod settings;
 mod windows;
 
+pub use commands::KeyOutcome;
 use windows::Displayed;
 
 pub const SELF_INSERT_COMMAND: &str = "self-insert-command";

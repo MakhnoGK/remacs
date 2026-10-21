@@ -2,6 +2,7 @@ mod assets;
 mod bottom_row;
 mod changes_view;
 mod code_wrap;
+mod composition;
 mod conflict_view;
 mod dialog_view;
 mod display_line;

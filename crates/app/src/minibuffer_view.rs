@@ -12,6 +12,7 @@ use remacs_core::{
 use remacs_theme::{color, font, glass};
 
 use crate::assets::CHEVRON_DOWN_ICON;
+use crate::composition::Composition;
 use crate::dialog_view::render_dialog;
 use crate::display_line::DisplayLine;
 use crate::editor_view::EditorView;
@@ -94,10 +95,12 @@ pub fn draws_input(minibuffer: &Minibuffer) -> bool {
 }
 
 /// `input_scroll` keeps the input's sideways scroll between frames; it keeps
-/// `prompts.input_margin` in view on each side of the cursor.
+/// `prompts.input_margin` in view on each side of the cursor. `composition` is drawn in
+/// the input that takes typed text.
 pub fn render_minibuffer(
     minibuffer: &Minibuffer,
     input_scroll: &ScrollHandle,
+    composition: Option<&Composition>,
     prompts: PromptsSettings,
     cx: &mut Context<EditorView>,
 ) -> AnyElement {
@@ -116,7 +119,13 @@ pub fn render_minibuffer(
     let field = match &prompt.title {
         Some((title, note)) => render_title(title, note).into_any_element(),
         None if minibuffer.is_question() => render_title(&prompt.label, "").into_any_element(),
-        None => render_field(minibuffer, input_scroll, px(prompts.input_margin)).into_any_element(),
+        None => render_field(
+            minibuffer,
+            input_scroll,
+            composition,
+            px(prompts.input_margin),
+        )
+        .into_any_element(),
     };
     let directory = |position| {
         (prompts.directory == position && !prompt.directory.is_empty())
@@ -141,7 +150,7 @@ pub fn render_minibuffer(
         })
         .children(chips_first)
         .children(render_segmented_choices(minibuffer, cx))
-        .children(render_description(minibuffer))
+        .children(render_description(minibuffer, composition))
         .when(!minibuffer.candidates().is_empty(), |popover| {
             popover.child(render_candidates(minibuffer, cx))
         })
@@ -492,6 +501,7 @@ fn centered(popover: impl IntoElement) -> AnyElement {
 fn render_field(
     minibuffer: &Minibuffer,
     input_scroll: &ScrollHandle,
+    composition: Option<&Composition>,
     input_margin: Pixels,
 ) -> impl IntoElement {
     let prompt = minibuffer.prompt();
@@ -524,7 +534,12 @@ fn render_field(
                 .text_size(px(font::status_size()))
                 .child(ui_text(&label, FontWeight::NORMAL, color::fg_alt())),
         )
-        .child(render_input(minibuffer, input_scroll, input_margin))
+        .child(render_input(
+            minibuffer,
+            input_scroll,
+            composition,
+            input_margin,
+        ))
         .child(if is_problem_list(minibuffer) {
             render_severity_counts(minibuffer.candidates()).into_any_element()
         } else if let Some(message) = &prompt.message {
@@ -595,16 +610,19 @@ fn render_severity_counts(candidates: &[Candidate]) -> impl IntoElement {
 fn render_input(
     minibuffer: &Minibuffer,
     scroll: &ScrollHandle,
+    composition: Option<&Composition>,
     margin: Pixels,
 ) -> impl IntoElement {
     let input = minibuffer.input();
     let mut line = DisplayLine::new(&minibuffer.input_text());
     let cursor = line.cursor_cell(input.point_column());
     let part = |range: Range<usize>| div().flex_none().child(line.text[range].to_owned());
-    let cursor_part = if minibuffer.in_description() || !minibuffer.is_typed() {
-        div().flex_none()
+    let typed = !minibuffer.in_description() && minibuffer.is_typed();
+    let composition = composition.filter(|_| typed);
+    let cursor_part = if typed {
+        block_cursor().children(composition.map(Composition::track_caret))
     } else {
-        block_cursor()
+        div().flex_none()
     };
     // Padding the view scrolls into sight with the cursor, taken back by as much margin so
     // the text does not move; none past the end, where the text before fills the field.
@@ -614,6 +632,9 @@ fn render_input(
         .pl(margin)
         .ml(-margin)
         .when(text_after, |part| part.pr(margin).mr(-margin))
+        .flex()
+        // Scrolled into sight with the cursor.
+        .children(composition.and_then(Composition::render_marked))
         .child(cursor_part.child(line.text[cursor.clone()].to_owned()));
     scroll.scroll_to_item(CURSOR_CHILD);
     div()
@@ -647,8 +668,12 @@ fn field_border(active: bool) -> gpui::Rgba {
     })
 }
 
-/// A message's description under its subject: a few lines, scrolled to the cursor.
-fn render_description(minibuffer: &Minibuffer) -> Option<impl IntoElement> {
+/// A message's description under its subject: a few lines, scrolled to the cursor, with
+/// `composition` before it while typed in.
+fn render_description(
+    minibuffer: &Minibuffer,
+    composition: Option<&Composition>,
+) -> Option<impl IntoElement> {
     let description = minibuffer.description()?;
     let active = minibuffer.in_description();
     let text = description.contents(0..description.text().len());
@@ -667,7 +692,7 @@ fn render_description(minibuffer: &Minibuffer) -> Option<impl IntoElement> {
             let mut line = DisplayLine::new(source);
             let text = if active && index == point_line {
                 let cursor = line.cursor_cell(description.point_column());
-                text_with_cursor(&line.text, &Vec::new(), cursor)
+                text_with_cursor(&line.text, &Vec::new(), cursor, composition)
             } else {
                 div().child(line.text)
             };

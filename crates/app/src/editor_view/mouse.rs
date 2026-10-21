@@ -44,6 +44,10 @@ impl EditorView {
                 view.scroll_sideways(-delta.x, at_once, cx);
                 return;
             }
+            if view.drawing_selected() {
+                // Point may move with the text, and the marked text with it.
+                view.cancel_composition(cx);
+            }
             view.scroll_vertically(-delta.y / row_height, at_once);
             if view.drawing_selected() {
                 view.drag_selection();

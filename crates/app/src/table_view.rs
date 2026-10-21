@@ -8,6 +8,7 @@ use remacs_core::{Action, Button, CellStyle, Column, Field, Mark, Notice, Row, R
 use remacs_theme::{color, font, glass};
 
 use crate::assets::CHEVRON_ICON;
+use crate::composition::Composition;
 use crate::display_line::DisplayLine;
 use crate::editor_view::EditorView;
 use crate::highlights::region_style;
@@ -34,12 +35,14 @@ const PREVIEW_GAP: f32 = 20.0;
 /// Narrower, the names would be cut short to make room for a preview.
 const MIN_LIST_WIDTH: f32 = 520.0;
 
-/// Point and the region, for rows whose first cell is a field.
-pub struct TableCursor {
+/// Point and the region, for rows whose first cell is a field, and the text being
+/// composed when that field takes typed text.
+pub struct TableCursor<'a> {
     pub line: usize,
     pub column: usize,
     /// The columns of each row's text in the region, from the first row on.
     pub regions: Vec<Option<Range<usize>>>,
+    pub composition: Option<&'a Composition>,
 }
 
 /// The rows of a table buffer from `first_line` on, `scrolled_past` of the first row
@@ -50,10 +53,10 @@ pub fn render_table(
     first_line: usize,
     scrolled: Scrolled,
     scrolled_past: f32,
-    cursor: TableCursor,
+    cursor: TableCursor<'_>,
     side: Option<Div>,
     cx: &mut Context<EditorView>,
-) -> impl IntoElement {
+) -> impl IntoElement + use<> {
     let Table {
         crumbs,
         sort,
@@ -67,6 +70,7 @@ pub fn render_table(
         line: point_line,
         column: point_column,
         mut regions,
+        composition,
     } = cursor;
     regions.resize(rows.len(), None);
     let rows = rows
@@ -79,6 +83,7 @@ pub fn render_table(
                 selected: line == point_line,
                 column: point_column,
                 region,
+                composition,
             };
             render_row(row, columns, at_point, line, activate, cx)
         });
@@ -272,16 +277,17 @@ fn render_header(columns: &[Column]) -> Div {
 }
 
 /// Whether a row is point's, and the part of it to draw as the cursor and the region.
-struct RowCursor {
+struct RowCursor<'a> {
     selected: bool,
     column: usize,
     region: Option<Range<usize>>,
+    composition: Option<&'a Composition>,
 }
 
 fn render_row(
     row: Row,
     columns: &[Column],
-    cursor: RowCursor,
+    cursor: RowCursor<'_>,
     line: usize,
     activate: &'static str,
     cx: &mut Context<EditorView>,
@@ -326,7 +332,15 @@ fn render_row(
             && let Some(field) = field.take()
         {
             let at_point = selected.then_some(cursor.column);
-            return render_field(text, field, text_color, at_point, cursor.region.clone());
+            let composition = cursor.composition.filter(|_| selected);
+            return render_field(
+                text,
+                field,
+                text_color,
+                at_point,
+                cursor.region.clone(),
+                composition,
+            );
         }
         cell(column)
             .font_family(family)
@@ -391,6 +405,7 @@ fn render_field(
     text_color: u32,
     at_point: Option<usize>,
     region: Option<Range<usize>>,
+    composition: Option<&Composition>,
 ) -> Div {
     let mut display = DisplayLine::new(&text);
     let highlights = region
@@ -399,7 +414,7 @@ fn render_field(
     let content = match at_point {
         Some(column) => {
             let cursor = display.cursor_cell(column);
-            text_with_cursor(&display.text, &highlights, cursor)
+            text_with_cursor(&display.text, &highlights, cursor, composition)
         }
         None => div().child(StyledText::new(display.text).with_highlights(highlights)),
     };

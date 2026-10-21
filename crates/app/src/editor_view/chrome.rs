@@ -165,6 +165,8 @@ impl EditorView {
             surface: look.apply(render_minibuffer(
                 minibuffer,
                 &self.input_scroll,
+                // A prompt on its way out takes no more text.
+                open.then_some(&self.composition),
                 self.prompts,
                 cx,
             )),
