@@ -1,7 +1,7 @@
 # How remacs looks. Changes apply as soon as the file is saved.
 
 [theme]
-# The colors of everything: "modus-vivendi" (dark), "mac-classic" (light, TextMate's), or
+# The colors of everything: "modus-vivendi" (dark), "modus-operandi" (light), or
 # a file <name>.toml of yours in ~/.config/remacs/themes. A theme file sets only what it
 # changes; the rest comes from `inherits = "<theme>"`, else from the built-in theme of its
 # `appearance` ("light" or "dark"). M-x select-theme (View > Theme…) writes this line.
@@ -61,7 +61,7 @@ wheel-step = 100
 [glass]
 # Of the window's tint, the theme's background, over the desktop: 0.0 (the desktop as it
 # is) to 1.0 (opaque). Left out, the theme's own: 0.8 for modus-vivendi, 0.92 for
-# mac-classic, whose light tint lets a dark desktop through as gray.
+# modus-operandi, whose light tint lets a dark desktop through as gray.
 # At 1.0 the window is opaque: the desktop is neither drawn nor blurred behind it.
 # opacity = 0.8
 

@@ -1,0 +1,135 @@
+# Modus Operandi, light: Protesilaos Stavrou's theme (modus-themes), the light twin of
+# Modus Vivendi, on light glass.
+
+name = "Modus Operandi"
+appearance = "light"
+# A light tint lets a dark desktop through as gray, which takes contrast from the text.
+opacity = 0.92
+
+# Modus Operandi's terminal colors; white is darkened to stay readable on the light glass.
+ansi = [
+    "#000000", "#a60000", "#006800", "#6f5500", "#0031a9", "#721045", "#005e8b", "#bfbfbf",
+    "#595959", "#972500", "#00663f", "#884900", "#3548cf", "#531ab6", "#005f5f", "#a6a6a6",
+]
+
+[colors]
+bg-main = "#ffffff"
+bg-popup = "#f2f2f2"
+bg-kbd-selected = "#c0deff"
+
+# Modus has one dim text color, fg-dim, and two lighter grays, border and bg-active.
+fg-main = "#000000"
+fg-body = "#000000"
+fg-kbd = "#595959"
+fg-alt = "#193668"
+fg-dim = "#595959"
+fg-faint = "#595959"
+fg-placeholder = "#9f9f9f"
+fg-line-number = "#9f9f9f"
+fg-muted = "#c4c4c4"
+fg-directory = "#3548cf"
+fg-prompt-directory = "#595959"
+
+accent = "#0031a9"
+accent-on-selection = "#0000b0"
+
+error = "#a60000"
+danger = "#a0132f"
+fg-flagged = "#7f0000"
+bg-danger = "#a60000"
+bg-danger-kbd = "#7f0000"
+fg-on-danger = "#ffffff"
+warning = "#884900"
+fg-on-warning = "#624416"
+info = "#005e8b"
+fg-note-source = "#005077"
+fg-note-code = "#193668"
+
+fg-added = "#005000"
+fg-removed = "#8f1313"
+
+vc-added = "#006800"
+vc-modified = "#3548cf"
+vc-removed = "#a0132f"
+vc-added-on-selection = "#005000"
+vc-removed-on-selection = "#8f1313"
+
+fg-ref-head = "#0031a9"
+fg-ref-main = "#531ab6"
+fg-ref-branch = "#00663f"
+fg-ref-remote = "#595959"
+
+link = "#3548cf"
+
+keyword = "#531ab6"
+type-name = "#005f5f"
+function = "#721045"
+constant = "#0000b0"
+builtin = "#8f0075"
+docstring = "#005077"
+string = "#3548cf"
+comment = "#595959"
+
+[styles]
+keyword = []
+type-name = []
+function = []
+constant = []
+builtin = []
+docstring = []
+string = []
+comment = []
+
+[glass]
+line-highlight = "#dae5ec"
+region = "#bdbdbd"
+
+vc-added-mark = "#006800b3"
+vc-modified-mark = "#3548cfb3"
+vc-removed-mark = "#a0132fbf"
+
+surface = "#f2f2f2d1"
+surface-border = "#0000001f"
+
+note = "#e0f2fae0"
+note-border = "#005e8b59"
+note-separator = "#005e8b26"
+note-code = "#005e8b1a"
+
+scrim = "#00000014"
+
+modal = "#ffffffe6"
+modal-border = "#00000024"
+modal-scrim = "#00000033"
+
+pill = "#f2f2f2b3"
+pill-border = "#0000001a"
+
+pane = "#0000000a"
+pane-border = "#00000017"
+well = "#0000000d"
+well-border = "#00000012"
+card-border = "#00000024"
+card-footer = "#0000000a"
+divider = "#0000001a"
+key-on-control = "#0000001a"
+added = "#c1f2d1d9"
+removed = "#ffd8d5d9"
+
+field = "#ffffffcc"
+control = "#00000010"
+control-border = "#0000001a"
+chip = "#0000000f"
+selection = "#bdbdbde6"
+segment = "#ffffffe6"
+disabled = "#00000008"
+
+# Lines, hovers and tints over the glass.
+[ink]
+color = "#000000"
+strength = 1.0
+
+# Light surfaces cast softer shadows.
+[shadow]
+color = "#000000"
+strength = 0.45

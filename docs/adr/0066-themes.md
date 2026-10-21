@@ -8,8 +8,8 @@ Status: accepted, 2026-10-16 (issue #61)
   `#rrggbb`), `ansi` (16), `[styles]` (bold/italic/underline of the syntax colors),
   `[glass]` (translucent `#rrggbbaa`), `[ink]` and `[shadow]`, plus `name`, `appearance`
   (`light`/`dark`) and `opacity`. Built in, compiled from `crates/theme/themes/`:
-  `modus-vivendi` (the colors before themes, unchanged) and `mac-classic` (TextMate's Mac
-  Classic, light).
+  `modus-vivendi` (the colors before themes, unchanged) and `modus-operandi`, its light
+  twin (replaced the first light theme, TextMate's Mac Classic, for one family of looks).
 - **Chosen in `ui.toml` `[theme] name`**, applied live like the other settings; the
   themes directory `~/.config/remacs/themes` is watched too. `select-theme` (View >
   Theme…) lists the themes and writes that line, keeping the rest of the file, so
@@ -26,13 +26,13 @@ Status: accepted, 2026-10-16 (issue #61)
 - **Transparency**:
   - The window's tint is the theme's `bg-main` under `[glass] opacity`. Left out of
     `ui.toml`, the opacity is the theme's: a light tint over a dark desktop turns gray and
-    takes contrast from the text, so Mac Classic's is 0.92 against Modus Vivendi's 0.8.
+    takes contrast from the text, so Modus Operandi's is 0.92 against Modus Vivendi's 0.8.
   - Lines, hovers and tints drawn over the glass with a fixed alpha take `glass::ink(α)`:
     white on dark, black on light. Shadows take `glass::shadow(α)`, whose `strength`
     softens them on light surfaces (0.45). Translucent surfaces (`surface`, `modal`,
     `pill`, `note`, `field`, …) are the theme's own RGBA.
-  - The line highlight and the region are RGBA, so TextMate's `#00000012` and
-    `#4d97ff54` are drawn over the glass as they are; fades into the line highlight mix
+  - The line highlight and the region are RGBA, so a translucent one such as
+    `#00000012` is drawn over the glass as it is; fades into the line highlight mix
     it over the tint first. Dual-source fades and backdrop blur are unchanged (ADR 0035).
 - **macOS draws its own parts with the theme**: `NSApp.appearance` is Aqua or Dark Aqua
   by the theme's appearance, so menus, the traffic lights and the window's shadow match.
