@@ -215,22 +215,37 @@ impl EditorView {
             CursorHeight::Font => metrics.glyph_height.min(row_height),
         };
         let mut cursor_cells = Vec::new();
+        // Point takes typed text here unless a prompt does.
+        let takes_text = is_current && self.editor.minibuffer().is_none();
+        let mut marked = None;
         let cursor: Vec<_> = points
             .map(|point| {
                 let cell = display_line.cursor_cell(buffer.text().char_column(point));
                 let column = display_line.text[..cell.start].chars().count();
+                let left = metrics.char_width * column as f32;
                 let block = if selected {
                     cursor_cells.push((cell, cursor_text_style()));
                     block_cursor()
                 } else {
                     hollow_cursor()
                 };
-                block
+                let block = block
                     .absolute()
-                    .left(metrics.char_width * column as f32)
+                    .left(left)
                     .top((row_height - height) / 2.0)
                     .w(metrics.char_width)
-                    .h(height)
+                    .h(height);
+                if !(takes_text && point == buffer.point()) {
+                    return block;
+                }
+                // Over the text after point, which it does not move.
+                marked = self.composition.render_marked().map(|text| {
+                    text.absolute()
+                        .left(left)
+                        .h(row_height)
+                        .bg(rgb(color::bg_main()))
+                });
+                block.child(self.composition.track_caret())
             })
             .collect();
         layers.push(cursor_cells);
@@ -336,7 +351,8 @@ impl EditorView {
                                     .text_color(rgb(color::fg_faint()))
                                     .child(note)
                             })))
-                            .children(label_elements),
+                            .children(label_elements)
+                            .children(marked),
                     )
                     .when(hidden_start, |text| {
                         text.child(edge_fade(Edge::Left, SCROLL_FADE_SIZE, under))

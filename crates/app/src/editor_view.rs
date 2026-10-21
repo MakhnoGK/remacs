@@ -29,6 +29,7 @@ use remacs_theme::font::CodeFont;
 use remacs_theme::{Appearance, color, font, glass};
 
 use crate::bottom_row::{FittedHints, Hints, PrefixKeys};
+use crate::composition::Composition;
 use crate::frame;
 use crate::highlights::Highlights;
 use crate::menu_bar;
@@ -38,8 +39,8 @@ use crate::pane_view::{PANE_BOTTOM, PANE_GAP, PaneChrome};
 use crate::popup_view::DocumentationScroll;
 use crate::settings::{
     BottomSettings, CursorHeight, DiffSettings, DocumentationSettings, GlassSettings,
-    MouseSettings, ProblemsSettings, PromptsSettings, ReadSettings, ScrollSettings,
-    SwatchesSettings, TransitionsSettings, UiSettings, ZoomSettings, report,
+    KeyboardSettings, MouseSettings, ProblemsSettings, PromptsSettings, ReadSettings,
+    ScrollSettings, SwatchesSettings, TransitionsSettings, UiSettings, ZoomSettings, report,
 };
 use crate::smooth_scroll::{Glide, SmoothScroll};
 use crate::text_zoom::TextZoom;
@@ -62,6 +63,8 @@ pub struct EditorView {
     editor: Editor,
     focus_handle: FocusHandle,
     cursor_height: CursorHeight,
+    keyboard: KeyboardSettings,
+    composition: Composition,
     mouse: MouseSettings,
     /// While the button pressed over the text is held.
     mouse_selection: Option<MouseSelection>,
@@ -283,6 +286,8 @@ impl EditorView {
             editor,
             focus_handle: cx.focus_handle(),
             cursor_height: ui.cursor.height,
+            keyboard: ui.keyboard,
+            composition: Composition::default(),
             mouse: ui.mouse,
             mouse_selection: None,
             drag_position: Point::default(),
@@ -344,6 +349,7 @@ impl EditorView {
     /// Takes settings read again: the view's part, and the plugins' sections.
     pub fn apply_settings(&mut self, read: ReadSettings, cx: &mut Context<Self>) {
         self.cursor_height = read.ui.cursor.height;
+        self.keyboard = read.ui.keyboard;
         self.mouse = read.ui.mouse;
         self.zoom = read.ui.zoom;
         self.scroll = read.ui.scroll;
@@ -684,5 +690,6 @@ impl Render for EditorView {
             .children(row_above_scrim)
             .children(prompt)
             .children(self.render_drag_listeners(cx))
+            .child(self.render_text_input(cx))
     }
 }

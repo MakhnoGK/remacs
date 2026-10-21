@@ -189,6 +189,7 @@ pub struct UiSettings {
     pub ui_font: UiFontSettings,
     pub zoom: ZoomSettings,
     pub cursor: CursorSettings,
+    pub keyboard: KeyboardSettings,
     pub mouse: MouseSettings,
     pub scroll: ScrollSettings,
     pub glass: GlassSettings,
@@ -562,6 +563,23 @@ pub enum CursorHeight {
     Font,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub struct KeyboardSettings {
+    pub meta: MetaOption,
+}
+
+/// The Option keys that are Meta; the others type what the keyboard layout gives them,
+/// like `@` or a dead key's accent.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum MetaOption {
+    #[default]
+    Both,
+    Left,
+    Right,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct MouseSettings {
@@ -921,7 +939,8 @@ mod tests {
              ligatures = false\n\
              [ui-font]\nfamily = \"Helvetica Neue\"\nsize = 14\nweight = \"medium\"\n\
              [zoom]\nstep = 2\nmin-size = 10\nmax-size = 24\nwheel-step = 50\n\
-             [cursor]\nheight = \"font\"\nradius = 2.5\n[mouse]\ndrag-scroll-interval = 60\n\
+             [cursor]\nheight = \"font\"\nradius = 2.5\n[keyboard]\nmeta = \"left\"\n\
+             [mouse]\ndrag-scroll-interval = 60\n\
              [scroll]\nanimation-duration = 0\nlines-per-notch = 5\n[glass]\nopacity = 0.5\nblur = 0\n\
              [echo]\nlines = 6\nhistory = 50\nhide-after = 0\n\
              [hints]\nshow = false\nside-room = 200\n\
@@ -995,6 +1014,7 @@ mod tests {
             }
         );
         assert_eq!(settings.theme.name, "mac-classic");
+        assert_eq!(settings.keyboard.meta, MetaOption::Left);
         assert_eq!(settings.mouse.drag_scroll_interval, 60);
         assert_eq!(settings.scroll.animation_duration, 0);
         assert_eq!(settings.scroll.lines_per_notch, 5);
@@ -1071,6 +1091,7 @@ mod tests {
         assert!(parse("[ui-font]\nweight = 50\n").is_err());
         assert!(parse("[cursor]\nheight = \"half\"\n").is_err());
         assert!(parse("[cursor]\nradius = 5\n").is_err());
+        assert!(parse("[keyboard]\nmeta = \"none\"\n").is_err());
         assert!(parse("[mouse]\ndrag-scroll-interval = 0\n").is_err());
         assert!(parse("[scroll]\nanimation-duration = 5000\n").is_err());
         assert!(parse("[scroll]\nlines-per-notch = 0\n").is_err());

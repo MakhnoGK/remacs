@@ -1,8 +1,8 @@
 # Key bindings over the built-in ones. Changes apply as soon as the file is saved.
 #
 # A key sequence in Emacs notation and the command it runs; "" unbinds the keys.
-# C- is Control, M- Option, s- Command, S- Shift for named keys; function keys are
-# <f1> to <f12>, e.g. "s-<f2>" is ⌘F2.
+# C- is Control, M- Option (ui.toml [keyboard] picks which), s- Command, S- Shift for
+# named keys; function keys are <f1> to <f12>, e.g. "s-<f2>" is ⌘F2.
 
 [bindings]
 # Moving around, navigation.toml sets the history and the labels:

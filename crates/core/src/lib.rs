@@ -41,7 +41,7 @@ pub use completion::{
 };
 pub use decoration::{ConsoleColor, ConsoleStyle, Decorator, Face, Span};
 pub use echo::{EchoMessage, MessageKind, MessageLog};
-pub use editor::{Editor, Notifier, SCRATCH_BUFFER, SELF_INSERT_COMMAND};
+pub use editor::{Editor, KeyOutcome, Notifier, SCRATCH_BUFFER, SELF_INSERT_COMMAND};
 pub use file_change::{ChangedFiles, FileChange};
 pub use gutter::{
     BreakpointIcon, GutterIcon, GutterMark, GutterProvider, LineExtra, LineExtraProvider,
