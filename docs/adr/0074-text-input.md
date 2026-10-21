@@ -13,6 +13,8 @@ Status: accepted, 2026-10-21 (issue #92)
   indentation, undo amalgamation and multiple cursors behave as for keys; a newline,
   as dictation gives, runs what `RET` binds. Text from elsewhere, like the emoji
   picker, is typed the same way where typing is allowed.
+- **A read-only buffer refuses typing at once**, as before, rather than have the input
+  method compose text it cannot take and swallow the keys after it.
 - **Bound keys still win**: a key a keymap binds, a key sink takes or a prompt answers
   is handled first and goes no further. Every key the editor took or rejected stops
   there, so an unbound Meta key is not typed as Option's character; only a lone
@@ -22,9 +24,10 @@ Status: accepted, 2026-10-21 (issue #92)
 - **The input method sees only the marked text**, not the buffer (`text_for_range` is
   none). The marked text is drawn underlined at the cursor that takes typed text: over
   the text after point in the editor, with the cursor after it; before the cursor in a
-  typing prompt and in a table's edited field. The candidate window is placed at that
+  typing prompt, its description and a table's edited field. The candidate window is placed at that
   cursor's last drawn bounds. `unmarkText` accepts the marked text, as AppKit
-  documents. A click, a scroll or a menu command, which the input method does not see,
+  documents. A click, a scroll of the selected window's lines or a menu command, which
+  the input method does not see,
   first drops the marked text and has the input method discard it: committed, it would
   land where point moved to, or change a list the click picks from.
 - **Which Option is Meta** is `ui.toml` `[keyboard] meta`: `"both"` (default),

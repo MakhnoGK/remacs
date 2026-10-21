@@ -150,7 +150,7 @@ pub fn render_minibuffer(
         })
         .children(chips_first)
         .children(render_segmented_choices(minibuffer, cx))
-        .children(render_description(minibuffer))
+        .children(render_description(minibuffer, composition))
         .when(!minibuffer.candidates().is_empty(), |popover| {
             popover.child(render_candidates(minibuffer, cx))
         })
@@ -668,8 +668,12 @@ fn field_border(active: bool) -> gpui::Rgba {
     })
 }
 
-/// A message's description under its subject: a few lines, scrolled to the cursor.
-fn render_description(minibuffer: &Minibuffer) -> Option<impl IntoElement> {
+/// A message's description under its subject: a few lines, scrolled to the cursor, with
+/// `composition` before it while typed in.
+fn render_description(
+    minibuffer: &Minibuffer,
+    composition: Option<&Composition>,
+) -> Option<impl IntoElement> {
     let description = minibuffer.description()?;
     let active = minibuffer.in_description();
     let text = description.contents(0..description.text().len());
@@ -688,7 +692,7 @@ fn render_description(minibuffer: &Minibuffer) -> Option<impl IntoElement> {
             let mut line = DisplayLine::new(source);
             let text = if active && index == point_line {
                 let cursor = line.cursor_cell(description.point_column());
-                text_with_cursor(&line.text, &Vec::new(), cursor, None)
+                text_with_cursor(&line.text, &Vec::new(), cursor, composition)
             } else {
                 div().child(line.text)
             };

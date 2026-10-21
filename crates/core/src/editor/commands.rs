@@ -119,6 +119,12 @@ impl Editor {
             Binding::Unbound => {
                 let keys = mem::take(&mut self.pending_keys);
                 if self.takes_typing() && keys.len() == 1 && key.printable_char().is_some() {
+                    // Refused at once: the input method would compose text, and swallow the
+                    // keys after it, for a buffer that cannot take it.
+                    if self.buffer().is_read_only() {
+                        self.run_command(SELF_INSERT_COMMAND);
+                        return KeyOutcome::Handled;
+                    }
                     return KeyOutcome::Typed;
                 }
                 self.set_message(format!("{} is undefined", describe_sequence(&keys)));
@@ -413,5 +419,10 @@ mod tests {
         editor.type_text("é\u{1}愛\nb");
         let buffer = editor.buffer();
         assert_eq!(buffer.contents(0..buffer.text().len()), "é愛\nb");
+        editor.buffer_mut().set_read_only(true);
+        assert_eq!(
+            editor.dispatch_key(Key::parse("a").unwrap()),
+            KeyOutcome::Handled
+        );
     }
 }
