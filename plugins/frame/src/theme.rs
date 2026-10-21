@@ -126,8 +126,8 @@ mod tests {
     fn replaces_the_name_in_the_theme_table_and_keeps_the_rest() {
         let text = "[font]\nname = \"keep\"\n\n[theme]\n# A theme.\nname = \"modus-vivendi\"\n\n[glass]\nblur = 0\n";
         assert_eq!(
-            with_theme(text, "mac-classic"),
-            "[font]\nname = \"keep\"\n\n[theme]\n# A theme.\nname = \"mac-classic\"\n\n[glass]\nblur = 0\n"
+            with_theme(text, "modus-operandi"),
+            "[font]\nname = \"keep\"\n\n[theme]\n# A theme.\nname = \"modus-operandi\"\n\n[glass]\nblur = 0\n"
         );
     }
 

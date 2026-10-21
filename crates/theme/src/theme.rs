@@ -16,12 +16,12 @@ use crate::{Rgb, ensure_theme};
 /// one of them.
 pub const BUILT_IN: &[(&str, &str)] = &[
     (DEFAULT, include_str!("../themes/modus-vivendi.toml")),
-    (LIGHT, include_str!("../themes/mac-classic.toml")),
+    (LIGHT, include_str!("../themes/modus-operandi.toml")),
 ];
 
 pub const DEFAULT: &str = "modus-vivendi";
 /// What a light theme of the user's builds on.
-const LIGHT: &str = "mac-classic";
+const LIGHT: &str = "modus-operandi";
 
 /// How far one theme may build on another, which builds on another…
 const MAX_INHERITANCE: usize = 8;
@@ -38,7 +38,7 @@ pub enum Appearance {
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Theme {
-    /// For people, e.g. `Mac Classic`.
+    /// For people, e.g. `Modus Operandi`.
     pub name: String,
     pub appearance: Appearance,
     /// Of the window's tint over the desktop, unless `ui.toml` sets one.
@@ -256,21 +256,15 @@ mod tests {
     }
 
     #[test]
-    fn mac_classic_keeps_textmates_colors_and_styles() {
+    fn modus_operandi_keeps_its_colors_and_plain_styles() {
         let theme = Theme::built_in(LIGHT);
         assert_eq!(theme.colors.bg_main, Rgb(0xffffff));
-        assert_eq!(theme.colors.keyword, Rgb(0x0000ff));
-        assert_eq!(theme.colors.string, Rgb(0x036a07));
-        assert_eq!(theme.glass.region.0, 0x4d97ff54);
-        assert_eq!(theme.glass.line_highlight.0, 0x00000012);
-        assert_eq!(
-            theme.styles.comment,
-            Style {
-                italic: true,
-                ..Style::default()
-            }
-        );
-        assert!(theme.styles.keyword.bold);
+        assert_eq!(theme.colors.keyword, Rgb(0x531ab6));
+        assert_eq!(theme.colors.string, Rgb(0x3548cf));
+        assert_eq!(theme.glass.region.0, 0xbdbdbdff);
+        assert_eq!(theme.glass.line_highlight.0, 0xdae5ecff);
+        assert_eq!(theme.styles.comment, Style::default());
+        assert_eq!(theme.styles.keyword, Style::default());
     }
 
     #[test]
@@ -309,7 +303,7 @@ mod tests {
                     "name = \"Base\"\n[colors]\nstring = \"#00ff00\"\n",
                 ),
                 ("child.toml", "inherits = \"base\"\nname = \"Child\"\n"),
-                ("mac-classic.toml", "opacity = 0.5\n"),
+                ("modus-operandi.toml", "opacity = 0.5\n"),
                 ("loop.toml", "inherits = \"loop-too\"\n"),
                 ("loop-too.toml", "inherits = \"loop\"\n"),
             ],
@@ -366,7 +360,7 @@ mod tests {
     #[test]
     fn lists_built_in_themes_and_the_users() {
         let dir = themes_dir("names", &[("paper.toml", ""), ("notes.txt", "")]);
-        assert_eq!(names(Some(&dir)), ["mac-classic", "modus-vivendi", "paper"]);
+        assert_eq!(names(Some(&dir)), ["modus-operandi", "modus-vivendi", "paper"]);
         fs::remove_dir_all(dir).unwrap();
     }
 

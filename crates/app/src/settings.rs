@@ -933,7 +933,7 @@ mod tests {
     #[test]
     fn reads_every_setting() {
         let settings = parse(
-            "[theme]\nname = \"mac-classic\"\n\
+            "[theme]\nname = \"modus-operandi\"\n\
              [font]\nfamily = \"Menlo\"\nsize = 15\nline-height = 1.5\nweight = \"light\"\n\
              strokes = \"thin\"\n\
              ligatures = false\n\
@@ -1013,7 +1013,7 @@ mod tests {
                 blur: 0
             }
         );
-        assert_eq!(settings.theme.name, "mac-classic");
+        assert_eq!(settings.theme.name, "modus-operandi");
         assert_eq!(settings.keyboard.meta, MetaOption::Left);
         assert_eq!(settings.mouse.drag_scroll_interval, 60);
         assert_eq!(settings.scroll.animation_duration, 0);
