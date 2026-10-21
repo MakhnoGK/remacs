@@ -560,6 +560,53 @@ fn a_deleted_file_is_reported_and_saving_asks_before_writing_it_again() {
     assert_eq!(fs::read_to_string(&path).unwrap(), "#[package]\n");
 }
 
+fn editor_keeping_session(store: &Path, opening: Option<&Path>, restore: bool) -> Editor {
+    let mut editor = Editor::new(&[&EditingPlugin, &MinibufferPlugin, &FilesPlugin]);
+    let settings = [("files.toml", format!("restore-session = {restore}\n"))]
+        .map(|(name, text)| (PathBuf::from(name), text));
+    editor.set_settings(Settings::from_files(settings));
+    crate::keep_session_in(&mut editor, store.to_path_buf(), opening);
+    editor
+}
+
+#[test]
+fn quitting_keeps_the_open_files_which_the_next_start_reopens_where_they_were() {
+    let project = Project::new("session");
+    fs::write(project.path("src/marker.rs"), "one\ntwo\nthree\n").unwrap();
+    let store = project.path("state/session.json");
+    let mut editor = editor_keeping_session(&store, None, true);
+    editor.visit_file(&project.path("Cargo.toml")).unwrap();
+    editor.visit_file(&project.path("src/marker.rs")).unwrap();
+    editor.set_point_at(2, 1);
+    press(&mut editor, "s-q");
+    assert!(editor.quit_requested());
+
+    let editor = editor_keeping_session(&store, None, true);
+    assert_eq!(
+        buffer_names(&editor),
+        ["marker.rs", "Cargo.toml", SCRATCH_BUFFER]
+    );
+    let shown = editor.window_buffer();
+    assert_eq!((shown.point_line(), shown.point_column()), (2, 1));
+
+    let other = Project::new("session-other");
+    let editor = editor_keeping_session(&store, Some(&other.path("Cargo.toml")), true);
+    assert_eq!(buffer_names(&editor), [SCRATCH_BUFFER]);
+    let editor = editor_keeping_session(&store, None, false);
+    assert_eq!(buffer_names(&editor), [SCRATCH_BUFFER]);
+
+    fs::remove_file(project.path("Cargo.toml")).unwrap();
+    let editor = editor_keeping_session(&store, Some(&project.0), true);
+    assert_eq!(buffer_names(&editor), ["marker.rs", SCRATCH_BUFFER]);
+    assert!(
+        editor
+            .message()
+            .unwrap()
+            .text
+            .starts_with("Not reopened: ")
+    );
+}
+
 #[test]
 fn revert_buffer_reads_the_file_again_asking_first_when_modified() {
     let project = Project::new("revert");

@@ -4217,6 +4217,7 @@ dependencies = [
  "remacs-minibuffer",
  "remacs-text",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

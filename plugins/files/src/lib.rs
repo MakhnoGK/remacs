@@ -11,6 +11,7 @@ mod preview;
 mod project;
 mod revert;
 mod saving;
+mod session;
 mod windows;
 
 use std::rc::Rc;
@@ -26,6 +27,7 @@ pub use file_index::FileIndex;
 pub use find_file::{directory_candidates, project_files};
 pub use preview::FilePreview;
 pub use project::{abbreviate_home, default_directory, expand_home, project_root, with_slash};
+pub use session::keep_session_in;
 pub use windows::WindowsSettings;
 
 pub struct FilesPlugin;
