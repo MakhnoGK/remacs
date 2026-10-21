@@ -671,6 +671,10 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::run_menu_command))
             .on_scroll_wheel(cx.listener(Self::on_scroll))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
+            // Before any click is handled, anywhere.
+            .capture_any_mouse_down(cx.listener(|view, _: &MouseDownEvent, _, cx| {
+                view.finish_composition(cx);
+            }))
             .size_full()
             .relative()
             .overflow_hidden()

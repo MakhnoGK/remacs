@@ -134,10 +134,11 @@ impl Editor {
     /// from the emoji picker, each character as if its key had been typed; a newline, as
     /// dictation gives one, as `RET`.
     pub fn type_text(&mut self, text: &str) {
-        if !self.pending_keys.is_empty() || !self.takes_typing() {
-            return;
-        }
         for character in text.chars() {
+            // A newline may have submitted a prompt or opened something typing is not for.
+            if !self.pending_keys.is_empty() || !self.takes_typing() {
+                return;
+            }
             if character == '\n' {
                 self.handle_key(Key::new(Modifiers::default(), KeyCode::Return));
             } else if !character.is_control() {

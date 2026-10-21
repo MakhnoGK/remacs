@@ -632,6 +632,9 @@ fn render_input(
         .pl(margin)
         .ml(-margin)
         .when(text_after, |part| part.pr(margin).mr(-margin))
+        .flex()
+        // Scrolled into sight with the cursor.
+        .children(composition.and_then(Composition::render_marked))
         .child(cursor_part.child(line.text[cursor.clone()].to_owned()));
     scroll.scroll_to_item(CURSOR_CHILD);
     div()
@@ -645,7 +648,6 @@ fn render_input(
         .font_family(font::mono())
         .text_size(px(font::input_size()))
         .child(part(0..cursor.start))
-        .children(composition.and_then(Composition::render_marked))
         .child(cursor_with_margin)
         .child(part(cursor.end..line.text.len()))
         .when(input.text().is_empty(), |field| {

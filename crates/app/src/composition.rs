@@ -2,6 +2,8 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui::{Bounds, Div, IntoElement, Pixels, Styled, canvas, div, prelude::*};
+use objc2::runtime::AnyObject;
+use objc2::{class, msg_send};
 
 /// Text an input method is composing, e.g. a dead key's accent or kana before they are
 /// converted, drawn at the cursor until it is committed.
@@ -35,5 +37,17 @@ impl Composition {
     /// The marked text underlined, as macOS draws it; none while nothing is composed.
     pub fn render_marked(&self) -> Option<Div> {
         (!self.marked.is_empty()).then(|| div().flex_none().underline().child(self.marked.clone()))
+    }
+}
+
+/// Has the input method drop what it is composing, e.g. once the view committed it itself.
+pub fn discard_marked_text() {
+    // SAFETY: called on the main thread, as every gpui callback is; a nil context, with no
+    // text input in focus, is checked before it is sent the message.
+    unsafe {
+        let context: *mut AnyObject = msg_send![class!(NSTextInputContext), currentInputContext];
+        if !context.is_null() {
+            let _: () = msg_send![context, discardMarkedText];
+        }
     }
 }

@@ -10,6 +10,7 @@ use remacs_core::{FrameRequest, Key, KeyOutcome, MessageKind, SELF_INSERT_COMMAN
 use remacs_theme::font;
 
 use super::{CLOSE_KEY, COPY_MESSAGE_KEY, EditorView};
+use crate::composition::discard_marked_text;
 use crate::frame;
 use crate::key_input::{option_is_meta, to_key};
 use crate::menu_bar::RunCommand;
@@ -157,12 +158,25 @@ impl EditorView {
         self.after_input(cx);
     }
 
+    /// Commits the text being composed before a click or a menu command moves where it
+    /// would go; the input method, which sees neither, is told to drop it too.
+    pub(super) fn finish_composition(&mut self, cx: &mut Context<Self>) {
+        let marked = mem::take(&mut self.composition.marked);
+        if marked.is_empty() {
+            return;
+        }
+        self.commit_text(&marked, cx);
+        // Later: the input method calls back into the view, which is being updated now.
+        cx.defer(|_| discard_marked_text());
+    }
+
     pub(super) fn run_menu_command(
         &mut self,
         action: &RunCommand,
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.finish_composition(cx);
         self.hints_open = false;
         self.message_open = false;
         self.editor.run_command(&action.name);
