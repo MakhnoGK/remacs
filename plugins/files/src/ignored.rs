@@ -24,6 +24,8 @@ pub struct FilesSettings {
     pub kill_buffer_prompt: bool,
     /// An unmodified buffer reads its file again when another program changes it.
     pub auto_revert: bool,
+    /// Starting opens again the files open in the project when last quitting.
+    pub restore_session: bool,
 }
 
 /// Left out whatever the settings say.
@@ -44,6 +46,7 @@ impl Default for FilesSettings {
             use_gitignore: false,
             kill_buffer_prompt: true,
             auto_revert: true,
+            restore_session: true,
         }
     }
 }

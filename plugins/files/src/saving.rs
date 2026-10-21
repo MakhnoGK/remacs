@@ -6,6 +6,7 @@ use remacs_core::{CommandResult, Count, Editor, Prompt, quote};
 use crate::buffers::has_unsaved_changes;
 use crate::find_file::{FILE_CATEGORY, directory_candidates};
 use crate::project::{abbreviate_home, default_directory, expand_home, with_slash};
+use crate::session;
 
 /// Saves the buffer in its file, asking for a file name if it has none.
 pub fn save_buffer(editor: &mut Editor) -> CommandResult {
@@ -97,7 +98,7 @@ pub fn save_buffers_kill_terminal(editor: &mut Editor) -> CommandResult {
 fn quit_ending_programs(editor: &mut Editor) -> CommandResult {
     let running = editor.running_programs();
     if running.is_empty() {
-        editor.request_quit();
+        session::quit(editor);
         return Ok(());
     }
     let names: Vec<String> = running.iter().map(|name| quote(name)).collect();
@@ -107,7 +108,7 @@ fn quit_ending_programs(editor: &mut Editor) -> CommandResult {
     );
     editor.ask_y_or_n(question, |editor, yes| {
         if yes {
-            editor.request_quit();
+            session::quit(editor);
         }
         Ok(())
     })

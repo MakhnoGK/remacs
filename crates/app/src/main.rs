@@ -47,7 +47,7 @@ use remacs_dired::DiredPlugin;
 use remacs_documentation::DocumentationPlugin;
 use remacs_echo::EchoPlugin;
 use remacs_editing::EditingPlugin;
-use remacs_files::FilesPlugin;
+use remacs_files::{FilesPlugin, keep_session_in};
 use remacs_format::FormatPlugin;
 use remacs_frame::FramePlugin;
 use remacs_git::GitPlugin;
@@ -138,6 +138,7 @@ fn main() -> ExitCode {
     // Before the plugins, which start programs that look for others on `PATH`.
     let imported = environment::import(&environment);
 
+    let path = std::env::args_os().nth(1).map(PathBuf::from);
     let mut editor = Editor::new(BUILTIN_PLUGINS);
     editor.set_settings(settings);
     if let Some(home) = home() {
@@ -147,9 +148,11 @@ fn main() -> ExitCode {
         keep_tools_in(&mut editor, &home);
         keep_offers_in(&mut editor, &home);
         keep_breakpoints_in(&mut editor, &home);
+        let session = state_dir(&home).join("session.json");
+        keep_session_in(&mut editor, session, path.as_deref());
     }
 
-    if let Some(path) = std::env::args_os().nth(1).map(PathBuf::from)
+    if let Some(path) = path
         && let Err(error) = open(&mut editor, &path)
     {
         eprintln!("remacs: {}: {error}", path.display());

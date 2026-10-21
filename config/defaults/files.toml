@@ -17,3 +17,7 @@ kill-buffer-prompt = true
 # Off, it still does after remacs's own Git actions and when the file is visited again;
 # saving over a file changed since it was read always asks first.
 auto-revert = true
+
+# Starting opens again the files that were open in the project when remacs last quit,
+# with point and scroll: the project of the path given, else the one last shown.
+restore-session = true
