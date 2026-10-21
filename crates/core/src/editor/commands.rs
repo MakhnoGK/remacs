@@ -131,14 +131,19 @@ impl Editor {
     }
 
     /// Inserts text an input method made, e.g. a composed or accented character, or one
-    /// from the emoji picker, each character as if its key had been typed.
+    /// from the emoji picker, each character as if its key had been typed; a newline, as
+    /// dictation gives one, as `RET`.
     pub fn type_text(&mut self, text: &str) {
         if !self.pending_keys.is_empty() || !self.takes_typing() {
             return;
         }
-        for character in text.chars().filter(|character| !character.is_control()) {
-            self.last_key = Some(Key::new(Modifiers::default(), KeyCode::Char(character)));
-            self.run_command(SELF_INSERT_COMMAND);
+        for character in text.chars() {
+            if character == '\n' {
+                self.handle_key(Key::new(Modifiers::default(), KeyCode::Return));
+            } else if !character.is_control() {
+                self.last_key = Some(Key::new(Modifiers::default(), KeyCode::Char(character)));
+                self.run_command(SELF_INSERT_COMMAND);
+            }
         }
     }
 
@@ -391,14 +396,21 @@ mod tests {
                             .insert(character.encode_utf8(&mut [0; 4]));
                         Ok(())
                     }));
+                registry
+                    .commands
+                    .add(crate::Command::new("newline", "", |editor| {
+                        editor.buffer_mut().insert("\n");
+                        Ok(())
+                    }));
+                registry.keymap.bind("RET", "newline");
             }
         }
         let mut editor = Editor::new(&[&Typing]);
         let mut dispatch = |notation| editor.dispatch_key(Key::parse(notation).unwrap());
         assert_eq!(dispatch("a"), KeyOutcome::Typed);
         assert_eq!(dispatch("M-a"), KeyOutcome::Unhandled);
-        editor.type_text("é\u{1}愛");
+        editor.type_text("é\u{1}愛\nb");
         let buffer = editor.buffer();
-        assert_eq!(buffer.contents(0..buffer.text().len()), "é愛");
+        assert_eq!(buffer.contents(0..buffer.text().len()), "é愛\nb");
     }
 }

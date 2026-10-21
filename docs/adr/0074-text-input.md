@@ -10,8 +10,9 @@ Status: accepted, 2026-10-21 (issue #92)
   but left to propagate, so macOS's input context turns it into text: composed kana and
   hanzi, a dead key's accent on the next letter, or the character as it is.
   `Editor::type_text` inserts that text one self-insert per character, so pairs,
-  indentation, undo amalgamation and multiple cursors behave as for keys. Text from
-  elsewhere, like the emoji picker, is typed the same way where typing is allowed.
+  indentation, undo amalgamation and multiple cursors behave as for keys; a newline,
+  as dictation gives, runs what `RET` binds. Text from elsewhere, like the emoji
+  picker, is typed the same way where typing is allowed.
 - **Bound keys still win**: a key a keymap binds, a key sink takes or a prompt answers
   is handled first and goes no further. Every key the editor took or rejected stops
   there, so an unbound Meta key is not typed as Option's character; only a lone
@@ -31,4 +32,8 @@ Status: accepted, 2026-10-21 (issue #92)
 ## Later
 
 - Reconversion and other input-method features that read the buffer around point.
+- Repeats skip the input method, so a held Space in a kana input mode types a
+  full-width space and then ASCII ones.
+- Long marked text near the editor's right edge is clipped: it is drawn over the text
+  and sideways scroll follows point, not the marked text's end.
 - IME in terminals, which take keys through their key sink.
