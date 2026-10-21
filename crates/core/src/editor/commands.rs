@@ -142,6 +142,12 @@ impl Editor {
     pub fn type_text(&mut self, text: &str) {
         let in_prompt = self.minibuffer.is_some();
         for character in text.chars() {
+            // Refused once, as a key is; a newline would still run what RET does there, e.g.
+            // open a file the rest would land in.
+            if let Err(error) = self.buffer().ensure_writable() {
+                self.set_error(error.0);
+                return;
+            }
             // A newline may have submitted a prompt, opened one, or opened something typing
             // is not for: the rest was not meant for it.
             if !self.pending_keys.is_empty()
@@ -403,6 +409,7 @@ mod tests {
                             .last_key()
                             .and_then(|key| key.printable_char())
                             .ok_or("Not printable")?;
+                        editor.buffer().ensure_writable()?;
                         editor
                             .buffer_mut()
                             .insert(character.encode_utf8(&mut [0; 4]));
@@ -440,5 +447,8 @@ mod tests {
             editor.dispatch_key(Key::parse("a").unwrap()),
             KeyOutcome::Handled
         );
+        editor.type_text("a\nb");
+        let buffer = editor.buffer();
+        assert_eq!(buffer.contents(0..buffer.text().len()), "é愛\nb");
     }
 }

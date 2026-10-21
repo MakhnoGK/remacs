@@ -16,6 +16,17 @@ pub fn to_key(keystroke: &Keystroke, option_is_meta: bool) -> Option<Key> {
     if let Some(character) = typed_char(keystroke, option_is_meta) {
         return Some(Key::new(Modifiers::default(), KeyCode::Char(character)));
     }
+    // A typing Option key that gives no one character, like a dead key, is the input
+    // method's alone: as a bare key it would run the letter's command.
+    if keystroke.modifiers.alt
+        && !option_is_meta
+        && keystroke
+            .key_char
+            .as_ref()
+            .is_some_and(|typed| typed.chars().count() != 1)
+    {
+        return None;
+    }
     let mut modifiers = to_modifiers(&keystroke.modifiers);
     // An Option key that types is Meta still where it types nothing: in chords with
     // Control or Command, and on named keys.
@@ -137,8 +148,10 @@ mod tests {
         let at = option("l", "@");
         assert_eq!(to_key(&at, true), Key::parse("M-l"));
         assert_eq!(to_key(&at, false), Key::parse("@"));
-        // A key the layout gives nothing with Option is still not Meta.
-        assert_eq!(to_key(&option("x", ""), false), Key::parse("x"));
+        // A key the layout gives nothing with Option, like a dead key, is the input
+        // method's.
+        assert_eq!(to_key(&option("u", ""), false), None);
+        assert_eq!(to_key(&option("u", ""), true), Key::parse("M-u"));
         // gpui gives no character for named keys and Command or Control chords.
         let named = |key: &str, platform| Keystroke {
             modifiers: gpui::Modifiers {
