@@ -244,7 +244,7 @@ impl Format {
 
     /// Writes `chunks` of a text, whole characters each, as a file in this format holds
     /// them; fails at a character the encoding has none for.
-    pub(crate) fn write<'a>(
+    pub fn write<'a>(
         self,
         chunks: impl Iterator<Item = &'a [u8]>,
         output: &mut impl Write,

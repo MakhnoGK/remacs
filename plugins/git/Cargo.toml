@@ -27,5 +27,9 @@ remacs-minibuffer.workspace = true
 name = "commit_view"
 harness = false
 
+[[bench]]
+name = "blame"
+harness = false
+
 [lints]
 workspace = true

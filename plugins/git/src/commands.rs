@@ -336,6 +336,8 @@ pub fn quit(editor: &mut Editor) -> CommandResult {
         .map(|buffer| buffer.name().to_owned())
         .ok_or("No other buffer")?;
     editor.switch_to_buffer(&other);
+    // Buried as the least recent, so the next quit goes further back, not to it again.
+    editor.buffers_mut()[1..].rotate_left(1);
     Ok(())
 }
 

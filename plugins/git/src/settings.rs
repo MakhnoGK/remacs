@@ -11,6 +11,8 @@ pub struct GitSettings {
     pub untracked_max_files: usize,
     /// A commit's diffs kept at most; a file whose diff does not fit is summarized.
     pub commit_max_bytes: u64,
+    /// Characters of an author's name a blame buffer shows.
+    pub blame_author_width: usize,
 }
 
 impl Default for GitSettings {
@@ -19,6 +21,7 @@ impl Default for GitSettings {
             untracked_max_bytes: 1024 * 1024,
             untracked_max_files: 500,
             commit_max_bytes: 8 * 1024 * 1024,
+            blame_author_width: 12,
         }
     }
 }
@@ -27,10 +30,13 @@ impl Section for GitSettings {
     const NAME: &str = "git";
 
     fn check(&self) -> Result<(), String> {
-        match self.untracked_max_files {
-            0 => Err("untracked-max-files is 0".into()),
-            _ => Ok(()),
+        if self.untracked_max_files == 0 {
+            return Err("untracked-max-files is 0".into());
         }
+        if self.blame_author_width == 0 {
+            return Err("blame-author-width is 0".into());
+        }
+        Ok(())
     }
 }
 
