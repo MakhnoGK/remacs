@@ -934,9 +934,14 @@ fn compile_runs_a_command_line_and_next_error_visits_its_locations_in_turn() {
     press(&mut editor, "M-g M-p");
     assert_eq!(position(&editor), ("a.rs", 1, 0));
 
-    // g in the console runs the same command again, in the same console.
+    // g in the console runs the same command again, in the same console; in a prompt over
+    // it, g is typed.
     let buffers = editor.buffers().len();
     editor.switch_to_buffer("*compile: project*");
+    press(&mut editor, "M-x g");
+    let input = editor.minibuffer().unwrap().input();
+    assert_eq!(input.contents(0..input.text().len()), "g");
+    press(&mut editor, "C-g");
     press(&mut editor, "g");
     wait_until(&mut editor, |editor| {
         of_window(editor)

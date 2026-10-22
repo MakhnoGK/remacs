@@ -931,6 +931,102 @@ fn the_log_of_a_file_shows_its_commits_and_opens_them_at_the_file() {
     });
 }
 
+#[test]
+fn blame_names_each_lines_commit_and_steps_back_past_it() {
+    let repository = Repository::new("blame");
+    let first = short_head(&repository);
+    commit(&repository, "lib.rs", "one\ntwo\n", "Grow lib");
+    let grow = short_head(&repository);
+    let mut editor = editor();
+    editor.visit_file(&repository.0.join("lib.rs")).unwrap();
+    editor.set_point_at(2, 0);
+    type_text(&mut editor, "three");
+    press(&mut editor, "C-x v g");
+    wait_until(&mut editor, "the blame", |editor| {
+        editor.window_buffer().name() == "lib.rs (blame)"
+    });
+    let text = editor.window_buffer().text().snapshot();
+    assert_eq!(text.bytes_in(0..text.len()), b"one\ntwo\nthree\n");
+    assert_eq!(editor.window_buffer().point_line(), 2);
+
+    // A prompt over the blame buffer takes its letters as typed.
+    press(&mut editor, "M-x");
+    type_text(&mut editor, "qb");
+    let input = editor.minibuffer().unwrap().input();
+    assert_eq!(input.contents(0..input.text().len()), "qb");
+    press(&mut editor, "C-g");
+    assert_eq!(editor.window_buffer().name(), "lib.rs (blame)");
+
+    let numbers: Vec<String> = editor
+        .line_extras(0..3)
+        .into_iter()
+        .map(|extra| extra.number.unwrap())
+        .collect();
+    assert!(numbers[0].starts_with(&format!("{first} Test ")), "{numbers:?}");
+    assert!(numbers[1].starts_with(&format!("{grow} Test ")), "{numbers:?}");
+    assert!(numbers[2].trim().starts_with("Not committed"), "{numbers:?}");
+
+    editor.set_point_at(1, 0);
+    press(&mut editor, "b");
+    let before = format!("lib.rs @ {first} (blame)");
+    wait_until(&mut editor, "the blame before the commit", |editor| {
+        editor.window_buffer().name() == before
+    });
+    let text = editor.window_buffer().text().snapshot();
+    assert_eq!(text.bytes_in(0..text.len()), b"one\n");
+
+    editor.switch_to_buffer("lib.rs (blame)");
+    editor.set_point_at(1, 0);
+    press(&mut editor, "RET");
+    wait_for_commit(&mut editor);
+    assert_eq!(editor.window_buffer().name(), format!("Commit {grow}"));
+
+    // Each quit goes one further back.
+    press(&mut editor, "q");
+    assert_eq!(editor.window_buffer().name(), "lib.rs (blame)");
+    press(&mut editor, "q");
+    assert_eq!(editor.window_buffer().name(), before);
+
+    // Another working tree's lib.rs leaves this one's blame as it is.
+    let other = Repository::new("blame-other");
+    editor.visit_file(&other.0.join("lib.rs")).unwrap();
+    press(&mut editor, "C-x v g");
+    wait_until(&mut editor, "the other blame", |editor| {
+        editor.window_buffer().name() == "lib.rs (blame)<2>"
+    });
+    let first_blame = editor.buffer_named_mut("lib.rs (blame)").unwrap();
+    assert_eq!(first_blame.text().line_count(), 4);
+}
+
+#[test]
+fn blame_matches_crlf_lines_and_steps_back_through_non_ascii_paths() {
+    let repository = Repository::new("blame-crlf");
+    repository.git(&["config", "core.autocrlf", "false"]);
+    commit(&repository, "docs/ф.txt", "one\r\n", "Add ф");
+    let first = short_head(&repository);
+    commit(&repository, "docs/ф.txt", "one\r\ntwo\r\n", "Grow ф");
+    let mut editor = editor();
+    editor.visit_file(&repository.0.join("docs/ф.txt")).unwrap();
+    press(&mut editor, "C-x v g");
+    wait_until(&mut editor, "the blame", |editor| {
+        editor.window_buffer().name() == "docs/ф.txt (blame)"
+    });
+    let text = editor.window_buffer().text().snapshot();
+    assert_eq!(text.bytes_in(0..text.len()), b"one\ntwo\n");
+    let numbers = editor.line_extras(0..1);
+    let number = numbers[0].number.as_deref().unwrap();
+    assert!(number.starts_with(&format!("{first} Test ")), "{number:?}");
+
+    editor.set_point_at(1, 0);
+    press(&mut editor, "b");
+    let before = format!("docs/ф.txt @ {first} (blame)");
+    wait_until(&mut editor, "the blame before the commit", |editor| {
+        editor.window_buffer().name() == before
+    });
+    let text = editor.window_buffer().text().snapshot();
+    assert_eq!(text.bytes_in(0..text.len()), b"one\n");
+}
+
 fn wait_for_commit(editor: &mut Editor) {
     wait_until(editor, "the commit", |editor| {
         editor.window_buffer().mode() == "Git Commit"
@@ -1329,6 +1425,19 @@ fn a_rebase_stopped_at_a_conflict_is_resolved_and_continued() {
 
     press(&mut editor, "C-c C-c");
     assert_eq!(editor.echo().as_deref(), Some("1 conflict left"));
+
+    // A prompt over the conflict takes its letters as typed, resolving nothing.
+    press(&mut editor, "M-x");
+    type_text(&mut editor, "tob");
+    let input = editor.minibuffer().unwrap().input();
+    assert_eq!(input.contents(0..input.text().len()), "tob");
+    press(&mut editor, "C-g");
+    assert!(
+        fs::read_to_string(repository.0.join("lib.rs"))
+            .unwrap()
+            .contains("<<<<<<<")
+    );
+
     press(&mut editor, "t");
     assert_eq!(
         fs::read_to_string(repository.0.join("lib.rs")).unwrap(),

@@ -156,7 +156,7 @@ impl Plugin for RunPlugin {
         });
         registry.minor_keymaps.push(MinorKeymap {
             active: |editor| {
-                editor.buffer_has_keys() && editor.window_buffer().local::<Console>().is_some()
+                editor.buffer_has_keys() && editor.buffer().local::<Console>().is_some()
             },
             keymap: keymap(CONSOLE_BINDINGS),
         });

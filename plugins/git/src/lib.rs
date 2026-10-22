@@ -1,6 +1,9 @@
 //! Built-in plugin: Git working trees, read with the `git` command on background threads
 //! and kept current from file system events, like Emacs magit.
 
+/// Public for the benchmarks only.
+#[doc(hidden)]
+pub mod blame;
 mod branch;
 mod buffer_changes;
 mod command;
@@ -75,7 +78,10 @@ const COMMANDS: &[Command] = &[
     Command::new("git-history-open-commit", "Show what the selected commit of the history changed", history_view::open_commit),
     Command::new("git-history-all-files", "Show the commits of every file in the history again", history_view::all_files),
     Command::new("git-log-file", "Show the commits that changed the visited file", history_view::file_log),
-    Command::new(commit_view::TOGGLE, "Fold or unfold the commit's message", commit_view::toggle),
+    Command::new("git-blame", "Show who last changed each line of the visited file, and in which commit", blame::blame),
+    Command::new(blame::PREVIOUS, "Show who changed each line before the commit of the line at point", blame::blame_previous),
+    Command::new(blame::OPEN_COMMIT, "Show what the commit of the line at point changed", blame::open_commit),
+    Command::new(commit_view::TOGGLE,"Fold or unfold the commit's message", commit_view::toggle),
     Command::new(commit_view::VISIT, "Visit the file at point in the working tree, at the diff line", commit_view::visit),
     Command::new("git-commit-next-hunk", "Go to the next hunk of the commit's diff", commit_view::next_hunk),
     Command::new("git-commit-previous-hunk", "Go to the previous hunk of the commit's diff", commit_view::previous_hunk),
@@ -115,7 +121,17 @@ const CONFLICT_BINDINGS: &[(&str, &str)] = &[
     ("p", "git-previous-conflict"),
 ];
 
-const BINDINGS: &[(&str, &str)] = &[("C-x g", "git-status"), ("C-x v l", "git-log-file")];
+const BINDINGS: &[(&str, &str)] = &[
+    ("C-x g", "git-status"),
+    ("C-x v l", "git-log-file"),
+    ("C-x v g", "git-blame"),
+];
+
+const BLAME_BINDINGS: &[(&str, &str)] = &[
+    ("RET", blame::OPEN_COMMIT),
+    ("b", blame::PREVIOUS),
+    ("q", "git-quit"),
+];
 
 const COMMIT_BINDINGS: &[(&str, &str)] = &[
     ("TAB", commit_view::TOGGLE),
@@ -136,6 +152,7 @@ const MENU_ITEMS: &[MenuItem] = &[
     MenuItem::new("Git", "status", "Expand All Changes", "git-expand-all").enabled_when(status_shown),
     MenuItem::new("Git", "status", "Collapse All Changes", "git-collapse-all").enabled_when(status_shown),
     MenuItem::new("Git", "history", "File History", "git-log-file").enabled_when(history_view::visits_file),
+    MenuItem::new("Git", "history", "Blame", "git-blame").enabled_when(history_view::visits_file),
     MenuItem::new("Git", "history", "All Files' History", "git-history-all-files").enabled_when(status_shown),
     MenuItem::new("Git", "history", "Show Selected Commit", "git-history-open-commit").enabled_when(status_shown),
     MenuItem::new("Git", "history", "Next Hunk", "git-commit-next-hunk").enabled_when(commit_shown),
@@ -205,7 +222,12 @@ impl Plugin for GitPlugin {
             conflict_keymap.bind(keys, command);
         }
         registry.minor_keymaps.push(MinorKeymap {
-            active: |editor| editor.buffer_has_keys() && resolve::in_conflict(editor),
+            // The status under a prompt is still the window's buffer.
+            active: |editor| {
+                editor.buffer_has_keys()
+                    && editor.minibuffer().is_none()
+                    && resolve::in_conflict(editor)
+            },
             keymap: conflict_keymap,
         });
         let mut status_keymap = Keymap::default();
@@ -225,6 +247,14 @@ impl Plugin for GitPlugin {
                 editor.buffer_has_keys() && editor.buffer().mode() == commit_view::COMMIT_MODE
             },
             keymap: commit_keymap,
+        });
+        let mut blame_keymap = Keymap::default();
+        for &(keys, command) in BLAME_BINDINGS {
+            blame_keymap.bind(keys, command);
+        }
+        registry.minor_keymaps.push(MinorKeymap {
+            active: |editor| editor.buffer_has_keys() && blame::shown(editor),
+            keymap: blame_keymap,
         });
         registry.version_controls.push(Rc::new(Git));
         registry
@@ -247,6 +277,8 @@ impl Plugin for GitPlugin {
             .push(Rc::new(commit_view::decorate_changes));
         registry.line_extras.push(Rc::new(commit_view::line_extras));
         registry.text_controls.push(Rc::new(commit_view::controls));
+        registry.line_extras.push(Rc::new(blame::line_extras));
+        registry.text_controls.push(Rc::new(blame::controls));
         registry
             .status_providers
             .push(Rc::new(status_view::branch_status));
