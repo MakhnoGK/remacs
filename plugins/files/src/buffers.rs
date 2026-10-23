@@ -108,6 +108,13 @@ pub fn kill_buffer(editor: &mut Editor) -> CommandResult {
     editor.read(prompt, buffer_candidates, kill_confirming_changes)
 }
 
+/// Kills the window buffer, asking first if it has unsaved changes, like Emacs
+/// `kill-current-buffer`.
+pub fn kill_current_buffer(editor: &mut Editor) -> CommandResult {
+    let name = editor.window_buffer().name().to_owned();
+    kill_confirming_changes(editor, name)
+}
+
 fn kill_confirming_changes(editor: &mut Editor, name: String) -> CommandResult {
     // Shown in other windows too, it leaves only this one (user, 2026-10-20).
     if editor.window_buffer().name() == name && editor.leave_shared_buffer() {

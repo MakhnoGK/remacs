@@ -3,7 +3,7 @@ use std::path::Path;
 
 use remacs_core::{
     Buffer, Candidate, CommandResult, Completions, Editor, Prompt, StatusItem, StatusSegment,
-    filter_candidates,
+    filter_candidates, visiting_file,
 };
 
 use crate::bubble;
@@ -15,6 +15,7 @@ const PROBLEM_CATEGORY: &str = "problem";
 /// Lists the buffer's problems, like Emacs `flymake-show-buffer-diagnostics`; closes the
 /// list when it is open.
 pub(crate) fn list_problems(editor: &mut Editor) -> CommandResult {
+    editor.set_next_error_source(None);
     if is_listing(editor) {
         editor.cancel_minibuffer();
         return Ok(());
@@ -50,23 +51,38 @@ pub(crate) fn list_problems(editor: &mut Editor) -> CommandResult {
     })
 }
 
-/// Moves to the next problem, wrapping around, or selects the next one in the list.
+/// Moves to the next problem, wrapping around, or selects the next one in the list; then
+/// `next-error` goes to the problems too.
 pub(crate) fn next_problem(editor: &mut Editor) -> CommandResult {
+    editor.set_next_error_source(None);
     step(editor, true)
 }
 
 pub(crate) fn previous_problem(editor: &mut Editor) -> CommandResult {
+    editor.set_next_error_source(None);
     step(editor, false)
 }
 
-/// Moves to the next error or warning, wrapping around, while editing; the list, if
-/// open, stays as it is.
+/// Visits the next location of the source named last, such as the compile output; else
+/// moves to the next error or warning, wrapping around, while editing; the list, if open,
+/// stays as it is.
 pub(crate) fn next_error(editor: &mut Editor) -> CommandResult {
-    go_to_next(editor, true, Severity::Warning)
+    match editor.next_error_source() {
+        Some(source) => (source.next)(editor),
+        None => go_to_next(editor, true, Severity::Warning),
+    }
 }
 
 pub(crate) fn previous_error(editor: &mut Editor) -> CommandResult {
-    go_to_next(editor, false, Severity::Warning)
+    match editor.next_error_source() {
+        Some(source) => (source.previous)(editor),
+        None => go_to_next(editor, false, Severity::Warning),
+    }
+}
+
+/// Whether `next-error` has somewhere to go.
+pub(crate) fn has_errors(editor: &Editor) -> bool {
+    visiting_file(editor) || editor.next_error_source().is_some()
 }
 
 pub(crate) fn status(editor: &Editor) -> Option<StatusSegment> {

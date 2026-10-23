@@ -88,6 +88,18 @@ fn lines_that_match_are_listed_with_the_first_after_point_selected() {
 }
 
 #[test]
+fn searching_backward_selects_the_last_match_before_point_and_s_g_steps() {
+    let mut editor = editor_at(TEXT.find("fn sum").unwrap());
+    press(&mut editor, "C-r");
+    type_text(&mut editor, "sum");
+    assert_eq!(editor.minibuffer().unwrap().selected(), Some(0));
+    press(&mut editor, "s-g");
+    assert_eq!(editor.minibuffer().unwrap().selected(), Some(1));
+    press(&mut editor, "s-G");
+    assert_eq!(editor.minibuffer().unwrap().selected(), Some(0));
+}
+
+#[test]
 fn case_is_ignored_unless_the_input_has_an_uppercase_letter() {
     let mut editor = editor_at(0);
     press(&mut editor, "C-s");

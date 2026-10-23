@@ -7,6 +7,7 @@ use crate::command::{CommandResult, Commands};
 use crate::key::{Key, KeyCode, Modifiers, describe_sequence};
 use crate::keymap::{Binding, Keymap};
 use crate::minibuffer::Minibuffer;
+use crate::plugin::NextErrorSource;
 use crate::table::Action;
 
 const ABORT_KEY: &str = "C-g";
@@ -254,6 +255,22 @@ impl Editor {
 
     pub fn keymap(&self) -> &Keymap {
         &self.registry.keymap
+    }
+
+    /// Where `next-error` goes in place of the buffer's own problems, if anywhere.
+    pub fn next_error_source(&self) -> Option<NextErrorSource> {
+        let name = self.next_error_source?;
+        let sources = &self.registry.next_error_sources;
+        sources
+            .iter()
+            .find(|source| source.name == name && (source.active)(self))
+            .copied()
+    }
+
+    /// Makes `next-error` go to the source named, as when it made or visited locations, or
+    /// with `None` to the buffer's own problems.
+    pub fn set_next_error_source(&mut self, name: Option<&'static str>) {
+        self.next_error_source = name;
     }
 
     pub fn last_key(&self) -> Option<Key> {

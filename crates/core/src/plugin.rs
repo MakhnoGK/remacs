@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::command::Commands;
+use crate::command::{CommandResult, Commands};
 use crate::decoration::Decorator;
 use crate::editor::Editor;
 use crate::gutter::{GutterProvider, LineExtraProvider, TextControlsProvider, TextLabelProvider};
@@ -24,6 +24,16 @@ pub struct MinorKeymap {
     pub keymap: Keymap,
 }
 
+/// Locations `next-error` visits in place of the buffer's own problems while it is the
+/// source named last and `active` holds, like Emacs's `next-error-last-buffer`.
+#[derive(Clone, Copy)]
+pub struct NextErrorSource {
+    pub name: &'static str,
+    pub active: fn(&Editor) -> bool,
+    pub next: fn(&mut Editor) -> CommandResult,
+    pub previous: fn(&mut Editor) -> CommandResult,
+}
+
 /// Everything plugins contribute to the editor.
 #[derive(Default)]
 pub struct Registry {
@@ -34,6 +44,7 @@ pub struct Registry {
     /// Active over `minibuffer_keymap` while a prompt edits a message.
     pub message_keymap: Keymap,
     pub minor_keymaps: Vec<MinorKeymap>,
+    pub next_error_sources: Vec<NextErrorSource>,
     /// While one holds, typed characters no keymap binds are not inserted, e.g. while a
     /// pane has the keys.
     pub typing_blockers: Vec<fn(&Editor) -> bool>,

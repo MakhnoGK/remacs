@@ -21,6 +21,7 @@ tree-sitter-rust.workspace = true
 [dev-dependencies]
 dhat.workspace = true
 divan.workspace = true
+remacs-diagnostics.workspace = true
 remacs-editing.workspace = true
 remacs-minibuffer.workspace = true
 

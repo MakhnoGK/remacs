@@ -33,7 +33,6 @@ impl Plugin for ToolsPlugin {
         for command in panel::COMMANDS {
             registry.commands.add(*command);
         }
-        registry.keymap.bind("C-c t", panel::OPEN);
         registry
             .menu_items
             .push(MenuItem::new("View", "panels", "Tools", panel::OPEN));

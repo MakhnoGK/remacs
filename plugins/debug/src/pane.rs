@@ -168,19 +168,19 @@ pub fn pane(editor: &Editor) -> Option<Pane> {
             let (title, keys, width, empty, hints) = match column {
                 Column::Frames => (
                     "Threads & frames",
-                    "C-c f",
+                    "C-x C-a f",
                     Some(400.0),
                     "No call stack while the program runs. Pause or hit a breakpoint to inspect frames.",
                     FRAMES_HINTS,
                 ),
                 Column::Variables => (
                     "Variables",
-                    "C-c v",
+                    "C-x C-a v",
                     None,
                     "Variables appear when execution stops.",
                     VARIABLES_HINTS,
                 ),
-                Column::Watches => ("Watches", "C-c w", Some(380.0), "", WATCHES_HINTS),
+                Column::Watches => ("Watches", "C-x C-a w", Some(380.0), "", WATCHES_HINTS),
             };
             PaneColumn {
                 title,

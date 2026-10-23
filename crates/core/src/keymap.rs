@@ -16,8 +16,20 @@ pub struct Keymap {
 }
 
 impl Keymap {
-    /// Binds a key sequence in Emacs notation, e.g. `"C-x C-s"`.
+    /// Binds a key sequence in Emacs notation, e.g. `"C-x C-s"`. Built-in bindings must not
+    /// clash: keys bound to another command, or a prefix of keys bound or keys a prefix of.
     pub fn bind(&mut self, notation: &str, command: &'static str) {
+        let keys = parse_sequence(notation).unwrap_or_default();
+        let clash = match self.lookup(&keys) {
+            Binding::Command(bound) => (bound != command).then_some(bound),
+            Binding::Prefix => Some("a prefix"),
+            Binding::Unbound => {
+                (1..keys.len()).find_map(|len| self.commands.get(&keys[..len]).copied())
+            }
+        };
+        if let Some(bound) = clash {
+            panic!("{notation:?} is bound to {command} and {bound}");
+        }
         if !self.try_bind(notation, command) {
             panic!("invalid key sequence {notation:?}");
         }
@@ -89,5 +101,42 @@ impl Keymap {
             .iter()
             .filter(move |(_, bound)| **bound == command)
             .map(|(keys, _)| keys.as_slice())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn binding_keys_again_to_the_same_command_is_no_clash() {
+        let mut keymap = Keymap::default();
+        keymap.bind("C-x C-s", "save");
+        keymap.bind("C-x C-s", "save");
+        keymap.bind("C-x C-f", "find");
+    }
+
+    #[test]
+    #[should_panic(expected = "\"C-r\" is bound to search and run")]
+    fn keys_bound_to_two_commands_clash() {
+        let mut keymap = Keymap::default();
+        keymap.bind("C-r", "run");
+        keymap.bind("C-r", "search");
+    }
+
+    #[test]
+    #[should_panic(expected = "\"C-x r\" is bound to rename and a prefix")]
+    fn keys_that_are_a_prefix_clash() {
+        let mut keymap = Keymap::default();
+        keymap.bind("C-x r t", "string-rectangle");
+        keymap.bind("C-x r", "rename");
+    }
+
+    #[test]
+    #[should_panic(expected = "\"C-x r t\" is bound to string-rectangle and rename")]
+    fn keys_under_a_bound_prefix_clash() {
+        let mut keymap = Keymap::default();
+        keymap.bind("C-x r", "rename");
+        keymap.bind("C-x r t", "string-rectangle");
     }
 }

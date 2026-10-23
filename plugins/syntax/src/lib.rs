@@ -113,7 +113,6 @@ const BINDINGS: &[(&str, &str)] = &[
     ("C-(", sexp_edit::SLURP_BACKWARD),
     ("C-{", sexp_edit::BARF_BACKWARD),
     ("M-D", sexp_edit::SPLICE_SEXP),
-    ("C-M-r", sexp_edit::RAISE_SEXP),
 ];
 
 #[rustfmt::skip]

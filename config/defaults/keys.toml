@@ -3,6 +3,9 @@
 # A key sequence in Emacs notation and the command it runs; "" unbinds the keys.
 # C- is Control, M- Option (ui.toml [keyboard] picks which), s- Command, S- Shift for
 # named keys; function keys are <f1> to <f12>, e.g. "s-<f2>" is ⌘F2.
+#
+# The built-in keys are Emacs's, the ⌘ ones those of Emacs on macOS; IntelliJ's stay only
+# on function keys. C-c and a letter is left for your own, as in Emacs.
 
 [bindings]
 # Moving around, navigation.toml sets the history and the labels:
@@ -16,8 +19,10 @@
 # "M-j" = "avy-goto-char-timer"        # type, pause, then the label
 # "M-g w" = "avy-goto-word-1"          # a word's first character, then the label
 # "M-g l" = "avy-goto-line"
-# "M-g g" = "goto-line"                # also M-g M-g: a line number, or line:column
+# "M-g g" = "goto-line"                # also M-g M-g, ⌘L: a line number, or line:column
 # "M-g i" = "imenu"                    # also ⌘F12: a symbol of the file
+# "s-<left>" = "move-beginning-of-line"   # ⌘←, ⌘→ the end
+# "s-j" = "exchange-point-and-mark"    # ⌘J, also C-x C-x
 # Over the syntax tree:
 # "C-M-f" = "forward-sexp"             # C-M-b back
 # "C-M-u" = "backward-up-list"         # to the opening bracket around point
@@ -31,7 +36,21 @@
 # "C-(" = "slurp-backward"             # the opening bracket over the previous one
 # "C-{" = "barf-backward"
 # "M-D" = "splice-sexp"                # drop the brackets around point
-# "C-M-r" = "raise-sexp"               # the expression at point in place of its list
+#                                      # M-x only: raise-sexp, the expression at point in
+#                                      # place of its list
+#
+# Searching the buffer, its matching lines listed; C-s and C-r, or ⌘G and ⌘⇧G, go
+# through them:
+# "C-s" = "search-buffer"              # also ⌘F: the first match after point selected
+# "C-r" = "search-buffer-backward"     # the last match before point selected
+# "C-M-s" = "search-buffer-regexp"     # C-M-r backward
+#
+# Errors and other locations:
+# "M-g n" = "next-error"               # also M-g M-n, C-x `; M-g p, M-g M-p previous: the
+#                                      # last run or compile console's file:line
+#                                      # locations (in a console, its own), else the
+#                                      # buffer's errors and warnings
+# "M-n" = "next-problem"               # M-p previous; next-error goes to problems after
 #
 # Selecting inside brackets and quotes, a pair further out each time:
 # "C-=" = "expand-region"              # also ⌥↑
@@ -70,21 +89,24 @@
 # "C-c C-c" = "edit-search-results-finish"   # also C-x C-s: write the changed lines
 # "C-c C-k" = "edit-search-results-abort"
 #
-# Running programs, as in IntelliJ:
-# "C-r" = "run"                        # ⌃R: the project's chosen configuration
-# "C-R" = "run-at-point"               # ⌃⇧R: the entry point at point
-# "M-R" = "run-choose-configuration"   # ⌥⇧R
+# Files and buffers, besides Emacs's C-x keys:
+# "s-k" = "kill-current-buffer"        # ⌘K, asking first if it is modified
+# "s-u" = "revert-buffer"              # ⌘U: read the file again
+#
+# Running programs, on IntelliJ's function keys:
+# "S-<f10>" = "run"                    # ⇧F10: the project's chosen configuration
+# "C-S-<f10>" = "run-at-point"         # ⌃⇧F10: the entry point at point
+# "M-S-<f10>" = "run-choose-configuration"   # ⌥⇧F10
 # "s-<f2>" = "run-stop"                # ⌘F2
 #
-# Compiling, as in Emacs M-x compile: a shell command from the project root:
+# Compiling, as in Emacs M-x compile: a shell command from the project root; next-error
+# visits its file:line locations:
 # "s-<f9>" = "compile"                 # ⌘F9: asks for the command, the last one first
 # "s-S-<f9>" = "recompile"             # ⌘⇧F9: the last one again; g in a console
-# "M-g M-n" = "compile-next-error"     # also C-x `: the next file:line of the output
-# "M-g M-p" = "compile-previous-error"
 #
-# Debugging, as in IntelliJ but for ⌃D, which deletes a character:
+# Debugging, on IntelliJ's function keys:
 # "S-<f9>" = "debug"                   # ⇧F9: the project's chosen configuration
-# "C-D" = "debug-at-point"             # ⌃⇧D: the entry point at point
+# "C-S-<f9>" = "debug-at-point"        # ⌃⇧F9: the entry point at point
 # "<f9>" = "debug-continue"            # F9
 # "<f8>" = "debug-step-over"           # F8
 # "<f7>" = "debug-step-into"           # F7
@@ -93,7 +115,9 @@
 # "s-<f8>" = "debug-toggle-breakpoint" # ⌘F8
 # "s-S-<f8>" = "debug-edit-breakpoint" # ⌘⇧F8: the line's breakpoint, else all of them
 # "M-<f8>" = "debug-evaluate"          # ⌥F8: an expression, printed to the console
-# "C-c t" = "tools"                    # the tools remacs downloads
+# "C-x C-a f" = "debug-focus-frames"   # the debug pane's columns, as under gud's C-x C-a:
+#                                      # v variables, w watches
+#                                      # M-x only: tools, the tools remacs downloads
 #
 # The size of the text in buffers, steps and limits in ui.toml [zoom]:
 # "s-=" = "text-scale-increase"        # ⌘=, also ⌘+
@@ -121,12 +145,11 @@
 # go to its shell:
 # "C-`" = "terminal"                   # ⌃`, also ⌥F12: show, give the keys, hide
 # "s-t" = "terminal-new"               # ⌘T
-# "s-RET" = "terminal-maximize"        # ⌘↩: panel ⇄ whole window
 # While a terminal has the keys:
+# "s-RET" = "terminal-maximize"        # ⌘↩: panel ⇄ whole window
 # "s-}" = "terminal-next"              # ⌘}
 # "s-{" = "terminal-previous"          # ⌘{
-# "C-x k" = "terminal-close"
-# "C-x r" = "terminal-rename"
+# "C-x k" = "terminal-close"           # M-x only: terminal-rename
 # "C-x C-b" = "terminal-list"
 # "C-x [" = "terminal-copy-mode"       # Emacs keys over the scrollback, M-w copies
 # "s-f" = "terminal-search"

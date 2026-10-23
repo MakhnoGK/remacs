@@ -38,11 +38,8 @@ const PANEL_HINTS: &[(&str, &str)] = &[
     ("C-x o", "Code"),
     ("C-x [", "Copy mode"),
 ];
-const PANEL_UNFOCUSED_HINTS: &[(&str, &str)] = &[
-    ("C-`", "Focus terminal"),
-    ("C-x o", "Next window"),
-    ("⌘↩", "Maximize"),
-];
+const PANEL_UNFOCUSED_HINTS: &[(&str, &str)] =
+    &[("C-`", "Focus terminal"), ("C-x o", "Next window")];
 const WINDOW_HINTS: &[(&str, &str)] = &[
     ("⌘↩", "To panel"),
     ("⌘T", "New"),

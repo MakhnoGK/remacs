@@ -20,6 +20,9 @@ pub const COMPILE: &str = "compile";
 pub const RECOMPILE: &str = "recompile";
 pub const NEXT_ERROR: &str = "compile-next-error";
 pub const PREVIOUS_ERROR: &str = "compile-previous-error";
+/// `next-error` visits the console's locations from a run or compile, or from visiting
+/// one, until the problems of a buffer are gone to.
+pub const OUTPUT: &str = "compile output";
 
 const HINTS: &[(&str, &str)] = &[
     ("↵", "Run"),
@@ -207,6 +210,7 @@ fn visit_location(editor: &mut Editor, forward: bool) -> CommandResult {
     if let Some(console) = buffer.local_mut::<Console>() {
         console.location = Some(start);
     }
+    editor.set_next_error_source(Some(OUTPUT));
     follow(editor, &target, &directories, in_window)
 }
 

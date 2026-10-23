@@ -88,6 +88,7 @@ const BINDINGS: &[(&str, &str)] = &[
     ("M-g l", avy::AVY_GOTO_LINE),
     ("M-g g", goto_line::GOTO_LINE),
     ("M-g M-g", goto_line::GOTO_LINE),
+    ("s-l", goto_line::GOTO_LINE),
 ];
 
 #[rustfmt::skip]
