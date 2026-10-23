@@ -7,7 +7,9 @@ use std::sync::Once;
 
 use serde::de::{Deserialize, Deserializer, Error};
 
-pub use theme::{Appearance, BUILT_IN, DEFAULT, Theme, ThemeError, appearance, install, names};
+pub use theme::{
+    Appearance, BUILT_IN, DEFAULT, LIGHT, SYSTEM, Theme, ThemeError, appearance, install, names,
+};
 
 /// A table of a theme whose values are read while drawing. They live in atomics: reading
 /// one is a load, and a theme can be put in place from any thread.

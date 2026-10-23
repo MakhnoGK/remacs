@@ -12,10 +12,11 @@ use gpui::{
 use remacs_config::{Section, Settings, SettingsError, config_dir, home, themes_dir, watch};
 use remacs_core::Editor;
 use remacs_theme::font::{self, CodeFont};
-use remacs_theme::{DEFAULT, Theme, cursor, glass};
+use remacs_theme::{Appearance, DEFAULT, LIGHT, SYSTEM, Theme, cursor, glass};
 use serde::Deserialize;
 
 use crate::editor_view::EditorView;
+use crate::frame;
 use crate::transition::{Side, Transition};
 
 const FONT_SIZES: RangeInclusive<f32> = 6.0..=72.0;
@@ -73,9 +74,9 @@ pub struct ReadSettings {
     pub errors: Vec<SettingsError>,
 }
 
-/// Reads the settings and applies the process-wide part of `ui`; the view and the
-/// plugins apply the rest.
-pub fn read_settings() -> ReadSettings {
+/// Reads the settings and applies the process-wide part of `ui`, the theme as for macOS in
+/// `system` appearance; the view and the plugins apply the rest.
+pub fn read_settings(system: Appearance) -> ReadSettings {
     let home = home();
     let (settings, mut errors) = home
         .as_deref()
@@ -87,7 +88,7 @@ pub fn read_settings() -> ReadSettings {
             errors.push(error);
             defaults
         });
-    let theme = read_theme(&ui.theme.name, home.as_deref(), &mut errors);
+    let theme = read_theme(ui.theme.shown(system), home.as_deref(), &mut errors);
     remacs_theme::install(&theme);
     glass::set_window_opacity(*ui.glass.opacity.get_or_insert(theme.opacity));
     let code_font = ui.font.code_font();
@@ -168,7 +169,7 @@ pub fn watch_settings(view: WeakEntity<EditorView>, cx: &mut App) {
         while changes.next().await.is_some() {
             cx.background_executor().timer(SETTLE_TIME).await;
             while changes.try_recv().is_ok() {}
-            let read = read_settings();
+            let read = read_settings(frame::system_appearance());
             if view
                 .update(cx, |view, cx| view.apply_settings(read, cx))
                 .is_err()
@@ -218,8 +219,15 @@ impl Section for UiSettings {
     const NAME: &str = "ui";
 
     fn check(&self) -> Result<(), String> {
-        if self.theme.name.trim().is_empty() {
-            return Err("theme.name is empty".to_owned());
+        let theme = &self.theme;
+        for (key, name) in [
+            ("name", &theme.name),
+            ("light", &theme.light),
+            ("dark", &theme.dark),
+        ] {
+            if name.trim().is_empty() {
+                return Err(format!("theme.{key} is empty"));
+            }
         }
         let font = &self.font;
         if font.family.trim().is_empty() {
@@ -376,14 +384,35 @@ fn check_range<T: PartialOrd + std::fmt::Display>(
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct ThemeSettings {
-    /// A built-in theme, or a file `<name>.toml` in the themes directory.
+    /// A built-in theme, a file `<name>.toml` in the themes directory, or `system`.
     pub name: String,
+    /// Shown under `system` while macOS is light.
+    pub light: String,
+    /// Shown under `system` while macOS is dark.
+    pub dark: String,
 }
 
 impl Default for ThemeSettings {
     fn default() -> Self {
         Self {
             name: DEFAULT.to_owned(),
+            light: LIGHT.to_owned(),
+            dark: DEFAULT.to_owned(),
+        }
+    }
+}
+
+impl ThemeSettings {
+    pub fn follows_system(&self) -> bool {
+        self.name == SYSTEM
+    }
+
+    /// The theme shown while macOS is `system`.
+    pub fn shown(&self, system: Appearance) -> &str {
+        match (self.follows_system(), system) {
+            (false, _) => &self.name,
+            (true, Appearance::Light) => &self.light,
+            (true, Appearance::Dark) => &self.dark,
         }
     }
 }
@@ -915,6 +944,19 @@ impl Default for TransitionsSettings {
 mod tests {
     use super::*;
 
+    #[test]
+    fn the_system_theme_is_the_light_or_the_dark_one_as_macos_is() {
+        let fixed = parse("[theme]\nname = \"paper\"\n").unwrap().theme;
+        assert!(!fixed.follows_system());
+        assert_eq!(fixed.shown(Appearance::Light), "paper");
+        let system = parse("[theme]\nname = \"system\"\nlight = \"paper\"\n")
+            .unwrap()
+            .theme;
+        assert!(system.follows_system());
+        assert_eq!(system.shown(Appearance::Light), "paper");
+        assert_eq!(system.shown(Appearance::Dark), DEFAULT);
+    }
+
     fn parse(text: &str) -> Result<UiSettings, String> {
         let settings: UiSettings = toml::from_str(text).map_err(|error| error.to_string())?;
         settings.check().map(|()| settings)
@@ -1098,6 +1140,7 @@ mod tests {
         assert!(parse("[glass]\nopacity = 1.5\n").is_err());
         assert!(parse("[glass]\nblur = 65\n").is_err());
         assert!(parse("[theme]\nname = \" \"\n").is_err());
+        assert!(parse("[theme]\ndark = \"\"\n").is_err());
         assert!(parse("[echo]\nlines = 1\n").is_err());
         assert!(parse("[echo]\nhide-after = 60001\n").is_err());
         assert!(parse("[prompts]\ninput-margin = -1\n").is_err());

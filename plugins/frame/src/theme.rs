@@ -5,7 +5,7 @@ use std::path::Path;
 
 use remacs_config::{Section, config_dir, home, themes_dir};
 use remacs_core::{Candidate, CommandResult, Count, Editor, Prompt, filter_candidates};
-use remacs_theme::{DEFAULT, Theme, names};
+use remacs_theme::{DEFAULT, SYSTEM, Theme, names};
 use serde::Deserialize;
 
 const UI_FILE: &str = "ui.toml";
@@ -19,6 +19,7 @@ struct Ui {
 }
 
 #[derive(Deserialize)]
+#[serde(default)]
 struct ThemeChoice {
     name: String,
 }
@@ -48,11 +49,18 @@ pub fn select_theme(editor: &mut Editor) -> CommandResult {
         ..Prompt::default()
     };
     let themes = themes_dir(&home);
-    let candidates: Vec<Candidate> = names(Some(&themes))
-        .into_iter()
+    let candidates: Vec<Candidate> = std::iter::once(SYSTEM.to_owned())
+        .chain(
+            names(Some(&themes))
+                .into_iter()
+                .filter(|name| name != SYSTEM),
+        )
         .map(|name| {
-            let annotation = Theme::load(&name, Some(&themes))
-                .map_or_else(|error| error.to_string(), |theme| theme.name);
+            let annotation = match name.as_str() {
+                SYSTEM => "Light or dark as macOS is, the themes in ui.toml".to_owned(),
+                _ => Theme::load(&name, Some(&themes))
+                    .map_or_else(|error| error.to_string(), |theme| theme.name),
+            };
             Candidate {
                 annotation,
                 tag: (name == current).then_some("current"),
@@ -121,6 +129,12 @@ fn with_theme(text: &str, name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_theme_table_without_a_name_reads_as_the_default() {
+        let ui: Ui = toml::from_str("[theme]\nlight = \"paper\"\n").unwrap();
+        assert_eq!(ui.theme.name, DEFAULT);
+    }
 
     #[test]
     fn replaces_the_name_in_the_theme_table_and_keeps_the_rest() {

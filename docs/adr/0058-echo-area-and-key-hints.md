@@ -9,7 +9,8 @@ Status: accepted, 2026-10-11 (issues #20, #21; design boards 49–53)
   the status on the right. The keys are centered on the window; how many show depends on
   the window's width only (`hints.side-room` is kept free on each side), never on the
   message. The ones that do not fit go under a `+N` chip, or a `Keys · N` chip when none
-  fits; a click on it or `C-h k` (`list-view-keys`) lists them above the row.
+  fits; a click on it or `C-h b` (`list-view-keys`; `C-h k` until ADR 0077) lists them
+  above the row.
 - **A message is one line**, cut with an ellipsis where the keys begin, with the key that
   shows it whole (`C-h e`) when cut. A click on it opens the whole message above it
   (`echo.lines`, then it scrolls): `M-w` copies it, `C-g` or any key or click closes it.

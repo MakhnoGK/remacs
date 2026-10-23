@@ -40,7 +40,8 @@ use crate::popup_view::DocumentationScroll;
 use crate::settings::{
     BottomSettings, CursorHeight, DiffSettings, DocumentationSettings, GlassSettings,
     KeyboardSettings, MouseSettings, ProblemsSettings, PromptsSettings, ReadSettings,
-    ScrollSettings, SwatchesSettings, TransitionsSettings, UiSettings, ZoomSettings, report,
+    ScrollSettings, SwatchesSettings, TransitionsSettings, UiSettings, ZoomSettings, read_settings,
+    report,
 };
 use crate::smooth_scroll::{Glide, SmoothScroll};
 use crate::text_zoom::TextZoom;
@@ -85,8 +86,10 @@ pub struct EditorView {
     /// change.
     glass: GlassSettings,
     applied_glass: Option<GlassSettings>,
-    /// The theme's appearance macOS last drew its own parts in.
-    applied_appearance: Option<Appearance>,
+    /// `ui.toml` names the theme `system`: the theme follows macOS, not macOS the theme.
+    follows_system: bool,
+    /// The appearance macOS was last told to draw its own parts in, `None` the system's.
+    applied_appearance: Option<Option<Appearance>>,
     /// Of the window the editor displays: the selected one, but while another is drawn or
     /// handles the mouse.
     window_state: WindowState,
@@ -132,6 +135,7 @@ pub struct EditorView {
     prefix_timer: Option<Task<()>>,
     window_handle: AnyWindowHandle,
     _activation: Subscription,
+    _appearance: Subscription,
 }
 
 /// What the view keeps of a window between frames (ADR 0073).
@@ -281,6 +285,13 @@ impl EditorView {
                 view.receive_clipboard(cx);
             }
         });
+        // Seen only while following the system, when macOS is left to draw as it is.
+        let appearance = cx.observe_window_appearance(window, |view, window, cx| {
+            if view.follows_system {
+                let system = frame::appearance_of(window.appearance());
+                view.apply_settings(read_settings(system), cx);
+            }
+        });
         let state_window = editor.selected_window();
         let mut view = Self {
             editor,
@@ -300,6 +311,7 @@ impl EditorView {
             scroll: ui.scroll,
             glass: ui.glass,
             applied_glass: None,
+            follows_system: ui.theme.follows_system(),
             applied_appearance: None,
             state_window,
             window_state: WindowState::default(),
@@ -328,6 +340,7 @@ impl EditorView {
             prefix_timer: None,
             window_handle: window.window_handle(),
             _activation: activation,
+            _appearance: appearance,
         };
         let weak_view = cx.weak_entity();
         cx.on_validate_menu_action(move |action, cx| {
@@ -348,6 +361,7 @@ impl EditorView {
 
     /// Takes settings read again: the view's part, and the plugins' sections.
     pub fn apply_settings(&mut self, read: ReadSettings, cx: &mut Context<Self>) {
+        self.follows_system = read.ui.theme.follows_system();
         self.cursor_height = read.ui.cursor.height;
         self.keyboard = read.ui.keyboard;
         self.mouse = read.ui.mouse;
@@ -482,7 +496,7 @@ impl Render for EditorView {
             window.set_background_blur_radius(self.glass.window_blur());
             self.applied_glass = Some(self.glass);
         }
-        let appearance = remacs_theme::appearance();
+        let appearance = (!self.follows_system).then(remacs_theme::appearance);
         if self.applied_appearance != Some(appearance) {
             frame::set_appearance(appearance);
             self.applied_appearance = Some(appearance);

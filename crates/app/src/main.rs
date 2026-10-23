@@ -117,7 +117,7 @@ fn main() -> ExitCode {
         settings,
         ui,
         mut errors,
-    } = read_settings();
+    } = read_settings(frame::system_appearance());
     let logs = settings
         .section::<LogSettings>()
         .unwrap_or_else(|(error, defaults)| {

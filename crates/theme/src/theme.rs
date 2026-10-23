@@ -21,7 +21,9 @@ pub const BUILT_IN: &[(&str, &str)] = &[
 
 pub const DEFAULT: &str = "modus-vivendi";
 /// What a light theme of the user's builds on.
-const LIGHT: &str = "modus-operandi";
+pub const LIGHT: &str = "modus-operandi";
+/// Not a theme: the light or the dark one, as macOS is.
+pub const SYSTEM: &str = "system";
 
 /// How far one theme may build on another, which builds on another…
 const MAX_INHERITANCE: usize = 8;
