@@ -441,7 +441,7 @@ fn stripped(text: &str) -> String {
         .collect()
 }
 
-fn editor_with(name: &str, mode: &'static str, text: &str) -> Editor {
+pub(crate) fn editor_with(name: &str, mode: &'static str, text: &str) -> Editor {
     let mut editor = Editor::new(&[&LanguagesPlugin, &EditingPlugin, &SYNTAX]);
     editor.add_buffer(Buffer::new(name, Text::from(text), mode));
     editor.refresh();

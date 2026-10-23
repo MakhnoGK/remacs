@@ -772,7 +772,8 @@ fn paging_moves_point_into_view() {
     assert_eq!(editor.viewport.first_line, 8);
     assert_eq!(editor.buffer().point_line(), 8);
     press(&mut editor, "M-> M-v");
-    assert!(editor.viewport.contains(editor.buffer().point_line()));
+    let buffer = editor.buffer();
+    assert!(editor.viewport.contains(buffer.point_line(), &buffer.shown_lines()));
 }
 
 #[test]

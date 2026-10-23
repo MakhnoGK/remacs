@@ -145,9 +145,7 @@ fn go_to(editor: &mut Editor, location: &Location) -> CommandResult {
     buffer.set_point(location.offset);
     buffer.deactivate_mark();
     let line = buffer.point_line();
-    if !editor.viewport.contains(line) {
-        editor.viewport.center_on(line);
-    }
+    editor.show_line(line);
     Ok(())
 }
 

@@ -24,6 +24,8 @@ impl Plugin for LanguagesPlugin {
 }
 
 #[cfg(test)]
+mod fold_tests;
+#[cfg(test)]
 mod indent_tests;
 
 #[cfg(test)]

@@ -77,9 +77,7 @@ pub(crate) fn imenu(editor: &mut Editor) -> CommandResult {
         buffer.set_point(offset);
         buffer.deactivate_mark();
         let line = buffer.point_line();
-        if !editor.viewport.contains(line) {
-            editor.viewport.center_on(line);
-        }
+        editor.show_line(line);
         Ok(())
     })
 }

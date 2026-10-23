@@ -79,8 +79,10 @@ impl EditorView {
             .filter_map(|retained| retained.shown(transition))
             .filter_map(|shown| {
                 let popup = shown.content;
-                let line = self.editor.window_buffer().text().line_of(popup.anchor);
-                let row = line as f32 - self.window_state.vertical.shown();
+                let buffer = self.editor.window_buffer();
+                let line = buffer.text().line_of(popup.anchor);
+                let row =
+                    buffer.shown_lines().row_of(line) as f32 - self.window_state.vertical.shown();
                 if row < 0.0 {
                     return None;
                 }

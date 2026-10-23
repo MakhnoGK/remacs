@@ -37,6 +37,18 @@ pub struct Indentation {
 /// Tells a line's indentation, or `None` when it cannot, e.g. without a grammar.
 pub type IndentProbe = Rc<dyn Fn(&Buffer, usize) -> Option<Indentation>>;
 
+/// A block of code a fold can hide, like a function's body: all its lines, and those a
+/// fold hides, after the first and before the closing line where there is one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Block {
+    pub lines: Range<usize>,
+    pub hidden: Range<usize>,
+}
+
+/// Tells the blocks that touch a range of a buffer's lines, the outermost of those
+/// starting on one line; `None` when it cannot, e.g. without a grammar.
+pub type BlockProbe = Rc<dyn Fn(&Buffer, Range<usize>) -> Option<Vec<Block>>>;
+
 /// Code of another language in a buffer, like CSS in HTML's `<style>`: its mode and where
 /// it is, in order. Servers and formatters are shown it as a document of its own, the
 /// file's text blanked around it.

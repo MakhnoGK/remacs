@@ -260,11 +260,12 @@ fn jump(editor: &mut Editor, offset: usize) {
     buffer.set_point(offset);
 }
 
-/// The window buffer's lines on screen.
-fn shown_lines(editor: &Editor) -> Range<usize> {
-    let line_count = editor.window_buffer().text().line_count();
-    let viewport = editor.viewport;
-    viewport.first_line.min(line_count)..(viewport.last_line() + 1).min(line_count)
+/// The window buffer's lines on screen, but those folds hide.
+fn shown_lines(editor: &Editor) -> impl Iterator<Item = usize> + use<> {
+    let shown = editor.window_buffer().shown_lines();
+    let first = shown.row_of(editor.viewport.first_line);
+    let rows = first..(first + editor.viewport.height.max(1)).min(shown.rows());
+    rows.map(move |row| shown.line_at(row))
 }
 
 /// The bytes of each line on screen across the window's columns, so that a line of

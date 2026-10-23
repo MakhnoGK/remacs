@@ -241,6 +241,10 @@ impl Plugin for SyntaxPlugin {
             let indenter = Rc::clone(&indenter);
             move |buffer, line| indenter.borrow_mut().indentation(indents, buffer, line)
         }));
+        registry.block_probes.push(Rc::new({
+            let indenter = Rc::clone(&indenter);
+            move |buffer, lines| indenter.borrow_mut().blocks(indents, buffer, lines)
+        }));
         // A tree parsed for one command's lines is not kept past it, nor its text.
         registry
             .post_command_hooks

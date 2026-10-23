@@ -435,6 +435,8 @@ impl Buffer {
         });
         self.mark_active = false;
         self.set_point(point + text.len());
+        // Each edit at once: one diff of several would take the folds between them.
+        self.follow_folds();
     }
 
     /// Appends output nobody typed, like a program's, unrecorded for undo; point at the
@@ -473,6 +475,7 @@ impl Buffer {
         self.mark_active = false;
         self.record_cursors(|edited| edited.delete(range));
         self.set_point(point);
+        self.follow_folds();
     }
 
     /// Makes `edits`, all in offsets of the current text, last first so the others stay

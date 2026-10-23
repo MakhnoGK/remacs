@@ -8,7 +8,7 @@ use gpui::{
 };
 use remacs_core::{
     BreakpointIcon, Buffer, ChangedLines, Cursor, Face, GutterIcon, GutterMark, Icon, LineChange,
-    LineExtra, Span, TextLabel,
+    LineExtra, ShownLines, Span, TextLabel,
 };
 use remacs_theme::font::CodeFont;
 use remacs_theme::{color, font, glass};
@@ -463,10 +463,15 @@ impl EditorView {
         }
 
         let top = self.advance_scroll(clear_rows, window);
-        let first_line = top as usize;
-        let line_count = self.editor.window_buffer().text().line_count();
+        let shown_lines = self.editor.window_buffer().shown_lines();
+        let first_row = top as usize;
         // One more for the line partly scrolled in at the bottom.
-        let last_line = (first_line + drawn_rows + 1).min(line_count);
+        let drawn: Vec<usize> = (first_row..(first_row + drawn_rows + 1).min(shown_lines.rows()))
+            .map(|row| shown_lines.line_at(row))
+            .collect();
+        // With the lines folds hide between them.
+        let first_line = drawn.first().copied().unwrap_or(0);
+        let last_line = drawn.last().map_or(0, |last| last + 1);
         // Popups belong to the selected window.
         let popups = if self.drawing_selected() {
             self.render_popups(metrics, gutter_width, window.viewport_size())
@@ -480,6 +485,19 @@ impl EditorView {
             .into_iter()
             .map(|extra| (extra.line, extra))
             .collect();
+        for &line in &drawn {
+            if let Some(hidden) = shown_lines.hidden_after(line) {
+                let note = &mut extras.entry(line).or_insert_with(|| LineExtra {
+                    line,
+                    ..LineExtra::default()
+                });
+                let folded = format!("⋯ {hidden} lines");
+                note.note = Some(match note.note.take() {
+                    Some(note) => format!("{folded}  {note}"),
+                    None => folded,
+                });
+            }
+        }
         let mut labels: HashMap<usize, Vec<TextLabel>> = HashMap::new();
         let text = self.editor.window_buffer().text();
         for label in self.editor.text_labels(first_line..last_line) {
@@ -488,15 +506,13 @@ impl EditorView {
                 .or_default()
                 .push(label);
         }
-        let shown: Vec<_> = (first_line..last_line)
-            .map(|line| self.display_line(line))
-            .collect();
+        let shown: Vec<_> = drawn.iter().map(|&line| self.display_line(line)).collect();
         let visible: Vec<_> = shown.iter().map(|(_, visible)| visible.clone()).collect();
         let decorations = self.editor.decorations_by_line(&visible);
         // Once a frame: finding the columns reads the lines of point and mark.
         let buffer = self.editor.window_buffer();
         let rectangle = buffer.is_rectangle().then(|| buffer.rectangle()).flatten();
-        let (lines, continued): (Vec<_>, Vec<_>) = (first_line..last_line)
+        let (lines, continued): (Vec<_>, Vec<_>) = (drawn.iter().copied())
             .zip(shown)
             .zip(decorations)
             .map(|((line, shown), decorations)| {
@@ -523,7 +539,8 @@ impl EditorView {
             .line_changes(first_line..last_line)
             .into_iter()
             .filter_map(|changed| {
-                render_line_change(changed, first_line..last_line, text_left, line_height)
+                let shown = (first_line..last_line, &shown_lines, first_row);
+                render_line_change(changed, shown, text_left, line_height)
             });
         let glass = rgba(glass::window_tint()).into();
         let lines = div()
@@ -545,7 +562,7 @@ impl EditorView {
                 // Over the top margin's line.
                 body.child(edge_fade(Edge::Top, line_height.into(), glass))
             })
-            .when(first_line + clear_rows < line_count, |body| {
+            .when(first_row + clear_rows < shown_lines.rows(), |body| {
                 body.child(edge_fade(Edge::Bottom, FOOTER_FADE_HEIGHT, glass))
             })
             .into_any_element();
@@ -557,22 +574,27 @@ impl EditorView {
     /// while it glides.
     pub(super) fn advance_scroll(&mut self, screen_rows: usize, window: &Window) -> f32 {
         let viewport = self.editor.viewport;
-        let name = self.editor.window_buffer().name();
+        let buffer = self.editor.window_buffer();
+        let shown = buffer.shown_lines();
+        let (name, first_row) = (buffer.name(), shown.row_of(viewport.first_line));
+        let hidden = buffer.text().line_count() - shown.rows();
+        if self.window_state.scrolled_hidden != hidden {
+            self.window_state.scrolled_hidden = hidden;
+            self.window_state.vertical.jump(first_row);
+        }
         if self.window_state.scrolled_buffer != name {
             self.window_state.scrolled_buffer = name.to_owned();
-            self.window_state.vertical.jump(viewport.first_line);
+            self.window_state.vertical.jump(first_row);
             self.window_state.sideways.jump(viewport.first_column);
             self.window_state.history.place(0.0);
             self.window_state.history_target = 0.0;
         }
         let now = Instant::now();
         let duration = self.scroll.animation_duration();
-        let top = self.window_state.vertical.advance(
-            viewport.first_line,
-            now,
-            duration,
-            screen_rows as f32,
-        );
+        let top = self
+            .window_state
+            .vertical
+            .advance(first_row, now, duration, screen_rows as f32);
         self.window_state.sideways.advance(
             viewport.first_column,
             now,
@@ -704,14 +726,16 @@ fn gutter_glyph(mark: GutterIcon) -> AnyElement {
 }
 
 /// A bar in the gutter beside added or modified lines, or a tick between the lines where
-/// some were removed; `shown` are the drawn lines, `text_left` where their text starts.
+/// some were removed; `shown` are the drawn lines, which folds may hide some of, and the
+/// row of the first, `text_left` where their text starts.
 fn render_line_change(
     changed: ChangedLines,
-    shown: Range<usize>,
+    (shown, shown_lines, first_row): (Range<usize>, &ShownLines, usize),
     text_left: Pixels,
     line_height: Pixels,
 ) -> Option<AnyElement> {
-    let top = |line: usize| line_height * (line - shown.start) as f32;
+    let row = |line: usize| shown_lines.row_of(line) - first_row;
+    let top = |line: usize| line_height * row(line) as f32;
     let mark = if changed.lines.is_empty() {
         div()
             .top(top(changed.lines.start) - px(CHANGE_TICK_HEIGHT / 2.0))
@@ -723,11 +747,12 @@ fn render_line_change(
         if lines.is_empty() {
             return None;
         }
+        let rows = row(lines.end - 1) + 1 - row(lines.start);
         div()
             .top(top(lines.start) + px(CHANGE_BAR_GAP))
             .left(text_left - px(CHANGE_MARK_CENTER + CHANGE_BAR_WIDTH / 2.0))
             .w(px(CHANGE_BAR_WIDTH))
-            .h(line_height * lines.len() as f32 - px(2.0 * CHANGE_BAR_GAP))
+            .h(line_height * rows as f32 - px(2.0 * CHANGE_BAR_GAP))
     };
     let color = match changed.change {
         LineChange::Added => glass::vc_added_mark(),

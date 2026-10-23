@@ -1,16 +1,16 @@
 //! Indentation read from the syntax tree, as each mode's indent query captures it (ADR 0084).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::rc::Rc;
 
-use remacs_core::{Buffer, Indentation};
+use remacs_core::{Block, Buffer, Indentation};
 use remacs_text::Snapshot;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Language, Node, Parser, Query, QueryCursor, Tree};
 
 use crate::highlighter::Chunks;
-use crate::{Grammar, Indents, buffer_syntax, parser_thread};
+use crate::{Grammar, Indents, buffer_syntax, parser_thread, sexp};
 
 /// Text the parser thread has not parsed yet is parsed here only up to this size; a larger
 /// one waits for it.
@@ -19,7 +19,7 @@ const MAX_FIRST_PARSE: usize = 1 << 20;
 const MAX_SCAN: usize = 64 << 10;
 const MAX_BLANK_LINES: usize = 1000;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Role {
     Begin,
     /// Its lines after its first line up with its start.
@@ -60,7 +60,12 @@ impl IndentQuery {
     }
 
     /// The nodes captured around `range`, with their roles.
-    fn roles_at(&self, tree: &Tree, text: &Snapshot, range: Range<usize>) -> Roles {
+    fn roles_at<'tree>(
+        &self,
+        tree: &'tree Tree,
+        text: &Snapshot,
+        range: Range<usize>,
+    ) -> Roles<'tree> {
         let mut cursor = QueryCursor::new();
         cursor.set_byte_range(range);
         let mut captures = cursor.captures(&self.query, tree.root_node(), Chunks(text));
@@ -68,18 +73,32 @@ impl IndentQuery {
         while let Some((matched, index)) = captures.next() {
             let capture = matched.captures()[*index];
             if let Some(role) = self.roles[capture.index as usize] {
-                roles.push((capture.node.id(), role));
+                roles.push((capture.node, role));
             }
         }
-        Roles(roles)
+        roles.into_iter().collect()
     }
 }
 
-struct Roles(Vec<(usize, Role)>);
+struct Roles<'tree> {
+    captured: Vec<(Node<'tree>, Role)>,
+    /// By node id, so that looking up each node of a whole file stays linear.
+    ids: HashSet<(usize, Role)>,
+}
 
-impl Roles {
+impl<'tree> FromIterator<(Node<'tree>, Role)> for Roles<'tree> {
+    fn from_iter<T: IntoIterator<Item = (Node<'tree>, Role)>>(captured: T) -> Self {
+        let captured: Vec<_> = captured.into_iter().collect();
+        let ids = (captured.iter())
+            .map(|(node, role)| (node.id(), *role))
+            .collect();
+        Self { captured, ids }
+    }
+}
+
+impl Roles<'_> {
     fn has(&self, node: Node, role: Role) -> bool {
-        self.0.contains(&(node.id(), role))
+        self.ids.contains(&(node.id(), role))
     }
 }
 
@@ -128,6 +147,43 @@ impl Indenter {
 
     pub fn forget_parse(&mut self) {
         self.parsed = None;
+    }
+
+    /// The blocks that touch `lines`: the indent query's begin nodes, or without one the
+    /// lists between brackets, over more than one line; read from the tree as edited to
+    /// follow the text, which is close enough to fold by.
+    pub fn blocks(
+        &mut self,
+        indents: &'static [Indents],
+        buffer: &Buffer,
+        lines: Range<usize>,
+    ) -> Option<Vec<Block>> {
+        let text = buffer.text().snapshot();
+        let (grammar, tree, _) = buffer_syntax::tree_for(buffer, &text)?;
+        let tree = tree?;
+        let query = (indents.iter())
+            .find(|indents| indents.mode == grammar.mode)
+            .and_then(|indents| self.query(grammar, indents));
+        let start = text.line_start(lines.start)?;
+        let end = (text.line_range(lines.end.max(lines.start + 1) - 1))
+            .map_or(text.len(), |line| line.end);
+        let roles = query.map(|query| query.roles_at(&tree, &text, start..end));
+        let candidates: Vec<Node> = match &roles {
+            Some(roles) => (roles.captured.iter())
+                .filter(|(_, role)| *role == Role::Begin)
+                .map(|(node, _)| *node)
+                .collect(),
+            None => lists_in(tree.root_node(), start..end),
+        };
+        let mut blocks: Vec<Block> = candidates
+            .into_iter()
+            .filter_map(|node| block(&text, roles.as_ref(), node))
+            .filter(|block| block.lines.start < lines.end && lines.start < block.lines.end)
+            .collect();
+        // The outermost of those starting on one line.
+        blocks.sort_by_key(|block| (block.lines.start, std::cmp::Reverse(block.lines.end)));
+        blocks.dedup_by_key(|block| block.lines.start);
+        Some(blocks)
     }
 
     fn query(&mut self, grammar: &Grammar, indents: &Indents) -> Option<Rc<IndentQuery>> {
@@ -255,6 +311,51 @@ fn within(text: &Snapshot, roles: &Roles, outer: Node, deeper: bool) -> Indentat
         align: String::from_utf8_lossy(&before).chars().count(),
         ..at_line(row, false)
     }
+}
+
+/// The block `node` is, over more than one line: the lines after its first are hidden,
+/// but its last when it starts with the node's closing token, like `}` or `end`.
+fn block(text: &Snapshot, roles: Option<&Roles>, node: Node) -> Option<Block> {
+    let first = node.start_position().row;
+    let end = node.end_position();
+    // Ending with its line's newline, it ends on that line.
+    let last = if end.column == 0 {
+        end.row.checked_sub(1)?
+    } else {
+        end.row
+    };
+    if last <= first {
+        return None;
+    }
+    let closer = (node.child_count().checked_sub(1)).and_then(|index| node.child(index));
+    let closes = closer.is_some_and(|closer| {
+        let starts_line = (text.line_range(last))
+            .and_then(|line| first_code(text, line))
+            .is_some_and(|start| start == closer.start_byte());
+        let closing =
+            !closer.is_named() || roles.is_some_and(|roles| roles.has(closer, Role::Close));
+        starts_line && closing
+    });
+    Some(Block {
+        lines: first..last + 1,
+        hidden: first + 1..if closes { last } else { last + 1 },
+    })
+}
+
+/// The lists between brackets under `root` that touch `range`.
+fn lists_in(root: Node, range: Range<usize>) -> Vec<Node> {
+    let mut lists = Vec::new();
+    let mut nodes = vec![root];
+    while let Some(node) = nodes.pop() {
+        if node.end_byte() < range.start || node.start_byte() > range.end {
+            continue;
+        }
+        if sexp::is_list(&node) {
+            lists.push(node);
+        }
+        nodes.extend(node.children(&mut node.walk()));
+    }
+    lists
 }
 
 fn ancestors(node: Node) -> impl Iterator<Item = Node> {

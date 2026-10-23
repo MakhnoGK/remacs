@@ -118,6 +118,7 @@ impl Editor {
             return false;
         };
         self.closed_minibuffer = Some(minibuffer);
+        self.hide_shown_in_prompt();
         true
     }
 
@@ -209,13 +210,18 @@ impl Editor {
         let on_answer = mem::replace(&mut minibuffer.on_answer, Box::new(|_, _| Ok(())));
         // Before the answer, which may open another prompt.
         self.closed_minibuffer = Some(minibuffer);
+        // What an answered prompt showed stays shown.
+        self.shown_in_prompt.clear();
         on_answer(self, answer)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use remacs_text::Text;
+
     use super::*;
+    use crate::buffer::Buffer;
 
     #[test]
     fn a_closed_prompt_is_handed_over_unless_another_takes_its_place() {
@@ -257,5 +263,35 @@ mod tests {
             "the second took its place"
         );
         assert_eq!(editor.minibuffer().unwrap().prompt().label, "second");
+    }
+
+    /// A search previewing a match in a fold shows it until the search is quit.
+    #[test]
+    fn a_fold_shown_while_a_prompt_is_open_is_hidden_again_if_it_is_quit() {
+        let mut editor = Editor::new(&[]);
+        let text = "a {\n  b\n}\n";
+        editor.add_buffer(Buffer::new("t", Text::from(text), "Fundamental"));
+        let folded = |editor: &Editor| editor.window_buffer().shown_lines().is_hidden(1);
+        let preview = |editor: &mut Editor, answer: bool| {
+            editor.window_buffer_mut().fold(Some(1..2));
+            let none = |_: &Editor, _: &str| Completions::default();
+            editor.read(Prompt::default(), none, |_, _| Ok(())).unwrap();
+            editor
+                .window_buffer_mut()
+                .set_point(text.find('b').unwrap());
+            editor.show_point();
+            assert!(!folded(editor), "shown while the prompt is open");
+            editor.window_buffer_mut().set_point(0);
+            if answer {
+                editor.exit_minibuffer(true).unwrap();
+            } else {
+                editor.cancel_minibuffer();
+            }
+        };
+        preview(&mut editor, false);
+        assert!(folded(&editor), "hidden again once quit");
+        editor.window_buffer_mut().unfold_all();
+        preview(&mut editor, true);
+        assert!(!folded(&editor), "left shown once answered");
     }
 }

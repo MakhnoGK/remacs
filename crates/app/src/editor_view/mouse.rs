@@ -59,20 +59,16 @@ impl EditorView {
     /// Scrolls by `rows` lines or rows, fractions included, leaving point where it is
     /// unless it would leave the window; `at_once` skips the glide.
     fn scroll_vertically(&mut self, rows: f32, at_once: bool) {
-        let first_line = self.editor.viewport.first_line;
-        let last_start = self
-            .editor
-            .window_buffer()
-            .text()
-            .line_count()
-            .saturating_sub(1);
+        let shown = self.editor.window_buffer().shown_lines();
+        let first_row = shown.row_of(self.editor.viewport.first_line);
+        let last_start = shown.rows() - 1;
         let position =
-            (self.window_state.vertical.target(first_line) + rows).clamp(0.0, last_start as f32);
-        self.editor.scroll(position as isize - first_line as isize);
-        let first_line = self.editor.viewport.first_line;
+            (self.window_state.vertical.target(first_row) + rows).clamp(0.0, last_start as f32);
+        self.editor.scroll(position as isize - first_row as isize);
+        let first_row = shown.row_of(self.editor.viewport.first_line);
         self.window_state
             .vertical
-            .rest_at(first_line, position - first_line as f32, at_once);
+            .rest_at(first_row, position - first_row as f32, at_once);
     }
 
     /// Scrolls the text sideways by `delta`, no further right than the drawn lines go,
@@ -291,10 +287,11 @@ impl EditorView {
         let (selection, metrics) = (selection.clone(), *metrics);
         let viewport = &self.editor.viewport;
         let line_count = self.editor.window_buffer().text().line_count();
+        let shown = self.editor.window_buffer().shown_lines();
         // Above the text counts as the first line, which is above any line point is on
         // with the text scrolled.
         let under = self.line_at(self.drag_position.y).unwrap_or(0);
-        let line = viewport.clamp(under, line_count);
+        let line = viewport.clamp(under, &shown);
         let offset = self.offset_at(line, self.drag_position.x, metrics);
         selection.drag(self.editor.window_buffer_mut(), offset);
         self.window_state.scrolled_sideways = false;
@@ -303,11 +300,18 @@ impl EditorView {
         under.min(last_line).cmp(&line.min(last_line)) as isize
     }
 
-    /// The line drawn at `y` in the frame, none above the text.
+    /// The line drawn at `y` in the frame, none above the text, the line count below it.
     fn line_at(&self, y: Pixels) -> Option<usize> {
         let y = y - self.window_state.frame.origin.y;
         let rows = (y - px(TEXT_TOP)) / px(self.text_font().line_height);
-        (rows >= 0.0).then(|| (self.window_state.vertical.shown() + rows) as usize)
+        let row = (rows >= 0.0).then(|| (self.window_state.vertical.shown() + rows) as usize)?;
+        let buffer = self.editor.window_buffer();
+        let shown = buffer.shown_lines();
+        Some(if row < shown.rows() {
+            shown.line_at(row)
+        } else {
+            buffer.text().line_count()
+        })
     }
 
     /// The offset in the window buffer nearest to `x` on `line`; past the last line, the

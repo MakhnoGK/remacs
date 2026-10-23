@@ -48,9 +48,7 @@ pub fn go_to(editor: &mut Editor, path: &Path, place: &Place) -> CommandResult {
     buffer.deactivate_mark();
     buffer.set_point((range.start + place.column).min(range.end));
     let line = buffer.point_line();
-    if !editor.viewport.contains(line) {
-        editor.viewport.center_on(line);
-    }
+    editor.show_line(line);
     Ok(())
 }
 

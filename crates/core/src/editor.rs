@@ -1,14 +1,15 @@
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::mem;
+use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::{Arc, PoisonError, RwLock};
 use std::time::{Duration, Instant};
 
 use remacs_config::Settings;
-use remacs_text::Text;
+use remacs_text::{Snapshot, Text};
 
-use crate::buffer::Buffer;
+use crate::buffer::{Buffer, BufferId};
 use crate::echo::{EchoMessage, MessageLog};
 use crate::history::History;
 use crate::key::Key;
@@ -49,6 +50,9 @@ pub struct Editor {
     minibuffer: Option<Minibuffer>,
     /// The prompt last closed, until the view takes it to draw it going away.
     closed_minibuffer: Option<Minibuffer>,
+    /// The lines folds hid that point was shown in while the prompt is open, and in what
+    /// text of which buffer: hidden again if it is quit, as isearch does in Emacs.
+    shown_in_prompt: Vec<(BufferId, Snapshot, Vec<Range<usize>>)>,
     pub viewport: Viewport,
     pub kill_ring: KillRing,
     registry: Registry,
@@ -108,6 +112,7 @@ impl Editor {
             buffers: vec![scratch],
             minibuffer: None,
             closed_minibuffer: None,
+            shown_in_prompt: Vec::new(),
             viewport: Viewport::default(),
             kill_ring: KillRing::default(),
             default_keymap: registry.keymap.clone(),
@@ -143,11 +148,11 @@ impl Editor {
     }
 
     /// Scrolls without moving point unless it would leave the window.
-    pub fn scroll(&mut self, lines: isize) {
-        let line_count = self.window_buffer().text().line_count();
-        if self.viewport.scroll_by(lines, line_count) {
+    pub fn scroll(&mut self, rows: isize) {
+        let shown = self.window_buffer().shown_lines();
+        if self.viewport.scroll_by(rows, &shown) {
             let point_line = self.window_buffer().point_line();
-            let visible_line = self.viewport.clamp(point_line, line_count);
+            let visible_line = self.viewport.clamp(point_line, &shown);
             if visible_line != point_line {
                 self.window_buffer_mut().move_to_line(visible_line);
             }
@@ -178,11 +183,56 @@ impl Editor {
         buffer.deactivate_mark();
     }
 
-    /// Scrolls the window buffer's point into view, out of the margins.
+    /// Scrolls the window buffer's point into view, out of the margins, showing the lines
+    /// a fold hides it in.
     pub fn show_point(&mut self) {
+        let buffer = self.window_buffer_mut();
+        buffer.follow_folds();
+        let point = buffer.point();
+        self.reveal(point);
         let buffer = self.window_buffer();
-        let (point_line, line_count) = (buffer.point_line(), buffer.text().line_count());
-        self.viewport.ensure_visible(point_line, line_count);
+        let point_line = buffer.point_line();
+        self.viewport
+            .ensure_visible(point_line, &buffer.shown_lines());
+    }
+
+    /// Centers `line` of the window buffer in the window unless it is shown already,
+    /// showing the lines a fold hides it in.
+    pub fn show_line(&mut self, line: usize) {
+        if let Some(start) = self.window_buffer().text().line_start(line) {
+            self.reveal(start);
+        }
+        let shown = self.window_buffer().shown_lines();
+        if !self.viewport.contains(line, &shown) {
+            self.viewport.center_on(line, &shown);
+        }
+    }
+
+    /// Shows the lines a fold hides `offset` of the window buffer in; while a prompt is
+    /// open, as its preview of a search's match, only until it is quit.
+    fn reveal(&mut self, offset: usize) {
+        let buffer = self.window_buffer_mut();
+        if !buffer
+            .shown_lines()
+            .is_hidden(buffer.text().line_of(offset))
+        {
+            return;
+        }
+        let shown = buffer.reveal(offset);
+        let (id, text) = (buffer.id(), buffer.text().snapshot());
+        if self.minibuffer.is_some() {
+            self.shown_in_prompt.push((id, text, shown));
+        }
+    }
+
+    /// Hides again what the prompt quit showed, in the buffers it did not change since.
+    fn hide_shown_in_prompt(&mut self) {
+        for (id, text, lines) in mem::take(&mut self.shown_in_prompt) {
+            let buffer = (self.buffers.iter_mut()).find(|buffer| buffer.id() == id);
+            if let Some(buffer) = buffer.filter(|buffer| buffer.text().snapshot().is_same(&text)) {
+                buffer.fold(lines);
+            }
+        }
     }
 
     pub fn request_quit(&mut self) {

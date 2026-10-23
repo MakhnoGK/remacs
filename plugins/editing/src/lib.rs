@@ -5,6 +5,7 @@ mod comment;
 mod cursors;
 mod editing;
 mod expand;
+mod folding;
 mod indent;
 mod killing;
 mod lines;
@@ -116,6 +117,9 @@ const COMMANDS: &[Command] = &[
     Command::new("indent-for-tab-command", "Indent the line, or the region's lines, as the language does; else to the next tab stop", indent::indent_for_tab_command),
     Command::new("indent-region", "Indent the region's lines as the language does", indent::indent_region),
     Command::new("tab-to-tab-stop", "Indent to the next tab stop", indent::tab_to_tab_stop),
+    Command::new(folding::HS_TOGGLE_HIDING, "Show the block hidden after this line, else hide the block point is in", folding::hs_toggle_hiding),
+    Command::new(folding::HS_HIDE_ALL, "Hide every block of the buffer's code", folding::hs_hide_all),
+    Command::new(folding::HS_SHOW_ALL, "Show every hidden block", folding::hs_show_all),
     Command::new("delete-char", "Delete the next character or the region", editing::delete_char),
     Command::new("delete-backward-char", "Delete the previous character or the region", editing::delete_backward_char),
     Command::new("undo", "Undo the last change", editing::undo),
@@ -210,6 +214,9 @@ const BINDINGS: &[(&str, &str)] = &[
     ("TAB", "indent-for-tab-command"),
     ("M-i", "tab-to-tab-stop"),
     ("C-M-\\", "indent-region"),
+    ("C-c @ C-c", folding::HS_TOGGLE_HIDING),
+    ("C-c @ C-M-h", folding::HS_HIDE_ALL),
+    ("C-c @ C-M-s", folding::HS_SHOW_ALL),
     ("C-d", "delete-char"),
     ("<deletechar>", "delete-char"),
     ("DEL", "delete-backward-char"),
@@ -293,6 +300,9 @@ const MENU_ITEMS: &[MenuItem] = &[
     MenuItem::new("Edit", "cursors", "Remove Cursors", cursors::REMOVE_CURSORS).enabled_when(cursors::has_cursors),
     MenuItem::new("Edit", "code", "Comment Line", "comment-line"),
     MenuItem::new("Edit", "code", "Indent Lines", "indent-region"),
+    MenuItem::new("View", "folding", "Hide or Show Block", folding::HS_TOGGLE_HIDING),
+    MenuItem::new("View", "folding", "Hide All Blocks", folding::HS_HIDE_ALL),
+    MenuItem::new("View", "folding", "Show All Blocks", folding::HS_SHOW_ALL),
     MenuItem::new("Edit", "lines", "Duplicate", "duplicate-dwim"),
     MenuItem::new("Edit", "lines", "Move Line Up", "move-line-up"),
     MenuItem::new("Edit", "lines", "Move Line Down", "move-line-down"),

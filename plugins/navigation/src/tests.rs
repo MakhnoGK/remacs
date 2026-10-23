@@ -336,7 +336,7 @@ fn goto_line_goes_to_a_line_and_column_counted_from_1() {
     press(&mut editor, "C-f M-g g 5 0 : 3 RET");
     let buffer = editor.window_buffer();
     assert_eq!((buffer.point_line(), buffer.point_column()), (49, 2));
-    assert!(editor.viewport.contains(49));
+    assert!(editor.viewport.contains(49, &buffer.shown_lines()));
     press(&mut editor, "s-[");
     assert_eq!(place(&editor).1, 0);
 

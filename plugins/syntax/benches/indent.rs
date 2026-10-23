@@ -56,6 +56,47 @@ fn break_line(bencher: Bencher, times: usize) {
     bencher.bench_local(|| editor.window_buffer_mut().insert("\n"));
 }
 
+/// Every block of the source hidden, as `hs-hide-all` does.
+#[divan::bench(args = [4, 40], sample_count = 10)]
+fn hide_all_blocks(bencher: Bencher, times: usize) {
+    let mut editor = parsed_editor(times);
+    let line_count = editor.window_buffer().text().line_count();
+    bencher.bench_local(|| {
+        let blocks = editor
+            .blocks(editor.window_buffer(), 0..line_count)
+            .unwrap();
+        let buffer = editor.window_buffer_mut();
+        buffer.fold(blocks.into_iter().map(|block| block.hidden));
+        buffer.unfold_all();
+    });
+}
+
+/// What a frame asks of the folds, again and again, with every block hidden.
+#[divan::bench(args = [4, 40], sample_count = 30)]
+fn shown_lines_all_hidden(bencher: Bencher, times: usize) {
+    let mut editor = parsed_editor(times);
+    let line_count = editor.window_buffer().text().line_count();
+    let blocks = editor
+        .blocks(editor.window_buffer(), 0..line_count)
+        .unwrap();
+    editor
+        .window_buffer_mut()
+        .fold(blocks.into_iter().map(|block| block.hidden));
+    bencher.bench_local(|| black_box(editor.window_buffer().shown_lines()));
+}
+
+/// A character typed at the start with every block hidden, which each fold follows.
+#[divan::bench(args = [4, 40], sample_count = 30)]
+fn type_with_every_block_hidden(bencher: Bencher, times: usize) {
+    let mut editor = parsed_editor(times);
+    let line_count = editor.window_buffer().text().line_count();
+    let blocks = (editor.blocks(editor.window_buffer(), 0..line_count)).unwrap();
+    let buffer = editor.window_buffer_mut();
+    buffer.fold(blocks.into_iter().map(|block| block.hidden));
+    buffer.set_point(0);
+    bencher.bench_local(|| buffer.insert("x"));
+}
+
 /// The same, with the new line's indentation told from a tree parsed again.
 #[divan::bench(args = [4, 40], sample_count = 30)]
 fn break_line_and_indent(bencher: Bencher, times: usize) {

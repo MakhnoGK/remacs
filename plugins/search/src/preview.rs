@@ -109,9 +109,7 @@ pub fn show(editor: &mut Editor, offset: usize) {
     let buffer = editor.window_buffer_mut();
     buffer.set_point(offset);
     let line = buffer.point_line();
-    if !editor.viewport.contains(line) {
-        editor.viewport.center_on(line);
-    }
+    editor.show_line(line);
 }
 
 /// The matches in `range`, the chosen one apart.
