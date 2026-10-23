@@ -1,13 +1,16 @@
+use std::cell::Cell;
 use std::ops::Range;
+use std::rc::Rc;
 
 use memchr::{memchr, memchr_iter, memrchr};
 use remacs_core::{Buffer, Candidate, CommandResult, Completions, Count, Editor, Keymap, Prompt};
 use remacs_text::Snapshot;
 
 use crate::preview;
-use crate::query::Query;
+use crate::query::{Query, regexp_option, trimmed};
 
 pub const SEARCH: &str = "search-buffer";
+pub const SEARCH_REGEXP: &str = "search-buffer-regexp";
 const SEARCH_CATEGORY: &str = "search";
 /// Beyond this many lines the rest are left out, so that a common string in a huge file
 /// still answers each key at once.
@@ -21,7 +24,17 @@ const MAX_COUNTED_GAP: usize = 64 * 1024;
 /// Reads a string and lists the lines that contain it, the first match after point
 /// selected; choosing one goes to its first match.
 pub fn search(editor: &mut Editor) -> CommandResult {
+    search_lines(editor, false)
+}
+
+/// Like [`search`] for a regular expression.
+pub fn search_regexp(editor: &mut Editor) -> CommandResult {
+    search_lines(editor, true)
+}
+
+fn search_lines(editor: &mut Editor, regex: bool) -> CommandResult {
     let start = editor.window_buffer().point();
+    let regex = Rc::new(Cell::new(regex));
     let mut keymap = Keymap::default();
     keymap.bind("C-s", "next-candidate");
     keymap.bind("C-r", "previous-candidate");
@@ -37,11 +50,15 @@ pub fn search(editor: &mut Editor) -> CommandResult {
             ("C-g", "Cancel"),
         ],
         keymap: Some(keymap),
+        options: vec![regexp_option(&regex)],
         ..Prompt::default()
     };
+    let searched_regex = Rc::clone(&regex);
     editor.read(
         prompt,
-        move |editor, input| line_candidates(editor.window_buffer(), input, start),
+        move |editor, input| {
+            line_candidates(editor.window_buffer(), input, searched_regex.get(), start)
+        },
         move |editor, answer| {
             let offset = answer.parse().map_err(|_| "No match")?;
             preview::end(editor);
@@ -49,14 +66,16 @@ pub fn search(editor: &mut Editor) -> CommandResult {
             Ok(())
         },
     )?;
-    preview::begin(editor, SEARCH_CATEGORY);
+    preview::begin(editor, SEARCH_CATEGORY, &regex);
     Ok(())
 }
 
-/// The lines containing `input`, each valued at its first match.
-fn line_candidates(buffer: &Buffer, input: &str, point: usize) -> Completions {
-    let Some(query) = Query::new(input) else {
-        return Completions::default();
+/// The lines containing `input`, or with `regex`, a match of it, each valued at its first
+/// match.
+fn line_candidates(buffer: &Buffer, input: &str, regex: bool, point: usize) -> Completions {
+    let query = match Query::parse(input, regex) {
+        Ok(query) => query,
+        Err(completions) => return *completions,
     };
     let text = buffer.text();
     let mut candidates = Vec::new();
@@ -65,7 +84,8 @@ fn line_candidates(buffer: &Buffer, input: &str, point: usize) -> Completions {
     // The end of the last line listed; later matches before it are on it too.
     let mut listed_end = None;
     let mut more = false;
-    query.find(text, 0..text.len(), |start| {
+    query.find(text, 0..text.len(), |matched| {
+        let start = matched.start;
         if listed_end.is_some_and(|end| start < end) {
             return true;
         }
@@ -164,15 +184,14 @@ fn candidate(text: &Snapshot, query: &Query, line: Line, start: usize) -> Candid
         range.start
     };
     let to = boundary((from + MAX_LABEL).min(range.end));
-    let label = match String::from_utf8(text.bytes_in(from..to)) {
-        Ok(label) if label.trim().len() == label.len() => label,
-        Ok(label) => label.trim().to_owned(),
-        Err(invalid) => String::from_utf8_lossy(invalid.as_bytes())
-            .trim()
-            .to_owned(),
+    let shown = match String::from_utf8(text.bytes_in(from..to)) {
+        Ok(shown) => shown,
+        Err(invalid) => String::from_utf8_lossy(invalid.as_bytes()).into_owned(),
     };
+    // Matched before trimming, as the spaces may be part of a match.
+    let (label, matches) = trimmed(&shown, query.ranges_in(&shown));
     Candidate {
-        matches: query.ranges_in(&label),
+        matches,
         label,
         annotation: (number + 1).to_string(),
         value: start.to_string(),

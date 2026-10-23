@@ -2,6 +2,9 @@ use std::ops::Range;
 
 use memchr::memmem::Finder;
 use memchr::{memchr, memrchr};
+use regex::bytes::Regex;
+
+use crate::query;
 
 /// Bytes searched at a time, ending at a line end, so that a file of gigabytes is never
 /// copied whole to ignore case.
@@ -15,11 +18,25 @@ pub struct Words {
     /// lines.
     finders: Vec<Finder<'static>>,
     ignore_case: bool,
+    /// Looked for in place of the words.
+    regex: Option<Regex>,
 }
 
 impl Words {
     pub fn new(input: &str) -> Option<Self> {
         Self::of(input, input.split_whitespace().collect())
+    }
+
+    /// The whole input as a regular expression; why not, if it is invalid.
+    pub fn regex(input: &str) -> Result<Option<Self>, String> {
+        if input.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(Self {
+            finders: Vec::new(),
+            ignore_case: false,
+            regex: Some(query::regex(input)?),
+        }))
     }
 
     /// The whole input as one word, spaces included, as text to replace is taken.
@@ -54,6 +71,7 @@ impl Words {
         Some(Self {
             finders,
             ignore_case,
+            regex: None,
         })
     }
 
@@ -66,6 +84,9 @@ impl Words {
         lowered: &mut Vec<u8>,
         mut each: impl FnMut(Range<usize>) -> bool,
     ) {
+        if let Some(regex) = &self.regex {
+            return regex_lines(regex, bytes, each);
+        }
         let (first, rest) = self.finders.split_first().expect("there is a word");
         let mut start = 0;
         while start < bytes.len() {
@@ -101,6 +122,13 @@ impl Words {
 
     /// Byte ranges of `line` the words match, in order, overlapping ones merged.
     pub fn ranges_in(&self, line: &str) -> Vec<Range<usize>> {
+        if let Some(regex) = &self.regex {
+            return regex
+                .find_iter(line.as_bytes())
+                .map(|found| found.range())
+                .filter(|range| !range.is_empty())
+                .collect();
+        }
         let haystack = if self.ignore_case {
             line.to_ascii_lowercase()
         } else {
@@ -125,6 +153,24 @@ impl Words {
             }
         }
         merged
+    }
+}
+
+/// The lines of `bytes` with a match of `regex`, each once.
+fn regex_lines(regex: &Regex, bytes: &[u8], mut each: impl FnMut(Range<usize>) -> bool) {
+    let mut from = 0;
+    while let Some(found) = bytes.get(from..).and_then(|_| regex.find_at(bytes, from)) {
+        let at = found.start();
+        // An empty match past the last newline, as `^` makes, is on no line.
+        if at == bytes.len() && bytes.last().is_none_or(|&byte| byte == b'\n') {
+            return;
+        }
+        let line_start = memrchr(b'\n', &bytes[..at]).map_or(0, |newline| newline + 1);
+        let line_end = memchr(b'\n', &bytes[at..]).map_or(bytes.len(), |newline| at + newline);
+        if !each(line_start..line_end) {
+            return;
+        }
+        from = line_end + 1;
     }
 }
 

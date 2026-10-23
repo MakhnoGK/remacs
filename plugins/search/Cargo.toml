@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 memchr.workspace = true
 memmap2.workspace = true
+regex.workspace = true
 remacs-core.workspace = true
 remacs-files.workspace = true
 remacs-text.workspace = true

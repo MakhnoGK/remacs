@@ -4407,6 +4407,7 @@ dependencies = [
  "divan",
  "memchr",
  "memmap2",
+ "regex",
  "remacs-core",
  "remacs-editing",
  "remacs-files",

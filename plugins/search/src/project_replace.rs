@@ -14,7 +14,9 @@ use remacs_files::{FileIndex, FilePreview};
 use crate::preview::{self, Lit};
 use crate::project::{read_lines, searched, unsaved_buffers};
 use crate::query::Query;
-use crate::replace::{next_match, replace_from};
+use crate::replace::{
+    next_match, regexp_word, replace_from, replacement_check, replacement_placeholder,
+};
 use crate::scan::{Job, Scan};
 use crate::words::Words;
 
@@ -77,14 +79,19 @@ pub fn project_query_replace(editor: &mut Editor) -> CommandResult {
         ..Prompt::default()
     };
     read_lines(editor, prompt, true, |editor, _| {
-        let (root, index, from) = searched(editor).ok_or("Nothing to replace")?;
-        let (query, words) = Query::new(&from)
-            .zip(Words::phrase(&from))
+        let (root, index, from, regex) = searched(editor).ok_or("Nothing to replace")?;
+        let words = match regex {
+            true => Words::regex(&from)?,
+            false => Words::phrase(&from),
+        };
+        let (query, words) = Query::new(&from, regex)?
+            .zip(words)
             .ok_or("Nothing to replace")?;
         let prompt = Prompt {
-            label: format!("Replace “{}” with", quote(&from)),
+            label: format!("Replace{} “{}” with", regexp_word(regex), quote(&from)),
             category: TO_CATEGORY,
-            placeholder: "text",
+            placeholder: replacement_placeholder(regex),
+            check: Some(replacement_check(&query)),
             hints: &[("↵", "Replace…"), ("C-g", "Cancel")],
             ..Prompt::default()
         };
@@ -231,6 +238,8 @@ fn status(editor: &Editor, _: &str) -> Completions {
 /// one, replacing without asking once told to; ends when there are none left. With
 /// `None`, starts at the next file.
 fn go_on(editor: &mut Editor, mut offset: Option<usize>) {
+    // The offset is where the last match ended, until the next file is shown.
+    let mut after_match = true;
     loop {
         let Some(state) = active(editor) else {
             return;
@@ -239,7 +248,9 @@ fn go_on(editor: &mut Editor, mut offset: Option<usize>) {
         if let Some(from) = offset.take() {
             if everywhere {
                 replace_rest(editor, from);
-            } else if let Some(range) = next_match(editor.window_buffer(), &query, from) {
+            } else if let Some(range) =
+                next_match(editor.window_buffer(), &query, from, after_match)
+            {
                 show(editor, range);
                 editor.refresh_minibuffer();
                 return;
@@ -247,7 +258,10 @@ fn go_on(editor: &mut Editor, mut offset: Option<usize>) {
             finish_file(editor);
         }
         match next_file(editor) {
-            Next::File => offset = Some(0),
+            Next::File => {
+                offset = Some(0);
+                after_match = false;
+            }
             Next::Wait => {
                 editor.refresh_minibuffer();
                 return;
@@ -347,7 +361,7 @@ fn show(editor: &mut Editor, range: Range<usize>) {
     }
     editor.window_buffer_mut().set_local(Lit {
         query,
-        current: Some(range.clone()),
+        current: Some(range.start),
     });
     preview::show(editor, range.start);
 }
@@ -430,8 +444,10 @@ fn active(editor: &mut Editor) -> Option<&mut Replacing> {
 /// The match asked about and its replacement.
 fn current(editor: &mut Editor) -> Result<(Range<usize>, String), &'static str> {
     let state = active(editor).ok_or(NOT_REPLACING)?;
-    let (_, range) = state.current.as_ref().ok_or("Still searching")?;
-    Ok((range.clone(), state.to.clone()))
+    let (_, range) = state.current.clone().ok_or("Still searching")?;
+    let (query, to) = (state.query.clone(), state.to.clone());
+    let to = query.replacement(editor.window_buffer().text(), range.clone(), &to);
+    Ok((range, to))
 }
 
 fn relative(path: &Path, root: &Path) -> String {

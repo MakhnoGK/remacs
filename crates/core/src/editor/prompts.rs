@@ -78,11 +78,13 @@ impl Editor {
     }
 
     /// Switches option `index` of the open prompt, as `M-` and its key or a click does;
-    /// the candidates may depend on it, so they are listed again.
+    /// the candidates may depend on it, so they are listed again, and so may what the
+    /// post-command hooks follow, e.g. a search's preview, so they run.
     pub fn toggle_prompt_option(&mut self, index: usize) {
         if let Some(minibuffer) = &self.minibuffer {
             minibuffer.toggle_prompt_option(index);
             self.refresh_minibuffer();
+            self.run_post_command_hooks();
         }
     }
 

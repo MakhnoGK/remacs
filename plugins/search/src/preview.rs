@@ -1,16 +1,18 @@
 //! While a search prompt is open, its matches are lit in the buffer and point is on the
 //! one chosen, like Emacs isearch; quitting puts point and the view back.
 
+use std::cell::Cell;
 use std::ops::Range;
+use std::rc::Rc;
 
 use remacs_core::{Buffer, Editor, Face, Span};
 
 use crate::query::Query;
 
-/// Matches lit in a buffer, the chosen one apart.
+/// Matches lit in a buffer, the one chosen, by where it starts, apart.
 pub struct Lit {
     pub query: Query,
-    pub current: Option<Range<usize>>,
+    pub current: Option<usize>,
 }
 
 /// Kept on the searched buffer while its prompt is open.
@@ -18,10 +20,13 @@ struct Searching {
     category: &'static str,
     start: usize,
     first_line: usize,
-    input: String,
+    /// The prompt's regexp switch.
+    regex: Rc<Cell<bool>>,
+    /// What is lit: the input, and whether it is a regular expression.
+    lit: (String, bool),
 }
 
-pub fn begin(editor: &mut Editor, category: &'static str) {
+pub fn begin(editor: &mut Editor, category: &'static str, regex: &Rc<Cell<bool>>) {
     let first_line = editor.viewport.first_line;
     let buffer = editor.window_buffer_mut();
     let start = buffer.point();
@@ -29,7 +34,8 @@ pub fn begin(editor: &mut Editor, category: &'static str) {
         category,
         start,
         first_line,
-        input: String::new(),
+        regex: Rc::clone(regex),
+        lit: (String::new(), regex.get()),
     });
 }
 
@@ -71,23 +77,23 @@ pub fn sync(editor: &mut Editor) {
         editor.viewport.first_line = first_line;
         return;
     };
-    if searching.input != input {
-        match Query::new(&input) {
-            Some(query) => {
+    let lit = (input, searching.regex.get());
+    if searching.lit != lit {
+        match Query::new(&lit.0, lit.1) {
+            Ok(Some(query)) => {
                 buffer.set_local(Lit {
                     query,
                     current: None,
                 });
             }
-            None => buffer.remove_local::<Lit>(),
+            _ => buffer.remove_local::<Lit>(),
         }
         if let Some(searching) = buffer.local_mut::<Searching>() {
-            searching.input = input;
+            searching.lit = lit;
         }
     }
     if let Some(lit) = buffer.local_mut::<Lit>() {
-        let len = lit.query.match_len();
-        lit.current = selected.map(|offset| offset..offset + len);
+        lit.current = selected;
     }
     match selected {
         Some(offset) => show(editor, offset),
@@ -113,25 +119,19 @@ pub fn decorate(buffer: &Buffer, range: Range<usize>) -> Vec<Span> {
     let Some(lit) = buffer.local::<Lit>() else {
         return Vec::new();
     };
-    let text = buffer.text();
-    let len = lit.query.match_len();
-    // A match starting in `range` may end past it.
-    let searched = range.start..(range.end + len - 1).min(text.len());
     let mut spans = Vec::new();
-    lit.query.find(text, searched, |start| {
-        if start >= range.end {
-            return false;
-        }
-        let matched = start..start + len;
-        let face = if lit.current.as_ref() == Some(&matched) {
+    lit.query.find(buffer.text(), range, |matched| {
+        let face = if lit.current == Some(matched.start) {
             Face::SearchCurrent
         } else {
             Face::SearchMatch
         };
-        spans.push(Span {
-            range: matched,
-            face,
-        });
+        if !matched.is_empty() {
+            spans.push(Span {
+                range: matched,
+                face,
+            });
+        }
         true
     });
     spans

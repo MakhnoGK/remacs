@@ -1,13 +1,16 @@
 //! Replacing text from point on, asking at each match, like Emacs `query-replace`.
 
+use std::cell::Cell;
 use std::ops::Range;
+use std::rc::Rc;
 
-use remacs_core::{Buffer, CommandResult, Completions, Editor, Keymap, Prompt, quote};
+use remacs_core::{AnswerCheck, Buffer, CommandResult, Completions, Editor, Keymap, Prompt, quote};
 
 use crate::preview::{self, Lit};
-use crate::query::Query;
+use crate::query::{self, Query, regexp_option};
 
 pub const QUERY_REPLACE: &str = "query-replace";
+pub const QUERY_REPLACE_REGEXP: &str = "query-replace-regexp";
 pub const REPLACE_MATCH: &str = "query-replace-match";
 pub const SKIP_MATCH: &str = "query-replace-skip";
 pub const REPLACE_ALL: &str = "query-replace-all";
@@ -30,23 +33,39 @@ struct Replacing {
 /// Reads the text to replace, its matches lit as it is typed, then what replaces it, and
 /// asks at each match after point.
 pub fn query_replace(editor: &mut Editor) -> CommandResult {
+    query_replace_text(editor, false)
+}
+
+/// Like [`query_replace`] for a regular expression, its groups put in the replacement by
+/// `$1` or `${name}`.
+pub fn query_replace_regexp(editor: &mut Editor) -> CommandResult {
+    query_replace_text(editor, true)
+}
+
+fn query_replace_text(editor: &mut Editor, regex: bool) -> CommandResult {
+    let regex = Rc::new(Cell::new(regex));
+    let counted_regex = Rc::clone(&regex);
+    let answered_regex = Rc::clone(&regex);
     let prompt = Prompt {
         label: "Replace".into(),
         category: FROM_CATEGORY,
         placeholder: "text",
         hints: &[("↵", "Next"), ("C-g", "Cancel")],
+        options: vec![regexp_option(&regex)],
         ..Prompt::default()
     };
     editor.read(
         prompt,
-        |editor, input| count_matches(editor.window_buffer(), input),
-        |editor, from| {
+        move |editor, input| count_matches(editor.window_buffer(), input, counted_regex.get()),
+        move |editor, from| {
             preview::end(editor);
-            let query = Query::new(&from).ok_or("Nothing to replace")?;
+            let regex = answered_regex.get();
+            let query = Query::new(&from, regex)?.ok_or("Nothing to replace")?;
             let prompt = Prompt {
-                label: format!("Replace “{}” with", quote(&from)),
+                label: format!("Replace{} “{}” with", regexp_word(regex), quote(&from)),
                 category: TO_CATEGORY,
-                placeholder: "text",
+                placeholder: replacement_placeholder(regex),
+                check: Some(replacement_check(&query)),
                 hints: &[("↵", "Replace…"), ("C-g", "Cancel")],
                 ..Prompt::default()
             };
@@ -57,15 +76,39 @@ pub fn query_replace(editor: &mut Editor) -> CommandResult {
             )
         },
     )?;
-    preview::begin(editor, FROM_CATEGORY);
+    preview::begin(editor, FROM_CATEGORY, &regex);
     Ok(())
+}
+
+/// Said after "Replace" for a regular expression.
+pub fn regexp_word(regex: bool) -> &'static str {
+    if regex { " regexp" } else { "" }
+}
+
+/// Keeps the replacement's prompt open while it names a group the regexp lacks.
+pub fn replacement_check(query: &Query) -> AnswerCheck {
+    let query = query.clone();
+    Rc::new(move |to| query.check_replacement(to))
+}
+
+pub fn replacement_placeholder(regex: bool) -> &'static str {
+    if regex {
+        "text, $1 for a group"
+    } else {
+        "text"
+    }
 }
 
 pub fn replace_match(editor: &mut Editor) -> CommandResult {
     let buffer = editor.window_buffer_mut();
-    let replacing = buffer.local_mut::<Replacing>().ok_or(NOT_REPLACING)?;
-    let (current, to) = (replacing.current.clone(), replacing.to.clone());
-    replacing.replaced += 1;
+    let replacing = replacing(buffer)?;
+    let current = replacing.current.clone();
+    let to = replacing
+        .query
+        .replacement(buffer.text(), current.clone(), &replacing.to);
+    if let Some(replacing) = buffer.local_mut::<Replacing>() {
+        replacing.replaced += 1;
+    }
     buffer.apply_edits(vec![(current.clone(), to.clone())]);
     advance(editor, current.start + to.len());
     Ok(())
@@ -112,7 +155,7 @@ pub fn sync(editor: &mut Editor) {
 
 fn ask(editor: &mut Editor, query: Query, from: String, to: String) -> CommandResult {
     let buffer = editor.window_buffer_mut();
-    let current = next_match(buffer, &query, buffer.point())
+    let current = next_match(buffer, &query, buffer.point(), false)
         .ok_or_else(|| format!("No “{from}” after point"))?;
     // Every replacement then undoes at once.
     buffer.add_undo_boundary();
@@ -160,12 +203,12 @@ fn ask(editor: &mut Editor, query: Query, from: String, to: String) -> CommandRe
     )
 }
 
-/// On to the next match from `offset`, else done.
+/// On to the next match from `offset`, where the last one ended, else done.
 fn advance(editor: &mut Editor, offset: usize) {
     let buffer = editor.window_buffer_mut();
     let next = buffer
         .local::<Replacing>()
-        .and_then(|replacing| next_match(buffer, &replacing.query, offset));
+        .and_then(|replacing| next_match(buffer, &replacing.query, offset, true));
     match (next, buffer.local_mut::<Replacing>()) {
         (Some(next), Some(replacing)) => {
             replacing.current = next;
@@ -180,11 +223,10 @@ fn show_current(editor: &mut Editor) {
     let Some(replacing) = buffer.local::<Replacing>() else {
         return;
     };
-    let (query, current) = (replacing.query.clone(), replacing.current.clone());
-    let offset = current.start;
+    let (query, offset) = (replacing.query.clone(), replacing.current.start);
     buffer.set_local(Lit {
         query,
-        current: Some(current),
+        current: Some(offset),
     });
     preview::show(editor, offset);
 }
@@ -219,36 +261,42 @@ fn replacing(buffer: &Buffer) -> Result<&Replacing, &'static str> {
 
 /// Replaces every match from `from` on with `to`, as one edit; returns how many.
 pub fn replace_from(buffer: &mut Buffer, query: &Query, from: usize, to: &str) -> usize {
-    let mut matches = Vec::new();
-    let len = query.match_len();
-    query.find(buffer.text(), from..buffer.text().len(), |start| {
-        matches.push(start..start + len);
+    let text = buffer.text();
+    let mut edits = Vec::new();
+    query.find(text, from..text.len(), |matched| {
+        edits.push((matched.clone(), query.replacement(text, matched, to)));
         true
     });
-    let count = matches.len();
-    buffer.apply_edits(
-        matches
-            .into_iter()
-            .map(|range| (range, to.to_owned()))
-            .collect(),
-    );
+    let count = edits.len();
+    buffer.apply_edits(edits);
     count
 }
 
-pub fn next_match(buffer: &Buffer, query: &Query, from: usize) -> Option<Range<usize>> {
+/// The first match from `from`. Right after a match, `from` being its end, an empty match
+/// there is passed over, as it would be found again and again.
+pub fn next_match(
+    buffer: &Buffer,
+    query: &Query,
+    from: usize,
+    after_match: bool,
+) -> Option<Range<usize>> {
     let text = buffer.text();
     let mut found = None;
-    query.find(text, from.min(text.len())..text.len(), |start| {
-        found = Some(start..start + query.match_len());
+    query.find(text, from.min(text.len())..text.len(), |matched| {
+        if after_match && matched == (from..from) {
+            return true;
+        }
+        found = Some(matched);
         false
     });
     found
 }
 
 /// How many times `input` occurs, said in place of the count.
-fn count_matches(buffer: &Buffer, input: &str) -> Completions {
-    let Some(query) = Query::new(input) else {
-        return Completions::default();
+fn count_matches(buffer: &Buffer, input: &str, regex: bool) -> Completions {
+    let query = match Query::parse(input, regex) {
+        Ok(query) => query,
+        Err(completions) => return *completions,
     };
     let text = buffer.text();
     let mut count = 0;
@@ -262,8 +310,5 @@ fn count_matches(buffer: &Buffer, input: &str) -> Completions {
         _ if count > MAX_COUNTED => format!("Over {MAX_COUNTED} matches"),
         _ => format!("{count} matches"),
     };
-    Completions {
-        note: Some(note),
-        ..Completions::default()
-    }
+    query::note(note)
 }
