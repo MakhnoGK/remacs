@@ -1,31 +1,26 @@
-//! Writing a section's settings file of the defaults, every setting commented, into the
-//! settings directory to change from there.
+//! A section's settings file of the defaults, every setting commented: read in a buffer
+//! of its own, or written into the settings directory to change from there.
 
 use std::fs::File;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
 use remacs_config::{DEFAULT_FILES, config_dir, home};
-use remacs_core::{Candidate, CommandResult, Count, Editor, Prompt, filter_candidates};
+use remacs_core::{Buffer, Candidate, CommandResult, Count, Editor, Prompt, filter_candidates};
+use remacs_text::Text;
 
 pub fn write_default_settings(editor: &mut Editor) -> CommandResult {
     let config = config_dir(&home().ok_or("No home directory")?);
     let prompt = Prompt {
         label: "Default settings".into(),
         placeholder: "Settings file to write…",
-        require_match: true,
-        count: Count::Total,
         hints: &[("↵", "Write"), ("C-g", "Cancel")],
-        ..Prompt::default()
+        ..file_prompt()
     };
-    let candidates: Vec<Candidate> = DEFAULT_FILES
-        .iter()
-        .map(|(name, _)| {
-            let file = format!("{name}.toml");
-            Candidate {
-                tag: config.join(&file).exists().then_some("exists"),
-                ..Candidate::new(file)
-            }
+    let candidates: Vec<Candidate> = files()
+        .map(|file| Candidate {
+            tag: config.join(&file).exists().then_some("exists"),
+            ..Candidate::new(file)
         })
         .collect();
     editor.read(
@@ -42,12 +37,53 @@ pub fn write_default_settings(editor: &mut Editor) -> CommandResult {
     )
 }
 
-/// Never over a file already there, which holds the user's own settings.
-fn write(config: &Path, file: &str) -> Result<PathBuf, String> {
-    let (_, text) = DEFAULT_FILES
+/// Read-only, in `<file> (defaults)`; nothing is written.
+pub fn view_default_settings(editor: &mut Editor) -> CommandResult {
+    let prompt = Prompt {
+        label: "Default settings".into(),
+        placeholder: "Settings file to read…",
+        hints: &[("↵", "Show"), ("C-g", "Cancel")],
+        ..file_prompt()
+    };
+    let candidates: Vec<Candidate> = files().map(Candidate::new).collect();
+    editor.read(
+        prompt,
+        move |_, input| filter_candidates(input, candidates.clone(), false),
+        |editor, file| {
+            let name = format!("{file} (defaults)");
+            if !editor.switch_to_buffer(&name) {
+                let mode = editor.mode_for(Some(Path::new(&file)));
+                let text = Text::from(defaults(&file)?);
+                editor.add_buffer(Buffer::new(name, text, mode).read_only());
+            }
+            Ok(())
+        },
+    )
+}
+
+fn file_prompt() -> Prompt {
+    Prompt {
+        require_match: true,
+        count: Count::Total,
+        ..Prompt::default()
+    }
+}
+
+fn files() -> impl Iterator<Item = String> {
+    DEFAULT_FILES.iter().map(|(name, _)| format!("{name}.toml"))
+}
+
+fn defaults(file: &str) -> Result<&'static str, String> {
+    DEFAULT_FILES
         .iter()
         .find(|(name, _)| file.strip_suffix(".toml") == Some(*name))
-        .ok_or_else(|| format!("No settings file {file}"))?;
+        .map(|(_, text)| *text)
+        .ok_or_else(|| format!("No settings file {file}"))
+}
+
+/// Never over a file already there, which holds the user's own settings.
+fn write(config: &Path, file: &str) -> Result<PathBuf, String> {
+    let text = defaults(file)?;
     let path = config.join(file);
     let mut created = std::fs::create_dir_all(config)
         .and_then(|()| File::create_new(&path))

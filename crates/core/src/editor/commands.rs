@@ -74,6 +74,10 @@ impl Editor {
             self.after_command();
             return KeyOutcome::Handled;
         }
+        if self.key_reader.is_some() {
+            self.read_key(key);
+            return KeyOutcome::Handled;
+        }
         if self
             .minibuffer
             .as_ref()
@@ -136,6 +140,32 @@ impl Editor {
         KeyOutcome::Handled
     }
 
+    /// Has `then` take the next key sequence, read until it runs a command or nothing,
+    /// instead of running it, like Emacs `read-key-sequence`; C-g cancels.
+    pub fn read_key_sequence(
+        &mut self,
+        then: impl FnOnce(&mut Editor, &[Key], Option<&'static str>) + 'static,
+    ) {
+        self.key_reader = Some(Box::new(then));
+    }
+
+    fn read_key(&mut self, key: Key) {
+        self.pending_keys.push(key);
+        let command = match Keymap::lookup_in(&self.active_keymaps(), &self.pending_keys) {
+            Binding::Prefix => return,
+            Binding::Command(name) => Some(name),
+            Binding::Unbound => (self.pending_keys.len() == 1
+                && key.printable_char().is_some()
+                && self.takes_typing())
+            .then_some(SELF_INSERT_COMMAND),
+        };
+        let keys = mem::take(&mut self.pending_keys);
+        if let Some(then) = self.key_reader.take() {
+            then(self, &keys, command);
+        }
+        self.after_command();
+    }
+
     /// Inserts text an input method made, e.g. a composed or accented character, or one
     /// from the emoji picker, each character as if its key had been typed; a newline, as
     /// dictation gives one, as `RET`.
@@ -183,6 +213,8 @@ impl Editor {
             return;
         };
         let (name, run, each_cursor) = (command.name, command.run, command.each_cursor);
+        // A key reader left by a command run since, e.g. from the menu, is not waited on.
+        self.key_reader = None;
         self.start_undo_group(name);
         self.this_command = Some(name);
         self.this_command_killed = false;
@@ -307,9 +339,10 @@ impl Editor {
             .collect()
     }
 
-    /// C-g cancels a pending prefix or the prompt; false when there was neither.
+    /// C-g cancels reading a key, a pending prefix or the prompt; false when there was none.
     fn abort(&mut self) -> bool {
-        if !self.pending_keys.is_empty() {
+        let reading_key = self.key_reader.take().is_some();
+        if reading_key || !self.pending_keys.is_empty() {
             self.pending_keys.clear();
         } else if !self.cancel_minibuffer() {
             return false;
@@ -375,6 +408,50 @@ mod tests {
         listed.sort();
         assert_eq!(listed, ["a one", "r …"]);
         assert_eq!(editor.echo().as_deref(), Some("C-x-"));
+    }
+
+    #[test]
+    fn reads_a_key_sequence_whole_instead_of_running_it() {
+        struct Bindings;
+        impl Plugin for Bindings {
+            fn register(&self, registry: &mut Registry) {
+                registry
+                    .commands
+                    .add(crate::Command::new("one", "", |_| Err("ran".into())));
+                registry.keymap.bind("C-x a", "one");
+            }
+        }
+        let mut editor = Editor::new(&[&Bindings]);
+        let read = |editor: &mut Editor| {
+            editor.read_key_sequence(|editor, keys, command| {
+                editor.set_message(format!("{} {command:?}", describe_sequence(keys)));
+            });
+        };
+        let press = |editor: &mut Editor, notation| {
+            assert_eq!(
+                editor.dispatch_key(Key::parse(notation).unwrap()),
+                KeyOutcome::Handled
+            );
+        };
+        read(&mut editor);
+        press(&mut editor, "C-x");
+        press(&mut editor, "a");
+        assert_eq!(editor.echo().as_deref(), Some("C-x a Some(\"one\")"));
+        read(&mut editor);
+        press(&mut editor, "C-y");
+        assert_eq!(editor.echo().as_deref(), Some("C-y None"));
+        read(&mut editor);
+        press(&mut editor, "C-x");
+        press(&mut editor, "C-g");
+        press(&mut editor, "C-x");
+        press(&mut editor, "a");
+        assert_eq!(editor.echo().as_deref(), Some("ran"));
+        // A command run otherwise, e.g. from the menu, drops the reader.
+        read(&mut editor);
+        editor.run_command("one");
+        press(&mut editor, "C-x");
+        press(&mut editor, "a");
+        assert_eq!(editor.echo().as_deref(), Some("ran"));
     }
 
     #[test]

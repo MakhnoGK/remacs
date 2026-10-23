@@ -16,6 +16,7 @@ const ABOUT: &str = "about-remacs";
 const VIEW_NOTICES: &str = "view-third-party-notices";
 const OPEN_SETTINGS: &str = "open-settings";
 const WRITE_DEFAULT_SETTINGS: &str = "write-default-settings";
+const VIEW_DEFAULT_SETTINGS: &str = "view-default-settings";
 const SELECT_THEME: &str = "select-theme";
 const HIDE: &str = "hide-remacs";
 const HIDE_OTHERS: &str = "hide-others";
@@ -36,6 +37,7 @@ const COMMANDS: &[Command] = &[
     Command::new(VIEW_NOTICES, "Show the licenses of the code remacs is built from", view_notices),
     Command::new(OPEN_SETTINGS, "List the settings files", open_settings),
     Command::new(WRITE_DEFAULT_SETTINGS, "Write a settings file of the defaults, each one explained, to change", default_settings::write_default_settings),
+    Command::new(VIEW_DEFAULT_SETTINGS, "Show a settings file of the defaults, each one explained", default_settings::view_default_settings),
     Command::new(SELECT_THEME, "Choose the theme, kept in ui.toml", theme::select_theme),
     Command::new(HIDE, "Hide remacs", |editor| request(editor, FrameRequest::Hide)),
     Command::new(HIDE_OTHERS, "Hide the other applications", |editor| request(editor, FrameRequest::HideOthers)),
@@ -90,6 +92,7 @@ const MENU_ITEMS: &[MenuItem] = &[
     MenuItem::new(VIEW_MENU, "text-size", "Zoom Out", TEXT_SMALLER),
     MenuItem::new(VIEW_MENU, "text-size", "Actual Size", TEXT_CONFIGURED),
     MenuItem::new(VIEW_MENU, "theme", "Theme…", SELECT_THEME),
+    MenuItem::new("Help", "help", "Settings Reference…", VIEW_DEFAULT_SETTINGS),
     MenuItem::new("Help", "about", "Third-Party Notices", VIEW_NOTICES),
 ];
 

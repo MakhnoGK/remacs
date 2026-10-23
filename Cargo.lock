@@ -4238,8 +4238,10 @@ dependencies = [
  "remacs-config",
  "remacs-core",
  "remacs-dired",
+ "remacs-text",
  "remacs-theme",
  "serde",
+ "toml 1.1.6+spec-1.1.0",
 ]
 
 [[package]]

@@ -102,8 +102,41 @@ fn messages_record_their_kind_and_the_command_running() {
 #[test]
 fn listing_the_keys_lasts_until_the_next_key() {
     let mut editor = editor();
-    press(&mut editor, "C-h k");
+    press(&mut editor, "C-h b");
     assert!(editor.key_hints_listed());
     press(&mut editor, "C-f");
     assert!(!editor.key_hints_listed());
+}
+
+#[test]
+fn describes_the_command_a_key_runs() {
+    let mut editor = editor();
+    press(&mut editor, "C-h k C-SPC");
+    let text = editor.message().unwrap().text.clone();
+    assert!(text.starts_with("C-SPC runs set-mark-command\n"), "{text}");
+    press(&mut editor, "C-h k C-h");
+    assert_eq!(editor.message().map(|message| message.text.as_str()), None);
+    assert_eq!(editor.echo().as_deref(), Some("C-h-"));
+    press(&mut editor, "e");
+    assert!(editor.message().unwrap().text.starts_with("C-h e runs"));
+    assert_ne!(editor.window_buffer().name(), MESSAGES_BUFFER);
+    press(&mut editor, "C-h k C-h z");
+    assert_eq!(editor.message().unwrap().text, "C-h z is undefined");
+    press(&mut editor, "C-h k C-x C-g");
+    assert_eq!(editor.echo().as_deref(), Some("Quit"));
+    press(&mut editor, "C-h e");
+    assert_eq!(editor.window_buffer().name(), MESSAGES_BUFFER);
+}
+
+#[test]
+fn describes_a_command_with_its_keys() {
+    let mut editor = editor();
+    press(&mut editor, "C-h f");
+    editor.type_text("view-echo-area-messages");
+    editor.exit_minibuffer(false).unwrap();
+    let text = editor.message().unwrap().text.clone();
+    assert!(
+        text.starts_with("view-echo-area-messages is bound to C-h e\n"),
+        "{text}"
+    );
 }

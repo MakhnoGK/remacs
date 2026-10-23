@@ -1,6 +1,6 @@
 use std::ffi::{CStr, CString};
 
-use gpui::{AnyWindowHandle, App};
+use gpui::{AnyWindowHandle, App, WindowAppearance};
 use objc2::runtime::AnyObject;
 use objc2::{class, msg_send};
 use remacs_core::FrameRequest;
@@ -38,20 +38,57 @@ pub fn act(requests: Vec<FrameRequest>, window: AnyWindowHandle, cx: &mut App) {
 }
 
 /// Has macOS draw its own parts — menus, the window's buttons and shadow — light or dark
-/// with the theme rather than with the system.
-pub fn set_appearance(appearance: Appearance) {
-    let name = match appearance {
+/// with the theme rather than with the system; `None` leaves them, and the window's
+/// appearance gpui reports, to the system.
+pub fn set_appearance(appearance: Option<Appearance>) {
+    let name = appearance.map(|appearance| match appearance {
         Appearance::Light => c"NSAppearanceNameAqua",
         Appearance::Dark => c"NSAppearanceNameDarkAqua",
-    };
+    });
     // SAFETY: called on the main thread, as every gpui callback is; NSApplication exists
     // once gpui runs; the appearance names' values are their own names, and a nil
-    // appearance, were one missing, means the system's.
+    // appearance means the system's.
     unsafe {
-        let name: *mut AnyObject = msg_send![class!(NSString), stringWithUTF8String: name.as_ptr()];
-        let appearance: *mut AnyObject = msg_send![class!(NSAppearance), appearanceNamed: name];
+        let appearance: *mut AnyObject = match name {
+            Some(name) => {
+                let name: *mut AnyObject =
+                    msg_send![class!(NSString), stringWithUTF8String: name.as_ptr()];
+                msg_send![class!(NSAppearance), appearanceNamed: name]
+            }
+            None => std::ptr::null_mut(),
+        };
         let application: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
         let _: () = msg_send![application, setAppearance: appearance];
+    }
+}
+
+/// Whether macOS is light or dark now, whatever remacs set its own parts to; read from
+/// the user's defaults, so it needs no window, nor the application running.
+pub fn system_appearance() -> Appearance {
+    // SAFETY: NSUserDefaults is thread-safe; the key is a NUL-terminated UTF-8 string, and
+    // a missing value is nil, which `stringForKey:` returns as such.
+    let dark = unsafe {
+        let key: *mut AnyObject =
+            msg_send![class!(NSString), stringWithUTF8String: c"AppleInterfaceStyle".as_ptr()];
+        let defaults: *mut AnyObject = msg_send![class!(NSUserDefaults), standardUserDefaults];
+        let style: *mut AnyObject = msg_send![defaults, stringForKey: key];
+        !style.is_null() && {
+            let utf8: *const std::ffi::c_char = msg_send![style, UTF8String];
+            CStr::from_ptr(utf8) == c"Dark"
+        }
+    };
+    if dark {
+        Appearance::Dark
+    } else {
+        Appearance::Light
+    }
+}
+
+/// The light or the dark of gpui's appearances.
+pub fn appearance_of(window: WindowAppearance) -> Appearance {
+    match window {
+        WindowAppearance::Light | WindowAppearance::VibrantLight => Appearance::Light,
+        WindowAppearance::Dark | WindowAppearance::VibrantDark => Appearance::Dark,
     }
 }
 

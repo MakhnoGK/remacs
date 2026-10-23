@@ -39,6 +39,10 @@ pub const SCRATCH_BUFFER: &str = "*scratch*";
 /// [`Editor::refresh`] on its own thread.
 pub type Notifier = Arc<dyn Fn() + Send + Sync>;
 
+/// Given the key sequence read whole and the command it runs, if any; see
+/// [`Editor::read_key_sequence`].
+pub type KeyReader = Box<dyn FnOnce(&mut Editor, &[Key], Option<&'static str>)>;
+
 pub struct Editor {
     /// Most recently selected first; the first one is shown in the window.
     buffers: Vec<Buffer>,
@@ -51,6 +55,8 @@ pub struct Editor {
     /// The plugins' bindings, under those of `keys.toml`.
     default_keymap: Keymap,
     pending_keys: Vec<Key>,
+    /// Takes the next key sequence instead of running it.
+    key_reader: Option<KeyReader>,
     last_key: Option<Key>,
     /// The command being run; M-x replaces it with the command it runs, as in Emacs.
     this_command: Option<&'static str>,
@@ -105,6 +111,7 @@ impl Editor {
             default_keymap: registry.keymap.clone(),
             registry,
             pending_keys: Vec::new(),
+            key_reader: None,
             last_key: None,
             this_command: None,
             last_command: None,

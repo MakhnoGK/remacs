@@ -10,8 +10,12 @@ publish.workspace = true
 remacs-config.workspace = true
 remacs-core.workspace = true
 remacs-dired.workspace = true
+remacs-text.workspace = true
 remacs-theme.workspace = true
 serde.workspace = true
+
+[dev-dependencies]
+toml.workspace = true
 
 [lints]
 workspace = true
