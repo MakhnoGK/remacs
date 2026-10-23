@@ -32,6 +32,7 @@ pub fn face_style(face: Face) -> HighlightStyle {
         Face::String => syntax_style(color::string(), syntax::string()),
         Face::Comment => syntax_style(color::comment(), syntax::comment()),
         Face::Docstring => syntax_style(color::docstring(), syntax::docstring()),
+        Face::Variable => syntax_style(color::variable(), syntax::variable()),
         Face::Error => underline(color::error()),
         Face::Warning => underline(color::warning()),
         Face::Info => underline(color::info()),

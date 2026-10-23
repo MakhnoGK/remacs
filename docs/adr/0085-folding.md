@@ -33,8 +33,15 @@ Status: accepted, 2026-10-23 (issue #102, step 5b)
   instead of in a list (210 ms); a key typed with every block hidden costs 5 and 37 µs,
   the folds' lines moved by the lines an edit added instead of looked up one by one
   (3.3 ms); telling a frame the rows takes 60 ns, one allocation.
-
-## Open
-
-- No click on the gutter or the `⋯` to fold or unfold, and no fold marks in the gutter.
-- Folds are not saved with the session.
+- **Marks in the gutter**: `▾` right of the number of a line a block starts on, `▸` of
+  one whose block is hidden, which also shows `⋯ N lines` after its text; a click on
+  either runs `hs-toggle-hiding` on that line. Finding the blocks of the lines drawn
+  takes 0.15–0.24 ms a frame, read anew each frame: a cache would show the blocks of the
+  tree last edited, not of the one parsed since. Without an indent query the lists are
+  looked for among the children touching the lines only: 63 µs in a list of 200 000
+  items, 42 ms when every child was visited.
+- **Lines drawn around a fold** are decorated in runs, one on each side, not line by
+  line as lines far apart once were: 0.4 ms a frame instead of 1.5 ms with a block of
+  500 lines folded mid-window.
+- **Kept with the session** (`state/session.json`): each file's folded lines, hidden
+  again when it is opened with as many lines as then.

@@ -14,6 +14,9 @@ pub enum Face {
     String,
     Comment,
     Docstring,
+    /// A function's parameters and local variables, where they are defined and used, like
+    /// Emacs `font-lock-variable-name-face` and `-use-face`.
+    Variable,
     /// Underlines marking problems, like Emacs `flymake-error`/`-warning`/`-note`.
     Error,
     Warning,

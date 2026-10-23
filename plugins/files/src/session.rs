@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use remacs_core::{Editor, quote};
@@ -27,6 +28,11 @@ struct OpenFile {
     line: usize,
     column: usize,
     first_line: usize,
+    /// The lines its folds hid, hidden again while the file has as many lines as then.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    folded: Vec<Range<usize>>,
+    #[serde(default)]
+    line_count: usize,
 }
 
 #[derive(Default)]
@@ -65,8 +71,12 @@ fn reopen(editor: &mut Editor, files: &[OpenFile]) {
             skipped.push(quote(&abbreviate_home(&file.path)));
             continue;
         }
-        editor.set_point_at(file.line, file.column);
         let line_count = editor.window_buffer().text().line_count();
+        // A file changed since may have other lines where these were.
+        if line_count == file.line_count {
+            editor.window_buffer_mut().fold(file.folded.iter().cloned());
+        }
+        editor.set_point_at(file.line, file.column);
         editor.viewport.first_line = file.first_line.min(line_count.saturating_sub(1));
     }
     if !skipped.is_empty() {
@@ -96,6 +106,8 @@ fn save(editor: &mut Editor) {
             line: buffer.point_line(),
             column: buffer.point_column(),
             first_line,
+            folded: buffer.folded_lines(),
+            line_count: buffer.text().line_count(),
         });
     }
     let shown = editor.window_buffer().default_directory().map(project_root);

@@ -259,20 +259,29 @@ impl Editor {
 
     /// Faces for each of the sorted `lines` (byte ranges) of the window buffer, one list
     /// per decorator, as [`Editor::decorations`] gives them for each line alone; asks each
-    /// decorator once for all of them unless that would cover far more text, as lines
-    /// cut short of their very long middles do.
+    /// decorator once for each run of them that does not cover far more text than they
+    /// show, as lines cut short of their very long middles, or lines folded, do.
     pub fn decorations_by_line(&self, lines: &[Range<usize>]) -> Vec<Vec<Vec<Span>>> {
-        let (Some(first), Some(last)) = (lines.first(), lines.last()) else {
-            return Vec::new();
-        };
-        let all = first.start..last.end;
-        let shown: usize = lines.iter().map(Range::len).sum();
-        if all.len() > 2 * shown + MAX_UNSHOWN_DECORATED_BYTES {
-            return lines
-                .iter()
-                .map(|line| self.decorations(line.clone()))
-                .collect();
+        let mut by_line = Vec::with_capacity(lines.len());
+        let mut start = 0;
+        while start < lines.len() {
+            let (mut end, mut shown) = (start + 1, lines[start].len());
+            while let Some(next) = lines.get(end) {
+                let covered = next.end - lines[start].start;
+                if covered > 2 * (shown + next.len()) + MAX_UNSHOWN_DECORATED_BYTES {
+                    break;
+                }
+                (end, shown) = (end + 1, shown + next.len());
+            }
+            by_line.extend(self.decorations_at_once(&lines[start..end]));
+            start = end;
         }
+        by_line
+    }
+
+    /// [`Editor::decorations_by_line`] of `lines` asking each decorator once for them all.
+    fn decorations_at_once(&self, lines: &[Range<usize>]) -> Vec<Vec<Vec<Span>>> {
+        let all = lines[0].start..lines[lines.len() - 1].end;
         let layers = self.decorations(all);
         let mut by_line: Vec<Vec<Vec<Span>>> = vec![Vec::with_capacity(layers.len()); lines.len()];
         for layer in &layers {
@@ -347,6 +356,12 @@ mod tests {
         assert_eq!(
             decorate(&[0..10, far.clone()]),
             (vec![vec![0..10], vec![far.clone()]], vec![0..10, far])
+        );
+        // Lines on each side of lines folded away, each side asked for once.
+        let after_fold = [100_000..100_010, 100_011..100_021];
+        assert_eq!(
+            decorate(&[0..10, 11..21, after_fold[0].clone(), after_fold[1].clone()]).1,
+            vec![0..21, 100_000..100_021]
         );
         assert_eq!(decorate(&[]), (Vec::new(), Vec::new()));
     }

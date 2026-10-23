@@ -17,3 +17,7 @@ embedded-languages = true
 
 # Words highlighted where they stand whole in a comment, like Emacs hl-todo; [] for none.
 todo-keywords = ["TODO", "FIXME", "XXX", "HACK", "BUG", "NOTE"]
+
+# Whether a function's parameters and local variables are highlighted, in the theme's
+# variable color, where they are defined and wherever the function uses them.
+local-variables = true

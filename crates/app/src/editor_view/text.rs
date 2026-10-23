@@ -41,6 +41,17 @@ const CHANGE_BAR_WIDTH: f32 = 3.0;
 const CHANGE_BAR_GAP: f32 = 2.0;
 const CHANGE_TICK_WIDTH: f32 = 9.0;
 const CHANGE_TICK_HEIGHT: f32 = 3.0;
+/// From the line numbers' right edge, in the padding before the text.
+const FOLD_TOGGLE_RIGHT: f32 = 5.0;
+/// Shows or hides a block, run by a click on its controls.
+const HS_TOGGLE_HIDING: &str = "hs-toggle-hiding";
+
+/// What a block's first line shows of it: a toggle beside its number and, while it is
+/// hidden, how many lines it hides after its text.
+struct FoldControls {
+    toggle: Div,
+    hidden: Option<Div>,
+}
 
 impl EditorView {
     /// The font of the window buffer's text: the code font at the zoomed size.
@@ -154,8 +165,8 @@ impl EditorView {
 
     /// The row of `line`, shown as `display_line` with the decorators' faces on its
     /// `visible` bytes, its gutter mark in `mark_slot` when the gutter has a column for
-    /// marks, `labels` over its text and the part of the `rectangle` region on it, and
-    /// whether the line goes on past its right edge.
+    /// marks, the controls of a block it starts, `labels` over its text and the part of the
+    /// `rectangle` region on it, and whether the line goes on past its right edge.
     #[allow(clippy::too_many_arguments)]
     fn render_line(
         &self,
@@ -164,7 +175,7 @@ impl EditorView {
         decorations: Vec<Vec<Span>>,
         metrics: Metrics,
         gutter_width: Pixels,
-        mark_slot: Option<Div>,
+        (mark_slot, fold): (Option<Div>, Option<FoldControls>),
         extra: Option<LineExtra>,
         labels: Vec<TextLabel>,
         rectangle: Option<&(RangeInclusive<usize>, Range<usize>)>,
@@ -176,6 +187,8 @@ impl EditorView {
             note,
             ..
         } = extra.unwrap_or_default();
+        let (fold_toggle, folded) =
+            fold.map_or((None, None), |fold| (Some(fold.toggle), fold.hidden));
         let fill_alpha = u32::from(self.diff.band_opacity) * 0xff / 100;
         let fill = fill.map(|tone| (tone_color(tone, color::fg_main()) << 8) | fill_alpha);
         let code_font = self.text_font();
@@ -303,6 +316,7 @@ impl EditorView {
             )
         });
 
+        let text = div().flex().child(content).children(folded);
         let row = div()
             .flex()
             .flex_none()
@@ -335,13 +349,15 @@ impl EditorView {
             }))
             .child(
                 div()
+                    .relative()
                     .flex_none()
                     .w(gutter_width - marks_width)
                     .pr(px(GUTTER_PADDING))
                     .text_right()
                     .text_size(px(code_font.line_number_size()))
                     .text_color(rgb(number_color))
-                    .child(number.unwrap_or_else(|| (line + 1).to_string())),
+                    .child(number.unwrap_or_else(|| (line + 1).to_string()))
+                    .children(fold_toggle),
             )
             .child(
                 div()
@@ -358,7 +374,7 @@ impl EditorView {
                             .text_size(px(code_font.size))
                             // Before the text, so that it is drawn under it.
                             .children(cursor)
-                            .child(div().flex().child(content).children(note.map(|note| {
+                            .child(text.children(note.map(|note| {
                                 div()
                                     .ml(metrics.char_width * 4.0)
                                     .text_size(px(font::status_size()))
@@ -432,6 +448,69 @@ impl EditorView {
         Some(slots)
     }
 
+    /// The controls of the blocks that start on the `drawn` lines; a click on one shows
+    /// or hides its block, as `hs-toggle-hiding` on its line does.
+    fn render_fold_controls(
+        &self,
+        drawn: &[usize],
+        shown_lines: &ShownLines,
+        metrics: Metrics,
+        cx: &mut Context<Self>,
+    ) -> HashMap<usize, FoldControls> {
+        let (Some(&first), Some(&last)) = (drawn.first(), drawn.last()) else {
+            return HashMap::new();
+        };
+        let buffer = self.editor.window_buffer();
+        let starts: Vec<usize> = (self.editor.blocks(buffer, first..last + 1))
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|block| !block.hidden.is_empty())
+            .map(|block| block.lines.start)
+            .collect();
+        let row_height = px(self.text_font().line_height);
+        let mut controls = HashMap::new();
+        for &line in drawn {
+            let hidden = shown_lines.hidden_after(line);
+            if hidden.is_none() && !starts.contains(&line) {
+                continue;
+            }
+            let mut clickable = |element: Div| {
+                element.cursor_pointer().on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |view, _: &MouseDownEvent, _, cx| {
+                        cx.stop_propagation();
+                        view.click_gutter_mark(line, HS_TOGGLE_HIDING, cx);
+                    }),
+                )
+            };
+            let toggle = div()
+                .absolute()
+                .right(px(FOLD_TOGGLE_RIGHT))
+                .top_0()
+                .h(row_height)
+                .flex()
+                .items_center()
+                .child(if hidden.is_some() { "▸" } else { "▾" });
+            let folded = hidden.map(|hidden| {
+                div()
+                    .ml(metrics.char_width * 2.0)
+                    .px(metrics.char_width * 0.5)
+                    .rounded(px(ROW_RADIUS))
+                    .bg(rgba(glass::line_highlight()))
+                    .text_color(rgb(color::fg_faint()))
+                    .child(format!("⋯ {hidden} lines"))
+            });
+            controls.insert(
+                line,
+                FoldControls {
+                    toggle: clickable(toggle),
+                    hidden: folded.map(&mut clickable),
+                },
+            );
+        }
+        controls
+    }
+
     /// The window buffer's lines from the viewport on, with the popups placed over them.
     pub(super) fn render_text(
         &mut self,
@@ -479,25 +558,13 @@ impl EditorView {
             Vec::new()
         };
         let mut mark_slots = self.render_mark_slots(first_line..last_line, cx);
+        let mut fold_controls = self.render_fold_controls(&drawn, &shown_lines, metrics, cx);
         let mut extras: HashMap<usize, LineExtra> = self
             .editor
             .line_extras(first_line..last_line)
             .into_iter()
             .map(|extra| (extra.line, extra))
             .collect();
-        for &line in &drawn {
-            if let Some(hidden) = shown_lines.hidden_after(line) {
-                let note = &mut extras.entry(line).or_insert_with(|| LineExtra {
-                    line,
-                    ..LineExtra::default()
-                });
-                let folded = format!("⋯ {hidden} lines");
-                note.note = Some(match note.note.take() {
-                    Some(note) => format!("{folded}  {note}"),
-                    None => folded,
-                });
-            }
-        }
         let mut labels: HashMap<usize, Vec<TextLabel>> = HashMap::new();
         let text = self.editor.window_buffer().text();
         for label in self.editor.text_labels(first_line..last_line) {
@@ -525,7 +592,7 @@ impl EditorView {
                     decorations,
                     metrics,
                     gutter_width,
-                    slot,
+                    (slot, fold_controls.remove(&line)),
                     extra,
                     labels,
                     rectangle.as_ref(),

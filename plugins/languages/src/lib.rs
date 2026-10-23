@@ -8,7 +8,7 @@ mod servers;
 
 use remacs_core::{Plugin, Registry};
 
-pub use grammars::{GRAMMARS, INDENTS};
+pub use grammars::{GRAMMARS, INDENTS, LOCALS};
 pub use injections::INJECTIONS;
 pub use modes::PRETTIER_MODES;
 pub use servers::SERVERS;
@@ -27,6 +27,8 @@ impl Plugin for LanguagesPlugin {
 mod fold_tests;
 #[cfg(test)]
 mod indent_tests;
+#[cfg(test)]
+mod locals_tests;
 
 #[cfg(test)]
 mod tests {

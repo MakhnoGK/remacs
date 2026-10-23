@@ -35,13 +35,13 @@ Status: accepted, 2026-10-23 (issue #102, step 5a); extends ADR 0024
 - **Keys**: `TAB` is `indent-for-tab-command` (the region's lines when it is active;
   point in the blanks goes to their end), `C-M-\` is `indent-region` (the region's lines
   only, as in Emacs, so a stray key does not reindent a large file for seconds), `M-i`
-  is `tab-to-tab-stop`. `RET` indents the new line by the syntax.
+  is `tab-to-tab-stop`. `RET` indents the new line by the syntax, and first the line
+  it leaves, as Emacs `electric-indent-mode` does: a `}`, `end` or `else` typed at the
+  wrong level goes to its block's (code lines of Python and YAML stay where they are).
   Blank lines other than point's stay empty.
 
 ## Open
 
-- The line left by `RET` is not reindented, so `else` or `end` typed at the wrong level
-  waits for `TAB`.
 - Injected code (scripts in HTML, Vue, fenced Markdown) is indented by the brackets.
 - A file not yet indented gets 4 spaces, whatever the language's custom.
 - Indent queries of one's own (ADR 0083) are not read yet.

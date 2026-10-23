@@ -71,6 +71,36 @@ fn hide_all_blocks(bencher: Bencher, times: usize) {
     });
 }
 
+/// What a frame asks to mark the blocks that start on the 60 lines it shows.
+#[divan::bench(args = [4, 40], sample_count = 30)]
+fn blocks_of_a_screen(bencher: Bencher, times: usize) {
+    let editor = parsed_editor(times);
+    let first = editor.window_buffer().point_line();
+    let buffer = editor.window_buffer();
+    bencher.bench_local(|| black_box(editor.blocks(buffer, first..first + 60)));
+}
+
+/// The same of a list of 200 000 items, by its brackets, without an indent query.
+#[divan::bench(sample_count = 30)]
+fn blocks_of_a_screen_in_a_long_list(bencher: Bencher) {
+    static BRACKETS: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS, &[]);
+    let source = format!(
+        "const ITEMS: &[u32] = &[\n{}];\n",
+        "    1,\n".repeat(200_000)
+    );
+    let mut editor = Editor::new(&[&BRACKETS]);
+    editor.add_buffer(Buffer::new("items.rs", Text::from(source.as_str()), "Rust"));
+    for _ in 0..4000 {
+        editor.refresh();
+        if editor.blocks(editor.window_buffer(), 0..1).is_some() {
+            break;
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+    let buffer = editor.window_buffer();
+    bencher.bench_local(|| black_box(editor.blocks(buffer, 100_000..100_060)));
+}
+
 /// What a frame asks of the folds, again and again, with every block hidden.
 #[divan::bench(args = [4, 40], sample_count = 30)]
 fn shown_lines_all_hidden(bencher: Bencher, times: usize) {

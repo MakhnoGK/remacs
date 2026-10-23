@@ -219,7 +219,7 @@ fn paint_layers(
 }
 
 /// The parts of `spans` outside the ranges `held`, both in order.
-fn outside(spans: Vec<Span>, held: &[Range<usize>]) -> Vec<Span> {
+pub(crate) fn outside(spans: Vec<Span>, held: &[Range<usize>]) -> Vec<Span> {
     let mut kept = Vec::with_capacity(spans.len());
     let mut first = 0;
     for span in spans {
@@ -280,6 +280,13 @@ impl BufferSyntax {
             .map(|layer| &layer.tree)
             .or(self.tree.as_ref())
     }
+}
+
+/// The buffer's grammar, its own tree and the text the tree is edited to follow, as
+/// highlighting reads them.
+pub(crate) fn own_tree(buffer: &Buffer) -> Option<(&'static Grammar, &Tree, &Snapshot)> {
+    let syntax = buffer.local::<BufferSyntax>()?;
+    Some((syntax.grammar, syntax.tree.as_ref()?, &syntax.snapshot))
 }
 
 /// The buffer's syntax, while its trees match the text.

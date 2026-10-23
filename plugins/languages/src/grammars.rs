@@ -1,4 +1,4 @@
-use remacs_syntax::{Grammar, Indents, LanguageFn};
+use remacs_syntax::{Grammar, Indents, LanguageFn, Locals};
 
 use crate::modes::*;
 
@@ -34,6 +34,25 @@ pub const INDENTS: &[Indents] = &[
     Indents::new(JSON, &[query!("json", "indents")]),
     Indents::new(HTML, &[query!("html", "indents")]),
     Indents::new(CSS, &[query!("css", "indents")]),
+];
+
+const ECMASCRIPT_LOCALS: &str = query!("ecmascript", "locals");
+
+/// Dialects extend their base language's queries, which therefore come first.
+#[rustfmt::skip]
+pub const LOCALS: &[Locals] = &[
+    Locals { mode: RUST, queries: &[query!("rust", "locals")] },
+    Locals { mode: C, queries: &[query!("c", "locals")] },
+    Locals { mode: CPP, queries: &[query!("c", "locals"), query!("cpp", "locals")] },
+    Locals { mode: JAVASCRIPT, queries: &[ECMASCRIPT_LOCALS, query!("javascript", "locals")] },
+    Locals { mode: JSX, queries: &[ECMASCRIPT_LOCALS, query!("javascript", "locals")] },
+    Locals { mode: TYPESCRIPT, queries: &[ECMASCRIPT_LOCALS, query!("typescript", "locals")] },
+    Locals { mode: TSX, queries: &[ECMASCRIPT_LOCALS, query!("typescript", "locals")] },
+    Locals { mode: PYTHON, queries: &[query!("python", "locals")] },
+    Locals { mode: GO, queries: &[query!("go", "locals")] },
+    Locals { mode: JAVA, queries: &[query!("java", "locals")] },
+    Locals { mode: RUBY, queries: &[query!("ruby", "locals")] },
+    Locals { mode: LUA, queries: &[query!("lua", "locals")] },
 ];
 
 const ECMASCRIPT: &str = query!("ecmascript");

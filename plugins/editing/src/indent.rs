@@ -80,6 +80,11 @@ pub fn indent_unit(buffer: &mut Buffer) -> IndentUnit {
 pub fn newline(editor: &mut Editor) -> CommandResult {
     let buffer = writable_buffer(editor)?;
     let unit = indent_unit(buffer);
+    // The line left first, as Emacs `electric-indent-mode` does: a `}` or `end` typed at
+    // the wrong level goes to its block's, and the brackets read it there.
+    let left = buffer.point_line();
+    reindent(editor, left..left + 1, unit);
+    let buffer = editor.buffer_mut();
     let point = buffer.point();
     let line = buffer
         .text()
@@ -196,7 +201,7 @@ fn reindent(editor: &mut Editor, lines: Range<usize>, unit: IndentUnit) -> bool 
             continue;
         }
         if point_in_blanks {
-            resume = Some(start + indentation.len());
+            resume = Some((line, indentation.len()));
         }
         if buffer.text().bytes_in(blanks.clone()) != indentation.as_bytes() {
             edits.push((blanks, indentation));
@@ -204,8 +209,10 @@ fn reindent(editor: &mut Editor, lines: Range<usize>, unit: IndentUnit) -> bool 
     }
     let buffer = editor.buffer_mut();
     buffer.apply_edits(edits);
-    if let Some(resume) = resume {
-        buffer.set_point(resume);
+    // Found once the lines above have their new blanks.
+    if let Some((line, blanks)) = resume {
+        let start = buffer.text().line_start(line).unwrap_or(0);
+        buffer.set_point(start + blanks);
     }
     true
 }

@@ -578,6 +578,7 @@ fn quitting_keeps_the_open_files_which_the_next_start_reopens_where_they_were() 
     editor.visit_file(&project.path("Cargo.toml")).unwrap();
     editor.visit_file(&project.path("src/marker.rs")).unwrap();
     editor.set_point_at(2, 1);
+    editor.window_buffer_mut().fold(Some(1..2));
     press(&mut editor, "s-q");
     assert!(editor.quit_requested());
 
@@ -588,6 +589,13 @@ fn quitting_keeps_the_open_files_which_the_next_start_reopens_where_they_were() 
     );
     let shown = editor.window_buffer();
     assert_eq!((shown.point_line(), shown.point_column()), (2, 1));
+    assert_eq!(shown.folded_lines(), vec![1..2], "its folds too");
+    fs::write(project.path("src/marker.rs"), "one\ntwo\n").unwrap();
+    let editor = editor_keeping_session(&store, None, true);
+    assert!(
+        editor.window_buffer().folded_lines().is_empty(),
+        "not in a file with other lines since"
+    );
 
     let other = Project::new("session-other");
     let editor = editor_keeping_session(&store, Some(&other.path("Cargo.toml")), true);

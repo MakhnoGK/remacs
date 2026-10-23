@@ -184,6 +184,13 @@ impl Buffer {
         self.set_folds(current);
     }
 
+    /// The lines each fold hides, folds within folds too, for `fold` to hide again.
+    pub fn folded_lines(&self) -> Vec<Range<usize>> {
+        (self.current_folds().into_iter())
+            .map(|fold| fold.lines)
+            .collect()
+    }
+
     /// Shows the lines the folds `line` heads hide; false when it heads none.
     pub fn unfold_at(&mut self, line: usize) -> bool {
         !(self.unfold_where(|fold| fold.lines.start == line + 1)).is_empty()

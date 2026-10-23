@@ -4,6 +4,7 @@ mod buffer_syntax;
 mod fallback;
 mod highlighter;
 mod indent;
+mod locals;
 mod matching_pair;
 mod parser_thread;
 mod queries;
@@ -32,6 +33,9 @@ pub struct SyntaxSettings {
     pub embedded_languages: bool,
     /// Words highlighted in comments, like Emacs `hl-todo`.
     pub todo_keywords: Vec<String>,
+    /// Whether a function's parameters and local variables are highlighted wherever they
+    /// are used in it.
+    pub local_variables: bool,
 }
 
 impl Default for SyntaxSettings {
@@ -39,6 +43,7 @@ impl Default for SyntaxSettings {
         Self {
             matching_pairs: true,
             embedded_languages: true,
+            local_variables: true,
             todo_keywords: ["TODO", "FIXME", "XXX", "HACK", "BUG", "NOTE"]
                 .map(String::from)
                 .into(),
@@ -110,10 +115,18 @@ impl Indents {
     }
 }
 
+/// A mode's locals queries, joined in order: its functions' parameters and local
+/// variables, highlighted where they are used (ADR 0086).
+pub struct Locals {
+    pub mode: &'static str,
+    pub queries: &'static [&'static str],
+}
+
 pub struct SyntaxPlugin {
     grammars: &'static [Grammar],
     injections: &'static [Injections],
     indents: &'static [Indents],
+    locals: &'static [Locals],
 }
 
 impl SyntaxPlugin {
@@ -122,11 +135,16 @@ impl SyntaxPlugin {
             grammars,
             injections,
             indents: &[],
+            locals: &[],
         }
     }
 
     pub const fn with_indents(self, indents: &'static [Indents]) -> Self {
         Self { indents, ..self }
+    }
+
+    pub const fn with_locals(self, locals: &'static [Locals]) -> Self {
+        Self { locals, ..self }
     }
 }
 
@@ -215,11 +233,19 @@ impl Plugin for SyntaxPlugin {
         });
         registry.post_command_hooks.push(Rc::clone(&sync));
         registry.display_hooks.push(sync);
+        let locals = self.locals;
+        let locals_queries = RefCell::new(locals::LocalsQueries::default());
         registry.decorators.push(Rc::new({
             let settings = Rc::clone(&settings);
             move |buffer, range| {
-                let spans = buffer_syntax::highlight(buffer, range);
-                todo::mark(buffer, spans, &settings.borrow().todo_keywords)
+                let settings = settings.borrow();
+                let mut spans = buffer_syntax::highlight(buffer, range.clone());
+                if settings.local_variables {
+                    spans = locals_queries
+                        .borrow_mut()
+                        .paint(locals, buffer, range, spans);
+                }
+                todo::mark(buffer, spans, &settings.todo_keywords)
             }
         }));
         registry.decorators.push(Rc::new(move |buffer, range| {

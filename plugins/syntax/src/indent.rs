@@ -353,7 +353,16 @@ fn lists_in(root: Node, range: Range<usize>) -> Vec<Node> {
         if sexp::is_list(&node) {
             lists.push(node);
         }
-        nodes.extend(node.children(&mut node.walk()));
+        // Only the children touching the range: a file's root can have a hundred thousand.
+        let mut cursor = node.walk();
+        if cursor.goto_first_child_for_byte(range.start).is_some() {
+            while cursor.node().start_byte() <= range.end {
+                nodes.push(cursor.node());
+                if !cursor.goto_next_sibling() {
+                    break;
+                }
+            }
+        }
     }
     lists
 }

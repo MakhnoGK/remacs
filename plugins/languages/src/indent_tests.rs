@@ -540,6 +540,25 @@ fn breaking_a_line_indents_the_new_one_by_the_syntax() {
         typed_at("a.yaml", YAML, "- a: 1\n  b: 2\n", "1"),
         "- a: 1\n  x\n  b: 2\n"
     );
+
+    // The line left goes to its level too.
+    assert_eq!(
+        typed(
+            "main.rs",
+            RUST,
+            "fn f() {\n    if a {\n        b();\n        }"
+        ),
+        "fn f() {\n    if a {\n        b();\n    }\n    x"
+    );
+    assert_eq!(
+        typed("main.rb", RUBY, "def f\n  if a\n    b\n    end"),
+        "def f\n  if a\n    b\n  end\n  x"
+    );
+    assert_eq!(
+        typed("main.py", PYTHON, "if a:\n    b\n        c"),
+        "if a:\n    b\n        c\n        x",
+        "Python's code lines are where their author put them"
+    );
 }
 
 #[test]

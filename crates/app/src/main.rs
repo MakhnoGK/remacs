@@ -54,7 +54,9 @@ use remacs_files::{FilesPlugin, keep_session_in};
 use remacs_format::FormatPlugin;
 use remacs_frame::FramePlugin;
 use remacs_git::GitPlugin;
-use remacs_languages::{GRAMMARS, INDENTS, INJECTIONS, LanguagesPlugin, PRETTIER_MODES, SERVERS};
+use remacs_languages::{
+    GRAMMARS, INDENTS, INJECTIONS, LOCALS, LanguagesPlugin, PRETTIER_MODES, SERVERS,
+};
 use remacs_lsp::{LspPlugin, keep_offers_in};
 use remacs_minibuffer::MinibufferPlugin;
 use remacs_navigation::NavigationPlugin;
@@ -86,7 +88,9 @@ const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
     &DiredPlugin,
     &GitPlugin,
     &LanguagesPlugin,
-    &SyntaxPlugin::new(GRAMMARS, INJECTIONS).with_indents(INDENTS),
+    &SyntaxPlugin::new(GRAMMARS, INJECTIONS)
+        .with_indents(INDENTS)
+        .with_locals(LOCALS),
     &DiagnosticsPlugin,
     // Before the run plugin, which then shows in the same pass what the debugger did.
     &DebugPlugin,
