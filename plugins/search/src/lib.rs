@@ -22,7 +22,9 @@ pub struct SearchPlugin;
 #[rustfmt::skip]
 const COMMANDS: &[Command] = &[
     Command::new(lines::SEARCH, "Search the buffer, listing the lines that match", lines::search),
+    Command::new(lines::SEARCH_REGEXP, "Search the buffer for a regexp, listing the lines that match", lines::search_regexp),
     Command::new(replace::QUERY_REPLACE, "Replace text after point, asking at each match", replace::query_replace),
+    Command::new(replace::QUERY_REPLACE_REGEXP, "Replace a regexp after point, asking at each match", replace::query_replace_regexp),
     Command::new(replace::REPLACE_MATCH, "Replace this match and go to the next", replace::replace_match),
     Command::new(replace::SKIP_MATCH, "Leave this match and go to the next", replace::skip_match),
     Command::new(replace::REPLACE_ALL, "Replace this match and every one after it", replace::replace_all),
@@ -41,7 +43,9 @@ const COMMANDS: &[Command] = &[
 
 const BINDINGS: &[(&str, &str)] = &[
     ("C-s", lines::SEARCH),
+    ("C-M-s", lines::SEARCH_REGEXP),
     ("M-%", replace::QUERY_REPLACE),
+    ("C-M-%", replace::QUERY_REPLACE_REGEXP),
     ("M-s g", project::PROJECT_SEARCH),
     ("s-F", project::PROJECT_SEARCH),
     ("M-s %", project_replace::PROJECT_QUERY_REPLACE),
@@ -61,7 +65,9 @@ const EDIT_RESULTS_BINDINGS: &[(&str, &str)] = &[
 #[rustfmt::skip]
 const MENU_ITEMS: &[MenuItem] = &[
     MenuItem::new("Edit", "find", "Search…", lines::SEARCH),
+    MenuItem::new("Edit", "find", "Search Regexp…", lines::SEARCH_REGEXP),
     MenuItem::new("Edit", "find", "Replace…", replace::QUERY_REPLACE),
+    MenuItem::new("Edit", "find", "Replace Regexp…", replace::QUERY_REPLACE_REGEXP),
     MenuItem::new("Edit", "find", "Search in Project…", project::PROJECT_SEARCH),
     MenuItem::new("Edit", "find", "Replace in Project…", project_replace::PROJECT_QUERY_REPLACE),
     MenuItem::new("Edit", "find", "Edit Search Results", edit_results::EDIT_SEARCH_RESULTS).enabled_when(project::is_open),

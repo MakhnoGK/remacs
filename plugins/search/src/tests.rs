@@ -21,9 +21,14 @@ const TEXT: &str =
     "fn main() {\n    let total = sum();\n}\n\nfn sum() -> u32 {\n    Total + total\n}\n";
 
 fn editor_at(offset: usize) -> Editor {
-    let mut editor = Editor::new(&[&EditingPlugin, &MinibufferPlugin, &SearchPlugin]);
-    editor.add_buffer(Buffer::new("main.rs", Text::from(TEXT), FUNDAMENTAL_MODE));
+    let mut editor = editor_with(TEXT);
     editor.window_buffer_mut().set_point(offset);
+    editor
+}
+
+fn editor_with(text: &str) -> Editor {
+    let mut editor = Editor::new(&[&EditingPlugin, &MinibufferPlugin, &SearchPlugin]);
+    editor.add_buffer(Buffer::new("main.rs", Text::from(text), FUNDAMENTAL_MODE));
     editor
 }
 
@@ -218,8 +223,9 @@ fn matches_are_lit_and_point_follows_the_selection_until_quitting() {
 
 fn found(query: &str, text: &Text, range: Range<usize>) -> Vec<usize> {
     let mut starts = Vec::new();
-    Query::new(query).unwrap().find(text, range, |start| {
-        starts.push(start);
+    let query = Query::new(query, false).unwrap().unwrap();
+    query.find(text, range, |matched| {
+        starts.push(matched.start);
         true
     });
     starts
@@ -505,7 +511,260 @@ fn matches_across_chunks_are_found_once_each() {
     assert_eq!(found("o w", &text, 0..text.len()), [4]);
     assert_eq!(found("aa", &text, 0..text.len()), [12, 14]);
     assert_eq!(found("aa", &text, 13..text.len()), [13, 15]);
-    assert_eq!(found("aa", &text, 13..14), [] as [usize; 0]);
+    assert_eq!(found("aa", &text, 13..14), [13]);
+    assert_eq!(found("aa", &text, 14..14), [] as [usize; 0]);
+}
+
+fn found_regexp(pattern: &str, text: &Text, range: Range<usize>) -> Vec<Range<usize>> {
+    let mut matches = Vec::new();
+    let query = Query::new(pattern, true).unwrap().unwrap();
+    query.find(text, range, |matched| {
+        matches.push(matched);
+        true
+    });
+    matches
+}
+
+#[test]
+fn a_regexp_is_found_across_pieces_seeing_the_lines_around_its_range() {
+    let mut text = Text::from("let a1 = 2;\nb22");
+    text.insert(text.len(), "3 = a1;\n");
+    assert_eq!(
+        found_regexp(r"[a-z]\d+", &text, 0..text.len()),
+        [4..6, 12..16, 19..21]
+    );
+    assert_eq!(
+        found_regexp(r"^\w", &text, 1..text.len()),
+        std::slice::from_ref(&(12..13))
+    );
+    assert_eq!(
+        found_regexp(r"\b\d", &text, 5..text.len()),
+        std::slice::from_ref(&(9..10))
+    );
+    assert_eq!(
+        found_regexp("$", &text, 0..text.len()),
+        [11..11, 22..22, 23..23]
+    );
+
+    let text = Text::from(TEXT);
+    let total = TEXT.find("Total").unwrap();
+    assert_eq!(
+        found_regexp(r"\WTotal", &text, 0..TEXT.len()),
+        std::slice::from_ref(&(total - 1..total + 5))
+    );
+    assert_eq!(found_regexp(r"\Wtotal\b", &text, 0..TEXT.len()).len(), 3);
+    assert_eq!(
+        Query::new("sum(", true).err().as_deref(),
+        Some("Invalid regexp: unclosed group")
+    );
+}
+
+#[test]
+fn a_regexp_finds_what_the_regex_crate_finds_in_long_lines_and_small_pieces() {
+    // Lines longer than a searched block and than a match is looked for in.
+    let line: String = (0..20_000).map(|n| format!("x{n} aa ")).collect();
+    let source = format!("{line}\nshort a1 é1\n\n{line}");
+    let chars: Vec<char> = source.chars().collect();
+    let mut pieces = Text::from("");
+    for chunk in chars.chunks(997).rev() {
+        pieces.insert(0, &chunk.iter().collect::<String>());
+    }
+    for pattern in [r"\d+", r"\ba+", "^", "$", "a*", r"é\w", r"\d\n"] {
+        // On `str`, whose empty matches never split a character, as an edit there would.
+        let expected: Vec<_> = regex::RegexBuilder::new(pattern)
+            .case_insensitive(true)
+            .multi_line(true)
+            .build()
+            .unwrap()
+            .find_iter(&source)
+            .map(|found| found.range())
+            .collect();
+        for text in [&Text::from(source.as_str()), &pieces] {
+            assert_eq!(
+                found_regexp(pattern, text, 0..text.len()),
+                expected,
+                "{pattern}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_regexp_search_lists_its_lines_and_m_r_switches_to_literal_text() {
+    let mut editor = editor_at(0);
+    press(&mut editor, "C-M-s");
+    type_text(&mut editor, r"fn \w+\(\)");
+    assert_eq!(
+        listed(&editor),
+        [
+            ("1".into(), "fn main() {".into()),
+            ("5".into(), "fn sum() -> u32 {".into()),
+        ]
+    );
+    assert_eq!(
+        lit(&editor),
+        [(0, true), (TEXT.find("fn sum").unwrap(), false)]
+    );
+
+    press(&mut editor, "M-r");
+    assert!(listed(&editor).is_empty());
+    assert!(lit(&editor).is_empty());
+
+    press(&mut editor, "C-a C-k");
+    type_text(&mut editor, "sum(");
+    assert_eq!(listed(&editor).len(), 2);
+    press(&mut editor, "M-r");
+    assert!(listed(&editor).is_empty());
+    assert_eq!(
+        editor.minibuffer().unwrap().note(),
+        Some("Invalid regexp: unclosed group")
+    );
+
+    // The spaces a line is shown without may be part of its match.
+    let mut editor = editor_at(0);
+    press(&mut editor, "C-M-s");
+    type_text(&mut editor, r"^\s+let");
+    let candidate = &editor.minibuffer().unwrap().candidates()[0];
+    assert_eq!(candidate.label, "let total = sum();");
+    assert_eq!(candidate.matches, std::slice::from_ref(&(0..3)));
+}
+
+#[test]
+fn a_replacement_naming_a_group_the_regexp_lacks_is_refused() {
+    let query = Query::new(r"(?<name>\w+) (\d)", true).unwrap().unwrap();
+    for to in ["$1 ${2}x", "${name}-$0", "$$1_x", "cost: $", "${unclosed"] {
+        assert_eq!(query.check_replacement(to), Ok(()), "{to}");
+    }
+    assert_eq!(
+        query.check_replacement("$1_new"),
+        Err("No group “1_new” in the regexp; braces end a group's number, as in ${1}_new".into())
+    );
+    assert_eq!(
+        query.check_replacement("${3}"),
+        Err("No group “3” in the regexp".into())
+    );
+
+    let mut editor = editor_at(0);
+    press(&mut editor, "C-M-%");
+    type_text(&mut editor, r"fn (\w+)\(");
+    press(&mut editor, "RET");
+    type_text(&mut editor, "fn $1_new(");
+    press(&mut editor, "RET");
+    assert_eq!(editor.minibuffer().unwrap().input_text(), "fn $1_new(");
+    assert!(editor.echo().unwrap().starts_with("No group “1_new”"));
+    assert_eq!(contents(&editor), TEXT);
+}
+
+#[test]
+fn a_regexp_sees_crlf_line_ends_in_project_files() {
+    let words = crate::words::Words::regex(";$").unwrap().unwrap();
+    let mut lines = Vec::new();
+    words.lines(b"a;\r\nb\r\nc;\n", &mut Vec::new(), |range| {
+        lines.push(range);
+        true
+    });
+    assert_eq!(lines, [0..3, 7..9]);
+}
+
+#[test]
+fn replacing_all_agrees_with_one_at_a_time_and_takes_groups_as_found() {
+    for keys in ["y y", "!"] {
+        let mut editor = editor_with("aab");
+        press(&mut editor, "C-M-%");
+        type_text(&mut editor, "a*");
+        assert_eq!(editor.minibuffer().unwrap().note(), Some("2 matches"));
+        press(&mut editor, "RET X RET");
+        press(&mut editor, keys);
+        assert_eq!(contents(&editor), "XbX", "{keys}");
+    }
+
+    // A match cut where the search stopped looking is replaced whole, not lost.
+    let mut editor = editor_with(&"a".repeat(300_000));
+    press(&mut editor, "C-M-%");
+    type_text(&mut editor, "a+");
+    press(&mut editor, "RET");
+    type_text(&mut editor, "[$0]");
+    press(&mut editor, "RET !");
+    let replaced = contents(&editor);
+    assert_eq!(replaced.matches('a').count(), 300_000);
+    assert!(replaced.starts_with("[a") && replaced.ends_with("a]"));
+
+    // Copied alone, the match would let `ab$` match where `a` was found.
+    let mut editor = editor_with("abc");
+    press(&mut editor, "C-M-%");
+    type_text(&mut editor, "ab$|a");
+    press(&mut editor, "RET");
+    type_text(&mut editor, "[$0]");
+    press(&mut editor, "RET !");
+    assert_eq!(contents(&editor), "[a]bc");
+}
+
+#[test]
+fn a_regexp_is_replaced_with_its_groups_and_empty_matches_are_passed_once() {
+    let mut editor = editor_at(0);
+    press(&mut editor, "C-M-%");
+    type_text(&mut editor, r"(\w+) \+ (\w+)");
+    assert_eq!(editor.minibuffer().unwrap().note(), Some("1 match"));
+    press(&mut editor, "RET");
+    type_text(&mut editor, "$2 + ${1}");
+    press(&mut editor, "RET y");
+    assert!(contents(&editor).contains("    total + Total\n"));
+    assert_eq!(editor.echo().as_deref(), Some("Replaced 1 occurrence"));
+
+    let mut editor = editor_at(0);
+    press(&mut editor, "C-M-%");
+    type_text(&mut editor, "^");
+    press(&mut editor, "RET");
+    type_text(&mut editor, "// ");
+    press(&mut editor, "RET y n y q");
+    assert!(contents(&editor).starts_with("// fn main() {\n    let total = sum();\n// }\n\n"));
+    assert_eq!(editor.echo().as_deref(), Some("Replaced 2 occurrences"));
+}
+
+#[test]
+fn the_project_is_searched_and_replaced_by_a_regexp_with_its_groups() {
+    let root = project("regexp");
+    let mut editor = Editor::new(&[&EditingPlugin, &MinibufferPlugin, &SearchPlugin]);
+    editor.visit_file(&root.join("src/main.rs")).unwrap();
+    press(&mut editor, "M-s g M-r");
+    type_text(&mut editor, r"fn open\w*");
+    assert_eq!(
+        wait_for_lines(&mut editor),
+        [
+            (
+                "src/io.rs".into(),
+                "1".into(),
+                "pub fn open_file() {}".into()
+            ),
+            ("src/io.rs".into(), "2".into(), "fn open() {}".into()),
+        ]
+    );
+    type_text(&mut editor, "(");
+    assert_eq!(
+        editor.minibuffer().unwrap().note(),
+        Some("Invalid regexp: unclosed group")
+    );
+    press(&mut editor, "C-g M-s % M-r");
+    type_text(&mut editor, r"fn (\w+)\(\)");
+    press(&mut editor, "RET");
+    type_text(&mut editor, "fn ${1}_new()");
+    press(&mut editor, "RET");
+    wait_for_match(&mut editor);
+    press(&mut editor, "A");
+    wait_for_match(&mut editor);
+    assert_eq!(
+        editor.echo().as_deref(),
+        Some("Replaced 3 occurrences in 2 files")
+    );
+    assert_eq!(
+        read(&root, "src/main.rs"),
+        "fn main_new() {\n    let file = open(\"a\");\n}\n"
+    );
+    assert_eq!(
+        read(&root, "src/io.rs"),
+        "pub fn open_file_new() {}\nfn open_new() {}\n"
+    );
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

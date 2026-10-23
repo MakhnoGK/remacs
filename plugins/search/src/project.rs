@@ -1,8 +1,10 @@
 //! Searching the text of the whole project, the matching lines listed by file in a prompt
 //! like the other searches, like Emacs `consult-ripgrep`.
 
+use std::cell::Cell;
 use std::mem;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::Arc;
 
 use remacs_core::{Candidate, CommandResult, Completions, Count, Editor, Prompt, Section};
@@ -12,6 +14,7 @@ use remacs_files::{
 use serde::Deserialize;
 
 use crate::project_preview::{Place, Preview, go_to};
+use crate::query::{note, regexp_option};
 use crate::scan::{Job, Scan};
 use crate::words::Words;
 
@@ -54,8 +57,11 @@ struct ProjectSearch {
     root: PathBuf,
     index: Option<Arc<FileIndex>>,
     max_lines: usize,
-    /// What the running search is for.
+    /// The prompt's regexp switch.
+    regex: Rc<Cell<bool>>,
+    /// What the running search is for: the input, and whether it is a regular expression.
     input: String,
+    input_is_regex: bool,
     files: Option<Arc<Vec<String>>>,
     /// The files searched are all the project's, not those cached or none while its
     /// first scan runs.
@@ -88,8 +94,9 @@ pub fn project_search(editor: &mut Editor) -> CommandResult {
 }
 
 /// Opens `prompt` listing the project's lines that have what is typed, grouped by file,
-/// the window showing the one selected: every word, or with `phrase`, the whole input.
-/// The project's root is shown by the input.
+/// the window showing the one selected: every word, or with `phrase`, the whole input, or
+/// once switched by `M-r`, a match of it as a regular expression. The project's root is
+/// shown by the input.
 pub fn read_lines(
     editor: &mut Editor,
     prompt: Prompt,
@@ -101,10 +108,12 @@ pub fn read_lines(
     let max_lines = editor
         .settings_section::<SearchSettings>()
         .project_max_matches;
+    let regex = Rc::new(Cell::new(false));
     let prompt = Prompt {
         directory: with_slash(&abbreviate_home(&root)),
         count: Count::Position,
         wide: true,
+        options: vec![regexp_option(&regex)],
         ..prompt
     };
     let preview = Preview::begin(editor);
@@ -114,17 +123,24 @@ pub fn read_lines(
         root,
         index: Some(index),
         max_lines,
+        regex,
         preview,
         ..ProjectSearch::default()
     };
     editor.read(prompt, candidates, on_answer)
 }
 
-/// The project searched by the open prompt, its files, and what was typed.
-pub fn searched(editor: &Editor) -> Option<(PathBuf, Arc<FileIndex>, String)> {
+/// The project searched by the open prompt, its files, what was typed and whether it is
+/// a regular expression.
+pub fn searched(editor: &Editor) -> Option<(PathBuf, Arc<FileIndex>, String, bool)> {
     let state = editor.find_plugin_state::<ProjectSearch>()?;
     let index = Arc::clone(state.index.as_ref()?);
-    Some((state.root.clone(), index, state.input.clone()))
+    Some((
+        state.root.clone(),
+        index,
+        state.input.clone(),
+        state.input_is_regex,
+    ))
 }
 
 /// Whether the open prompt lists the project's lines.
@@ -214,14 +230,18 @@ fn search(editor: &mut Editor, input: String) {
         .files
         .as_ref()
         .is_some_and(|searched| Arc::ptr_eq(searched, &files));
-    if state.input == input && same_files {
+    let regex = state.regex.get();
+    if state.input == input && state.input_is_regex == regex && same_files {
         return;
     }
     let root = state.root.clone();
     let unsaved = unsaved_buffers(editor, &root);
     let notifier = editor.notifier();
     let state = editor.plugin_state::<ProjectSearch>();
-    let words = if state.phrase {
+    // An invalid regular expression finds nothing, the prompt saying why.
+    let words = if regex {
+        Words::regex(&input).ok().flatten()
+    } else if state.phrase {
         Words::phrase(&input)
     } else {
         Words::new(&input)
@@ -239,6 +259,7 @@ fn search(editor: &mut Editor, input: String) {
         Scan::start(job, notifier)
     });
     state.input = input;
+    state.input_is_regex = regex;
     state.files = Some(files);
     state.all_files = all_files;
 }
@@ -261,6 +282,11 @@ fn candidates(editor: &Editor, input: &str) -> Completions {
     let Some(state) = editor.find_plugin_state::<ProjectSearch>() else {
         return Completions::default();
     };
+    if state.regex.get()
+        && let Err(error) = Words::regex(input)
+    {
+        return note(error);
+    }
     let Some(scan) = &state.scan else {
         return Completions::default();
     };

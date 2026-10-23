@@ -15,6 +15,7 @@ use memmap2::Mmap;
 use remacs_core::Notifier;
 use remacs_text::{Snapshot, open_regular_file};
 
+use crate::query::trimmed;
 use crate::words::Words;
 
 /// Smaller files are read into memory rather than mapped.
@@ -222,11 +223,13 @@ fn hit(words: &Words, line: usize, text: &str) -> Hit {
         0
     };
     let to = boundary((from + MAX_LABEL).min(text.len()));
-    let label = text[from..to].trim().to_owned();
+    let shown = &text[from..to];
+    // Matched before trimming, as the spaces may be part of a match.
+    let (label, matches) = trimmed(shown, words.ranges_in(shown));
     Hit {
         line,
         column,
-        matches: words.ranges_in(&label),
+        matches,
         label,
     }
 }
