@@ -16,22 +16,24 @@ const GRAMMARS: &[Grammar] = &[
     Grammar {
         mode: "Rust",
         language: tree_sitter_rust::LANGUAGE,
-        highlights: &[tree_sitter_rust::HIGHLIGHTS_QUERY],
+        highlights: &[include_str!("../../languages/queries/rust/highlights.scm")],
     },
     Grammar {
         mode: "JavaScript",
         language: tree_sitter_javascript::LANGUAGE,
-        highlights: &[tree_sitter_javascript::HIGHLIGHT_QUERY],
+        highlights: &[include_str!(
+            "../../languages/queries/ecmascript/highlights.scm"
+        )],
     },
     Grammar {
         mode: "HTML",
         language: tree_sitter_html::LANGUAGE,
-        highlights: &[tree_sitter_html::HIGHLIGHTS_QUERY],
+        highlights: &[include_str!("../../languages/queries/html/highlights.scm")],
     },
 ];
 const INJECTIONS: &[Injections] = &[Injections {
     host: "HTML",
-    query: tree_sitter_html::INJECTIONS_QUERY,
+    query: include_str!("../../languages/queries/html/injections.scm"),
     documents: true,
 }];
 static SYNTAX: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS, INJECTIONS);

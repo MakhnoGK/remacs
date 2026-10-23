@@ -11,6 +11,7 @@ mod snippet;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+pub use highlighter::known_capture;
 use remacs_core::{Command, Hook, MenuItem, Plugin, Registry, Section};
 use serde::Deserialize;
 pub use tree_sitter_language::LanguageFn;

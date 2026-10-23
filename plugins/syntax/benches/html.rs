@@ -19,17 +19,19 @@ const GRAMMARS: &[Grammar] = &[
     Grammar {
         mode: "HTML",
         language: tree_sitter_html::LANGUAGE,
-        highlights: &[tree_sitter_html::HIGHLIGHTS_QUERY],
+        highlights: &[include_str!("../../languages/queries/html/highlights.scm")],
     },
     Grammar {
         mode: "JavaScript",
         language: tree_sitter_javascript::LANGUAGE,
-        highlights: &[tree_sitter_javascript::HIGHLIGHT_QUERY],
+        highlights: &[include_str!(
+            "../../languages/queries/ecmascript/highlights.scm"
+        )],
     },
     Grammar {
         mode: "CSS",
         language: tree_sitter_css::LANGUAGE,
-        highlights: &[tree_sitter_css::HIGHLIGHTS_QUERY],
+        highlights: &[include_str!("../../languages/queries/css/highlights.scm")],
     },
 ];
 /// The kinds of injection `remacs-languages` has: combined blocks, combined attributes with

@@ -14,7 +14,7 @@ static ALLOC: divan::AllocProfiler = divan::AllocProfiler::system();
 const GRAMMARS: &[Grammar] = &[Grammar {
     mode: "Rust",
     language: tree_sitter_rust::LANGUAGE,
-    highlights: &[tree_sitter_rust::HIGHLIGHTS_QUERY],
+    highlights: &[include_str!("../../languages/queries/rust/highlights.scm")],
 }];
 static SYNTAX: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS, &[]);
 
