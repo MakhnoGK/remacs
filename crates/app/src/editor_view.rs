@@ -155,6 +155,9 @@ struct WindowState {
     sideways: SmoothScroll,
     /// The buffer the scrolls follow; another one is shown at once.
     scrolled_buffer: String,
+    /// The lines folds hid in it; folded or unfolded, it is shown at once, rows having
+    /// moved under the text without it scrolling.
+    scrolled_hidden: usize,
     /// Commits of an outline's history drawn past the first one the plugin shows, and
     /// where the wheel scrolled it to; the plugin moves its first one by whole commits.
     history: Glide,

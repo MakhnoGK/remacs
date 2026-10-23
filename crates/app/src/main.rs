@@ -54,7 +54,9 @@ use remacs_files::{FilesPlugin, keep_session_in};
 use remacs_format::FormatPlugin;
 use remacs_frame::FramePlugin;
 use remacs_git::GitPlugin;
-use remacs_languages::{GRAMMARS, INJECTIONS, LanguagesPlugin, PRETTIER_MODES, SERVERS};
+use remacs_languages::{
+    GRAMMARS, INDENTS, INJECTIONS, LOCALS, LanguagesPlugin, PRETTIER_MODES, SERVERS,
+};
 use remacs_lsp::{LspPlugin, keep_offers_in};
 use remacs_minibuffer::MinibufferPlugin;
 use remacs_navigation::NavigationPlugin;
@@ -62,7 +64,7 @@ use remacs_prettier::PrettierPlugin;
 use remacs_rename::RenamePlugin;
 use remacs_run::{RunPlugin, keep_configurations_in};
 use remacs_search::SearchPlugin;
-use remacs_syntax::SyntaxPlugin;
+use remacs_syntax::{SyntaxPlugin, keep_queries_in};
 use remacs_terminal::TerminalPlugin;
 use remacs_tools::{ToolsPlugin, keep_tools_in};
 use remacs_xref::XrefPlugin;
@@ -86,7 +88,9 @@ const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
     &DiredPlugin,
     &GitPlugin,
     &LanguagesPlugin,
-    &SyntaxPlugin::new(GRAMMARS, INJECTIONS),
+    &SyntaxPlugin::new(GRAMMARS, INJECTIONS)
+        .with_indents(INDENTS)
+        .with_locals(LOCALS),
     &DiagnosticsPlugin,
     // Before the run plugin, which then shows in the same pass what the debugger did.
     &DebugPlugin,
@@ -151,6 +155,7 @@ fn main() -> ExitCode {
         keep_tools_in(&mut editor, &home);
         keep_offers_in(&mut editor, &home);
         keep_breakpoints_in(&mut editor, &home);
+        keep_queries_in(&mut editor, &home);
         let session = state_dir(&home).join("session.json");
         keep_session_in(&mut editor, session, path.as_deref());
     }

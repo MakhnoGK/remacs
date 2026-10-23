@@ -262,3 +262,59 @@ extensions = ["nix"]
 interpreters = ["nix-shell"]
 pairs = ["()", "[]", "{}", '""']
 comment = "# "
+
+[[languages]]
+name = "Kotlin"
+extensions = ["kt", "kts"]
+interpreters = ["kotlin"]
+aliases = ["kt"]
+pairs = ["()", "[]", "{}", '""', "''"]
+comment = "// "
+
+[[languages]]
+name = "HCL"
+extensions = ["hcl", "tf", "tfvars"]
+aliases = ["terraform"]
+pairs = ["()", "[]", "{}", '""']
+comment = "# "
+
+[[languages]]
+name = "GraphQL"
+extensions = ["graphql", "graphqls", "gql"]
+pairs = ["()", "[]", "{}", '""']
+comment = "# "
+
+[[languages]]
+name = "Protobuf"
+extensions = ["proto"]
+aliases = ["proto", "protobuf"]
+pairs = ["()", "[]", "{}", "<>", '""', "''"]
+comment = "// "
+
+[[languages]]
+name = "SCSS"
+extensions = ["scss"]
+pairs = ["()", "[]", "{}", '""', "''"]
+comment = "// "
+
+[[languages]]
+name = "Vue"
+extensions = ["vue"]
+pairs = ["()", "[]", "{}", "<>", '""', "''", "``"]
+comment = "<!-- "
+comment-end = " -->"
+
+[[languages]]
+name = "Svelte"
+extensions = ["svelte"]
+pairs = ["()", "[]", "{}", "<>", '""', "''", "``"]
+comment = "<!-- "
+comment-end = " -->"
+
+# Git's own files of a commit, a merge or a tag being written, as `$EDITOR` gets them.
+[[languages]]
+name = "Git Commit"
+file-names = ["COMMIT_EDITMSG", "MERGE_MSG", "TAG_EDITMSG", "SQUASH_MSG"]
+aliases = ["gitcommit", "git-commit"]
+pairs = ["()", "[]", "{}", "``"]
+comment = "# "

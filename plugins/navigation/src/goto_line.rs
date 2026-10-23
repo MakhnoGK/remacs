@@ -23,9 +23,7 @@ pub(crate) fn goto_line(editor: &mut Editor) -> CommandResult {
             editor.window_buffer_mut().push_mark();
             editor.set_point_at(line, column);
             let line = editor.window_buffer().point_line();
-            if !editor.viewport.contains(line) {
-                editor.viewport.center_on(line);
-            }
+            editor.show_line(line);
             Ok(())
         },
     )

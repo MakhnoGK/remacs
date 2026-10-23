@@ -1411,12 +1411,13 @@ fn wants(editor: &Editor, index: usize, servers: &'static [LanguageServer]) -> V
                 embedded: Some(Embedded {
                     mode: mirror.mode,
                     ranges: mirror.ranges.clone(),
+                    servers: true,
                 }),
             })
         }));
         return wants;
     };
-    for code in embedded {
+    for code in embedded.into_iter().filter(|code| code.servers) {
         let document = editor.embedded_document(path, code.mode);
         for (server, language) in wanted(servers, clients, code.mode, &document) {
             wants.push(Want {

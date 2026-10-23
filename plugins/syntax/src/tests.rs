@@ -16,23 +16,26 @@ const GRAMMARS: &[Grammar] = &[
     Grammar {
         mode: "Rust",
         language: tree_sitter_rust::LANGUAGE,
-        highlights: &[tree_sitter_rust::HIGHLIGHTS_QUERY],
+        highlights: &[include_str!("../../languages/queries/rust/highlights.scm")],
     },
     Grammar {
         mode: "JavaScript",
         language: tree_sitter_javascript::LANGUAGE,
-        highlights: &[tree_sitter_javascript::HIGHLIGHT_QUERY],
+        highlights: &[include_str!(
+            "../../languages/queries/ecmascript/highlights.scm"
+        )],
     },
     Grammar {
         mode: "HTML",
         language: tree_sitter_html::LANGUAGE,
-        highlights: &[tree_sitter_html::HIGHLIGHTS_QUERY],
+        highlights: &[include_str!("../../languages/queries/html/highlights.scm")],
     },
 ];
 const INJECTIONS: &[Injections] = &[Injections {
     host: "HTML",
-    query: tree_sitter_html::INJECTIONS_QUERY,
+    query: include_str!("../../languages/queries/html/injections.scm"),
     documents: true,
+    servers: true,
 }];
 static SYNTAX: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS, INJECTIONS);
 
@@ -66,6 +69,83 @@ fn wait_for(editor: &mut Editor, face: (&str, Face)) -> Vec<(String, Face)> {
         thread::sleep(Duration::from_millis(5));
     }
     panic!("no {face:?} in {:?}", faces(editor));
+}
+
+#[test]
+fn a_mode_without_a_grammar_reads_its_comments_strings_and_numbers() {
+    use remacs_core::{CommentSyntax, Mode, Plugin, Registry};
+    struct Lisp;
+    impl Plugin for Lisp {
+        fn register(&self, registry: &mut Registry) {
+            registry.modes.add(Mode {
+                name: "Lisp",
+                pairs: &[('(', ')'), ('"', '"')],
+                comment: Some(CommentSyntax {
+                    start: "; ",
+                    end: "",
+                }),
+                ..Mode::default()
+            });
+        }
+    }
+    let mut editor = Editor::new(&[&SYNTAX, &Lisp]);
+    let source = "(f \"s;\" 12) ; TODO c\n";
+    editor.add_buffer(Buffer::new("x.el", Text::from(source), "Lisp"));
+    editor.refresh();
+    assert_eq!(
+        faces(&editor),
+        [
+            ("\"s;\"".into(), Face::String),
+            ("12".into(), Face::Constant),
+            ("; ".into(), Face::Comment),
+            ("TODO".into(), Face::Keyword),
+            (" c".into(), Face::Comment),
+        ]
+    );
+
+    // A line of megabytes is read only where it shows.
+    let long = "(f \"s\" 1) ".repeat(100_000);
+    editor.add_buffer(Buffer::new("long.el", Text::from(long.as_str()), "Lisp"));
+    editor.refresh();
+    let spans = editor.decorations(0..22).concat();
+    assert_eq!(spans.len(), 4, "{spans:?}");
+    assert!(spans.iter().all(|span| span.range.end <= 22), "{spans:?}");
+}
+
+#[test]
+fn queries_of_ones_own_extend_or_replace_remacss() {
+    let home = std::env::temp_dir().join(format!("remacs-queries-{}", std::process::id()));
+    let write = |mode: &str, query: &str| {
+        let dir = home.join("queries").join(mode);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("highlights.scm"), query).unwrap();
+    };
+    // Matched by mode, ignoring case; `; extends` keeps remacs's patterns.
+    write(
+        "rust",
+        "; extends\n((identifier) @constant (#eq? @constant \"answer\"))\n",
+    );
+    // Finder's files beside them are no modes.
+    std::fs::write(home.join("queries").join(".DS_Store"), "").unwrap();
+    let mut editor = rust_editor("fn f() { answer(); }\n");
+    editor.set_settings(Default::default());
+    crate::keep_queries_in(&mut editor, &home);
+    assert!(editor.message().is_none(), "{:?}", editor.message());
+    wait_for(&mut editor, ("answer", Face::Constant));
+    wait_for(&mut editor, ("fn", Face::Keyword));
+
+    // Without it they take remacs's place; one that does not compile is named, and
+    // remacs's own stays.
+    write("rust", "((identifier) @keyword)\n");
+    editor.run_command(crate::queries::RELOAD);
+    let faces = wait_for(&mut editor, ("f", Face::Keyword));
+    assert!(!faces.contains(&("fn".into(), Face::Keyword)), "{faces:?}");
+    write("rust", "((no_such_node) @keyword)\n");
+    editor.run_command(crate::queries::RELOAD);
+    let error = editor.message().unwrap().text.clone();
+    assert!(error.starts_with("queries/rust/highlights.scm:"), "{error}");
+    wait_for(&mut editor, ("fn", Face::Keyword));
+    std::fs::remove_dir_all(home).unwrap();
 }
 
 #[test]

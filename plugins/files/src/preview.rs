@@ -53,9 +53,7 @@ impl FilePreview {
         buffer.deactivate_mark();
         buffer.set_point(offset);
         let line = buffer.point_line();
-        if !editor.viewport.contains(line) {
-            editor.viewport.center_on(line);
-        }
+        editor.show_line(line);
         Ok(())
     }
 

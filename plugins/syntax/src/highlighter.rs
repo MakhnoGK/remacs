@@ -6,49 +6,38 @@ use remacs_text::Snapshot;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Language, Node, Query, QueryCursor, QueryError, TextProvider, Tree};
 
-/// Capture names, most specific first, and the faces they get; other captures
-/// (`@variable`, `@property`, `@punctuation`…) keep the default color. Older grammars
-/// use nvim-treesitter's former names (`@conditional`, `@text.title`…) and markup ones.
+/// The capture names of remacs's queries (`plugins/languages/queries`, ADR 0081), most
+/// specific first, and the faces they get; a name matches its dotted extensions too
+/// (`function.call` is a `function`). Others keep the default color.
 const FACES: &[(&str, Face)] = &[
-    ("comment.documentation", Face::Docstring),
     ("comment.doc", Face::Docstring),
     ("comment", Face::Comment),
     ("string", Face::String),
-    ("escape", Face::String),
-    ("character", Face::String),
-    ("text.literal", Face::String),
     ("markup.raw", Face::String),
     ("keyword", Face::Keyword),
-    ("conditional", Face::Keyword),
-    ("repeat", Face::Keyword),
-    ("include", Face::Keyword),
-    ("exception", Face::Keyword),
-    ("storageclass", Face::Keyword),
     ("variable.builtin", Face::Keyword),
-    ("text.title", Face::Keyword),
     ("markup.heading", Face::Keyword),
     ("type", Face::Type),
-    ("constructor", Face::Type),
     ("function.macro", Face::Builtin),
     ("function.builtin", Face::Builtin),
     ("attribute", Face::Builtin),
     ("preproc", Face::Builtin),
     ("function", Face::Function),
-    ("method", Face::Function),
     ("tag", Face::Function),
+    // Keys of data files.
+    ("property", Face::Function),
+    ("diff.plus", Face::Added),
+    ("diff.minus", Face::Removed),
     ("constant", Face::Constant),
     ("number", Face::Constant),
-    ("float", Face::Constant),
     ("boolean", Face::Constant),
     ("label", Face::Constant),
-    ("text.uri", Face::Constant),
-    ("text.reference", Face::Constant),
     ("markup.link", Face::Constant),
 ];
 
 /// Code interpolated into strings (`${…}`, `#{…}`, f-strings' `{…}`) is captured so,
 /// and drawn in the default color rather than the string's.
-const CODE_CAPTURES: &[&str] = &["embedded", "none"];
+const CODE_CAPTURE: &str = "embedded";
 
 /// Strings whose `{…}` placeholders hold code, like Rust's format strings.
 const FORMAT_STRING_CAPTURE: &str = "string.format";
@@ -130,8 +119,16 @@ fn face_for(capture_name: &str) -> Option<Face> {
     })
 }
 
+/// Whether a highlight query's capture is one of the scheme's, or a `_`-named one that
+/// only predicates read; anything else would be a typo drawn in the default color.
+pub fn known_capture(capture_name: &str) -> bool {
+    capture_name.starts_with('_')
+        || [CODE_CAPTURE, FORMAT_STRING_CAPTURE].contains(&capture_name)
+        || face_for(capture_name).is_some()
+}
+
 fn paint_for(capture_name: &str) -> Paint {
-    if CODE_CAPTURES.contains(&capture_name) {
+    if capture_name == CODE_CAPTURE {
         return Paint::Plain;
     }
     face_for(capture_name).map_or(Paint::Inherit, Paint::Face)
@@ -219,8 +216,8 @@ mod tests {
 
     #[test]
     fn capture_names_match_by_dotted_prefix() {
-        assert_eq!(face_for("comment.documentation"), Some(Face::Docstring));
-        assert_eq!(face_for("function.method"), Some(Face::Function));
+        assert_eq!(face_for("comment.doc"), Some(Face::Docstring));
+        assert_eq!(face_for("function.call"), Some(Face::Function));
         assert_eq!(face_for("type.builtin"), Some(Face::Type));
         assert_eq!(face_for("typed"), None);
         assert_eq!(face_for("variable"), None);

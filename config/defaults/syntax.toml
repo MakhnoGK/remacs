@@ -1,4 +1,10 @@
 # Parsing and highlighting code. Changes apply as soon as the file is saved.
+#
+# Highlight queries of one's own go in ~/.config/remacs/queries/<mode>/highlights.scm, the
+# mode named as the mode line shows it, ignoring case. One whose first line is `; extends`
+# follows remacs's patterns, so its own win; any other takes remacs's place. They are read
+# at start and on M-x reload-syntax-queries; one that does not compile is named, and
+# remacs's stays.
 
 # Whether the bracket at point, or the tag point is on (HTML, XML, JSX), is highlighted
 # with the one it pairs with.
@@ -8,3 +14,10 @@ matching-pairs = true
 # <script>, is parsed as its own language: highlighted, commented, paired and formatted as
 # such, and sent to its servers. Off, it is the file's language throughout.
 embedded-languages = true
+
+# Words highlighted where they stand whole in a comment, like Emacs hl-todo; [] for none.
+todo-keywords = ["TODO", "FIXME", "XXX", "HACK", "BUG", "NOTE"]
+
+# Whether a function's parameters and local variables are highlighted, in the theme's
+# variable color, where they are defined and wherever the function uses them.
+local-variables = true

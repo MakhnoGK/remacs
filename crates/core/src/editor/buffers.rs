@@ -352,7 +352,11 @@ mod tests {
         std::os::unix::fs::symlink(&file, &link).unwrap();
 
         let mut editor = Editor::new(&[]);
-        for refused in [fifo.as_path(), Path::new("/dev/zero"), Path::new("/dev/null")] {
+        for refused in [
+            fifo.as_path(),
+            Path::new("/dev/zero"),
+            Path::new("/dev/null"),
+        ] {
             let error = editor.visit_file(refused).unwrap_err();
             assert_eq!(error.kind(), io::ErrorKind::InvalidInput, "{refused:?}");
             assert!(error.to_string().ends_with("is not a regular file"));

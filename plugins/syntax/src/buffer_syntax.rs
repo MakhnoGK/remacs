@@ -6,8 +6,10 @@ use remacs_core::{Buffer, Editor, Embedded, Span, SyntaxContext};
 use remacs_text::{Edit, Snapshot};
 use tree_sitter::{InputEdit, Point, Tree};
 
+use crate::fallback::{self, Fallback};
 use crate::highlighter::Highlighter;
 use crate::parser_thread::{Layer, ParseSlot, ParserThread, Request};
+use crate::queries::{Queries, UserQueries};
 use crate::{Grammar, Injections};
 
 /// Larger texts stay unparsed: a full parse would take seconds and its tree hundreds of MiB.
@@ -20,6 +22,7 @@ struct BufferSyntax {
     grammar: &'static Grammar,
     grammars: &'static [Grammar],
     injections: &'static [Injections],
+    queries: UserQueries,
     /// The text the trees match.
     snapshot: Snapshot,
     tree: Option<Tree>,
@@ -35,12 +38,14 @@ impl BufferSyntax {
         grammar: &'static Grammar,
         grammars: &'static [Grammar],
         injections: &'static [Injections],
+        queries: UserQueries,
         snapshot: Snapshot,
     ) -> Self {
         Self {
             grammar,
             grammars,
             injections,
+            queries,
             snapshot,
             tree: None,
             highlighter: None,
@@ -59,6 +64,7 @@ impl BufferSyntax {
             grammar: self.grammar,
             grammars: self.grammars,
             injections: self.injections,
+            queries: Arc::clone(&self.queries),
             snapshot: self.snapshot.clone(),
             tree: self.tree.clone(),
             layers: self.layers.clone(),
@@ -111,6 +117,8 @@ pub(crate) fn sync(
     grammars: &'static [Grammar],
     injections: &'static [Injections],
 ) {
+    let queries = Arc::clone(&editor.plugin_state::<Queries>().highlights);
+    let mode = editor.mode(editor.window_buffer().mode()).copied();
     let buffer = editor.window_buffer_mut();
     let grammar = grammars
         .iter()
@@ -118,17 +126,31 @@ pub(crate) fn sync(
         .filter(|_| buffer.text().len() <= MAX_PARSED_BYTES);
     let Some(grammar) = grammar else {
         buffer.remove_local::<BufferSyntax>();
+        let stale = buffer
+            .local::<Fallback>()
+            .is_none_or(|fallback| fallback.mode != buffer.mode());
+        if stale {
+            match mode.as_ref().and_then(Fallback::of) {
+                Some(fallback) => {
+                    buffer.set_local(fallback);
+                }
+                None => buffer.remove_local::<Fallback>(),
+            }
+        }
         return;
     };
+    buffer.remove_local::<Fallback>();
     let text = buffer.text().snapshot();
     let request = match buffer.local_mut::<BufferSyntax>() {
         Some(syntax)
-            if ptr::eq(syntax.grammar, grammar) && ptr::eq(syntax.injections, injections) =>
+            if ptr::eq(syntax.grammar, grammar)
+                && ptr::eq(syntax.injections, injections)
+                && Arc::ptr_eq(&syntax.queries, &queries) =>
         {
             syntax.update(text)
         }
         _ => {
-            let syntax = BufferSyntax::new(grammar, grammars, injections, text);
+            let syntax = BufferSyntax::new(grammar, grammars, injections, queries, text);
             Some(buffer.set_local(syntax).request())
         }
     };
@@ -142,7 +164,7 @@ pub(crate) fn sync(
 
 pub(crate) fn highlight(buffer: &Buffer, range: Range<usize>) -> Vec<Span> {
     let Some(syntax) = buffer.local::<BufferSyntax>() else {
-        return Vec::new();
+        return fallback::highlight(buffer, range);
     };
     match (&syntax.tree, &syntax.highlighter) {
         (Some(tree), Some(highlighter)) => {
@@ -171,14 +193,20 @@ fn paint_layers(
             continue;
         };
         let own = highlighter.spans(&layer.tree, text, range.clone());
-        injected.extend(paint_layers(&layer.layers, text, range, own));
-        let ranges = layer.tree.included_ranges();
-        held.extend(
-            ranges
-                .iter()
-                .map(|held| held.start_byte..held.end_byte)
-                .filter(|held| overlaps(held, range)),
-        );
+        let painted = paint_layers(&layer.layers, text, range, own);
+        if layer.overlay {
+            // Only where it has faces: the rest of the comment or string stays as it was.
+            held.extend(painted.iter().map(|span| span.range.clone()));
+        } else {
+            let ranges = layer.tree.included_ranges();
+            held.extend(
+                ranges
+                    .iter()
+                    .map(|held| held.start_byte..held.end_byte)
+                    .filter(|held| overlaps(held, range)),
+            );
+        }
+        injected.extend(painted);
     }
     if held.is_empty() {
         return spans;
@@ -191,7 +219,7 @@ fn paint_layers(
 }
 
 /// The parts of `spans` outside the ranges `held`, both in order.
-fn outside(spans: Vec<Span>, held: &[Range<usize>]) -> Vec<Span> {
+pub(crate) fn outside(spans: Vec<Span>, held: &[Range<usize>]) -> Vec<Span> {
     let mut kept = Vec::with_capacity(spans.len());
     let mut first = 0;
     for span in spans {
@@ -228,11 +256,13 @@ fn overlaps(a: &Range<usize>, b: &Range<usize>) -> bool {
     a.start < b.end && b.start < a.end
 }
 
-/// The innermost of `layers` and the layers injected into them whose ranges hold `range`.
+/// The innermost of `layers` and the layers injected into them whose ranges hold `range`;
+/// overlays are no language of the code.
 fn layer_at<'a>(layers: &'a [Layer], range: &Range<usize>) -> Option<&'a Layer> {
     let layer = layers.iter().find(|layer| {
         let bounds = layer.bounds();
-        bounds.start <= range.start
+        !layer.overlay
+            && bounds.start <= range.start
             && range.end <= bounds.end
             && layer
                 .tree
@@ -250,6 +280,13 @@ impl BufferSyntax {
             .map(|layer| &layer.tree)
             .or(self.tree.as_ref())
     }
+}
+
+/// The buffer's grammar, its own tree and the text the tree is edited to follow, as
+/// highlighting reads them.
+pub(crate) fn own_tree(buffer: &Buffer) -> Option<(&'static Grammar, &Tree, &Snapshot)> {
+    let syntax = buffer.local::<BufferSyntax>()?;
+    Some((syntax.grammar, syntax.tree.as_ref()?, &syntax.snapshot))
 }
 
 /// The buffer's syntax, while its trees match the text.
@@ -274,13 +311,12 @@ pub(crate) fn embedded(buffer: &Buffer) -> Option<Vec<Embedded>> {
     let Some(syntax) = buffer.local::<BufferSyntax>() else {
         return Some(Vec::new());
     };
-    let documents = syntax
-        .injections
-        .iter()
-        .any(|injections| injections.host == syntax.grammar.mode && injections.documents);
-    if !documents {
+    let Some(host) = (syntax.injections.iter())
+        .find(|injections| injections.host == syntax.grammar.mode && injections.documents)
+    else {
         return Some(Vec::new());
-    }
+    };
+    let servers = host.servers;
     let syntax = current(buffer).filter(|syntax| syntax.tree.is_some())?;
     // One document per language: its combined code.
     let layers =
@@ -293,6 +329,7 @@ pub(crate) fn embedded(buffer: &Buffer) -> Option<Vec<Embedded>> {
             .iter()
             .map(|range| range.start_byte..range.end_byte)
             .collect(),
+        servers,
     });
     Some(embedded.collect())
 }
@@ -334,6 +371,29 @@ pub(crate) fn context_at(buffer: &Buffer, offset: usize) -> Option<SyntaxContext
         node = current.parent();
     }
     Some(SyntaxContext::Code)
+}
+
+/// The buffer's grammar and its own tree edited to follow `text`, none before the first
+/// parse, with whether that tree is a parse of `text` itself.
+pub(crate) fn tree_for(
+    buffer: &Buffer,
+    text: &Snapshot,
+) -> Option<(&'static Grammar, Option<Tree>, bool)> {
+    let syntax = buffer.local::<BufferSyntax>()?;
+    let mut tree = syntax.tree.clone();
+    let edit = text.edit_from(&syntax.snapshot);
+    let parsed = edit.is_none() && is_reparsed(buffer);
+    if let (Some(tree), Some(edit)) = (&mut tree, edit) {
+        tree.edit(&input_edit(edit, &syntax.snapshot, text));
+    }
+    Some((syntax.grammar, tree, parsed))
+}
+
+/// Whether `offset` is in code of another language, which the buffer's tree does not hold.
+pub(crate) fn in_injected_code(buffer: &Buffer, offset: usize) -> bool {
+    buffer
+        .local::<BufferSyntax>()
+        .is_some_and(|syntax| layer_at(&syntax.layers, &(offset..offset)).is_some())
 }
 
 /// Whether the trees are a parse of the text as it is, not ones edited to follow it.

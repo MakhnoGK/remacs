@@ -1,22 +1,29 @@
 //! Built-in plugin: tree-sitter parsing on a background thread and syntax highlighting.
 
 mod buffer_syntax;
+mod fallback;
 mod highlighter;
+mod indent;
+mod locals;
 mod matching_pair;
 mod parser_thread;
+mod queries;
 mod sexp;
 mod sexp_edit;
 mod snippet;
+mod todo;
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 
+pub use highlighter::known_capture;
+pub use queries::keep_queries_in;
 use remacs_core::{Command, Hook, MenuItem, Plugin, Registry, Section};
 use serde::Deserialize;
 pub use tree_sitter_language::LanguageFn;
 
 /// `syntax.toml`.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct SyntaxSettings {
     /// Whether the bracket or tag at point is highlighted with the one it pairs with.
@@ -24,6 +31,11 @@ pub struct SyntaxSettings {
     /// Whether code of other languages in a file, like CSS in HTML's `<style>`, is parsed
     /// as its own language, for its highlighting, comments, pairs, servers and formatting.
     pub embedded_languages: bool,
+    /// Words highlighted in comments, like Emacs `hl-todo`.
+    pub todo_keywords: Vec<String>,
+    /// Whether a function's parameters and local variables are highlighted wherever they
+    /// are used in it.
+    pub local_variables: bool,
 }
 
 impl Default for SyntaxSettings {
@@ -31,6 +43,10 @@ impl Default for SyntaxSettings {
         Self {
             matching_pairs: true,
             embedded_languages: true,
+            local_variables: true,
+            todo_keywords: ["TODO", "FIXME", "XXX", "HACK", "BUG", "NOTE"]
+                .map(String::from)
+                .into(),
         }
     }
 }
@@ -54,18 +70,63 @@ pub struct Grammar {
 /// a tree, but with `#set! injection.combined` all the ranges of one language do; with
 /// `#set! injection.terminator ";"` too, those of such patterns make one of their own:
 /// their first and last bytes, like an attribute's quotes, are read as spaces, or the
-/// last as `;` where the code lacks it, so that each piece ends before the next.
+/// last as `;` where the code lacks it, so that each piece ends before the next. With
+/// `#set! injection.overlay` the code is painted over the host's faces, only where it has
+/// faces of its own, and stays the host's for editing: TODO in a comment, a regex.
 pub struct Injections {
     pub host: &'static str,
     pub query: &'static str,
     /// Whether its combined code without a terminator is a document of its own for servers
     /// and formatters, like a page's scripts; code in strings, like ``css`…` ``, is not.
     pub documents: bool,
+    /// Whether language servers are shown those documents, which they can take for wrong
+    /// outside their file: a Vue component's script uses names only Vue knows.
+    pub servers: bool,
+}
+
+/// How a mode's lines are indented, as its queries joined in order capture its tree: the
+/// lines of an `@indent.begin` node after its first are a level deeper than that one, and
+/// those of an `@indent.align` node line up with its start; a line starting with an
+/// `@indent.end` or `@indent.branch` node, like `}` or `else`, is at its begin node's
+/// level; a blank line after one ending with an `@indent.open` token, like `{` or
+/// Python's `:`, is a level deeper. The innermost such node above the line decides.
+pub struct Indents {
+    pub mode: &'static str,
+    pub queries: &'static [&'static str],
+    /// Only blank lines are told, the one `RET` leaves among them: a language whose
+    /// indentation is its structure, like Python's, where `TAB` keeps adding blanks.
+    pub only_blank_lines: bool,
+}
+
+impl Indents {
+    pub const fn new(mode: &'static str, queries: &'static [&'static str]) -> Self {
+        Self {
+            mode,
+            queries,
+            only_blank_lines: false,
+        }
+    }
+
+    pub const fn only_blank_lines(self) -> Self {
+        Self {
+            only_blank_lines: true,
+            ..self
+        }
+    }
+}
+
+/// A mode's locals queries, joined in order: its functions' parameters and local
+/// variables, highlighted where they are used (ADR 0086).
+pub struct Locals {
+    pub mode: &'static str,
+    pub queries: &'static [&'static str],
 }
 
 pub struct SyntaxPlugin {
     grammars: &'static [Grammar],
     injections: &'static [Injections],
+    indents: &'static [Indents],
+    locals: &'static [Locals],
 }
 
 impl SyntaxPlugin {
@@ -73,12 +134,23 @@ impl SyntaxPlugin {
         Self {
             grammars,
             injections,
+            indents: &[],
+            locals: &[],
         }
+    }
+
+    pub const fn with_indents(self, indents: &'static [Indents]) -> Self {
+        Self { indents, ..self }
+    }
+
+    pub const fn with_locals(self, locals: &'static [Locals]) -> Self {
+        Self { locals, ..self }
     }
 }
 
 #[rustfmt::skip]
 const COMMANDS: &[Command] = &[
+    Command::new(queries::RELOAD, "Read the highlight queries of one's own in remacs's queries/ again", queries::reload),
     Command::new(sexp::FORWARD_SEXP, "Move over the next expression of the syntax tree", sexp::forward_sexp).each_cursor(),
     Command::new(sexp::BACKWARD_SEXP, "Move back over the previous expression of the syntax tree", sexp::backward_sexp).each_cursor(),
     Command::new(sexp::BACKWARD_UP_LIST, "Move to the opening bracket of the list point is in", sexp::backward_up_list).each_cursor(),
@@ -140,15 +212,18 @@ impl Plugin for SyntaxPlugin {
         }
         registry.menu_items.extend_from_slice(MENU_ITEMS);
         let (grammars, injections) = (self.grammars, self.injections);
-        let settings = Rc::new(Cell::new(SyntaxSettings::default()));
+        let settings = Rc::new(RefCell::new(SyntaxSettings::default()));
         registry.settings_hooks.push(Rc::new({
             let settings = Rc::clone(&settings);
-            move |editor| settings.set(editor.settings_section::<SyntaxSettings>())
+            move |editor| {
+                *settings.borrow_mut() = editor.settings_section::<SyntaxSettings>();
+                queries::know_grammars(editor, grammars);
+            }
         }));
         let sync: Hook = Rc::new({
             let settings = Rc::clone(&settings);
             move |editor| {
-                let injections = if settings.get().embedded_languages {
+                let injections = if settings.borrow().embedded_languages {
                     injections
                 } else {
                     &[]
@@ -158,9 +233,23 @@ impl Plugin for SyntaxPlugin {
         });
         registry.post_command_hooks.push(Rc::clone(&sync));
         registry.display_hooks.push(sync);
-        registry.decorators.push(Rc::new(buffer_syntax::highlight));
+        let locals = self.locals;
+        let locals_queries = RefCell::new(locals::LocalsQueries::default());
+        registry.decorators.push(Rc::new({
+            let settings = Rc::clone(&settings);
+            move |buffer, range| {
+                let settings = settings.borrow();
+                let mut spans = buffer_syntax::highlight(buffer, range.clone());
+                if settings.local_variables {
+                    spans = locals_queries
+                        .borrow_mut()
+                        .paint(locals, buffer, range, spans);
+                }
+                todo::mark(buffer, spans, &settings.todo_keywords)
+            }
+        }));
         registry.decorators.push(Rc::new(move |buffer, range| {
-            if settings.get().matching_pairs {
+            if settings.borrow().matching_pairs {
                 matching_pair::highlight(buffer, range)
             } else {
                 Vec::new()
@@ -172,6 +261,20 @@ impl Plugin for SyntaxPlugin {
         registry
             .embedded_probes
             .push(Rc::new(buffer_syntax::embedded));
+        let indents = self.indents;
+        let indenter = Rc::new(RefCell::new(indent::Indenter::new()));
+        registry.indent_probes.push(Rc::new({
+            let indenter = Rc::clone(&indenter);
+            move |buffer, line| indenter.borrow_mut().indentation(indents, buffer, line)
+        }));
+        registry.block_probes.push(Rc::new({
+            let indenter = Rc::clone(&indenter);
+            move |buffer, lines| indenter.borrow_mut().blocks(indents, buffer, lines)
+        }));
+        // A tree parsed for one command's lines is not kept past it, nor its text.
+        registry
+            .post_command_hooks
+            .push(Rc::new(move |_| indenter.borrow_mut().forget_parse()));
         let snippets = RefCell::new(snippet::SnippetHighlighter::new(grammars));
         registry.code_highlighters.push(Rc::new(move |mode, code| {
             snippets.borrow_mut().highlight(mode, code)

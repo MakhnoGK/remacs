@@ -1,6 +1,9 @@
+use std::ops::Range;
+
 use remacs_core::{Buffer, CommandResult, Editor};
 
 use crate::editing::writable_buffer;
+use crate::lines::lines_of;
 
 const OPENERS: &[u8] = b"{([";
 const CLOSERS: &[u8] = b"})]";
@@ -77,6 +80,11 @@ pub fn indent_unit(buffer: &mut Buffer) -> IndentUnit {
 pub fn newline(editor: &mut Editor) -> CommandResult {
     let buffer = writable_buffer(editor)?;
     let unit = indent_unit(buffer);
+    // The line left first, as Emacs `electric-indent-mode` does: a `}` or `end` typed at
+    // the wrong level goes to its block's, and the brackets read it there.
+    let left = buffer.point_line();
+    reindent(editor, left..left + 1, unit);
+    let buffer = editor.buffer_mut();
     let point = buffer.point();
     let line = buffer
         .text()
@@ -111,12 +119,106 @@ pub fn newline(editor: &mut Editor) -> CommandResult {
 
     buffer.delete(blanks);
     buffer.insert(&format!("\n{new_line}"));
-    if let Some(closer_line) = closer_line {
+    let new_line = buffer.point_line();
+    let closer_line = closer_line.map(|closer_line| {
         let resume = buffer.point();
         buffer.insert(&format!("\n{closer_line}"));
         buffer.set_point(resume);
+        new_line + 1
+    });
+    reindent(editor, new_line..closer_line.unwrap_or(new_line) + 1, unit);
+    Ok(())
+}
+
+/// Indents the line as its syntax tells, or the region's lines; without a syntax that
+/// can tell, inserts blanks to the next tab stop. Point in the indentation goes to its end.
+pub fn indent_for_tab_command(editor: &mut Editor) -> CommandResult {
+    if editor.buffer().region().is_some() {
+        return indent_region(editor);
+    }
+    let buffer = writable_buffer(editor)?;
+    let unit = indent_unit(buffer);
+    let line = buffer.point_line();
+    if !reindent(editor, line..line + 1, unit) {
+        return tab_to_tab_stop(editor);
     }
     Ok(())
+}
+
+/// Indents the region's lines as their syntax tells; lines it cannot tell keep theirs.
+pub fn indent_region(editor: &mut Editor) -> CommandResult {
+    let buffer = writable_buffer(editor)?;
+    let unit = indent_unit(buffer);
+    let span = buffer.region().ok_or("No region to indent")?;
+    let (first, last) = lines_of(buffer, span);
+    if !reindent(editor, first..last + 1, unit) {
+        return Err("No syntax tells this buffer's indentation".into());
+    }
+    Ok(())
+}
+
+/// Gives `lines` the indentation their syntax tells, one after another, so an earlier
+/// line's new indentation carries over to those anchored to it. Lines it cannot tell keep
+/// theirs; returns whether it told any. Point in a reindented line's blanks goes to their end.
+fn reindent(editor: &mut Editor, lines: Range<usize>, unit: IndentUnit) -> bool {
+    let buffer = editor.buffer();
+    let mut indented: Vec<Option<String>> = Vec::with_capacity(lines.len());
+    for line in lines.clone() {
+        let indentation = editor.indentation_of(buffer, line).map(|told| {
+            let base = match told.anchor {
+                Some(anchor) if lines.contains(&anchor) && anchor < line => indented
+                    [anchor - lines.start]
+                    .clone()
+                    .unwrap_or_else(|| indentation_of_line(buffer, anchor)),
+                Some(anchor) => indentation_of_line(buffer, anchor),
+                None => String::new(),
+            };
+            let deeper = if told.deeper {
+                unit.text()
+            } else {
+                String::new()
+            };
+            base + &deeper + &" ".repeat(told.align)
+        });
+        indented.push(indentation);
+    }
+    if indented.iter().all(Option::is_none) {
+        return false;
+    }
+    let point = buffer.point();
+    let mut resume = None;
+    let mut edits = Vec::new();
+    for (line, indentation) in lines.zip(indented) {
+        let Some(indentation) = indentation else {
+            continue;
+        };
+        let range = buffer.text().line_range(line).unwrap_or(0..0);
+        let start = range.start;
+        let blanks = start..start + indentation_of_line(buffer, line).len();
+        let point_in_blanks = (blanks.start..=blanks.end).contains(&point);
+        // Blank lines stay empty, but for the one being typed on.
+        if blanks.end == range.end && !point_in_blanks {
+            continue;
+        }
+        if point_in_blanks {
+            resume = Some((line, indentation.len()));
+        }
+        if buffer.text().bytes_in(blanks.clone()) != indentation.as_bytes() {
+            edits.push((blanks, indentation));
+        }
+    }
+    let buffer = editor.buffer_mut();
+    buffer.apply_edits(edits);
+    // Found once the lines above have their new blanks.
+    if let Some((line, blanks)) = resume {
+        let start = buffer.text().line_start(line).unwrap_or(0);
+        buffer.set_point(start + blanks);
+    }
+    true
+}
+
+fn indentation_of_line(buffer: &Buffer, line: usize) -> String {
+    line_indentation(buffer, buffer.text().line_start(line).unwrap_or(0))
 }
 
 /// Starts an indented line below the current one, leaving the current one whole.

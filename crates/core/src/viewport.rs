@@ -1,5 +1,7 @@
 use std::ops::RangeInclusive;
 
+use crate::folds::ShownLines;
+
 /// The lines of a buffer shown in a window, like Emacs `window-start` plus height.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Viewport {
@@ -18,31 +20,93 @@ pub struct Viewport {
     pub column_margin: usize,
 }
 
+/// Its height, margins and moves count rows: the lines `ShownLines` shows, folds' hidden
+/// lines left out; `first_line` is a line.
 impl Viewport {
-    pub fn last_line(&self) -> usize {
-        self.first_line + self.height.max(1) - 1
+    pub fn last_line(&self, shown: &ShownLines) -> usize {
+        shown.line_by(self.first_line, self.height.max(1) as isize - 1)
     }
 
-    pub fn contains(&self, line: usize) -> bool {
-        (self.first_line..=self.last_line()).contains(&line)
+    pub fn contains(&self, line: usize, shown: &ShownLines) -> bool {
+        let first = shown.row_of(self.first_line);
+        (first..first + self.height.max(1)).contains(&shown.row_of(line))
     }
 
     pub fn set_height(&mut self, height: usize) {
         self.height = height.max(1);
     }
 
-    /// Returns whether the viewport moved.
-    pub fn scroll_by(&mut self, lines: isize, line_count: usize) -> bool {
-        let last_start = line_count.saturating_sub(1);
-        let first_line = self.first_line.saturating_add_signed(lines).min(last_start);
-        let moved = first_line != self.first_line;
-        self.first_line = first_line;
-        moved
+    /// Scrolls by `rows`; returns whether the viewport moved.
+    pub fn scroll_by(&mut self, rows: isize, shown: &ShownLines) -> bool {
+        let first_line = self.first_line;
+        self.in_rows(shown, |viewport, row_count| {
+            viewport.scroll_rows(rows, row_count)
+        });
+        first_line != self.first_line
     }
 
     /// Does nothing before the first layout: a window of unknown height would scroll
     /// lines that will fit into view out of it.
-    pub fn ensure_visible(&mut self, line: usize, line_count: usize) {
+    pub fn ensure_visible(&mut self, line: usize, shown: &ShownLines) {
+        let row = shown.row_of(line);
+        self.in_rows(shown, |viewport, row_count| {
+            viewport.ensure_row_visible(row, row_count)
+        });
+    }
+
+    pub fn center_on(&mut self, line: usize, shown: &ShownLines) {
+        let row = shown.row_of(line);
+        self.in_rows(shown, |viewport, _| {
+            viewport.first_line = row.saturating_sub(viewport.height / 2)
+        });
+    }
+
+    /// Scrolls `line` to the top, just below the top margin.
+    pub fn put_at_top(&mut self, line: usize, shown: &ShownLines) {
+        let row = shown.row_of(line);
+        self.in_rows(shown, |viewport, _| {
+            viewport.first_line = row.saturating_sub(viewport.fitting_margins().0);
+        });
+    }
+
+    /// Scrolls `line` to the bottom, just above the bottom margin.
+    pub fn put_at_bottom(&mut self, line: usize, shown: &ShownLines) {
+        let row = shown.row_of(line);
+        self.in_rows(shown, |viewport, _| {
+            viewport.first_line =
+                (row + viewport.fitting_margins().1 + 1).saturating_sub(viewport.height.max(1));
+        });
+    }
+
+    /// The nearest line to `line` that point can be on without scrolling.
+    pub fn clamp(&self, line: usize, shown: &ShownLines) -> usize {
+        let row = shown.row_of(line);
+        let mut rows = *self;
+        let row = rows.in_rows(shown, |viewport, row_count| {
+            let clear = viewport.clear_rows(row_count);
+            row.clamp(*clear.start(), *clear.end())
+        });
+        shown.line_at(row)
+    }
+
+    /// Runs `moves` on the viewport counted in rows, its first line a row, with the count
+    /// of rows.
+    fn in_rows<T>(&mut self, shown: &ShownLines, moves: impl FnOnce(&mut Self, usize) -> T) -> T {
+        let mut rows = Self {
+            first_line: shown.row_of(self.first_line),
+            ..*self
+        };
+        let result = moves(&mut rows, shown.rows());
+        self.first_line = shown.line_at(rows.first_line);
+        result
+    }
+
+    fn scroll_rows(&mut self, rows: isize, row_count: usize) {
+        let last_start = row_count.saturating_sub(1);
+        self.first_line = self.first_line.saturating_add_signed(rows).min(last_start);
+    }
+
+    fn ensure_row_visible(&mut self, line: usize, line_count: usize) {
         if self.height == 0 {
             return;
         }
@@ -53,9 +117,13 @@ impl Viewport {
             .max(line);
         if top < self.first_line {
             self.first_line = top;
-        } else if bottom > self.last_line() {
+        } else if bottom > self.last_row() {
             self.first_line = bottom + 1 - self.height;
         }
+    }
+
+    fn last_row(&self) -> usize {
+        self.first_line + self.height.max(1) - 1
     }
 
     /// Scrolls sideways only as far as keeps display `column` out of the side margins,
@@ -78,36 +146,16 @@ impl Viewport {
         }
     }
 
-    pub fn center_on(&mut self, line: usize) {
-        self.first_line = line.saturating_sub(self.height / 2);
-    }
-
-    /// Scrolls `line` to the top, just below the top margin.
-    pub fn put_at_top(&mut self, line: usize) {
-        self.first_line = line.saturating_sub(self.fitting_margins().0);
-    }
-
-    /// Scrolls `line` to the bottom, just above the bottom margin.
-    pub fn put_at_bottom(&mut self, line: usize) {
-        self.first_line = (line + self.fitting_margins().1 + 1).saturating_sub(self.height.max(1));
-    }
-
-    /// The nearest line to `line` that point can be on without scrolling.
-    pub fn clamp(&self, line: usize, line_count: usize) -> usize {
-        let lines = self.clear_lines(line_count);
-        line.clamp(*lines.start(), *lines.end())
-    }
-
-    /// The lines out of the margins at edges with more lines beyond.
-    fn clear_lines(&self, line_count: usize) -> RangeInclusive<usize> {
+    /// The rows out of the margins at edges with more rows beyond.
+    fn clear_rows(&self, row_count: usize) -> RangeInclusive<usize> {
         let (top_margin, bottom_margin) = self.fitting_margins();
         let top = if self.first_line > 0 { top_margin } else { 0 };
-        let bottom = if self.last_line() + 1 < line_count {
+        let bottom = if self.last_row() + 1 < row_count {
             bottom_margin
         } else {
             0
         };
-        self.first_line + top..=self.last_line() - bottom
+        self.first_line + top..=self.last_row() - bottom
     }
 
     /// The margins, or none if they would leave no line clear.
@@ -132,15 +180,39 @@ mod tests {
             height: 5,
             ..Viewport::default()
         };
-        viewport.ensure_visible(16, 100);
+        let all = &ShownLines::all(100);
+        viewport.ensure_visible(16, all);
         assert_eq!(viewport.first_line, 12);
-        viewport.ensure_visible(3, 100);
+        viewport.ensure_visible(3, all);
         assert_eq!(viewport.first_line, 3);
-        assert!(viewport.scroll_by(-10, 100));
+        assert!(viewport.scroll_by(-10, all));
         assert_eq!(viewport.first_line, 0);
-        assert!(!viewport.scroll_by(-1, 100));
-        assert!(viewport.scroll_by(500, 100));
+        assert!(!viewport.scroll_by(-1, all));
+        assert!(viewport.scroll_by(500, all));
         assert_eq!(viewport.first_line, 99);
+    }
+
+    #[test]
+    fn counts_rows_of_the_lines_shown() {
+        let mut viewport = Viewport {
+            first_line: 0,
+            height: 5,
+            ..Viewport::default()
+        };
+        // Lines 2 to 51 folded into line 1.
+        let shown = &ShownLines::new(100, Some(2..52));
+        assert_eq!(viewport.last_line(shown), 54);
+        assert!(viewport.contains(54, shown) && !viewport.contains(55, shown));
+        viewport.ensure_visible(55, shown);
+        assert_eq!(viewport.first_line, 1);
+        assert!(viewport.scroll_by(1, shown));
+        assert_eq!(
+            viewport.first_line, 52,
+            "the hidden lines are scrolled past at once"
+        );
+        viewport.center_on(60, shown);
+        assert_eq!(viewport.first_line, 58);
+        assert_eq!(viewport.clamp(0, shown), 58);
     }
 
     #[test]
@@ -151,18 +223,19 @@ mod tests {
             margins: (1, 1),
             ..Viewport::default()
         };
-        viewport.ensure_visible(14, 100);
+        let all = &ShownLines::all(100);
+        viewport.ensure_visible(14, all);
         assert_eq!(viewport.first_line, 11);
-        viewport.ensure_visible(11, 100);
+        viewport.ensure_visible(11, all);
         assert_eq!(viewport.first_line, 10);
-        assert_eq!(viewport.clamp(20, 100), 13);
-        assert_eq!(viewport.clamp(0, 100), 11);
-        viewport.ensure_visible(0, 100);
+        assert_eq!(viewport.clamp(20, all), 13);
+        assert_eq!(viewport.clamp(0, all), 11);
+        viewport.ensure_visible(0, all);
         assert_eq!(viewport.first_line, 0);
-        assert_eq!(viewport.clamp(0, 100), 0);
-        viewport.ensure_visible(99, 100);
+        assert_eq!(viewport.clamp(0, all), 0);
+        viewport.ensure_visible(99, all);
         assert_eq!(viewport.first_line, 95);
-        assert_eq!(viewport.clamp(99, 100), 99);
+        assert_eq!(viewport.clamp(99, all), 99);
     }
 
     #[test]

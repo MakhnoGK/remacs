@@ -216,6 +216,8 @@ pub mod color {
             docstring,
             string,
             comment,
+            /// A function's parameters and local variables.
+            variable,
         }
     }
 
@@ -329,6 +331,7 @@ pub mod syntax {
             docstring,
             string,
             comment,
+            variable,
         }
     }
 }

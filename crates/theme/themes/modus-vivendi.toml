@@ -67,6 +67,7 @@ builtin = "#f78fe7"
 docstring = "#9ac8e0"
 string = "#79a8ff"
 comment = "#989898"
+variable = "#00d3d0"
 
 [styles]
 keyword = []
@@ -77,6 +78,7 @@ builtin = []
 docstring = []
 string = []
 comment = []
+variable = []
 
 [glass]
 line-highlight = "#1d2433"

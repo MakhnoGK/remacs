@@ -75,10 +75,11 @@ pub fn backward_paragraph(editor: &mut Editor) -> CommandResult {
     Ok(())
 }
 
+/// Moves to the next line shown, over the lines folds hide.
 pub fn next_line(editor: &mut Editor) -> CommandResult {
     let buffer = editor.buffer_mut();
-    let next = buffer.point_line() + 1;
-    if next >= buffer.text().line_count() {
+    let next = buffer.shown_lines().line_by(buffer.point_line(), 1);
+    if next <= buffer.point_line() {
         return at_end_of_buffer(editor);
     }
     buffer.move_to_line(next);
@@ -87,9 +88,10 @@ pub fn next_line(editor: &mut Editor) -> CommandResult {
 
 pub fn previous_line(editor: &mut Editor) -> CommandResult {
     let buffer = editor.buffer_mut();
-    let Some(previous) = buffer.point_line().checked_sub(1) else {
+    if buffer.point_line() == 0 {
         return at_beginning_of_buffer(editor);
-    };
+    }
+    let previous = buffer.shown_lines().line_by(buffer.point_line(), -1);
     buffer.move_to_line(previous);
     Ok(())
 }
@@ -145,18 +147,20 @@ pub fn scroll_down_command(editor: &mut Editor) -> CommandResult {
 }
 
 pub fn recenter(editor: &mut Editor) -> CommandResult {
-    let point_line = editor.window_buffer().point_line();
-    editor.viewport.center_on(point_line);
+    let buffer = editor.window_buffer();
+    let (point_line, shown) = (buffer.point_line(), buffer.shown_lines());
+    editor.viewport.center_on(point_line, &shown);
     Ok(())
 }
 
 /// Centers the line with point, then, run again, puts it at the top, then at the bottom.
 pub fn recenter_top_bottom(editor: &mut Editor) -> CommandResult {
-    let point_line = editor.window_buffer().point_line();
+    let buffer = editor.window_buffer();
+    let (point_line, shown) = (buffer.point_line(), buffer.shown_lines());
     match cycle_step(editor, RECENTER_TOP_BOTTOM, 3) {
-        0 => editor.viewport.center_on(point_line),
-        1 => editor.viewport.put_at_top(point_line),
-        _ => editor.viewport.put_at_bottom(point_line),
+        0 => editor.viewport.center_on(point_line, &shown),
+        1 => editor.viewport.put_at_top(point_line, &shown),
+        _ => editor.viewport.put_at_bottom(point_line, &shown),
     }
     Ok(())
 }
@@ -165,13 +169,14 @@ pub fn recenter_top_bottom(editor: &mut Editor) -> CommandResult {
 /// then of its bottom one, out of the margins, like Emacs `move-to-window-line-top-bottom`.
 pub fn move_to_window_line_top_bottom(editor: &mut Editor) -> CommandResult {
     let viewport = editor.viewport;
+    let shown = editor.window_buffer().shown_lines();
     let line = match cycle_step(editor, MOVE_TO_WINDOW_LINE_TOP_BOTTOM, 3) {
-        0 => viewport.first_line + viewport.height / 2,
+        0 => shown.line_by(viewport.first_line, viewport.height as isize / 2),
         1 => viewport.first_line,
-        _ => viewport.last_line(),
+        _ => viewport.last_line(&shown),
     };
     let buffer = editor.window_buffer_mut();
-    let line = viewport.clamp(line, buffer.text().line_count());
+    let line = viewport.clamp(line, &shown);
     let line_start = buffer
         .text()
         .line_start(line)

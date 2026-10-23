@@ -75,7 +75,7 @@ validate = { styles = false, scripts = false }
 name = "vscode-css-language-server"
 command = "vscode-css-language-server"
 args = ["--stdio"]
-languages = { CSS = "css" }
+languages = { CSS = "css", SCSS = "scss" }
 root-markers = ["package.json"]
 initialization-options = { provideFormatter = true }
 install = { from = "npm", package = "vscode-langservers-extracted" }

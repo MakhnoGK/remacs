@@ -1,3 +1,4 @@
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use remacs_text::Text;
@@ -7,7 +8,7 @@ use crate::buffer::Buffer;
 use crate::decoration::Span;
 use crate::mode::Mode;
 use crate::popup::CodeHighlighter;
-use crate::syntax::{self, Embedded, SyntaxContext};
+use crate::syntax::{self, Block, Embedded, Indentation, SyntaxContext};
 
 impl Editor {
     pub fn mode_for(&self, path: Option<&Path>) -> &'static str {
@@ -64,6 +65,24 @@ impl Editor {
         self.registry
             .modes
             .get(self.language_at(self.buffer(), offset))
+    }
+
+    /// Where `line` of `buffer` takes its indentation from, as its syntax tells it; `None`
+    /// when no plugin can tell.
+    pub fn indentation_of(&self, buffer: &Buffer, line: usize) -> Option<Indentation> {
+        self.registry
+            .indent_probes
+            .iter()
+            .find_map(|probe| probe(buffer, line))
+    }
+
+    /// The blocks of `buffer`'s code that touch `lines`, which folds can hide; `None`
+    /// when no plugin can tell.
+    pub fn blocks(&self, buffer: &Buffer, lines: Range<usize>) -> Option<Vec<Block>> {
+        self.registry
+            .block_probes
+            .iter()
+            .find_map(|probe| probe(buffer, lines.clone()))
     }
 
     /// Whether `offset` in the current buffer is in a string, a comment or code; code

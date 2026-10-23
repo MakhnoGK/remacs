@@ -9,6 +9,7 @@ mod decoration;
 mod echo;
 mod editor;
 mod file_change;
+mod folds;
 mod gutter;
 mod history;
 mod key;
@@ -43,6 +44,7 @@ pub use decoration::{ConsoleColor, ConsoleStyle, Decorator, Face, Span};
 pub use echo::{EchoMessage, MessageKind, MessageLog};
 pub use editor::{Editor, KeyOutcome, KeyReader, Notifier, SCRATCH_BUFFER, SELF_INSERT_COMMAND};
 pub use file_change::{ChangedFiles, FileChange};
+pub use folds::ShownLines;
 pub use gutter::{
     BreakpointIcon, GutterIcon, GutterMark, GutterProvider, LineExtra, LineExtraProvider,
     TextControls, TextControlsProvider, TextLabel, TextLabelProvider, TextSide,
@@ -75,7 +77,9 @@ pub use screen::{
 };
 pub use status::{StatusItem, StatusProvider, StatusSegment, Tone};
 pub use syntax::{
-    Embedded, EmbeddedProbe, SyntaxContext, SyntaxProbe, blank_outside, embedded_file,
+    Block, BlockProbe, Embedded, EmbeddedProbe, IndentProbe, Indentation, SyntaxContext,
+    SyntaxProbe, blank_outside,
+    embedded_file,
 };
 pub use table::{
     Action, Button, CellStyle, Changes, Column, DiffLine, Elsewhere, Field, FileDiff, Mark, Notice,

@@ -12,7 +12,7 @@ use crate::pane::PaneSource;
 use crate::popup::{CodeHighlighter, PopupProvider};
 use crate::screen::{KeySink, ScreenProvider};
 use crate::status::StatusProvider;
-use crate::syntax::{EmbeddedProbe, SyntaxProbe};
+use crate::syntax::{BlockProbe, EmbeddedProbe, IndentProbe, SyntaxProbe};
 use crate::table::TableProvider;
 use crate::vc::VersionControl;
 
@@ -67,6 +67,10 @@ pub struct Registry {
     pub syntax_probes: Vec<SyntaxProbe>,
     /// Tell the code of other languages in a buffer; the first that can does.
     pub embedded_probes: Vec<EmbeddedProbe>,
+    /// Tell a line's indentation from its syntax; the first that can does.
+    pub indent_probes: Vec<IndentProbe>,
+    /// Tell the blocks of code folds can hide; the first that can does.
+    pub block_probes: Vec<BlockProbe>,
     /// Segments of the status pill, before the position and the mode.
     pub status_providers: Vec<StatusProvider>,
     pub popup_providers: Vec<PopupProvider>,
