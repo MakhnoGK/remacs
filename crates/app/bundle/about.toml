@@ -13,6 +13,8 @@ accepted = [
     "MPL-2.0",
     "Unicode-3.0",
     "Unlicense",
+    # tree-sitter-gitcommit, the Git Commit mode's grammar.
+    "WTFPL",
     "Zlib",
 ]
 targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]
