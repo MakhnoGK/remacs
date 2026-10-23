@@ -5,6 +5,7 @@ use remacs_config::{Section, Settings, project_cache_dir};
 
 use super::Editor;
 use crate::key_bindings::KeysSettings;
+use crate::mode::ModesSettings;
 
 impl Editor {
     /// Replaces the settings and lets plugins read their sections again, then refreshes,
@@ -15,6 +16,10 @@ impl Editor {
         let (keymap, errors) = keys.apply(&self.default_keymap, &self.registry.commands);
         self.registry.keymap = keymap;
         if let Some(error) = errors.into_iter().next() {
+            self.set_error(error);
+        }
+        let modes = self.settings_section::<ModesSettings>();
+        if let Some(error) = self.registry.modes.set_settings(&modes).into_iter().next() {
             self.set_error(error);
         }
         for hook in self.registry.settings_hooks.clone() {

@@ -27,10 +27,7 @@ impl Plugin for RustMode {
         registry.modes.add(Mode {
             name: "Rust",
             extensions: &["rs"],
-            file_names: &[],
-            pairs: &[],
-            comment: None,
-            markup_comment: None,
+            ..Mode::default()
         });
     }
 }

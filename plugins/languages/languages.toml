@@ -1,0 +1,264 @@
+# The built-in major modes: which files each one is for, and how it edits them.
+# `modes.toml` adds file names and `#!` programs of one's own.
+#
+# name           the mode's name, which servers.toml and the grammars use
+# extensions     file extensions, without the dot
+# file-names     whole file names, for files without a telling extension
+# interpreters   programs a `#!` line runs, without their version (`python` for python3.12)
+# aliases        other names `-*- mode: … -*-` and vim modelines give it (Emacs's and
+#                vim's own names), matched like `name` ignoring case
+# first-lines    how a file of no known name begins, ignoring case
+# pairs          brackets and quotes typed in pairs, opener first; `<>` only where it
+#                opens tags, `''` not where it marks lifetimes or primes, and in prose
+#                no quotes
+# comment        what comments a line out, `comment-end` after it for block comments;
+#                `markup-comment` likewise for lines of markup in code, like JSX children
+
+[[languages]]
+name = "Rust"
+extensions = ["rs"]
+pairs = ["()", "[]", "{}", '""']
+comment = "// "
+
+[[languages]]
+name = "C"
+extensions = ["c", "h"]
+pairs = ["()", "[]", "{}", '""', "''"]
+comment = "// "
+
+[[languages]]
+name = "C++"
+extensions = ["cc", "cpp", "cxx", "hh", "hpp", "hxx"]
+aliases = ["cpp"]
+pairs = ["()", "[]", "{}", '""', "''"]
+comment = "// "
+
+[[languages]]
+name = "TypeScript"
+extensions = ["ts", "mts", "cts"]
+interpreters = ["deno", "ts-node"]
+aliases = ["ts"]
+pairs = ["()", "[]", "{}", '""', "''", "``"]
+comment = "// "
+
+[[languages]]
+name = "TSX"
+extensions = ["tsx"]
+aliases = ["typescriptreact"]
+pairs = ["()", "[]", "{}", "<>", '""', "''", "``"]
+comment = "// "
+markup-comment = "{/* "
+markup-comment-end = " */}"
+
+# React projects write JSX in plain `.js` files too.
+[[languages]]
+name = "JavaScript"
+extensions = ["js", "mjs", "cjs"]
+interpreters = ["node", "nodejs"]
+aliases = ["js"]
+pairs = ["()", "[]", "{}", '""', "''", "``"]
+comment = "// "
+markup-comment = "{/* "
+markup-comment-end = " */}"
+
+[[languages]]
+name = "JSX"
+extensions = ["jsx"]
+aliases = ["javascriptreact", "js-jsx"]
+pairs = ["()", "[]", "{}", "<>", '""', "''", "``"]
+comment = "// "
+markup-comment = "{/* "
+markup-comment-end = " */}"
+
+[[languages]]
+name = "HTML"
+extensions = ["html", "htm"]
+aliases = ["mhtml"]
+first-lines = ["<!doctype html", "<html"]
+pairs = ["()", "[]", "{}", "<>", '""', "''"]
+comment = "<!-- "
+comment-end = " -->"
+
+[[languages]]
+name = "CSS"
+extensions = ["css"]
+pairs = ["()", "[]", "{}", '""', "''"]
+comment = "/* "
+comment-end = " */"
+
+# Line comments for the JSON with comments of tsconfig.json and the like.
+[[languages]]
+name = "JSON"
+extensions = ["json", "jsonc"]
+file-names = [".prettierrc", ".babelrc"]
+aliases = ["jsonc", "js-json"]
+pairs = ["()", "[]", "{}", '""']
+comment = "// "
+
+[[languages]]
+name = "TOML"
+extensions = ["toml"]
+file-names = ["Cargo.lock"]
+aliases = ["conf-toml"]
+pairs = ["()", "[]", "{}", '""', "''"]
+comment = "# "
+
+[[languages]]
+name = "YAML"
+extensions = ["yaml", "yml"]
+pairs = ["()", "[]", "{}", '""', "''"]
+comment = "# "
+
+[[languages]]
+name = "XML"
+extensions = ["xml", "svg", "plist", "xsd", "xsl", "xslt"]
+aliases = ["nxml"]
+first-lines = ["<?xml"]
+pairs = ["()", "[]", "{}", "<>", '""', "''"]
+comment = "<!-- "
+comment-end = " -->"
+
+[[languages]]
+name = "Markdown"
+extensions = ["md", "markdown"]
+aliases = ["gfm"]
+pairs = ["()", "[]", "{}", "``"]
+comment = "<!-- "
+comment-end = " -->"
+
+[[languages]]
+name = "Bash"
+extensions = ["sh", "bash", "zsh"]
+file-names = [".bashrc", ".bash_profile", ".profile", ".zshrc", ".zprofile", ".zshenv"]
+interpreters = ["bash", "sh", "zsh", "dash", "ksh"]
+aliases = ["sh", "shell-script", "zsh"]
+pairs = ["()", "[]", "{}", '""', "''", "``"]
+comment = "# "
+
+[[languages]]
+name = "Make"
+extensions = ["mk", "make"]
+file-names = ["Makefile", "makefile", "GNUmakefile"]
+interpreters = ["make"]
+aliases = ["makefile", "makefile-gmake", "makefile-bsdmake"]
+pairs = ["()", "[]", "{}", '""', "''"]
+comment = "# "
+
+[[languages]]
+name = "CMake"
+extensions = ["cmake"]
+file-names = ["CMakeLists.txt"]
+pairs = ["()", "[]", "{}", '""']
+comment = "# "
+
+[[languages]]
+name = "Diff"
+extensions = ["diff", "patch"]
+
+[[languages]]
+name = "SQL"
+extensions = ["sql"]
+pairs = ["()", "[]", "{}", '""', "''"]
+comment = "-- "
+
+[[languages]]
+name = "Python"
+extensions = ["py", "pyi"]
+interpreters = ["python", "pypy"]
+pairs = ["()", "[]", "{}", '""', "''"]
+comment = "# "
+
+[[languages]]
+name = "Go"
+extensions = ["go"]
+pairs = ["()", "[]", "{}", '""', "''", "``"]
+comment = "// "
+
+[[languages]]
+name = "Java"
+extensions = ["java"]
+pairs = ["()", "[]", "{}", '""', "''"]
+comment = "// "
+
+[[languages]]
+name = "C#"
+extensions = ["cs"]
+aliases = ["csharp", "cs"]
+pairs = ["()", "[]", "{}", '""', "''"]
+comment = "// "
+
+[[languages]]
+name = "Swift"
+extensions = ["swift"]
+interpreters = ["swift"]
+pairs = ["()", "[]", "{}", '""']
+comment = "// "
+
+[[languages]]
+name = "Objective-C"
+extensions = ["m"]
+aliases = ["objc"]
+pairs = ["()", "[]", "{}", '""', "''"]
+comment = "// "
+
+[[languages]]
+name = "Dart"
+extensions = ["dart"]
+pairs = ["()", "[]", "{}", '""', "''"]
+comment = "// "
+
+[[languages]]
+name = "Scala"
+extensions = ["scala", "sc", "sbt"]
+interpreters = ["scala"]
+pairs = ["()", "[]", "{}", '""', "''"]
+comment = "// "
+
+[[languages]]
+name = "PHP"
+extensions = ["php"]
+interpreters = ["php"]
+pairs = ["()", "[]", "{}", '""', "''"]
+comment = "// "
+
+[[languages]]
+name = "Ruby"
+extensions = ["rb", "rake", "gemspec"]
+file-names = ["Gemfile", "Rakefile", "Podfile", "Brewfile"]
+interpreters = ["ruby"]
+pairs = ["()", "[]", "{}", '""', "''"]
+comment = "# "
+
+[[languages]]
+name = "Lua"
+extensions = ["lua"]
+interpreters = ["lua", "luajit"]
+pairs = ["()", "[]", "{}", '""', "''"]
+comment = "-- "
+
+[[languages]]
+name = "Zig"
+extensions = ["zig", "zon"]
+pairs = ["()", "[]", "{}", '""', "''"]
+comment = "// "
+
+[[languages]]
+name = "Haskell"
+extensions = ["hs"]
+interpreters = ["runghc", "runhaskell"]
+pairs = ["()", "[]", "{}", '""']
+comment = "-- "
+
+[[languages]]
+name = "Elixir"
+extensions = ["ex", "exs"]
+interpreters = ["elixir"]
+pairs = ["()", "[]", "{}", '""', "''"]
+comment = "# "
+
+[[languages]]
+name = "Nix"
+extensions = ["nix"]
+interpreters = ["nix-shell"]
+pairs = ["()", "[]", "{}", '""']
+comment = "# "

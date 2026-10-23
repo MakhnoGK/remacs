@@ -17,7 +17,7 @@ pub struct LanguagesPlugin;
 
 impl Plugin for LanguagesPlugin {
     fn register(&self, registry: &mut Registry) {
-        for &mode in modes::MODES {
+        for &mode in modes::MODES.iter() {
             registry.modes.add(mode);
         }
     }
@@ -41,7 +41,11 @@ mod tests {
 
     #[test]
     fn every_mode_has_a_grammar_whose_queries_compile() {
-        for &Mode { name: mode, .. } in MODES {
+        for grammar in GRAMMARS {
+            let known = MODES.iter().any(|mode| mode.name == grammar.mode);
+            assert!(known, "no {} in languages.toml", grammar.mode);
+        }
+        for &Mode { name: mode, .. } in MODES.iter() {
             let grammar = GRAMMARS
                 .iter()
                 .find(|grammar| grammar.mode == mode)
@@ -322,7 +326,7 @@ mod tests {
     #[test]
     fn each_extension_and_file_name_belongs_to_one_mode() {
         let mut seen = HashSet::new();
-        for mode in MODES {
+        for mode in MODES.iter() {
             for claimed in mode.extensions.iter().chain(mode.file_names) {
                 assert!(seen.insert(claimed), "{claimed}");
             }
@@ -332,7 +336,7 @@ mod tests {
     #[test]
     fn modes_are_chosen_by_file_name_before_extension() {
         let mut modes = Modes::default();
-        for &mode in MODES {
+        for &mode in MODES.iter() {
             modes.add(mode);
         }
         let mode_of = |path: &str| modes.name_for(Some(Path::new(path)));
@@ -341,6 +345,24 @@ mod tests {
         assert_eq!(mode_of("notes.txt"), "Fundamental");
         assert_eq!(mode_of("/Users/me/.zshrc"), "Bash");
         assert_eq!(mode_of("tsconfig.json"), "JSON");
+
+        // A file's own word comes first, in the names Emacs and vim give the modes.
+        let mode_of_file =
+            |path: &str, text: &str| modes.name_for_file(Path::new(path), &Text::from(text));
+        assert_eq!(
+            mode_of_file("bin/serve", "#!/usr/bin/env node\n"),
+            "JavaScript"
+        );
+        assert_eq!(mode_of_file("bin/build", "#!/bin/zsh\n"), "Bash");
+        assert_eq!(mode_of_file("bin/check", "#!/usr/bin/python3\n"), "Python");
+        assert_eq!(mode_of_file("lib.h", "// -*- mode: c++ -*-\n"), "C++");
+        assert_eq!(mode_of_file("env", "# -*- sh -*-\n"), "Bash");
+        assert_eq!(
+            mode_of_file("conf.in", "x\n// vim: set ft=javascriptreact :\n"),
+            "JSX"
+        );
+        assert_eq!(mode_of_file("index", "<!DOCTYPE html>\n<html>\n"), "HTML");
+        assert_eq!(mode_of_file("feed", "<?xml version=\"1.0\"?>\n"), "XML");
     }
 
     #[test]

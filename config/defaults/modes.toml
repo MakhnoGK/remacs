@@ -1,0 +1,17 @@
+# Which major mode a file opens in. Changes apply to files opened after the file is saved.
+#
+# The built-in choice, as Emacs's set-auto-mode makes it: a mode the file names itself,
+# in a `-*- mode: python -*-` line (the first, or the second after `#!`) or a vim modeline
+# (`vim: set ft=python :`) in its first or last five lines; else the program its `#!`
+# line runs; else its name or extension; else how it begins (`<?xml`, `<!DOCTYPE html`).
+# The tables below come before the built-in names and programs, not before a modeline.
+
+# A file name, or `*` and the end of one, to the mode's name, like auto-mode-alist.
+[files]
+# "Jenkinsfile" = "Groovy"
+# "*.mdx" = "Markdown"
+
+# A program a `#!` line runs, without its version digits, to the mode's name, like
+# interpreter-mode-alist.
+[interpreters]
+# "deno" = "TypeScript"
