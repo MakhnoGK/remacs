@@ -29,6 +29,9 @@ pub type SyntaxProbe = Rc<dyn Fn(&Buffer, usize) -> Option<SyntaxContext>>;
 pub struct Embedded {
     pub mode: &'static str,
     pub ranges: Vec<Range<usize>>,
+    /// Whether language servers are shown it; not the script of a Vue component, which
+    /// TypeScript alone takes for wrong (`defineProps`, `import './Card.vue'`).
+    pub servers: bool,
 }
 
 impl Embedded {

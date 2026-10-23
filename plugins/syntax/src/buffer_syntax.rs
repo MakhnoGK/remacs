@@ -171,14 +171,20 @@ fn paint_layers(
             continue;
         };
         let own = highlighter.spans(&layer.tree, text, range.clone());
-        injected.extend(paint_layers(&layer.layers, text, range, own));
-        let ranges = layer.tree.included_ranges();
-        held.extend(
-            ranges
-                .iter()
-                .map(|held| held.start_byte..held.end_byte)
-                .filter(|held| overlaps(held, range)),
-        );
+        let painted = paint_layers(&layer.layers, text, range, own);
+        if layer.overlay {
+            // Only where it has faces: the rest of the comment or string stays as it was.
+            held.extend(painted.iter().map(|span| span.range.clone()));
+        } else {
+            let ranges = layer.tree.included_ranges();
+            held.extend(
+                ranges
+                    .iter()
+                    .map(|held| held.start_byte..held.end_byte)
+                    .filter(|held| overlaps(held, range)),
+            );
+        }
+        injected.extend(painted);
     }
     if held.is_empty() {
         return spans;
@@ -228,11 +234,13 @@ fn overlaps(a: &Range<usize>, b: &Range<usize>) -> bool {
     a.start < b.end && b.start < a.end
 }
 
-/// The innermost of `layers` and the layers injected into them whose ranges hold `range`.
+/// The innermost of `layers` and the layers injected into them whose ranges hold `range`;
+/// overlays are no language of the code.
 fn layer_at<'a>(layers: &'a [Layer], range: &Range<usize>) -> Option<&'a Layer> {
     let layer = layers.iter().find(|layer| {
         let bounds = layer.bounds();
-        bounds.start <= range.start
+        !layer.overlay
+            && bounds.start <= range.start
             && range.end <= bounds.end
             && layer
                 .tree
@@ -274,13 +282,12 @@ pub(crate) fn embedded(buffer: &Buffer) -> Option<Vec<Embedded>> {
     let Some(syntax) = buffer.local::<BufferSyntax>() else {
         return Some(Vec::new());
     };
-    let documents = syntax
-        .injections
-        .iter()
-        .any(|injections| injections.host == syntax.grammar.mode && injections.documents);
-    if !documents {
+    let Some(host) = (syntax.injections.iter())
+        .find(|injections| injections.host == syntax.grammar.mode && injections.documents)
+    else {
         return Some(Vec::new());
-    }
+    };
+    let servers = host.servers;
     let syntax = current(buffer).filter(|syntax| syntax.tree.is_some())?;
     // One document per language: its combined code.
     let layers =
@@ -293,6 +300,7 @@ pub(crate) fn embedded(buffer: &Buffer) -> Option<Vec<Embedded>> {
             .iter()
             .map(|range| range.start_byte..range.end_byte)
             .collect(),
+        servers,
     });
     Some(embedded.collect())
 }

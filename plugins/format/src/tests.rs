@@ -103,6 +103,7 @@ impl Plugin for StylePlugin {
             Some(vec![Embedded {
                 mode: "CSS",
                 ranges: vec![style.clone()],
+                servers: true,
             }])
         }));
     }

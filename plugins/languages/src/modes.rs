@@ -37,6 +37,14 @@ pub(crate) const ZIG: &str = "Zig";
 pub(crate) const HASKELL: &str = "Haskell";
 pub(crate) const ELIXIR: &str = "Elixir";
 pub(crate) const NIX: &str = "Nix";
+pub(crate) const KOTLIN: &str = "Kotlin";
+pub(crate) const HCL: &str = "HCL";
+pub(crate) const GRAPHQL: &str = "GraphQL";
+pub(crate) const PROTOBUF: &str = "Protobuf";
+pub(crate) const SCSS: &str = "SCSS";
+pub(crate) const VUE: &str = "Vue";
+pub(crate) const SVELTE: &str = "Svelte";
+pub(crate) const GIT_COMMIT: &str = "Git Commit";
 
 /// Modes whose files prettier formats.
 pub const PRETTIER_MODES: &[&str] = &[TYPESCRIPT, TSX, JAVASCRIPT, JSX, HTML, CSS];

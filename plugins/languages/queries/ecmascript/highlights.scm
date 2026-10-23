@@ -37,6 +37,7 @@
 [(null) (undefined)] @constant.builtin
 [(this) (super)] @variable.builtin
 (comment) @comment
+((comment) @comment.doc (#match? @comment.doc "^/\\*\\*"))
 (hash_bang_line) @comment
 
 [

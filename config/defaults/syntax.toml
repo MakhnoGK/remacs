@@ -8,3 +8,6 @@ matching-pairs = true
 # <script>, is parsed as its own language: highlighted, commented, paired and formatted as
 # such, and sent to its servers. Off, it is the file's language throughout.
 embedded-languages = true
+
+# Words highlighted where they stand whole in a comment, like Emacs hl-todo; [] for none.
+todo-keywords = ["TODO", "FIXME", "XXX", "HACK", "BUG", "NOTE"]

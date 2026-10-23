@@ -7,8 +7,9 @@ mod parser_thread;
 mod sexp;
 mod sexp_edit;
 mod snippet;
+mod todo;
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 
 pub use highlighter::known_capture;
@@ -17,7 +18,7 @@ use serde::Deserialize;
 pub use tree_sitter_language::LanguageFn;
 
 /// `syntax.toml`.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct SyntaxSettings {
     /// Whether the bracket or tag at point is highlighted with the one it pairs with.
@@ -25,6 +26,8 @@ pub struct SyntaxSettings {
     /// Whether code of other languages in a file, like CSS in HTML's `<style>`, is parsed
     /// as its own language, for its highlighting, comments, pairs, servers and formatting.
     pub embedded_languages: bool,
+    /// Words highlighted in comments, like Emacs `hl-todo`.
+    pub todo_keywords: Vec<String>,
 }
 
 impl Default for SyntaxSettings {
@@ -32,6 +35,9 @@ impl Default for SyntaxSettings {
         Self {
             matching_pairs: true,
             embedded_languages: true,
+            todo_keywords: ["TODO", "FIXME", "XXX", "HACK", "BUG", "NOTE"]
+                .map(String::from)
+                .into(),
         }
     }
 }
@@ -55,13 +61,18 @@ pub struct Grammar {
 /// a tree, but with `#set! injection.combined` all the ranges of one language do; with
 /// `#set! injection.terminator ";"` too, those of such patterns make one of their own:
 /// their first and last bytes, like an attribute's quotes, are read as spaces, or the
-/// last as `;` where the code lacks it, so that each piece ends before the next.
+/// last as `;` where the code lacks it, so that each piece ends before the next. With
+/// `#set! injection.overlay` the code is painted over the host's faces, only where it has
+/// faces of its own, and stays the host's for editing: TODO in a comment, a regex.
 pub struct Injections {
     pub host: &'static str,
     pub query: &'static str,
     /// Whether its combined code without a terminator is a document of its own for servers
     /// and formatters, like a page's scripts; code in strings, like ``css`…` ``, is not.
     pub documents: bool,
+    /// Whether language servers are shown those documents, which they can take for wrong
+    /// outside their file: a Vue component's script uses names only Vue knows.
+    pub servers: bool,
 }
 
 pub struct SyntaxPlugin {
@@ -141,15 +152,15 @@ impl Plugin for SyntaxPlugin {
         }
         registry.menu_items.extend_from_slice(MENU_ITEMS);
         let (grammars, injections) = (self.grammars, self.injections);
-        let settings = Rc::new(Cell::new(SyntaxSettings::default()));
+        let settings = Rc::new(RefCell::new(SyntaxSettings::default()));
         registry.settings_hooks.push(Rc::new({
             let settings = Rc::clone(&settings);
-            move |editor| settings.set(editor.settings_section::<SyntaxSettings>())
+            move |editor| *settings.borrow_mut() = editor.settings_section::<SyntaxSettings>()
         }));
         let sync: Hook = Rc::new({
             let settings = Rc::clone(&settings);
             move |editor| {
-                let injections = if settings.get().embedded_languages {
+                let injections = if settings.borrow().embedded_languages {
                     injections
                 } else {
                     &[]
@@ -159,9 +170,15 @@ impl Plugin for SyntaxPlugin {
         });
         registry.post_command_hooks.push(Rc::clone(&sync));
         registry.display_hooks.push(sync);
-        registry.decorators.push(Rc::new(buffer_syntax::highlight));
+        registry.decorators.push(Rc::new({
+            let settings = Rc::clone(&settings);
+            move |buffer, range| {
+                let spans = buffer_syntax::highlight(buffer, range);
+                todo::mark(buffer, spans, &settings.borrow().todo_keywords)
+            }
+        }));
         registry.decorators.push(Rc::new(move |buffer, range| {
-            if settings.get().matching_pairs {
+            if settings.borrow().matching_pairs {
                 matching_pair::highlight(buffer, range)
             } else {
                 Vec::new()

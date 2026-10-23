@@ -58,11 +58,13 @@ const INJECTIONS: &[Injections] = &[
         host: "HTML",
         query: HTML_INJECTIONS,
         documents: true,
+        servers: true,
     },
     Injections {
         host: "JavaScript",
         query: TEMPLATE_INJECTIONS,
         documents: false,
+        servers: false,
     },
 ];
 static SYNTAX: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS, INJECTIONS);

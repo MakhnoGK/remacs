@@ -1,4 +1,4 @@
-use remacs_syntax::Grammar;
+use remacs_syntax::{Grammar, LanguageFn};
 
 use crate::modes::*;
 
@@ -186,4 +186,77 @@ pub const GRAMMARS: &[Grammar] = &[
         language: tree_sitter_nix::LANGUAGE,
         highlights: &[query!("nix")],
     },
+    Grammar {
+        mode: KOTLIN,
+        language: tree_sitter_kotlin_ng::LANGUAGE,
+        highlights: &[query!("kotlin")],
+    },
+    Grammar {
+        mode: HCL,
+        language: tree_sitter_hcl::LANGUAGE,
+        highlights: &[query!("hcl")],
+    },
+    Grammar {
+        mode: GRAPHQL,
+        language: tree_sitter_graphql::LANGUAGE,
+        highlights: &[query!("graphql")],
+    },
+    Grammar {
+        mode: PROTOBUF,
+        language: tree_sitter_proto::LANGUAGE,
+        highlights: &[query!("proto")],
+    },
+    Grammar {
+        mode: SCSS,
+        language: SCSS_LANGUAGE,
+        highlights: &[query!("scss")],
+    },
+    Grammar {
+        mode: VUE,
+        language: tree_sitter_vue_next::LANGUAGE,
+        highlights: &[query!("vue")],
+    },
+    Grammar {
+        mode: SVELTE,
+        language: tree_sitter_svelte_ng::LANGUAGE,
+        highlights: &[query!("svelte")],
+    },
+    Grammar {
+        mode: GIT_COMMIT,
+        language: tree_sitter_gitcommit::LANGUAGE,
+        highlights: &[query!("gitcommit")],
+    },
+    // Languages only within others, painted over them: no mode of their own.
+    Grammar {
+        mode: MARKDOWN_INLINE,
+        language: tree_sitter_md::INLINE_LANGUAGE,
+        highlights: &[query!("markdown_inline")],
+    },
+    Grammar {
+        mode: REGEX,
+        language: tree_sitter_regex::LANGUAGE,
+        highlights: &[query!("regex")],
+    },
+    Grammar {
+        mode: JSDOC,
+        language: tree_sitter_jsdoc::LANGUAGE,
+        highlights: &[query!("jsdoc")],
+    },
 ];
+
+/// The grammars injected into other languages only, which no file opens in.
+#[cfg(test)]
+pub(crate) const INJECTED_ONLY: &[&str] = &[MARKDOWN_INLINE, REGEX, JSDOC];
+const MARKDOWN_INLINE: &str = "markdown_inline";
+const REGEX: &str = "regex";
+const JSDOC: &str = "jsdoc";
+
+// tree-sitter-scss 1.0 gives only a `Language` of the tree-sitter it was built against;
+// its parser's C function is all a `LanguageFn` needs, and linking the crate brings it.
+use tree_sitter_scss as _;
+unsafe extern "C" {
+    fn tree_sitter_scss() -> *const ();
+}
+// SAFETY: `tree_sitter_scss` is the grammar's generated C function, taking nothing and
+// returning its `TSLanguage`, as `from_raw` asks.
+const SCSS_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_scss) };

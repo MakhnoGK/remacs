@@ -8,3 +8,13 @@
       property: (property_identifier) @injection.language)
   ]
   arguments: (template_string (string_fragment) @injection.content))
+
+; A regex literal's pattern, and a `/** … */` comment's JSDoc tags, painted over them.
+((regex pattern: (regex_pattern) @injection.content)
+ (#set! injection.language "regex")
+ (#set! injection.overlay))
+
+((comment) @injection.content
+ (#match? @injection.content "^/\\*\\*")
+ (#set! injection.language "jsdoc")
+ (#set! injection.overlay))

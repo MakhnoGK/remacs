@@ -38,15 +38,17 @@ mod tests {
 
     use super::*;
     use crate::modes::{
-        BASH, C, CMAKE, CPP, CSHARP, CSS, DART, DIFF, ELIXIR, GO, HASKELL, HTML, JAVA, JAVASCRIPT,
-        JSON, LUA, MAKE, MARKDOWN, MODES, NIX, OBJC, PHP, PYTHON, RUBY, RUST, SCALA, SQL, SWIFT,
-        TOML, TSX, TYPESCRIPT, XML, YAML, ZIG,
+        BASH, C, CMAKE, CPP, CSHARP, CSS, DART, DIFF, ELIXIR, GIT_COMMIT, GO, GRAPHQL, HASKELL,
+        HCL, HTML, JAVA, JAVASCRIPT, JSON, KOTLIN, LUA, MAKE, MARKDOWN, MODES, NIX, OBJC, PHP,
+        PROTOBUF, PYTHON, RUBY, RUST, SCALA, SCSS, SQL, SVELTE, SWIFT, TOML, TSX, TYPESCRIPT, VUE,
+        XML, YAML, ZIG,
     };
 
     #[test]
     fn every_mode_has_a_grammar_whose_queries_compile() {
         for grammar in GRAMMARS {
-            let known = MODES.iter().any(|mode| mode.name == grammar.mode);
+            let known = MODES.iter().any(|mode| mode.name == grammar.mode)
+                || grammars::INJECTED_ONLY.contains(&grammar.mode);
             assert!(known, "no {} in languages.toml", grammar.mode);
         }
         for &Mode { name: mode, .. } in MODES.iter() {
@@ -376,7 +378,8 @@ mod tests {
                 JAVASCRIPT,
                 "import x from \"y\";\nclass Deck extends Base { #n = 1; draw() { return \
                  this.#n; } }\nconst go = async () => /a+/g.test(`n=${n}`);\n\
-                 const el = <Card id=\"c\"><b>hi</b></Card>;\n",
+                 const el = <Card id=\"c\"><b>hi</b></Card>;\n\
+                 /**\n * Draws.\n * @param {number} n TODO: more\n */\n",
                 &[
                     ("import", Keyword),
                     ("\"y\"", String),
@@ -385,8 +388,14 @@ mod tests {
                     ("draw", Function),
                     ("this", Keyword),
                     ("go", Function),
-                    ("/a+/g", String),
+                    // The regex's own syntax over the string.
+                    ("/a", String),
+                    ("+", Keyword),
                     ("test", Function),
+                    // JSDoc tags and TODO over the documentation comment.
+                    ("/**\n * Draws.\n * ", Docstring),
+                    ("@param", Keyword),
+                    ("TODO", Keyword),
                     ("Card", Type),
                     ("id", Builtin),
                     ("b", Function),
@@ -537,12 +546,23 @@ mod tests {
             ),
             (
                 MARKDOWN,
-                "# Title\n\n> quoted\n\n```rust\nlet x = 1;\n```\n\n[a]: https://x.dev\n",
+                "# Title\n\n> quoted\n\n```rust\nlet x = 1;\n```\n\n[a]: https://x.dev\n\n\
+                 Run `make` per [the guide](https://x.dev/g).\n\n```js\nconst y = 2;\n```\n",
                 &[
                     ("# Title\n", Keyword),
                     ("> quoted\n", Docstring),
                     ("rust", Type),
+                    // A fenced block in the language it names.
+                    ("let", Keyword),
+                    ("1", Constant),
                     ("https://x.dev", Constant),
+                    // Inline markup within a paragraph.
+                    ("`make`", String),
+                    ("the guide", Constant),
+                    ("https://x.dev/g", Constant),
+                    // A short name READMEs use.
+                    ("const", Keyword),
+                    ("2", Constant),
                 ],
             ),
             (
@@ -855,6 +875,105 @@ mod tests {
                     ("# c", Comment),
                 ],
             ),
+            (
+                KOTLIN,
+                "package app\n@JvmStatic\nfun draw(n: Int): String = \"n=$n\" + listOf(1).size \
+                 // c\nval on = true\nval MAX = null\n",
+                &[
+                    ("package", Keyword),
+                    ("app", Type),
+                    ("@JvmStatic", Builtin),
+                    ("fun", Keyword),
+                    ("draw", Function),
+                    ("Int", Type),
+                    ("listOf", Function),
+                    ("1", Constant),
+                    ("// c", Comment),
+                    ("true", Constant),
+                    ("MAX", Constant),
+                    ("null", Constant),
+                ],
+            ),
+            (
+                HCL,
+                "resource \"aws_s3_bucket\" \"logs\" {\n  count = 2\n  name = \"x-${var.env}\"\n  \
+                 tags = merge(local.tags, { on = true })\n} # c\n",
+                &[
+                    ("resource", Keyword),
+                    ("\"aws_s3_bucket\"", Type),
+                    ("count", Function),
+                    ("2", Constant),
+                    ("\"x-", String),
+                    ("var", Keyword),
+                    ("merge", Function),
+                    ("true", Constant),
+                    ("# c", Comment),
+                ],
+            ),
+            (
+                GRAPHQL,
+                "\"\"\"Doc.\"\"\"\ntype Card implements Node { id: ID! @deprecated }\n\
+                 query Deck($n: Int = 2) { cards(first: $n) { id } } # c\n",
+                &[
+                    ("\"\"\"Doc.\"\"\"", Docstring),
+                    ("type", Keyword),
+                    ("Card", Type),
+                    ("Node", Type),
+                    ("id", Function),
+                    ("ID", Type),
+                    ("@deprecated", Builtin),
+                    ("query", Keyword),
+                    ("Deck", Function),
+                    ("$n", Constant),
+                    ("2", Constant),
+                    ("# c", Comment),
+                ],
+            ),
+            (
+                PROTOBUF,
+                "syntax = \"proto3\";\npackage app;\nmessage Card { int32 id = 1; Suit suit = 2; }\n\
+                 service Deck { rpc Draw (Card) returns (Card); } // c\n",
+                &[
+                    ("syntax", Keyword),
+                    ("\"proto3\"", String),
+                    ("message", Keyword),
+                    ("Card", Type),
+                    ("int32", Type),
+                    ("id", Function),
+                    ("1", Constant),
+                    ("Suit", Type),
+                    ("Draw", Function),
+                    ("// c", Comment),
+                ],
+            ),
+            (
+                SCSS,
+                "$gap: 2px;\n@mixin card($n) { margin: $gap; }\n.card { @include card(1); \
+                 &:hover { color: darken(#fff, 5%); } } // c\n",
+                &[
+                    ("$gap", Constant),
+                    ("@mixin", Keyword),
+                    ("card", Function),
+                    ("2", Constant),
+                    ("px", Type),
+                    ("@include", Keyword),
+                    ("darken", Function),
+                    ("#fff", String),
+                    ("// c", Comment),
+                ],
+            ),
+            (
+                GIT_COMMIT,
+                "feat(app): draw cards\n\nBody.\n\nRefs: #12\n# Please enter the commit message\n",
+                &[
+                    ("feat(", Keyword),
+                    ("app", Type),
+                    ("): draw cards", Keyword),
+                    ("Refs: ", Function),
+                    ("#12", String),
+                    ("# Please enter the commit message\n", Comment),
+                ],
+            ),
         ];
         for &(mode, source, expected) in cases {
             let faces = highlighted(mode, source);
@@ -865,6 +984,94 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn components_highlight_their_scripts_styles_and_expressions() {
+        use Face::*;
+        static SYNTAX: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS, INJECTIONS);
+        let cases: &[Sample] = &[
+            (
+                VUE,
+                "<template><Card :id=\"n + 1\" @click=\"go\">{{ title }}</Card></template>\n\
+                 <script lang=\"ts\">let n: number = 2;</script>\n\
+                 <style lang=\"scss\">.a { margin: $gap; }</style>\n",
+                &[
+                    ("Card", Type),
+                    (":", Keyword),
+                    ("click", Builtin),
+                    ("1", Constant),
+                    ("let", Keyword),
+                    ("number", Type),
+                    ("$gap", Constant),
+                ],
+            ),
+            (
+                SVELTE,
+                "<script>let n = 2;</script>\n{#if n > 1}<p>{n + 3}</p>{/if}\n\
+                 <style>p { margin: 0; }</style>\n",
+                &[
+                    ("let", Keyword),
+                    ("2", Constant),
+                    ("#if", Keyword),
+                    ("1", Constant),
+                    ("p", Function),
+                    ("3", Constant),
+                    ("0", Constant),
+                ],
+            ),
+        ];
+        for &(mode, source, expected) in cases {
+            let mut editor = Editor::new(&[&SYNTAX]);
+            editor.add_buffer(Buffer::new("component", Text::from(source), mode));
+            let faces = |editor: &Editor| -> Vec<(std::string::String, Face)> {
+                let buffer = editor.window_buffer();
+                let spans = editor.decorations(0..buffer.text().len()).concat();
+                spans
+                    .into_iter()
+                    .map(|span| (buffer.contents(span.range), span.face))
+                    .collect()
+            };
+            let start = Instant::now();
+            while !expected
+                .iter()
+                .all(|&(text, face)| faces(&editor).contains(&(text.into(), face)))
+            {
+                assert!(
+                    start.elapsed() < Duration::from_secs(5),
+                    "{mode}: {expected:?} in {:?}",
+                    faces(&editor)
+                );
+                thread::sleep(Duration::from_millis(5));
+                editor.refresh();
+            }
+            // Their scripts are their languages for editing, but no server's documents.
+            let embedded = editor.embedded(editor.window_buffer()).unwrap();
+            assert!(!embedded.is_empty(), "{mode}");
+            assert!(embedded.iter().all(|code| !code.servers), "{mode}");
+        }
+    }
+
+    #[test]
+    fn code_painted_over_stays_its_host_language_for_editing() {
+        static SYNTAX: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS, INJECTIONS);
+        let source = "/**\n * @param n\n */\nlet a = 1;\n";
+        let mut editor = Editor::new(&[&SYNTAX]);
+        editor.add_buffer(Buffer::new("a.js", Text::from(source), JAVASCRIPT));
+        let param = source.find("param").unwrap();
+        let start = Instant::now();
+        while !editor
+            .decorations(param..param + 5)
+            .concat()
+            .iter()
+            .any(|span| span.face == Face::Keyword)
+        {
+            assert!(start.elapsed() < Duration::from_secs(5), "never painted");
+            thread::sleep(Duration::from_millis(5));
+            editor.refresh();
+        }
+        assert_eq!(editor.syntax_at(param + 1), SyntaxContext::Comment);
+        assert!(editor.embedded(editor.buffer()).unwrap().is_empty());
     }
 
     #[test]
@@ -955,8 +1162,19 @@ mod tests {
     #[test]
     fn every_mode_with_a_language_server_has_one_built_in() {
         let servers = remacs_lsp::catalog_servers(SERVERS).unwrap();
-        // Make and diff have no language server worth running.
-        let without = ["Make", "Diff"];
+        // Make, diff and commit messages have no language server worth running; the rest
+        // came with their grammars (#102) and get theirs later.
+        let without = [
+            "Make",
+            "Diff",
+            "Git Commit",
+            "Kotlin",
+            "HCL",
+            "GraphQL",
+            "Protobuf",
+            "Vue",
+            "Svelte",
+        ];
         for mode in MODES.iter().filter(|mode| !without.contains(&mode.name)) {
             let served = servers
                 .iter()

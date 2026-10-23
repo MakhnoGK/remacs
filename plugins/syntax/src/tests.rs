@@ -35,6 +35,7 @@ const INJECTIONS: &[Injections] = &[Injections {
     host: "HTML",
     query: include_str!("../../languages/queries/html/injections.scm"),
     documents: true,
+    servers: true,
 }];
 static SYNTAX: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS, INJECTIONS);
 

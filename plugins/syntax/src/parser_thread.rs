@@ -42,6 +42,9 @@ pub(crate) struct Layer {
     owners: Vec<Range<usize>>,
     pub combined: bool,
     pub terminator: Option<u8>,
+    /// Painted over its host's faces rather than in place of them, and no language of
+    /// the code for editing: a regex in a string, a TODO in a comment.
+    pub overlay: bool,
     pub highlighter: Option<Arc<Highlighter>>,
     /// The languages injected into this one's code.
     pub layers: Vec<Layer>,
@@ -170,6 +173,7 @@ struct Region {
     content: tree_sitter::Range,
     combined: bool,
     terminator: Option<u8>,
+    overlay: bool,
 }
 
 impl Region {
@@ -251,6 +255,7 @@ impl Injector<'_> {
                                     content,
                                     combined: layer.combined,
                                     terminator: layer.terminator,
+                                    overlay: layer.overlay,
                                 });
                             }
                         }
@@ -270,6 +275,7 @@ impl Injector<'_> {
                                 content,
                                 combined: layer.combined,
                                 terminator: layer.terminator,
+                                overlay: layer.overlay,
                             }
                         }));
                         reparsed.insert(layer.kind(), layer);
@@ -319,7 +325,12 @@ impl Injector<'_> {
         if old.as_ref().is_some_and(untouched) {
             return old;
         }
-        let (grammar, combined, terminator) = (first.grammar, first.combined, first.terminator);
+        let (grammar, combined, terminator, overlay) = (
+            first.grammar,
+            first.combined,
+            first.terminator,
+            first.overlay,
+        );
         let (old_tree, old_layers) = match old {
             Some(old) => (Some(old.tree), old.layers),
             None => (None, Vec::new()),
@@ -343,6 +354,7 @@ impl Injector<'_> {
             owners,
             combined,
             terminator,
+            overlay,
             highlighter: self.compiled.highlighter(grammar),
             layers,
         })
@@ -475,6 +487,7 @@ struct Injection {
     language: Option<Option<&'static Grammar>>,
     combined: bool,
     terminator: Option<u8>,
+    overlay: bool,
 }
 
 /// A compiled injection query, with what each of its patterns injects.
@@ -511,6 +524,7 @@ impl InjectionQuery {
                     combined: property("injection.combined").is_some(),
                     terminator: property("injection.terminator")
                         .and_then(|terminator| terminator.bytes().next()),
+                    overlay: property("injection.overlay").is_some(),
                 }
             })
             .collect();
@@ -564,6 +578,7 @@ impl InjectionQuery {
                         content: capture.node.range(),
                         combined: injection.combined,
                         terminator: injection.terminator,
+                        overlay: injection.overlay,
                     }),
             );
         }
