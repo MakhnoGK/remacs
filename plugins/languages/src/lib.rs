@@ -1081,6 +1081,21 @@ mod tests {
         assert!(editor.embedded(editor.buffer()).unwrap().is_empty());
     }
 
+    /// `println` used to lose its face to the `_` capture that picks the format macros.
+    #[test]
+    fn macros_called_keep_their_face_where_a_predicate_reads_them() {
+        let faces = highlighted(
+            RUST,
+            "fn f() { println!(\"{}\", 1); tracing::info!(\"x\"); }\n",
+        );
+        for shown in ["println!", "info!"] {
+            assert!(
+                faces.contains(&(shown.into(), Face::Builtin)),
+                "{shown}: {faces:?}"
+            );
+        }
+    }
+
     #[test]
     fn builtins_are_called_not_any_name_alike() {
         let faces = highlighted(RUBY, "items.each { |p| p.save }\np items\n");

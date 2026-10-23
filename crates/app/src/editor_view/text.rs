@@ -41,8 +41,10 @@ const CHANGE_BAR_WIDTH: f32 = 3.0;
 const CHANGE_BAR_GAP: f32 = 2.0;
 const CHANGE_TICK_WIDTH: f32 = 9.0;
 const CHANGE_TICK_HEIGHT: f32 = 3.0;
-/// From the line numbers' right edge, in the padding before the text.
-const FOLD_TOGGLE_RIGHT: f32 = 5.0;
+/// From the text, in the padding between the line numbers and the changed lines' marks,
+/// which end `CHANGE_MARK_CENTER + CHANGE_BAR_WIDTH / 2` from it.
+const FOLD_TOGGLE_RIGHT: f32 = 11.0;
+const FOLD_TOGGLE_WIDTH: f32 = 8.0;
 /// Shows or hides a block, run by a click on its controls.
 const HS_TOGGLE_HIDING: &str = "hs-toggle-hiding";
 
@@ -486,10 +488,12 @@ impl EditorView {
             let toggle = div()
                 .absolute()
                 .right(px(FOLD_TOGGLE_RIGHT))
+                .w(px(FOLD_TOGGLE_WIDTH))
                 .top_0()
                 .h(row_height)
                 .flex()
                 .items_center()
+                .justify_center()
                 .child(if hidden.is_some() { "▸" } else { "▾" });
             let folded = hidden.map(|hidden| {
                 div()

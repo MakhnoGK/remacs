@@ -17,7 +17,9 @@
 ((identifier) @constant (#match? @constant "^[A-Z][A-Z0-9_]+$"))
 
 (macro_invocation macro: (identifier) @function.macro "!" @function.macro)
-(macro_invocation macro: (scoped_identifier name: (identifier) @function.macro))
+(macro_invocation
+  macro: (scoped_identifier name: (identifier) @function.macro)
+  "!" @function.macro)
 (macro_definition name: (identifier) @function.macro)
 (attribute_item) @attribute
 (inner_attribute_item) @attribute

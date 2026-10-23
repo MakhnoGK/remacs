@@ -55,7 +55,8 @@ enum Paint {
 /// A compiled highlight query and how each of its captures is drawn.
 pub(crate) struct Highlighter {
     query: Query,
-    paints: Vec<Paint>,
+    /// None for a capture that draws nothing.
+    paints: Vec<Option<Paint>>,
     format_string: Option<u32>,
 }
 
@@ -93,7 +94,11 @@ impl Highlighter {
                         .map(|held| (start + held.start..start + held.end, pattern, Paint::Plain)),
                 );
             }
-            captures.push((node, pattern, self.paints[capture.index as usize]));
+            // A `_`-named capture is only read by predicates: it must not take the node's face
+            // from a pattern before, like `println`'s from its macro call's.
+            if let Some(paint) = self.paints[capture.index as usize] {
+                captures.push((node, pattern, paint));
+            }
         }
         captures.sort_by_key(|(range, pattern, _)| (range.start, Reverse(range.end), *pattern));
         captures.dedup_by(|later, earlier| {
@@ -127,11 +132,14 @@ pub fn known_capture(capture_name: &str) -> bool {
         || face_for(capture_name).is_some()
 }
 
-fn paint_for(capture_name: &str) -> Paint {
-    if capture_name == CODE_CAPTURE {
-        return Paint::Plain;
+fn paint_for(capture_name: &str) -> Option<Paint> {
+    if capture_name.starts_with('_') {
+        return None;
     }
-    face_for(capture_name).map_or(Paint::Inherit, Paint::Face)
+    if capture_name == CODE_CAPTURE {
+        return Some(Paint::Plain);
+    }
+    Some(face_for(capture_name).map_or(Paint::Inherit, Paint::Face))
 }
 
 /// The `{…}` placeholders of a format string, `{{` and `}}` being literal braces.
