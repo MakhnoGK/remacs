@@ -33,5 +33,9 @@ harness = false
 name = "indent"
 harness = false
 
+[[bench]]
+name = "macros"
+harness = false
+
 [lints]
 workspace = true

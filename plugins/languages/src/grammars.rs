@@ -62,7 +62,7 @@ pub const GRAMMARS: &[Grammar] = &[
     Grammar {
         mode: RUST,
         language: tree_sitter_rust::LANGUAGE,
-        highlights: &[query!("rust")],
+        highlights: &[query!("rust"), query!("rust", "text")],
     },
     Grammar {
         mode: C,
@@ -288,11 +288,17 @@ pub const GRAMMARS: &[Grammar] = &[
         language: tree_sitter_jsdoc::LANGUAGE,
         highlights: &[query!("jsdoc")],
     },
+    Grammar {
+        mode: RUST_MACRO_ARGUMENTS,
+        language: tree_sitter_rust::LANGUAGE,
+        highlights: &[query!("rust")],
+    },
 ];
 
 /// The grammars injected into other languages only, which no file opens in.
 #[cfg(test)]
-pub(crate) const INJECTED_ONLY: &[&str] = &[MARKDOWN_INLINE, REGEX, JSDOC];
+pub(crate) const INJECTED_ONLY: &[&str] = &[MARKDOWN_INLINE, REGEX, JSDOC, RUST_MACRO_ARGUMENTS];
+pub(crate) const RUST_MACRO_ARGUMENTS: &str = "rust_macro_arguments";
 const MARKDOWN_INLINE: &str = "markdown_inline";
 const REGEX: &str = "regex";
 const JSDOC: &str = "jsdoc";

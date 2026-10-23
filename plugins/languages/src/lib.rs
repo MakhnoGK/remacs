@@ -1097,6 +1097,29 @@ mod tests {
     }
 
     #[test]
+    fn code_in_macros_arguments_is_highlighted_and_their_format_strings_stay_the_hosts() {
+        let faces = highlighted(
+            RUST,
+            "fn f() { println!(\"{x}\", std::env::current_dir().unwrap()); assert_eq!(v, vec![Some(1)]); }\n",
+        );
+        for shown in [
+            ("current_dir", Face::Function),
+            ("unwrap", Face::Function),
+            ("vec!", Face::Builtin),
+            ("Some", Face::Type),
+        ] {
+            assert!(
+                faces.contains(&(shown.0.into(), shown.1)),
+                "{shown:?}: {faces:?}"
+            );
+        }
+        assert!(
+            !faces.iter().any(|(text, _)| text.contains("{x}")),
+            "{faces:?}"
+        );
+    }
+
+    #[test]
     fn builtins_are_called_not_any_name_alike() {
         let faces = highlighted(RUBY, "items.each { |p| p.save }\np items\n");
         let builtins: Vec<_> = (faces.iter())

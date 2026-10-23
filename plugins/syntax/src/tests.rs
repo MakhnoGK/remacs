@@ -16,7 +16,10 @@ const GRAMMARS: &[Grammar] = &[
     Grammar {
         mode: "Rust",
         language: tree_sitter_rust::LANGUAGE,
-        highlights: &[include_str!("../../languages/queries/rust/highlights.scm")],
+        highlights: &[
+            include_str!("../../languages/queries/rust/highlights.scm"),
+            include_str!("../../languages/queries/rust/text.scm"),
+        ],
     },
     Grammar {
         mode: "JavaScript",
