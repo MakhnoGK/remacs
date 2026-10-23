@@ -6,8 +6,10 @@ use remacs_core::{Buffer, Editor, Embedded, Span, SyntaxContext};
 use remacs_text::{Edit, Snapshot};
 use tree_sitter::{InputEdit, Point, Tree};
 
+use crate::fallback::{self, Fallback};
 use crate::highlighter::Highlighter;
 use crate::parser_thread::{Layer, ParseSlot, ParserThread, Request};
+use crate::queries::{Queries, UserQueries};
 use crate::{Grammar, Injections};
 
 /// Larger texts stay unparsed: a full parse would take seconds and its tree hundreds of MiB.
@@ -20,6 +22,7 @@ struct BufferSyntax {
     grammar: &'static Grammar,
     grammars: &'static [Grammar],
     injections: &'static [Injections],
+    queries: UserQueries,
     /// The text the trees match.
     snapshot: Snapshot,
     tree: Option<Tree>,
@@ -35,12 +38,14 @@ impl BufferSyntax {
         grammar: &'static Grammar,
         grammars: &'static [Grammar],
         injections: &'static [Injections],
+        queries: UserQueries,
         snapshot: Snapshot,
     ) -> Self {
         Self {
             grammar,
             grammars,
             injections,
+            queries,
             snapshot,
             tree: None,
             highlighter: None,
@@ -59,6 +64,7 @@ impl BufferSyntax {
             grammar: self.grammar,
             grammars: self.grammars,
             injections: self.injections,
+            queries: Arc::clone(&self.queries),
             snapshot: self.snapshot.clone(),
             tree: self.tree.clone(),
             layers: self.layers.clone(),
@@ -111,6 +117,8 @@ pub(crate) fn sync(
     grammars: &'static [Grammar],
     injections: &'static [Injections],
 ) {
+    let queries = Arc::clone(&editor.plugin_state::<Queries>().highlights);
+    let mode = editor.mode(editor.window_buffer().mode()).copied();
     let buffer = editor.window_buffer_mut();
     let grammar = grammars
         .iter()
@@ -118,17 +126,31 @@ pub(crate) fn sync(
         .filter(|_| buffer.text().len() <= MAX_PARSED_BYTES);
     let Some(grammar) = grammar else {
         buffer.remove_local::<BufferSyntax>();
+        let stale = buffer
+            .local::<Fallback>()
+            .is_none_or(|fallback| fallback.mode != buffer.mode());
+        if stale {
+            match mode.as_ref().and_then(Fallback::of) {
+                Some(fallback) => {
+                    buffer.set_local(fallback);
+                }
+                None => buffer.remove_local::<Fallback>(),
+            }
+        }
         return;
     };
+    buffer.remove_local::<Fallback>();
     let text = buffer.text().snapshot();
     let request = match buffer.local_mut::<BufferSyntax>() {
         Some(syntax)
-            if ptr::eq(syntax.grammar, grammar) && ptr::eq(syntax.injections, injections) =>
+            if ptr::eq(syntax.grammar, grammar)
+                && ptr::eq(syntax.injections, injections)
+                && Arc::ptr_eq(&syntax.queries, &queries) =>
         {
             syntax.update(text)
         }
         _ => {
-            let syntax = BufferSyntax::new(grammar, grammars, injections, text);
+            let syntax = BufferSyntax::new(grammar, grammars, injections, queries, text);
             Some(buffer.set_local(syntax).request())
         }
     };
@@ -142,7 +164,7 @@ pub(crate) fn sync(
 
 pub(crate) fn highlight(buffer: &Buffer, range: Range<usize>) -> Vec<Span> {
     let Some(syntax) = buffer.local::<BufferSyntax>() else {
-        return Vec::new();
+        return fallback::highlight(buffer, range);
     };
     match (&syntax.tree, &syntax.highlighter) {
         (Some(tree), Some(highlighter)) => {

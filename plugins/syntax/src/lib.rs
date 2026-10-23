@@ -1,9 +1,11 @@
 //! Built-in plugin: tree-sitter parsing on a background thread and syntax highlighting.
 
 mod buffer_syntax;
+mod fallback;
 mod highlighter;
 mod matching_pair;
 mod parser_thread;
+mod queries;
 mod sexp;
 mod sexp_edit;
 mod snippet;
@@ -13,6 +15,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 pub use highlighter::known_capture;
+pub use queries::keep_queries_in;
 use remacs_core::{Command, Hook, MenuItem, Plugin, Registry, Section};
 use serde::Deserialize;
 pub use tree_sitter_language::LanguageFn;
@@ -91,6 +94,7 @@ impl SyntaxPlugin {
 
 #[rustfmt::skip]
 const COMMANDS: &[Command] = &[
+    Command::new(queries::RELOAD, "Read the highlight queries of one's own in remacs's queries/ again", queries::reload),
     Command::new(sexp::FORWARD_SEXP, "Move over the next expression of the syntax tree", sexp::forward_sexp).each_cursor(),
     Command::new(sexp::BACKWARD_SEXP, "Move back over the previous expression of the syntax tree", sexp::backward_sexp).each_cursor(),
     Command::new(sexp::BACKWARD_UP_LIST, "Move to the opening bracket of the list point is in", sexp::backward_up_list).each_cursor(),
@@ -155,7 +159,10 @@ impl Plugin for SyntaxPlugin {
         let settings = Rc::new(RefCell::new(SyntaxSettings::default()));
         registry.settings_hooks.push(Rc::new({
             let settings = Rc::clone(&settings);
-            move |editor| *settings.borrow_mut() = editor.settings_section::<SyntaxSettings>()
+            move |editor| {
+                *settings.borrow_mut() = editor.settings_section::<SyntaxSettings>();
+                queries::know_grammars(editor, grammars);
+            }
         }));
         let sync: Hook = Rc::new({
             let settings = Rc::clone(&settings);

@@ -62,7 +62,7 @@ use remacs_prettier::PrettierPlugin;
 use remacs_rename::RenamePlugin;
 use remacs_run::{RunPlugin, keep_configurations_in};
 use remacs_search::SearchPlugin;
-use remacs_syntax::SyntaxPlugin;
+use remacs_syntax::{SyntaxPlugin, keep_queries_in};
 use remacs_terminal::TerminalPlugin;
 use remacs_tools::{ToolsPlugin, keep_tools_in};
 use remacs_xref::XrefPlugin;
@@ -151,6 +151,7 @@ fn main() -> ExitCode {
         keep_tools_in(&mut editor, &home);
         keep_offers_in(&mut editor, &home);
         keep_breakpoints_in(&mut editor, &home);
+        keep_queries_in(&mut editor, &home);
         let session = state_dir(&home).join("session.json");
         keep_session_in(&mut editor, session, path.as_deref());
     }

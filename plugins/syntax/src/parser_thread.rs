@@ -10,6 +10,7 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{InputEdit, Language, Parser, Query, QueryCursor, Tree};
 
 use crate::highlighter::{Chunks, Highlighter};
+use crate::queries::UserQueries;
 use crate::{Grammar, Injections};
 
 /// Where the parser thread leaves a buffer's newest tree.
@@ -21,6 +22,7 @@ pub(crate) struct Request {
     pub grammars: &'static [Grammar],
     /// Every mode's injections, followed into injected code too; none when turned off.
     pub injections: &'static [Injections],
+    pub queries: UserQueries,
     pub snapshot: Snapshot,
     /// The previous trees, already edited to match `snapshot`, so parsing is incremental.
     pub tree: Option<Tree>,
@@ -116,6 +118,7 @@ fn run(requests: Receiver<Request>, notifier: Notifier) {
             if Arc::strong_count(&request.slot) == 1 {
                 continue;
             }
+            compiled.use_queries(&request.queries);
             let old_tree = request.tree.as_ref();
             let Some(tree) = parse_in(
                 &mut parser,
@@ -437,14 +440,27 @@ pub(crate) fn parse(parser: &mut Parser, text: &Snapshot, old_tree: Option<&Tree
 struct Compiled {
     highlighters: HashMap<&'static str, Option<Arc<Highlighter>>>,
     injections: HashMap<&'static str, Option<Arc<InjectionQuery>>>,
+    /// The user's queries the highlighters were compiled with.
+    queries: UserQueries,
 }
 
 impl Compiled {
+    /// Compiles highlighters with `queries` from now on, again when they changed.
+    fn use_queries(&mut self, queries: &UserQueries) {
+        if !Arc::ptr_eq(&self.queries, queries) {
+            self.queries = Arc::clone(queries);
+            self.highlighters.clear();
+        }
+    }
+
     fn highlighter(&mut self, grammar: &'static Grammar) -> Option<Arc<Highlighter>> {
+        let own = self.queries.get(grammar.mode).map(String::as_str);
         self.highlighters
             .entry(grammar.mode)
             .or_insert_with(|| {
-                Highlighter::new(&Language::new(grammar.language), grammar.highlights)
+                let own = own.map(|own| [own]);
+                let sources = own.as_ref().map_or(grammar.highlights, |own| own);
+                Highlighter::new(&Language::new(grammar.language), sources)
                     .inspect_err(|error| eprintln!("remacs: {} highlights: {error}", grammar.mode))
                     .ok()
                     .map(Arc::new)
