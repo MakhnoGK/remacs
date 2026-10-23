@@ -7,6 +7,7 @@ use remacs_core::{
     Completions, ConsoleColor, ConsoleStyle, Editor, Face, GutterIcon, Mode, Section,
     parse_sequence,
 };
+use remacs_diagnostics::DiagnosticsPlugin;
 use remacs_editing::EditingPlugin;
 use remacs_minibuffer::MinibufferPlugin;
 
@@ -53,7 +54,14 @@ impl Plugin for ModesPlugin {
 }
 
 fn editor(home: &Path) -> Editor {
-    let mut editor = Editor::new(&[&EditingPlugin, &MinibufferPlugin, &ModesPlugin, &RunPlugin]);
+    // Diagnostics for `next-error`, which visits the compile output's locations.
+    let mut editor = Editor::new(&[
+        &EditingPlugin,
+        &MinibufferPlugin,
+        &ModesPlugin,
+        &DiagnosticsPlugin,
+        &RunPlugin,
+    ]);
     editor.set_settings(Default::default());
     keep_configurations_in(&mut editor, home);
     editor
@@ -666,8 +674,10 @@ fn rerunning_a_running_program_stops_it_first_and_reuses_its_console() {
     fs::create_dir_all(&root).unwrap();
     let looping = shell("loop", "echo started; sleep 30");
     commands::run_configuration(&mut editor, &root, looping, None).unwrap();
+    // A run's console is where next-error goes, as a compile's is.
+    assert!(editor.next_error_source().is_some());
     wait_until(&mut editor, |editor| contents(editor).contains("started"));
-    press(&mut editor, "C-r");
+    press(&mut editor, "S-<f10>");
     wait_until(&mut editor, |editor| {
         let text = contents(editor);
         !text.contains("stopped")
@@ -781,7 +791,7 @@ fn the_chooser_lists_configurations_then_what_the_project_can_run() {
         .unwrap();
     editor.visit_file(&root.join("README")).unwrap();
     editor.refresh();
-    press(&mut editor, "M-R");
+    press(&mut editor, "M-S-<f10>");
     let listed = |editor: &Editor| -> Vec<(String, Option<&'static str>, bool)> {
         editor
             .minibuffer()
@@ -932,6 +942,15 @@ fn compile_runs_a_command_line_and_next_error_visits_its_locations_in_turn() {
     press(&mut editor, "M-g M-n");
     assert_eq!(message(&editor), "No more locations");
     press(&mut editor, "M-g M-p");
+    assert_eq!(position(&editor), ("a.rs", 1, 0));
+    // Going to the buffer's problems takes next-error there too.
+    assert!(editor.next_error_source().is_some());
+    press(&mut editor, "M-n");
+    assert!(editor.next_error_source().is_none());
+    // In the console it is the console's locations all the same.
+    editor.switch_to_buffer("*compile: project*");
+    press(&mut editor, "M-<");
+    press(&mut editor, "M-g M-n");
     assert_eq!(position(&editor), ("a.rs", 1, 0));
 
     // g in the console runs the same command again, in the same console; in a prompt over

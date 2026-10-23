@@ -18,8 +18,8 @@ const COMMANDS: &[Command] = &[
     Command::new(problems::LIST_PROBLEMS, "Show the buffer's problems, or hide them", problems::list_problems),
     Command::new("next-problem", "Go to the next problem in the buffer", problems::next_problem),
     Command::new("previous-problem", "Go to the previous problem in the buffer", problems::previous_problem),
-    Command::new("next-error", "Go to the next error or warning in the buffer", problems::next_error),
-    Command::new("previous-error", "Go to the previous error or warning in the buffer", problems::previous_error),
+    Command::new("next-error", "Go to the next location of the last compile output, else the buffer's next error or warning", problems::next_error),
+    Command::new("previous-error", "Go to the previous location of the last compile output, else the buffer's previous error or warning", problems::previous_error),
 ];
 
 const BINDINGS: &[(&str, &str)] = &[
@@ -27,7 +27,10 @@ const BINDINGS: &[(&str, &str)] = &[
     ("M-n", "next-problem"),
     ("M-p", "previous-problem"),
     ("M-g n", "next-error"),
+    ("M-g M-n", "next-error"),
+    ("C-x `", "next-error"),
     ("M-g p", "previous-error"),
+    ("M-g M-p", "previous-error"),
 ];
 
 #[rustfmt::skip]
@@ -35,8 +38,8 @@ const MENU_ITEMS: &[MenuItem] = &[
     MenuItem::new("View", "panels", "Problems", problems::LIST_PROBLEMS),
     MenuItem::new("Go", "problems", "Next Problem", "next-problem").enabled_when(visiting_file),
     MenuItem::new("Go", "problems", "Previous Problem", "previous-problem").enabled_when(visiting_file),
-    MenuItem::new("Go", "problems", "Next Error", "next-error").enabled_when(visiting_file),
-    MenuItem::new("Go", "problems", "Previous Error", "previous-error").enabled_when(visiting_file),
+    MenuItem::new("Go", "problems", "Next Error", "next-error").enabled_when(problems::has_errors),
+    MenuItem::new("Go", "problems", "Previous Error", "previous-error").enabled_when(problems::has_errors),
 ];
 
 impl Plugin for DiagnosticsPlugin {

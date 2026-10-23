@@ -52,11 +52,12 @@ const COMMANDS: &[Command] = &[
     Command::new(TOGGLE_BREAKPOINT, "Add a breakpoint on point's line, or remove the one there", marks::toggle_breakpoint),
 ];
 
-/// As in IntelliJ, but for ⌃D, which is `delete-char`: ⇧F9, ⌃⇧D, F9, F8, F7, ⇧F8, ⌥F9,
-/// ⌘F8, ⌘⇧F8, ⌥F8; `keys.toml` binds them otherwise.
+/// IntelliJ's F-keys, which Emacs leaves free (ADR 0079): ⇧F9, ⌃⇧F9, F9, F8, F7, ⇧F8,
+/// ⌥F9, ⌘F8, ⌘⇧F8, ⌥F8; the pane's columns under gud's `C-x C-a`. `keys.toml` binds
+/// them otherwise.
 const BINDINGS: &[(&str, &str)] = &[
     ("S-<f9>", DEBUG),
-    ("C-D", DEBUG_AT_POINT),
+    ("C-S-<f9>", DEBUG_AT_POINT),
     ("<f9>", CONTINUE),
     ("<f8>", STEP_OVER),
     ("<f7>", STEP_INTO),
@@ -64,9 +65,9 @@ const BINDINGS: &[(&str, &str)] = &[
     ("M-<f9>", PAUSE),
     ("s-<f8>", TOGGLE_BREAKPOINT),
     ("s-S-<f8>", edit::EDIT),
-    ("C-c f", pane::FOCUS_FRAMES),
-    ("C-c v", pane::FOCUS_VARIABLES),
-    ("C-c w", pane::FOCUS_WATCHES),
+    ("C-x C-a f", pane::FOCUS_FRAMES),
+    ("C-x C-a v", pane::FOCUS_VARIABLES),
+    ("C-x C-a w", pane::FOCUS_WATCHES),
     ("M-<f8>", evaluate::EVALUATE),
 ];
 

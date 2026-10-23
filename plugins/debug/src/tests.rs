@@ -425,7 +425,7 @@ fn a_cargo_program_stops_at_a_breakpoint_steps_and_runs_to_its_end() {
             .gutter_marks(11..12)
             .is_some_and(|marks| !marks.is_empty())
     });
-    press(&mut editor, "C-D");
+    press(&mut editor, "C-S-<f9>");
     assert_eq!(editor.window_buffer().name(), "*run: demo*");
 
     wait_until(&mut editor, "the breakpoint", |editor| {
@@ -468,7 +468,7 @@ fn a_cargo_program_stops_at_a_breakpoint_steps_and_runs_to_its_end() {
             .any(|extra| extra.line == 8 && extra.band.is_some())
     );
     // A watch, added from its column.
-    press(&mut editor, "C-c w");
+    press(&mut editor, "C-x C-a w");
     press(&mut editor, "RET");
     for character in "subtotal * 2".chars() {
         press(&mut editor, &character.to_string().replace(' ', "SPC"));
@@ -553,7 +553,7 @@ fn a_node_script_stops_at_a_breakpoint_in_the_session_js_debug_starts() {
             .gutter_marks(0..1)
             .is_some_and(|marks| !marks.is_empty())
     });
-    press(&mut editor, "C-D");
+    press(&mut editor, "C-S-<f9>");
 
     wait_until(&mut editor, "the breakpoint", |editor| {
         editor.window_buffer().name() == "seed.mjs" && editor.window_buffer().point_line() == 3

@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use remacs_core::{CommandResult, Editor, Tone};
 
+use crate::compile;
 use crate::configuration::Configuration;
 use crate::console::{self, Console, colored, dim};
 use crate::launch::launch;
@@ -253,6 +254,7 @@ fn directory_name(root: &Path) -> String {
 
 /// Shows the session's console and starts it, once the run going on, if any, has ended.
 fn run_session(editor: &mut Editor, id: u64) -> CommandResult {
+    editor.set_next_error_source(Some(compile::OUTPUT));
     show(editor, id);
     let session = get_mut(editor, id).expect("just made");
     if session.is_running() {

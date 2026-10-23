@@ -89,6 +89,8 @@ pub struct Editor {
     windows: Windows,
     /// See [`Editor::display_window`].
     displayed: Option<Displayed>,
+    /// See [`Editor::set_next_error_source`].
+    next_error_source: Option<&'static str>,
 }
 
 impl Editor {
@@ -136,6 +138,7 @@ impl Editor {
             scrolled_to: None,
             windows: Windows::default(),
             displayed: None,
+            next_error_source: None,
         }
     }
 

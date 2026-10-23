@@ -342,8 +342,14 @@ fn sexp_edits(marked: &str, keys: &[&str]) -> Vec<String> {
     keys.iter()
         .map(|keys| {
             wait_for_parse(&mut editor);
-            for key in remacs_core::parse_sequence(keys).unwrap() {
-                editor.handle_key(key);
+            // A command no key runs, by its name.
+            match remacs_core::parse_sequence(keys) {
+                Some(keys) => {
+                    for key in keys {
+                        editor.handle_key(key);
+                    }
+                }
+                None => editor.run_command(keys),
             }
             let buffer = editor.window_buffer();
             let mut marked = buffer.contents(0..buffer.text().len());
@@ -408,7 +414,7 @@ fn lists_are_spliced_and_raised_with_what_they_close() {
         ["fn m() { f(g|a, b); }"]
     );
     assert_eq!(
-        sexp_edits("fn m() { f(g(a, |b)); }", &["C-M-r"]),
+        sexp_edits("fn m() { f(g(a, |b)); }", &["raise-sexp"]),
         ["fn m() { f(|b); }"]
     );
 }

@@ -72,12 +72,7 @@ const COMMANDS: &[Command] = &[
     Command::new(START_FALLBACK, "Start zsh in the terminal whose shell could not start, this once", commands::start_fallback),
 ];
 
-const BINDINGS: &[(&str, &str)] = &[
-    ("M-<f12>", TOGGLE),
-    ("C-`", TOGGLE),
-    ("s-t", NEW),
-    ("s-RET", MAXIMIZE),
-];
+const BINDINGS: &[(&str, &str)] = &[("M-<f12>", TOGGLE), ("C-`", TOGGLE), ("s-t", NEW)];
 
 #[rustfmt::skip]
 const MENU_ITEMS: &[MenuItem] = &[
@@ -88,11 +83,13 @@ const MENU_ITEMS: &[MenuItem] = &[
 
 /// While a terminal has the keys.
 const TERMINAL_BINDINGS: &[(&str, &str)] = &[
+    // Elsewhere ⌘↩ opens a line below.
+    ("s-RET", MAXIMIZE),
     ("s-}", NEXT),
     ("s-{", PREVIOUS),
     ("C-x k", CLOSE),
-    ("C-x r", RENAME),
     ("C-x C-b", LIST),
+    // Not vterm's `C-c C-t`: `C-c` goes to the shell, only `C-x` stays with remacs.
     ("C-x [", COPY_MODE),
     ("s-f", SEARCH),
     ("s-c", COPY),

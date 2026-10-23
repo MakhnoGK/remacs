@@ -26,7 +26,8 @@ use std::rc::Rc;
 
 use remacs_config::{run_dir, state_dir};
 use remacs_core::{
-    Command, Editor, Keymap, MenuItem, MinorKeymap, Plugin, Registry, visiting_file,
+    Command, Editor, Keymap, MenuItem, MinorKeymap, NextErrorSource, Plugin, Registry,
+    visiting_file,
 };
 
 use crate::configuration::Store;
@@ -79,17 +80,15 @@ const COMMANDS: &[Command] = &[
     Command::new("run-show-9", "Show the console of the ninth run", commands::show_session_9),
 ];
 
-/// As in IntelliJ: ⌃R, ⌃⇧R, ⌥⇧R and ⌘F2; `keys.toml` binds them otherwise.
+/// IntelliJ's F-keys, which Emacs leaves free (ADR 0079): ⇧F10, ⌃⇧F10, ⌥⇧F10 and ⌘F2;
+/// `keys.toml` binds them otherwise. `next-error` visits the compile output's locations.
 const BINDINGS: &[(&str, &str)] = &[
-    ("C-r", RUN),
-    ("C-R", RUN_AT_POINT),
-    ("M-R", CHOOSE),
+    ("S-<f10>", RUN),
+    ("C-S-<f10>", RUN_AT_POINT),
+    ("M-S-<f10>", CHOOSE),
     ("s-<f2>", STOP),
     ("s-<f9>", compile::COMPILE),
     ("s-S-<f9>", compile::RECOMPILE),
-    ("M-g M-n", compile::NEXT_ERROR),
-    ("M-g M-p", compile::PREVIOUS_ERROR),
-    ("C-x `", compile::NEXT_ERROR),
 ];
 
 #[rustfmt::skip]
@@ -122,6 +121,12 @@ const CONSOLE_BINDINGS: &[(&str, &str)] = &[
     ("g", RUN),
     ("C-c C-c", "run-console-stop"),
     ("C-c C-d", "run-console-send-eof"),
+    // In a console `next-error` is its locations, whatever source was named last.
+    ("M-g n", compile::NEXT_ERROR),
+    ("M-g M-n", compile::NEXT_ERROR),
+    ("C-x `", compile::NEXT_ERROR),
+    ("M-g p", compile::PREVIOUS_ERROR),
+    ("M-g M-p", compile::PREVIOUS_ERROR),
     ("M-1", "run-show-1"),
     ("M-2", "run-show-2"),
     ("M-3", "run-show-3"),
@@ -159,6 +164,12 @@ impl Plugin for RunPlugin {
                 editor.buffer_has_keys() && editor.buffer().local::<Console>().is_some()
             },
             keymap: keymap(CONSOLE_BINDINGS),
+        });
+        registry.next_error_sources.push(NextErrorSource {
+            name: compile::OUTPUT,
+            active: compile::has_output,
+            next: compile::next_error,
+            previous: compile::previous_error,
         });
         registry.settings_hooks.push(Rc::new(read_settings));
         registry.post_command_hooks.push(Rc::new(sessions::pick_up));

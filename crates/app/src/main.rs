@@ -11,6 +11,8 @@ mod environment;
 mod frame;
 mod highlights;
 mod key_input;
+#[cfg(test)]
+mod keymap_rules;
 mod logs;
 mod menu_bar;
 mod minibuffer_view;

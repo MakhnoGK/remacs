@@ -194,7 +194,7 @@ fn a_download_that_does_not_match_the_release_checksum_is_thrown_away() {
 
     assert!(error.contains("checksum mismatch"), "{error}");
     assert!(!home.join("cache/tools/codelldb/1.12.3").exists());
-    press(&mut editor, "C-c t");
+    editor.run_command(crate::panel::OPEN);
     let (_, detail) = codelldb_row(&editor);
     assert!(detail.starts_with("Failed: checksum mismatch"), "{detail}");
 
@@ -223,7 +223,7 @@ fn tools_toml_pins_a_version_or_names_a_program_of_ones_own() {
         got.borrow_mut().take(),
         Some(Ok(PathBuf::from("/opt/llvm/codelldb")))
     );
-    press(&mut editor, "C-c t");
+    editor.run_command(crate::panel::OPEN);
     assert_eq!(
         codelldb_row(&editor),
         (
@@ -252,7 +252,7 @@ fn the_tools_panel_finds_a_newer_release_and_updates_to_it() {
     wait_for(&mut editor, &got).unwrap();
 
     releases.publish("1.12.3", true, None);
-    press(&mut editor, "C-c t");
+    editor.run_command(crate::panel::OPEN);
     wait_until(&mut editor, |editor| {
         codelldb_row(editor).1 == "Update available · 1.12.3"
     });

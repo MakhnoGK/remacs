@@ -10,7 +10,9 @@ use crate::preview;
 use crate::query::{Query, regexp_option, trimmed};
 
 pub const SEARCH: &str = "search-buffer";
+pub const SEARCH_BACKWARD: &str = "search-buffer-backward";
 pub const SEARCH_REGEXP: &str = "search-buffer-regexp";
+pub const SEARCH_REGEXP_BACKWARD: &str = "search-buffer-regexp-backward";
 const SEARCH_CATEGORY: &str = "search";
 /// Beyond this many lines the rest are left out, so that a common string in a huge file
 /// still answers each key at once.
@@ -24,20 +26,31 @@ const MAX_COUNTED_GAP: usize = 64 * 1024;
 /// Reads a string and lists the lines that contain it, the first match after point
 /// selected; choosing one goes to its first match.
 pub fn search(editor: &mut Editor) -> CommandResult {
-    search_lines(editor, false)
+    search_lines(editor, false, false)
+}
+
+/// Like [`search`], the last match before point selected.
+pub fn search_backward(editor: &mut Editor) -> CommandResult {
+    search_lines(editor, false, true)
 }
 
 /// Like [`search`] for a regular expression.
 pub fn search_regexp(editor: &mut Editor) -> CommandResult {
-    search_lines(editor, true)
+    search_lines(editor, true, false)
 }
 
-fn search_lines(editor: &mut Editor, regex: bool) -> CommandResult {
+pub fn search_regexp_backward(editor: &mut Editor) -> CommandResult {
+    search_lines(editor, true, true)
+}
+
+fn search_lines(editor: &mut Editor, regex: bool, backward: bool) -> CommandResult {
     let start = editor.window_buffer().point();
     let regex = Rc::new(Cell::new(regex));
     let mut keymap = Keymap::default();
     keymap.bind("C-s", "next-candidate");
     keymap.bind("C-r", "previous-candidate");
+    keymap.bind("s-g", "next-candidate");
+    keymap.bind("s-G", "previous-candidate");
     let prompt = Prompt {
         label: "Search".into(),
         category: SEARCH_CATEGORY,
@@ -57,7 +70,8 @@ fn search_lines(editor: &mut Editor, regex: bool) -> CommandResult {
     editor.read(
         prompt,
         move |editor, input| {
-            line_candidates(editor.window_buffer(), input, searched_regex.get(), start)
+            let buffer = editor.window_buffer();
+            line_candidates(buffer, input, searched_regex.get(), start, backward)
         },
         move |editor, answer| {
             let offset = answer.parse().map_err(|_| "No match")?;
@@ -71,8 +85,14 @@ fn search_lines(editor: &mut Editor, regex: bool) -> CommandResult {
 }
 
 /// The lines containing `input`, or with `regex`, a match of it, each valued at its first
-/// match.
-fn line_candidates(buffer: &Buffer, input: &str, regex: bool, point: usize) -> Completions {
+/// match; the first after point selected, or `backward` the last before it.
+fn line_candidates(
+    buffer: &Buffer,
+    input: &str,
+    regex: bool,
+    point: usize,
+    backward: bool,
+) -> Completions {
     let query = match Query::parse(input, regex) {
         Ok(query) => query,
         Err(completions) => return *completions,
@@ -101,7 +121,11 @@ fn line_candidates(buffer: &Buffer, input: &str, regex: bool, point: usize) -> C
     });
     Completions {
         total: candidates.len(),
-        selected: starts.iter().position(|&start| start >= point),
+        selected: if backward {
+            starts.iter().rposition(|&start| start < point)
+        } else {
+            starts.iter().position(|&start| start >= point)
+        },
         note: more.then(|| format!("First {MAX_LINES} lines")),
         candidates,
         ..Completions::default()

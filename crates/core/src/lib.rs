@@ -65,7 +65,7 @@ pub use outline::{
 pub use pane::{
     Pane, PaneBody, PaneButton, PaneColumn, PaneProvider, PaneRow, PaneSource, Tab, TabState, Tabs,
 };
-pub use plugin::{Hook, MinorKeymap, Plugin, Registry};
+pub use plugin::{Hook, MinorKeymap, NextErrorSource, Plugin, Registry};
 pub use popup::{Code, CodeHighlighter, DocBlock, Documentation, Note, Popup, PopupProvider};
 pub use remacs_config::{Section, Settings, assert_default_file};
 pub use screen::{
