@@ -22,8 +22,6 @@ impl Plugin for CodeModePlugin {
     fn register(&self, registry: &mut Registry) {
         registry.modes.add(Mode {
             name: CODE_MODE,
-            extensions: &[],
-            file_names: &[],
             pairs: &[('(', ')'), ('[', ']'), ('{', '}'), ('"', '"'), ('\'', '\'')],
             comment: Some(CommentSyntax {
                 start: "// ",
@@ -33,17 +31,15 @@ impl Plugin for CodeModePlugin {
                 start: "{/* ",
                 end: " */}",
             }),
+            ..Mode::default()
         });
         registry.modes.add(Mode {
             name: STYLE_MODE,
-            extensions: &[],
-            file_names: &[],
-            pairs: &[],
             comment: Some(CommentSyntax {
                 start: "/* ",
                 end: " */",
             }),
-            markup_comment: None,
+            ..Mode::default()
         });
         registry.syntax_probes.push(Rc::new(in_double_quotes));
     }

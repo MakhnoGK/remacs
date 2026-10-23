@@ -107,6 +107,7 @@ pub const DEFAULT_FILES: &[(&str, &str)] = &[
     ("keys", include_str!("../../../config/defaults/keys.toml")),
     ("logs", include_str!("../../../config/defaults/logs.toml")),
     ("lsp", include_str!("../../../config/defaults/lsp.toml")),
+    ("modes", include_str!("../../../config/defaults/modes.toml")),
     ("navigation", include_str!("../../../config/defaults/navigation.toml")),
     ("run", include_str!("../../../config/defaults/run.toml")),
     ("search", include_str!("../../../config/defaults/search.toml")),

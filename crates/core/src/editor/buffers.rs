@@ -89,7 +89,7 @@ impl Editor {
             let name = self.unique_name(&name);
             self.buffers[0].set_name(name);
         }
-        let mode = self.mode_for(Some(&path));
+        let mode = self.mode_for_file(&path, self.buffers[0].text());
         self.buffers[0].set_file(path, mode);
         Ok(())
     }
@@ -117,7 +117,7 @@ impl Editor {
             } else {
                 to.join(rest)
             };
-            let mode = self.mode_for(Some(&path));
+            let mode = self.mode_for_file(&path, self.buffers[index].text());
             let name = file_buffer_name(&path);
             if name != self.buffers[index].name() {
                 let name = self.unique_name(&name);
@@ -195,7 +195,7 @@ impl Editor {
             Err(error) => return Err(error),
         };
         let format = text.format();
-        let mode = self.mode_for(Some(&path));
+        let mode = self.mode_for_file(&path, &text);
         let mut buffer = Buffer::new(file_buffer_name(&path), text, mode).with_file(path);
         if format.binary {
             buffer.set_read_only(true);

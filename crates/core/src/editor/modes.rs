@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use remacs_text::Text;
+
 use super::Editor;
 use crate::buffer::Buffer;
 use crate::decoration::Span;
@@ -10,6 +12,12 @@ use crate::syntax::{self, Embedded, SyntaxContext};
 impl Editor {
     pub fn mode_for(&self, path: Option<&Path>) -> &'static str {
         self.registry.modes.name_for(path)
+    }
+
+    /// The mode of the file at `path` holding `text`: a modeline or `#!` line in it
+    /// first, as Emacs `set-auto-mode`.
+    pub fn mode_for_file(&self, path: &Path, text: &Text) -> &'static str {
+        self.registry.modes.name_for_file(path, text)
     }
 
     /// The mode named `name`; none for Fundamental and unknown names.
