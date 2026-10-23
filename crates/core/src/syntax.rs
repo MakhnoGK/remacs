@@ -22,6 +22,21 @@ pub enum SyntaxContext {
 /// Tells the context of an offset in a buffer, or `None` when it does not know the buffer.
 pub type SyntaxProbe = Rc<dyn Fn(&Buffer, usize) -> Option<SyntaxContext>>;
 
+/// Where a line's indentation comes from, as its language's syntax tells it: the
+/// indentation of line `anchor`, an earlier one or its own, a level deeper when `deeper`,
+/// then `align` spaces more; none without an anchor.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Indentation {
+    pub anchor: Option<usize>,
+    pub deeper: bool,
+    /// Lines up with code on line `anchor` past its indentation, like a YAML mapping
+    /// after `- `.
+    pub align: usize,
+}
+
+/// Tells a line's indentation, or `None` when it cannot, e.g. without a grammar.
+pub type IndentProbe = Rc<dyn Fn(&Buffer, usize) -> Option<Indentation>>;
+
 /// Code of another language in a buffer, like CSS in HTML's `<style>`: its mode and where
 /// it is, in order. Servers and formatters are shown it as a document of its own, the
 /// file's text blanked around it.

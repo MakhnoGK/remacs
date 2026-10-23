@@ -3,6 +3,7 @@
 mod buffer_syntax;
 mod fallback;
 mod highlighter;
+mod indent;
 mod matching_pair;
 mod parser_thread;
 mod queries;
@@ -78,9 +79,41 @@ pub struct Injections {
     pub servers: bool,
 }
 
+/// How a mode's lines are indented, as its queries joined in order capture its tree: the
+/// lines of an `@indent.begin` node after its first are a level deeper than that one, and
+/// those of an `@indent.align` node line up with its start; a line starting with an
+/// `@indent.end` or `@indent.branch` node, like `}` or `else`, is at its begin node's
+/// level; a blank line after one ending with an `@indent.open` token, like `{` or
+/// Python's `:`, is a level deeper. The innermost such node above the line decides.
+pub struct Indents {
+    pub mode: &'static str,
+    pub queries: &'static [&'static str],
+    /// Only blank lines are told, the one `RET` leaves among them: a language whose
+    /// indentation is its structure, like Python's, where `TAB` keeps adding blanks.
+    pub only_blank_lines: bool,
+}
+
+impl Indents {
+    pub const fn new(mode: &'static str, queries: &'static [&'static str]) -> Self {
+        Self {
+            mode,
+            queries,
+            only_blank_lines: false,
+        }
+    }
+
+    pub const fn only_blank_lines(self) -> Self {
+        Self {
+            only_blank_lines: true,
+            ..self
+        }
+    }
+}
+
 pub struct SyntaxPlugin {
     grammars: &'static [Grammar],
     injections: &'static [Injections],
+    indents: &'static [Indents],
 }
 
 impl SyntaxPlugin {
@@ -88,7 +121,12 @@ impl SyntaxPlugin {
         Self {
             grammars,
             injections,
+            indents: &[],
         }
+    }
+
+    pub const fn with_indents(self, indents: &'static [Indents]) -> Self {
+        Self { indents, ..self }
     }
 }
 
@@ -197,6 +235,16 @@ impl Plugin for SyntaxPlugin {
         registry
             .embedded_probes
             .push(Rc::new(buffer_syntax::embedded));
+        let indents = self.indents;
+        let indenter = Rc::new(RefCell::new(indent::Indenter::new()));
+        registry.indent_probes.push(Rc::new({
+            let indenter = Rc::clone(&indenter);
+            move |buffer, line| indenter.borrow_mut().indentation(indents, buffer, line)
+        }));
+        // A tree parsed for one command's lines is not kept past it, nor its text.
+        registry
+            .post_command_hooks
+            .push(Rc::new(move |_| indenter.borrow_mut().forget_parse()));
         let snippets = RefCell::new(snippet::SnippetHighlighter::new(grammars));
         registry.code_highlighters.push(Rc::new(move |mode, code| {
             snippets.borrow_mut().highlight(mode, code)

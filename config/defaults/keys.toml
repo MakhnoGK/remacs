@@ -57,6 +57,9 @@
 # "C--" = "contract-region"            # also ⌥↓: back to what the last expansion grew from
 #
 # Editing:
+# "TAB" = "indent-for-tab-command"     # as the language indents the line; else to a tab stop
+# "C-M-\\" = "indent-region"           # the region's lines; C-x h first for the buffer's
+# "M-i" = "tab-to-tab-stop"            # blanks to the next tab stop
 # "C-t" = "transpose-chars"            # M-t words, C-x C-t lines
 # "M-z" = "zap-to-char"                # kill through the character typed next; M-Z up to it
 # "M-^" = "join-line"                  # onto the line above, or the region's lines into one

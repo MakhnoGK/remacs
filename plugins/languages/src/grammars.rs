@@ -1,4 +1,4 @@
-use remacs_syntax::{Grammar, LanguageFn};
+use remacs_syntax::{Grammar, Indents, LanguageFn};
 
 use crate::modes::*;
 
@@ -7,7 +7,34 @@ macro_rules! query {
     ($language:literal) => {
         include_str!(concat!("../queries/", $language, "/highlights.scm"))
     };
+    ($language:literal, $kind:literal) => {
+        include_str!(concat!("../queries/", $language, "/", $kind, ".scm"))
+    };
 }
+
+const ECMASCRIPT_INDENTS: &str = query!("ecmascript", "indents");
+
+/// Dialects extend their base language's queries, which therefore come first.
+#[rustfmt::skip]
+pub const INDENTS: &[Indents] = &[
+    Indents::new(RUST, &[query!("rust", "indents")]),
+    Indents::new(C, &[query!("c", "indents")]),
+    Indents::new(CPP, &[query!("c", "indents"), query!("cpp", "indents")]),
+    Indents::new(JAVASCRIPT, &[ECMASCRIPT_INDENTS, query!("jsx", "indents")]),
+    Indents::new(JSX, &[ECMASCRIPT_INDENTS, query!("jsx", "indents")]),
+    Indents::new(TYPESCRIPT, &[ECMASCRIPT_INDENTS, query!("typescript", "indents")]),
+    Indents::new(TSX, &[ECMASCRIPT_INDENTS, query!("jsx", "indents"), query!("typescript", "indents")]),
+    Indents::new(PYTHON, &[query!("python", "indents")]).only_blank_lines(),
+    Indents::new(GO, &[query!("go", "indents")]),
+    Indents::new(JAVA, &[query!("java", "indents")]),
+    Indents::new(RUBY, &[query!("ruby", "indents")]),
+    Indents::new(LUA, &[query!("lua", "indents")]),
+    Indents::new(BASH, &[query!("bash", "indents")]),
+    Indents::new(YAML, &[query!("yaml", "indents")]).only_blank_lines(),
+    Indents::new(JSON, &[query!("json", "indents")]),
+    Indents::new(HTML, &[query!("html", "indents")]),
+    Indents::new(CSS, &[query!("css", "indents")]),
+];
 
 const ECMASCRIPT: &str = query!("ecmascript");
 

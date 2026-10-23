@@ -366,6 +366,29 @@ pub(crate) fn context_at(buffer: &Buffer, offset: usize) -> Option<SyntaxContext
     Some(SyntaxContext::Code)
 }
 
+/// The buffer's grammar and its own tree edited to follow `text`, none before the first
+/// parse, with whether that tree is a parse of `text` itself.
+pub(crate) fn tree_for(
+    buffer: &Buffer,
+    text: &Snapshot,
+) -> Option<(&'static Grammar, Option<Tree>, bool)> {
+    let syntax = buffer.local::<BufferSyntax>()?;
+    let mut tree = syntax.tree.clone();
+    let edit = text.edit_from(&syntax.snapshot);
+    let parsed = edit.is_none() && is_reparsed(buffer);
+    if let (Some(tree), Some(edit)) = (&mut tree, edit) {
+        tree.edit(&input_edit(edit, &syntax.snapshot, text));
+    }
+    Some((syntax.grammar, tree, parsed))
+}
+
+/// Whether `offset` is in code of another language, which the buffer's tree does not hold.
+pub(crate) fn in_injected_code(buffer: &Buffer, offset: usize) -> bool {
+    buffer
+        .local::<BufferSyntax>()
+        .is_some_and(|syntax| layer_at(&syntax.layers, &(offset..offset)).is_some())
+}
+
 /// Whether the trees are a parse of the text as it is, not ones edited to follow it.
 pub(crate) fn is_reparsed(buffer: &Buffer) -> bool {
     current(buffer).is_some_and(|syntax| {

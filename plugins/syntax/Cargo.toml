@@ -29,5 +29,9 @@ harness = false
 name = "html"
 harness = false
 
+[[bench]]
+name = "indent"
+harness = false
+
 [lints]
 workspace = true
