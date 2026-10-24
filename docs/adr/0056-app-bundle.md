@@ -95,7 +95,32 @@ per release, not with every change. Cutting a release:
    tagged there, `git describe` finds it from both branches.
 4. `gh release create v0.1.0-alpha.2 --prerelease --verify-tag` (a prerelease until
    `v0.1.0`), its notes the version's section of `CHANGELOG.md`.
-5. `cargo xtask bundle` (or `install`): the bundle is `0.1.0-alpha.2`, not `-dirty`.
+5. The Homebrew formula: `brew bump-formula-pr --url
+   https://github.com/MakhnoGK/remacs/archive/refs/tags/v0.1.0-alpha.2.tar.gz
+   makhnogk/remacs/remacs` opens a pull request in the tap; when its test-bot is green,
+   the tap's `brew pr-pull` workflow with that number (`gh workflow run "brew pr-pull"
+   -R MakhnoGK/homebrew-remacs -f pull_request=<n>`, as `MakhnoGK`) uploads the bottle
+   and pushes the formula. `brew upgrade remacs` then installs it.
+
+## Homebrew (2026-10-24)
+
+Without a Developer ID (#82) a downloaded app is quarantined and Gatekeeper blocks it,
+so a cask of a .dmg would not open; an app Homebrew installs from a bottle has no
+quarantine and opens. remacs is a formula in our tap
+[`MakhnoGK/homebrew-remacs`](https://github.com/MakhnoGK/homebrew-remacs): it builds the
+tag's source archive with `cargo xtask bundle` (`REMACS_VERSION` from the formula,
+`REMACS_COMMIT` `homebrew`), installs `Remacs.app` in its prefix and a `remacs` launcher
+like the one above; `head` builds `dev`.
+
+- **Bottles** are built by the tap's `brew test-bot` and published by `brew pr-pull` into
+  the tap's releases: arm64 only, on macOS 15, which every later macOS takes. Homebrew no
+  longer bottles `rust` for macOS 14, so there test-bot skips the formula; the formula
+  needs Sequoia, and macOS 14 builds from source with `cargo xtask install`.
+- **Build dependencies**: `rust`, `cargo-about`, `cmake` (wasmtime's C API builds with
+  it), Xcode for the Metal shaders. `cargo fetch --locked` runs first, as the notices
+  read every crate in the lock file offline.
+- No autobump: a pull request opened by a workflow's token runs no CI, so the bump is
+  step 5 above.
 
 ## Later
 
