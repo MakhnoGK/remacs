@@ -2,10 +2,35 @@
 
 What changed for people using remacs, release by release; written by `cargo xtask changelog` from the commit subjects.
 
-## Unreleased
+## 0.1.0-alpha.1 — 2026-10-24
 
 ### Added
 
+- toggle-key-hints shows or hides the keys under the view, kept in ui.toml
+- Vue's language server, its scripts' TypeScript asked of typescript-language-server with Vue's plugin; npm installs packages with a tool (#104)
+- semantic tokens paint what tree-sitter cannot tell over its faces, in the faces and levels of its capture scheme (#102)
+- grammars remacs does not build in are downloaded as WebAssembly when a file wants one: Dockerfile, Fish, Git Ignore, Git Rebase (#102)
+- highlight-level 1–4 in syntax.toml chooses how much code is highlighted (#102)
+- scripts and other injected code get their own language's locals, indentation and folds; Kotlin, Terraform, GraphQL, Protobuf and Svelte language servers (#102)
+- local variables highlighted from our own locals.scm for 10 languages; fold marks in the gutter, folds kept with the session, RET reindents the line it leaves (#102)
+- hide blocks of code from the syntax tree, hs-toggle-hiding, hs-hide-all and hs-show-all; windows count the rows shown (#102)
+- indentation from the syntax tree with our own indents.scm for 16 languages; TAB indents the line, C-M-\ the region, RET the new line (#102)
+- highlight queries of one's own in queries/<mode>/, and highlighting without a grammar from the mode's comments and quotes (#102)
+- Kotlin, HCL, GraphQL, Protobuf, SCSS, Vue, Svelte and Git Commit modes; regex, JSDoc and inline Markdown painted over their hosts; fenced code blocks; TODO keywords in comments (#102)
+- our own clean-room highlight and injection queries for all 34 modes, one capture scheme (#102)
+- built-in modes in languages.toml, and a mode chosen by a file's modeline, #! line or first line, with modes.toml for one's own (#102)
+- one Emacs layout — no clashing built-in keys, C-c and a letter left to the user, one next-error for consoles and problems, C-r searching backward, run and debug on F-keys, the ⌘ layer (#101)
+- describe-key (C-h k), describe-command (C-h f), a settings reference, and theme = "system" following macOS light and dark (#95, #96)
+- regular expressions in buffer and project search and replace (C-M-s, C-M-%, M-r), groups in replacements
+- blame in its own buffer (C-x v g); q steps further back, prompts over conflicts and consoles take typed letters
+- modus-operandi replaces mac-classic as the built-in light theme
+- type through macOS input methods, show marked text, pick the Meta Option key
+- goto-line asks for a line or line:column (M-g g)
+- reopen each project's files with point and scroll on start
+- split windows, other-window commands, resizing and balancing (#90)
+- cargo xtask bundle puts THIRD-PARTY-NOTICES from cargo-about in the app, and Help opens it (#87)
+- panics on any thread write a crash report the next start points to, and the app keeps its own output in remacs.log however it was started (#81)
+- the bundle's version comes from the v* tag, remacs --version and About show it with the commit, and cargo xtask changelog writes CHANGELOG.md (#86)
 - dired creates a file through the prompt like a folder, and the in-place row is gone (#99)
 - default settings ship as commented files in config/defaults, each tested against its Default, and write-default-settings copies one into the config folder (#84)
 - a commit opens as its diff in text, its facts and files in a column beside it (#73)
@@ -121,6 +146,24 @@ What changed for people using remacs, release by release; written by `cargo xtas
 
 ### Fixed
 
+- rustls, rustls-webpki and tokio past their RustSec advisories, cargo audit in CI
+- the selected row's shadow gets room around the rows instead of being cut at their edges
+- fold chevrons get their own gutter column that scales with zoom and show on hover
+- code in Rust macros' arguments highlighted, their format strings' placeholders left as they were
+- macros keep their face where a predicate reads them, and the fold toggle stands clear of the changed lines' marks
+- code in previews and popups takes the new theme's colors after a theme change
+- round 6 — dead keys on the typing Option key go to the input method, read-only buffers refuse dictated text
+- round 5 — a typing Option key stays Meta where it types nothing, dictation stops when a newline changes prompt
+- round 4 — read-only buffers refuse typing at once, descriptions show marked text, only point-moving scrolls drop it
+- round 3 — clicks, scrolls and menus drop marked text, table fields show it, cursor after it
+- round 2 — prompt scrolls to marked text, clicks and menus commit it, typing rechecked per character
+- round 1 — dictated newlines run RET, note repeat and clipping limits
+- pass over a tsc older than TypeScript 7 for the downloaded one
+- refuse non-regular files when opening them for reading
+- popups placed in the whole frame
+- divider reaches the bottom of the text
+- drop (y or n), wrap long questions, one font rule for prompts and dialogs
+- buffers follow files changed on disk, ask before saving over them
 - files are decoded in their detected encoding a chunk at a time with bounded memory, binary files aren't read, and revert-buffer-with-coding-system rereads one (#80)
 - dired overwrites by renaming over the target, sends replaced folders to the Trash, and finds onto-itself through links and letter case (#79)
 - files that aren't UTF-8 are decoded on open and saved back in their encoding, binary ones open read-only, CRLF line ends are kept (#80)
