@@ -90,17 +90,27 @@ per release, not with every change. Cutting a release:
    pull request `chore: release v0.1.0-alpha.2` into `dev`; the owner merges it.
 2. A pull request from `dev` into `main`, merged with a merge commit (a ruleset allows
    no other), so `main` keeps `dev`'s commits and the two never diverge.
-3. On the release commit in `dev`, which `main` now contains too,
-   `git tag -a v0.1.0-alpha.2 -m v0.1.0-alpha.2`, then `git push origin v0.1.0-alpha.2`;
-   tagged there, `git describe` finds it from both branches.
-4. `gh release create v0.1.0-alpha.2 --prerelease --verify-tag` (a prerelease until
-   `v0.1.0`), its notes the version's section of `CHANGELOG.md`.
-5. The Homebrew formula: `brew bump-formula-pr --url
-   https://github.com/MakhnoGK/remacs/archive/refs/tags/v0.1.0-alpha.2.tar.gz
-   makhnogk/remacs/remacs` opens a pull request in the tap; when its test-bot is green,
-   the tap's `brew pr-pull` workflow with that number (`gh workflow run "brew pr-pull"
-   -R MakhnoGK/homebrew-remacs -f pull_request=<n>`, as `MakhnoGK`) uploads the bottle
-   and pushes the formula. `brew upgrade remacs` then installs it.
+
+The rest is `.github/workflows/release.yml`, on the push to `main` (#115); a version
+already tagged does nothing:
+
+3. The version is `CHANGELOG.md`'s newest section. The tag `v0.1.0-alpha.2` goes on the
+   merge's second parent, the release commit in `dev`, which `main` contains too, so
+   `git describe` finds it from both branches.
+4. A GitHub release, a prerelease while the version has a `-`, its notes that section:
+   `remacs-0.1.0-alpha.2.tar.gz` (`git archive` of the tag) and its SLSA build
+   provenance from `actions/attest` as `remacs-0.1.0-alpha.2.tar.gz.sigstore.json`
+   (`gh attestation verify remacs-0.1.0-alpha.2.tar.gz -R MakhnoGK/remacs`).
+5. A pull request `bump-remacs-0.1.0-alpha.2` in the tap with that archive's URL and
+   SHA-256, opened with the secret `TAP_TOKEN` (a fine-grained token for the tap alone,
+   contents and pull requests: the workflow's own token cannot write to another
+   repository, and a pull request it opens runs no CI). The tap's test-bot builds the
+   bottle; its `auto-publish` then runs `brew pr-pull`, which publishes it. `brew upgrade
+   remacs` installs it some 15 minutes after the merge.
+
+By hand, if a step fails: tag and `gh release create v<version> --prerelease
+--verify-tag`; `brew bump-formula-pr --url <the archive> makhnogk/remacs/remacs`, then the
+tap's `brew pr-pull` workflow with the pull request's number, as `MakhnoGK`.
 
 ## Homebrew (2026-10-24)
 
@@ -119,8 +129,10 @@ like the one above; `head` builds `dev`.
 - **Build dependencies**: `rust`, `cargo-about`, `cmake` (wasmtime's C API builds with
   it), Xcode for the Metal shaders. `cargo fetch --locked` runs first, as the notices
   read every crate in the lock file offline.
-- No autobump: a pull request opened by a workflow's token runs no CI, so the bump is
-  step 5 above.
+- No scheduled autobump in the tap: a pull request opened by a workflow's token runs no
+  CI; remacs's release opens the bump instead (step 5 above).
+- Since 0.1.0-alpha.2 the formula builds the release's attested archive, not GitHub's
+  generated tag archive.
 
 ## Later
 

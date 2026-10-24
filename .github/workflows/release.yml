@@ -1,0 +1,117 @@
+name: Release
+
+# A merge from dev into main is a release (ADR 0056): the version is CHANGELOG.md's newest
+# section. Tags the release commit, publishes the source archive with its build
+# provenance, and opens the formula's bump in the Homebrew tap.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      url: ${{ steps.archive.outputs.url }}
+      sha256: ${{ steps.archive.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: version
+        run: |
+          version=$(sed -n 's/^## \([0-9][^ ]*\) .*/\1/p' CHANGELOG.md | head -1)
+          [ -n "$version" ] || { echo "::error::CHANGELOG.md has no released section"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "::notice::v$version is already tagged; nothing to release"
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Tag
+        if: steps.version.outputs.new == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # The merge's second parent is the release commit in dev, which both branches
+          # contain, so `git describe` finds the tag from either.
+          commit=$(git rev-parse -q --verify HEAD^2 || git rev-parse HEAD)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$VERSION" -m "v$VERSION" "$commit"
+          git push origin "v$VERSION"
+      - id: archive
+        if: steps.version.outputs.new == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          archive="remacs-$VERSION.tar.gz"
+          git archive --format=tar.gz --prefix="remacs-$VERSION/" -o "$archive" "v$VERSION"
+          {
+            echo "path=$archive"
+            echo "sha256=$(sha256sum "$archive" | cut -d' ' -f1)"
+            echo "url=https://github.com/$GITHUB_REPOSITORY/releases/download/v$VERSION/$archive"
+          } >> "$GITHUB_OUTPUT"
+      - id: attest
+        if: steps.version.outputs.new == 'true'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ steps.archive.outputs.path }}
+      - name: Publish
+        if: steps.version.outputs.new == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          ARCHIVE: ${{ steps.archive.outputs.path }}
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          cp "$BUNDLE" "$ARCHIVE.sigstore.json"
+          awk -v heading="## $VERSION " 'index($0, heading) == 1 { found = 1; next }
+            found && /^## / { exit } found' CHANGELOG.md | sed 's/^###/##/' > notes.md
+          prerelease=()
+          [[ "$VERSION" == *-* ]] && prerelease=(--prerelease)
+          gh release create "v$VERSION" "$ARCHIVE" "$ARCHIVE.sigstore.json" \
+            --verify-tag "${prerelease[@]}" --title "remacs $VERSION" --notes-file notes.md
+
+  homebrew:
+    needs: release
+    if: needs.release.outputs.url != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: MakhnoGK/homebrew-remacs
+          token: ${{ secrets.TAP_TOKEN }}
+      # The tap's test-bot builds the bottle on this pull request; its auto-publish
+      # workflow runs `brew pr-pull` once that is green.
+      - name: Open the formula's bump
+        env:
+          GH_TOKEN: ${{ secrets.TAP_TOKEN }}
+          VERSION: ${{ needs.release.outputs.version }}
+          URL: ${{ needs.release.outputs.url }}
+          SHA256: ${{ needs.release.outputs.sha256 }}
+        run: |
+          branch="bump-remacs-$VERSION"
+          sed -i -e "s|^  url \".*\"$|  url \"$URL\"|" \
+                 -e "s|^  sha256 \"[0-9a-f]*\"$|  sha256 \"$SHA256\"|" Formula/remacs.rb
+          git diff --exit-code --quiet && { echo "::error::the formula did not change"; exit 1; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git commit -am "remacs $VERSION"
+          git push origin "$branch"
+          gh pr create --base main --head "$branch" --title "remacs $VERSION" \
+            --body "Release $URL"
