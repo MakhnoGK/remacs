@@ -35,9 +35,15 @@ Status: accepted, 2026-10-23 (issue #102, step 5b)
   instead of in a list (210 ms); a key typed with every block hidden costs 5 and 37 µs,
   the folds' lines moved by the lines an edit added instead of looked up one by one
   (3.3 ms); telling a frame the rows takes 60 ns, one allocation.
-- **Marks in the gutter**: `▾` right of the number of a line a block starts on, `▸` of
-  one whose block is hidden, which also shows `⋯ N lines` after its text; a click on
-  either runs `hs-toggle-hiding` on that line. Finding the blocks of the lines drawn
+- **Marks in the gutter**: a down chevron right of the number of a line a block starts
+  on, a right one of a line whose block is hidden, which also shows `⋯ N lines` after its
+  text; a click on either runs `hs-toggle-hiding` on that line. The chevrons are SVG
+  shapes in a column of their own between the numbers and the changed lines' marks, and
+  that column, the marks and the gaps around them are measured in digit widths of the
+  numbers: as fixed pixels with a glyph of the zoomed font, a zoomed toggle ran into
+  both. `[folds] toggles` in `ui.toml` shows a shown block's chevron only while the mouse
+  is over the gutter and on the cursor's line (`"hover"`, the default, as VS Code and
+  Zed do) or always. Finding the blocks of the lines drawn
   takes 0.15–0.24 ms a frame, read anew each frame: a cache would show the blocks of the
   tree last edited, not of the one parsed since. Without an indent query the lists are
   looked for among the children touching the lines only: 63 µs in a list of 200 000

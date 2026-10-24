@@ -16,10 +16,10 @@ use remacs_theme::{color, font, glass};
 use super::{
     EditorView, FOOTER_FADE_HEIGHT, MeasuredFonts, Metrics, ROW_MARGIN, ROW_RADIUS, TEXT_TOP,
 };
-use crate::assets::{EXECUTION_POINT_ICON, LOGPOINT_ICON};
+use crate::assets::{CHEVRON_DOWN_ICON, CHEVRON_ICON, EXECUTION_POINT_ICON, LOGPOINT_ICON};
 use crate::display_line::{DisplayLine, display_width, slice_line};
 use crate::highlights::{Highlights, combine, face_style, region_style, swatch_style};
-use crate::settings::{CursorHeight, SwatchesSettings};
+use crate::settings::{CursorHeight, FoldToggles, SwatchesSettings};
 use crate::widgets::{
     Edge, SCROLL_FADE_SIZE, block_cursor, cursor_text_style, edge_fade, hollow_cursor, icon, over,
     tone_color,
@@ -30,29 +30,33 @@ const MAX_RENDERED_LINE_BYTES: usize = 2048;
 /// Columns point keeps from a side with text scrolled past it, clear of the side fades;
 /// Zed keeps 5, Vim users often set `sidescrolloff` to 5–8.
 const SIDE_MARGIN_COLUMNS: usize = 7;
-const GUTTER_PADDING: f32 = 20.0;
 const MIN_GUTTER_DIGITS: usize = 3;
 /// The column of marks left of the line numbers, e.g. where a program can be run from.
 const MARKS_WIDTH: f32 = 24.0;
-/// Marks of changed lines are centered this far left of the text.
-const CHANGE_MARK_CENTER: f32 = 8.5;
-const CHANGE_BAR_WIDTH: f32 = 3.0;
-/// Between a bar and the rows above and below it.
+// The gutter right of the line numbers, in their digit widths so that it grows with them
+// as the text is zoomed: a gap, the fold toggles, the changed lines' marks, a gap.
+const NUMBER_GAP: f32 = 0.2;
+const FOLD_COLUMN: f32 = 1.4;
+const CHANGE_COLUMN: f32 = 1.0;
+const TEXT_GAP: f32 = 0.4;
+const CHANGE_BAR_WIDTH: f32 = 0.4;
+const CHANGE_TICK_HEIGHT: f32 = 0.4;
+/// Pixels between a bar and the rows above and below it.
 const CHANGE_BAR_GAP: f32 = 2.0;
-const CHANGE_TICK_WIDTH: f32 = 9.0;
-const CHANGE_TICK_HEIGHT: f32 = 3.0;
-/// From the text, in the padding between the line numbers and the changed lines' marks,
-/// which end `CHANGE_MARK_CENTER + CHANGE_BAR_WIDTH / 2` from it.
-const FOLD_TOGGLE_RIGHT: f32 = 11.0;
-const FOLD_TOGGLE_WIDTH: f32 = 8.0;
-/// Shows or hides a block, run by a click on its controls.
+/// Shows or hides a block, run by a click on its toggle or its count of hidden lines.
 const HS_TOGGLE_HIDING: &str = "hs-toggle-hiding";
+/// The gutter, over which the toggles of shown blocks appear.
+const GUTTER_GROUP: &str = "gutter";
 
-/// What a block's first line shows of it: a toggle beside its number and, while it is
-/// hidden, how many lines it hides after its text.
+/// The fold toggles over the gutter, and the counts of lines hidden blocks hide after the
+/// text of the line each starts on.
 struct FoldControls {
-    toggle: Div,
-    hidden: Option<Div>,
+    toggles: AnyElement,
+    hidden: HashMap<usize, Div>,
+}
+
+fn gutter_padding(digit_width: Pixels) -> Pixels {
+    digit_width * (NUMBER_GAP + FOLD_COLUMN + CHANGE_COLUMN + TEXT_GAP)
 }
 
 impl EditorView {
@@ -81,7 +85,9 @@ impl EditorView {
         } else {
             px(0.0)
         };
-        marks + metrics.digit_width * digits.max(MIN_GUTTER_DIGITS) as f32 + px(GUTTER_PADDING)
+        marks
+            + metrics.digit_width * digits.max(MIN_GUTTER_DIGITS) as f32
+            + gutter_padding(metrics.digit_width)
     }
 
     /// Some plugin may mark lines of the window buffer, so the gutter makes room for it.
@@ -167,8 +173,9 @@ impl EditorView {
 
     /// The row of `line`, shown as `display_line` with the decorators' faces on its
     /// `visible` bytes, its gutter mark in `mark_slot` when the gutter has a column for
-    /// marks, the controls of a block it starts, `labels` over its text and the part of the
-    /// `rectangle` region on it, and whether the line goes on past its right edge.
+    /// marks, the count of lines `folded` when it starts a hidden block, `labels` over its
+    /// text and the part of the `rectangle` region on it, and whether the line goes on past
+    /// its right edge.
     #[allow(clippy::too_many_arguments)]
     fn render_line(
         &self,
@@ -177,7 +184,7 @@ impl EditorView {
         decorations: Vec<Vec<Span>>,
         metrics: Metrics,
         gutter_width: Pixels,
-        (mark_slot, fold): (Option<Div>, Option<FoldControls>),
+        (mark_slot, folded): (Option<Div>, Option<Div>),
         extra: Option<LineExtra>,
         labels: Vec<TextLabel>,
         rectangle: Option<&(RangeInclusive<usize>, Range<usize>)>,
@@ -189,8 +196,6 @@ impl EditorView {
             note,
             ..
         } = extra.unwrap_or_default();
-        let (fold_toggle, folded) =
-            fold.map_or((None, None), |fold| (Some(fold.toggle), fold.hidden));
         let fill_alpha = u32::from(self.diff.band_opacity) * 0xff / 100;
         let fill = fill.map(|tone| (tone_color(tone, color::fg_main()) << 8) | fill_alpha);
         let code_font = self.text_font();
@@ -351,15 +356,13 @@ impl EditorView {
             }))
             .child(
                 div()
-                    .relative()
                     .flex_none()
                     .w(gutter_width - marks_width)
-                    .pr(px(GUTTER_PADDING))
+                    .pr(gutter_padding(metrics.digit_width))
                     .text_right()
                     .text_size(px(code_font.line_number_size()))
                     .text_color(rgb(number_color))
-                    .child(number.unwrap_or_else(|| (line + 1).to_string()))
-                    .children(fold_toggle),
+                    .child(number.unwrap_or_else(|| (line + 1).to_string())),
             )
             .child(
                 div()
@@ -450,17 +453,29 @@ impl EditorView {
         Some(slots)
     }
 
-    /// The controls of the blocks that start on the `drawn` lines; a click on one shows
-    /// or hides its block, as `hs-toggle-hiding` on its line does.
+    /// The controls of the blocks that start on the `drawn` lines, over a gutter that
+    /// ends at `text_left`; a click on one shows or hides its block, as `hs-toggle-hiding`
+    /// on its line does.
     fn render_fold_controls(
         &self,
         drawn: &[usize],
         shown_lines: &ShownLines,
-        metrics: Metrics,
+        (metrics, text_left): (Metrics, Pixels),
         cx: &mut Context<Self>,
-    ) -> HashMap<usize, FoldControls> {
+    ) -> FoldControls {
+        let row_height = px(self.text_font().line_height);
+        let gutter = div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .w(text_left)
+            .h(row_height * drawn.len() as f32)
+            .group(GUTTER_GROUP);
         let (Some(&first), Some(&last)) = (drawn.first(), drawn.last()) else {
-            return HashMap::new();
+            return FoldControls {
+                toggles: gutter.into_any_element(),
+                hidden: HashMap::new(),
+            };
         };
         let buffer = self.editor.window_buffer();
         let starts: Vec<usize> = (self.editor.blocks(buffer, first..last + 1))
@@ -469,14 +484,16 @@ impl EditorView {
             .filter(|block| !block.hidden.is_empty())
             .map(|block| block.lines.start)
             .collect();
-        let row_height = px(self.text_font().line_height);
-        let mut controls = HashMap::new();
-        for &line in drawn {
+        let point_line = self.drawing_selected().then(|| buffer.point_line());
+        let digit_width = metrics.digit_width;
+        let mut toggles = Vec::new();
+        let mut counts = HashMap::new();
+        for (row, &line) in drawn.iter().enumerate() {
             let hidden = shown_lines.hidden_after(line);
             if hidden.is_none() && !starts.contains(&line) {
                 continue;
             }
-            let mut clickable = |element: Div| {
+            let clickable = |element: Div| {
                 element.cursor_pointer().on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |view, _: &MouseDownEvent, _, cx| {
@@ -485,16 +502,34 @@ impl EditorView {
                     }),
                 )
             };
+            let always = hidden.is_some()
+                || self.folds.toggles == FoldToggles::Always
+                || point_line == Some(line);
             let toggle = div()
                 .absolute()
-                .right(px(FOLD_TOGGLE_RIGHT))
-                .w(px(FOLD_TOGGLE_WIDTH))
-                .top_0()
+                .top(row_height * row as f32)
+                .left(text_left - digit_width * (TEXT_GAP + CHANGE_COLUMN + FOLD_COLUMN))
+                .w(digit_width * FOLD_COLUMN)
                 .h(row_height)
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(if hidden.is_some() { "▸" } else { "▾" });
+                .child(
+                    svg()
+                        .path(if hidden.is_some() {
+                            CHEVRON_ICON
+                        } else {
+                            CHEVRON_DOWN_ICON
+                        })
+                        .size(digit_width * FOLD_COLUMN)
+                        .text_color(rgb(color::fg_line_number())),
+                )
+                .when(!always, |toggle| {
+                    toggle
+                        .opacity(0.0)
+                        .group_hover(GUTTER_GROUP, |style| style.opacity(1.0))
+                });
+            toggles.push(clickable(toggle));
             let folded = hidden.map(|hidden| {
                 div()
                     .ml(metrics.char_width * 2.0)
@@ -504,15 +539,14 @@ impl EditorView {
                     .text_color(rgb(color::fg_faint()))
                     .child(format!("⋯ {hidden} lines"))
             });
-            controls.insert(
-                line,
-                FoldControls {
-                    toggle: clickable(toggle),
-                    hidden: folded.map(&mut clickable),
-                },
-            );
+            if let Some(folded) = folded {
+                counts.insert(line, clickable(folded));
+            }
         }
-        controls
+        FoldControls {
+            toggles: gutter.children(toggles).into_any_element(),
+            hidden: counts,
+        }
     }
 
     /// The window buffer's lines from the viewport on, with the popups placed over them.
@@ -562,7 +596,11 @@ impl EditorView {
             Vec::new()
         };
         let mut mark_slots = self.render_mark_slots(first_line..last_line, cx);
-        let mut fold_controls = self.render_fold_controls(&drawn, &shown_lines, metrics, cx);
+        let text_left = px(ROW_MARGIN) + gutter_width;
+        let FoldControls {
+            toggles,
+            hidden: mut folded,
+        } = self.render_fold_controls(&drawn, &shown_lines, (metrics, text_left), cx);
         let mut extras: HashMap<usize, LineExtra> = self
             .editor
             .line_extras(first_line..last_line)
@@ -596,7 +634,7 @@ impl EditorView {
                     decorations,
                     metrics,
                     gutter_width,
-                    (slot, fold_controls.remove(&line)),
+                    (slot, folded.remove(&line)),
                     extra,
                     labels,
                     rectangle.as_ref(),
@@ -604,14 +642,18 @@ impl EditorView {
             })
             .unzip();
         self.window_state.more_on_right = continued.contains(&true);
-        let text_left = px(ROW_MARGIN) + gutter_width;
         let changes = self
             .editor
             .line_changes(first_line..last_line)
             .into_iter()
             .filter_map(|changed| {
                 let shown = (first_line..last_line, &shown_lines, first_row);
-                render_line_change(changed, shown, text_left, line_height)
+                render_line_change(
+                    changed,
+                    shown,
+                    (text_left, metrics.digit_width),
+                    line_height,
+                )
             });
         let glass = rgba(glass::window_tint()).into();
         let lines = div()
@@ -620,7 +662,8 @@ impl EditorView {
             .flex()
             .flex_col()
             .children(lines)
-            .children(changes);
+            .children(changes)
+            .child(toggles);
         let body = div()
             .absolute()
             .top(px(TEXT_TOP))
@@ -798,21 +841,23 @@ fn gutter_glyph(mark: GutterIcon) -> AnyElement {
 
 /// A bar in the gutter beside added or modified lines, or a tick between the lines where
 /// some were removed; `shown` are the drawn lines, which folds may hide some of, and the
-/// row of the first, `text_left` where their text starts.
+/// row of the first, `text_left` where their text starts and `digit_width` that of the
+/// line numbers.
 fn render_line_change(
     changed: ChangedLines,
     (shown, shown_lines, first_row): (Range<usize>, &ShownLines, usize),
-    text_left: Pixels,
+    (text_left, digit_width): (Pixels, Pixels),
     line_height: Pixels,
 ) -> Option<AnyElement> {
     let row = |line: usize| shown_lines.row_of(line) - first_row;
     let top = |line: usize| line_height * row(line) as f32;
+    let column_left = text_left - digit_width * (TEXT_GAP + CHANGE_COLUMN);
     let mark = if changed.lines.is_empty() {
         div()
-            .top(top(changed.lines.start) - px(CHANGE_TICK_HEIGHT / 2.0))
-            .left(text_left - px(CHANGE_MARK_CENTER + CHANGE_TICK_WIDTH / 2.0))
-            .w(px(CHANGE_TICK_WIDTH))
-            .h(px(CHANGE_TICK_HEIGHT))
+            .top(top(changed.lines.start) - digit_width * (CHANGE_TICK_HEIGHT / 2.0))
+            .left(column_left)
+            .w(digit_width * CHANGE_COLUMN)
+            .h(digit_width * CHANGE_TICK_HEIGHT)
     } else {
         let lines = changed.lines.start.max(shown.start)..changed.lines.end.min(shown.end);
         if lines.is_empty() {
@@ -821,8 +866,8 @@ fn render_line_change(
         let rows = row(lines.end - 1) + 1 - row(lines.start);
         div()
             .top(top(lines.start) + px(CHANGE_BAR_GAP))
-            .left(text_left - px(CHANGE_MARK_CENTER + CHANGE_BAR_WIDTH / 2.0))
-            .w(px(CHANGE_BAR_WIDTH))
+            .left(column_left + digit_width * ((CHANGE_COLUMN - CHANGE_BAR_WIDTH) / 2.0))
+            .w(digit_width * CHANGE_BAR_WIDTH)
             .h(line_height * rows as f32 - px(2.0 * CHANGE_BAR_GAP))
     };
     let color = match changed.change {

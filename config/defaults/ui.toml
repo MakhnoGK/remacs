@@ -159,6 +159,12 @@ side-width = 480
 # Percent of opacity of the bands behind added and removed lines: 0 to 60.
 band-opacity = 15
 
+[folds]
+# When the chevron that hides a block shows, between the number of the line the block
+# starts on and the marks of changed lines: "hover", while the mouse is over the gutter
+# and on the cursor's line, or "always". A hidden block's chevron always shows.
+toggles = "hover"
+
 [prompts]
 # Pixels of text kept in view on each side of the cursor as a long input in a prompt
 # (C-s, C-x C-f, M-x…) scrolls sideways: 0 to 400. At the end of the input, the text

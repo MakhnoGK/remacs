@@ -200,6 +200,7 @@ pub struct UiSettings {
     pub documentation: DocumentationSettings,
     pub problems: ProblemsSettings,
     pub diff: DiffSettings,
+    pub folds: FoldsSettings,
     pub prompts: PromptsSettings,
     pub swatches: SwatchesSettings,
     pub transitions: TransitionsSettings,
@@ -837,6 +838,23 @@ impl Default for DiffSettings {
             band_opacity: 15,
         }
     }
+}
+
+/// The gutter's controls of blocks that can be hidden.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub struct FoldsSettings {
+    pub toggles: FoldToggles,
+}
+
+/// When a shown block's toggle is in the gutter; a hidden block's always is.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum FoldToggles {
+    /// While the mouse is over the gutter, and on point's line.
+    #[default]
+    Hover,
+    Always,
 }
 
 /// What a prompt's input keeps in view as it scrolls sideways, and where the directory it

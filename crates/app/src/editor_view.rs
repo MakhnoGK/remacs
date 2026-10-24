@@ -38,10 +38,10 @@ use crate::opening::open;
 use crate::pane_view::{PANE_BOTTOM, PANE_GAP, PaneChrome};
 use crate::popup_view::DocumentationScroll;
 use crate::settings::{
-    BottomSettings, CursorHeight, DiffSettings, DocumentationSettings, GlassSettings,
-    KeyboardSettings, MouseSettings, ProblemsSettings, PromptsSettings, ReadSettings,
-    ScrollSettings, SwatchesSettings, TransitionsSettings, UiSettings, ZoomSettings, read_settings,
-    report,
+    BottomSettings, CursorHeight, DiffSettings, DocumentationSettings, FoldsSettings,
+    GlassSettings, KeyboardSettings, MouseSettings, ProblemsSettings, PromptsSettings,
+    ReadSettings, ScrollSettings, SwatchesSettings, TransitionsSettings, UiSettings, ZoomSettings,
+    read_settings, report,
 };
 use crate::smooth_scroll::{Glide, SmoothScroll};
 use crate::text_zoom::TextZoom;
@@ -101,6 +101,7 @@ pub struct EditorView {
     documentation: DocumentationSettings,
     problems: ProblemsSettings,
     diff: DiffSettings,
+    folds: FoldsSettings,
     prompts: PromptsSettings,
     swatches: SwatchesSettings,
     /// How far the minibuffer input is scrolled sideways.
@@ -323,6 +324,7 @@ impl EditorView {
             documentation: ui.documentation,
             problems: ui.problems,
             diff: ui.diff,
+            folds: ui.folds,
             prompts: ui.prompts,
             swatches: ui.swatches,
             input_scroll: ScrollHandle::new(),
@@ -374,6 +376,7 @@ impl EditorView {
         self.documentation = read.ui.documentation;
         self.problems = read.ui.problems;
         self.diff = read.ui.diff;
+        self.folds = read.ui.folds;
         self.prompts = read.ui.prompts;
         self.swatches = read.ui.swatches;
         self.bottom = read.ui.bottom();
