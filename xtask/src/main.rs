@@ -339,6 +339,14 @@ struct Version {
 
 impl Version {
     fn read(root: &Path) -> Result<Self> {
+        // A source archive (Homebrew's) has no history: its packager says what it is.
+        if let Ok(version) = env::var("REMACS_VERSION") {
+            return Ok(Self {
+                version,
+                build: "0".to_owned(),
+                commit: env::var("REMACS_COMMIT").unwrap_or_else(|_| "unknown".to_owned()),
+            });
+        }
         let build = git(root, &["rev-list", "--count", "HEAD"])?;
         let hash = git(root, &["rev-parse", "--short", "HEAD"])?;
         let dirty = !git(root, &["status", "--porcelain"])?.is_empty();

@@ -23,7 +23,9 @@ Status: accepted, 2026-10-10 (icon: board AppIcon, direction A "Parens and curso
   built from a tree with changes. The xtask builds the binary with the same two as
   `REMACS_VERSION` and `REMACS_COMMIT`, so `remacs --version`, the About panel (version,
   commit in parentheses) and crash reports say them; a plain `cargo build` says the
-  workspace's version and "unknown commit".
+  workspace's version and "unknown commit". Outside a git checkout (a source archive,
+  as Homebrew builds from), `REMACS_VERSION` set in the environment is the version and
+  `REMACS_COMMIT` the commit, with `CFBundleVersion` 0.
 - **`remacs` on the command line** is a script in `~/.local/bin` written by the install:
   it starts the installed binary with the shell's environment and directory, detached
   (`nohup`), so closing the terminal tab does not quit it. One window per call, as
@@ -79,13 +81,15 @@ Tagged `v0.1.0-alpha.1`, `v0.1.0-alpha.2`, …, then `v0.1.0`. `CHANGELOG.md` is
 by `cargo xtask changelog [version]` from the history: a section per tag of the `feat`,
 `fix` and `perf` subjects since the one before, the untagged commits under `version` (or
 "Unreleased"); the other types change nothing people see. It is regenerated whole, so
-fix a wording in the commit, not in the file. Cutting a release, on a clean `main`:
+fix a wording in the commit, not in the file. Cutting a release:
 
-1. `cargo xtask changelog 0.1.0-alpha.2`, read it, commit
-   `chore: release v0.1.0-alpha.2`.
-2. `git tag -a v0.1.0-alpha.2 -m v0.1.0-alpha.2`, then
-   `git push origin main v0.1.0-alpha.2`.
-3. `cargo xtask bundle` (or `install`): the bundle is `0.1.0-alpha.2`, not `-dirty`.
+1. On a branch from `main`, `cargo xtask changelog 0.1.0-alpha.2`, read it, and open a
+   pull request `chore: release v0.1.0-alpha.2`; the owner merges it.
+2. On the merged commit, `git tag -a v0.1.0-alpha.2 -m v0.1.0-alpha.2`, then
+   `git push origin v0.1.0-alpha.2`.
+3. `gh release create v0.1.0-alpha.2 --prerelease --verify-tag` (a prerelease until
+   `v0.1.0`), its notes the version's section of `CHANGELOG.md`.
+4. `cargo xtask bundle` (or `install`): the bundle is `0.1.0-alpha.2`, not `-dirty`.
 
 ## Later
 
