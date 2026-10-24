@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-remacs is in alpha: only the latest release, and `main`, get fixes.
+remacs is in alpha: only the latest release, and `dev`, get fixes.
 
 ## Reporting a vulnerability
 

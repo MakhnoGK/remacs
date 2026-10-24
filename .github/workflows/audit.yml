@@ -5,7 +5,7 @@ name: Audit
 # No path filter: a required check has to run on every pull request.
 on:
   push:
-    branches: [main]
+    branches: [dev, main]
   pull_request:
   schedule:
     - cron: "0 5 * * 1"

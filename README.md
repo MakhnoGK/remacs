@@ -18,12 +18,13 @@ compiles its shaders at build time):
 
 ```sh
 xcodebuild -downloadComponent MetalToolchain   # Xcode 26 and later ship it separately
-git clone https://github.com/MakhnoGK/remacs && cd remacs
+git clone --branch main https://github.com/MakhnoGK/remacs && cd remacs
 cargo xtask install
 ```
 
-This builds `Remacs.app` into `~/Applications` and a `remacs` launcher into
-`~/.local/bin` (put it on your `PATH`). Run `cargo xtask install` again to update;
+`main` is the latest release; `dev`, the default branch, has what comes next. This
+builds `Remacs.app` into `~/Applications` and a `remacs` launcher into `~/.local/bin`
+(put it on your `PATH`). `git pull` and `cargo xtask install` again update it;
 `cargo xtask rollback` brings back the app it replaced. Without the Metal toolchain,
 `cargo build --release -p remacs-app --features runtime-shaders` builds a binary that compiles
 the shaders at startup instead.
