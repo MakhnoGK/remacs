@@ -4,6 +4,7 @@
 [![Release](https://img.shields.io/github/v/tag/MakhnoGK/remacs?filter=v*&sort=semver&label=release)](https://github.com/MakhnoGK/remacs/releases)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/MakhnoGK/remacs/badge)](https://scorecard.dev/viewer/?uri=github.com/MakhnoGK/remacs)
 [![Platform](https://img.shields.io/badge/macOS_14+-Apple_Silicon-lightgrey?logo=apple)](#install)
+[![Homebrew](https://img.shields.io/badge/brew-makhnogk%2Fremacs-orange?logo=homebrew)](https://github.com/MakhnoGK/homebrew-remacs)
 [![License](https://img.shields.io/badge/license-Apache--2.0_+_Commons_Clause-blue)](LICENSE)
 
 An Emacs-inspired IDE for macOS, written from scratch in Rust on [gpui](https://www.gpui.rs).
@@ -13,8 +14,20 @@ plugin. Alpha: expect rough edges, and report them in the
 
 ## Install
 
-Needs macOS 14 or later, stable Rust (CI builds with 1.98), and Xcode with its Metal toolchain (gpui
-compiles its shaders at build time):
+On macOS 15 or later, from Homebrew:
+
+```sh
+brew install makhnogk/remacs/remacs
+```
+
+`brew upgrade remacs` updates it to the next release; `brew info remacs` says how to add
+the app to Launchpad. `brew install --HEAD makhnogk/remacs/remacs` builds `dev` instead
+(needs Xcode).
+
+### From source
+
+On macOS 14, or to change remacs. Needs stable Rust (CI builds with 1.98) and Xcode with
+its Metal toolchain (gpui compiles its shaders at build time):
 
 ```sh
 xcodebuild -downloadComponent MetalToolchain   # Xcode 26 and later ship it separately
@@ -27,10 +40,11 @@ builds `Remacs.app` into `~/Applications` and a `remacs` launcher into `~/.local
 (put it on your `PATH`). `git pull` and `cargo xtask install` again update it;
 `cargo xtask rollback` brings back the app it replaced. Without the Metal toolchain,
 `cargo build --release -p remacs-app --features runtime-shaders` builds a binary that compiles
-the shaders at startup instead.
+the shaders at startup instead. Its launcher comes before Homebrew's on a usual `PATH`,
+so have one of the two, not both.
 
-There are no prebuilt downloads yet: the app is signed ad hoc, which only the Mac that
-built it trusts.
+There is no .dmg: the app is signed ad hoc, not notarized, so macOS would block one
+downloaded from a browser; Homebrew's install is not blocked.
 
 ## First run
 
