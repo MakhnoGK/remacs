@@ -284,7 +284,7 @@ pub fn restart(editor: &mut Editor) -> CommandResult {
     start_again(editor, None)
 }
 
-/// Starts zsh in the terminal whose shell could not start, this once.
+/// Starts the fallback shell in the terminal whose shell could not start, this once.
 pub fn start_fallback(editor: &mut Editor) -> CommandResult {
     start_again(editor, Some(FALLBACK_SHELL))
 }

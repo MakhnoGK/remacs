@@ -116,6 +116,21 @@ impl Tool {
         fill(&template)
     }
 
+    /// Whether it can be installed on this system; a release asset named for macOS is a
+    /// macOS build.
+    // shortcut: such assets are not downloaded off macOS; give their tools Linux assets.
+    pub fn builds_here(&self) -> bool {
+        match self.source {
+            Source::GitHub { asset, .. } => {
+                cfg!(target_os = "macos")
+                    || !["darwin", "mac", "osx"]
+                        .iter()
+                        .any(|name| asset.contains(name))
+            }
+            Source::Package { .. } => true,
+        }
+    }
+
     pub fn version_of(&self, tag: &str) -> String {
         let prefix = match self.source {
             Source::GitHub { tag_prefix, .. } => tag_prefix,
@@ -158,9 +173,16 @@ impl Tool {
 
 const APPLE_SILICON: bool = cfg!(target_arch = "aarch64");
 
-/// Fills in what tells this Mac's builds apart, as builds name them: `{arch}` (`arm64`,
-/// `x64`), `{cpu}` (`aarch64`, `x86_64`), `{goarch}` (`arm64`, `amd64`) and `{target}`
-/// (`aarch64-apple-darwin`, `x86_64-apple-darwin`).
+/// The Rust target's OS part, as `{target}` names it.
+const TARGET_OS: &str = if cfg!(target_os = "macos") {
+    "apple-darwin"
+} else {
+    "unknown-linux-gnu"
+};
+
+/// Fills in what tells this machine's builds apart, as builds name them: `{arch}`
+/// (`arm64`, `x64`), `{cpu}` (`aarch64`, `x86_64`), `{goarch}` (`arm64`, `amd64`) and
+/// `{target}` (`aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`).
 pub fn fill(template: &str) -> String {
     let (arch, cpu, goarch) = if APPLE_SILICON {
         ("arm64", "aarch64", "arm64")
@@ -171,7 +193,7 @@ pub fn fill(template: &str) -> String {
         .replace("{arch}", arch)
         .replace("{cpu}", cpu)
         .replace("{goarch}", goarch)
-        .replace("{target}", &format!("{cpu}-apple-darwin"))
+        .replace("{target}", &format!("{cpu}-{TARGET_OS}"))
 }
 
 /// Where a language server is downloaded from, as the servers' catalog says:
@@ -258,7 +280,11 @@ pub const CODELLDB: Tool = Tool {
     source: Source::GitHub {
         repository: "vadimcn/codelldb",
         tag_prefix: "v",
-        asset: "codelldb-darwin-{arch}.vsix",
+        asset: if cfg!(target_os = "macos") {
+            "codelldb-darwin-{arch}.vsix"
+        } else {
+            "codelldb-linux-{arch}.vsix"
+        },
     },
     program: "extension/adapter/codelldb",
     arch: None,

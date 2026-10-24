@@ -6,7 +6,6 @@ use std::os::unix::fs::symlink;
 use std::path::Path;
 
 use trash::TrashContext;
-use trash::macos::{DeleteMethod, TrashContextExtMacos};
 
 /// A directory with everything in it; a link, not what it points to.
 pub fn remove(path: &Path) -> io::Result<()> {
@@ -65,9 +64,14 @@ pub fn replace(
 
 /// Moves `path` to the Trash.
 pub fn trash(path: &Path) -> io::Result<()> {
+    #[allow(unused_mut)]
     let mut trash = TrashContext::default();
     // Finder's way asks for permission to script it, and plays a sound.
-    trash.set_delete_method(DeleteMethod::NsFileManager);
+    #[cfg(target_os = "macos")]
+    trash::macos::TrashContextExtMacos::set_delete_method(
+        &mut trash,
+        trash::macos::DeleteMethod::NsFileManager,
+    );
     trash.delete(path).map_err(io::Error::other)
 }
 
@@ -75,13 +79,26 @@ pub fn trash(path: &Path) -> io::Result<()> {
 pub fn rename_exclusive(from: &Path, to: &Path) -> io::Result<()> {
     let (from_c, to_c) = (path_c_string(from)?, path_c_string(to)?);
     // SAFETY: both are NUL-terminated strings that outlive the call.
+    #[cfg(target_os = "macos")]
     let result = unsafe { libc::renamex_np(from_c.as_ptr(), to_c.as_ptr(), libc::RENAME_EXCL) };
+    #[cfg(target_os = "linux")]
+    // SAFETY: both are NUL-terminated strings that outlive the call, relative to the
+    // current directory as `rename` is.
+    let result = unsafe {
+        libc::renameat2(
+            libc::AT_FDCWD,
+            from_c.as_ptr(),
+            libc::AT_FDCWD,
+            to_c.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    };
     if result == 0 {
         return Ok(());
     }
     let error = io::Error::last_os_error();
-    // Some network volumes cannot rename exclusively.
-    if error.raw_os_error() != Some(libc::ENOTSUP) {
+    // Some network volumes cannot rename exclusively; Linux file systems say so with EINVAL.
+    if !matches!(error.raw_os_error(), Some(libc::ENOTSUP | libc::EINVAL)) {
         return Err(error);
     }
     if fs::symlink_metadata(to).is_ok() {

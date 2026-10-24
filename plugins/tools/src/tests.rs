@@ -83,11 +83,8 @@ impl Releases {
 }
 
 fn sha256(file: &Path) -> String {
-    let output = Process::new("shasum")
-        .args(["-a", "256"])
-        .arg(file)
-        .output()
-        .unwrap();
+    let (program, args) = crate::install::SHA256;
+    let output = Process::new(program).args(args).arg(file).output().unwrap();
     let output = String::from_utf8(output.stdout).unwrap();
     output.split_whitespace().next().unwrap().to_owned()
 }
@@ -407,11 +404,24 @@ fn versions_are_ordered_by_their_numbers() {
     let rust_analyzer = "from = \"github\"\npackage = \"rust-lang/rust-analyzer\"\n\
                          asset = \"rust-analyzer-{target}.gz\"";
     let arm = cfg!(target_arch = "aarch64");
-    let target = if arm { "aarch64" } else { "x86_64" };
+    let cpu = if arm { "aarch64" } else { "x86_64" };
+    let os = if cfg!(target_os = "macos") {
+        "apple-darwin"
+    } else {
+        "unknown-linux-gnu"
+    };
     assert_eq!(
         server("ra", rust_analyzer).asset_name("2026-10-12"),
-        format!("rust-analyzer-{target}-apple-darwin.gz")
+        format!("rust-analyzer-{cpu}-{os}.gz")
     );
+    let marksman = "from = \"github\"\npackage = \"artempyanykh/marksman\"\n\
+                    asset = \"marksman-macos\"";
+    assert_eq!(
+        server("marksman", marksman).builds_here(),
+        cfg!(target_os = "macos"),
+        "a macOS build is not downloaded elsewhere"
+    );
+    assert!(server("ra", rust_analyzer).builds_here());
     assert_eq!(Archive::of("x.tar.xz"), Archive::TarXz);
     assert_eq!(Archive::of("marksman-macos"), Archive::Program);
     assert!(

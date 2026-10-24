@@ -49,7 +49,12 @@ pub fn follow(
 ) -> CommandResult {
     match target {
         Target::Url(url) => {
-            Command::new("open").arg(url).spawn()?;
+            let opener = if cfg!(target_os = "macos") {
+                "open"
+            } else {
+                "xdg-open"
+            };
+            Command::new(opener).arg(url).spawn()?;
         }
         Target::File { path, line, column } => {
             let file = resolve(path, directories).ok_or_else(|| format!("No file {path}"))?;

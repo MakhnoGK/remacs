@@ -5,7 +5,6 @@ use std::sync::Arc;
 use remacs_core::{Buffer, CommandResult, Dialog, Editor, Icon, ListItem, quote};
 use remacs_text::Text;
 use trash::TrashContext;
-use trash::macos::{DeleteMethod, TrashContextExtMacos};
 
 use crate::command::{git, output, output_with_input};
 use crate::monitor::Job;
@@ -452,9 +451,14 @@ fn apply_job(
 }
 
 fn trash_all(root: &Path, paths: &[PathBuf]) -> Result<(), String> {
+    #[allow(unused_mut)]
     let mut trash = TrashContext::default();
     // Finder's way asks for permission to script it, and plays a sound.
-    trash.set_delete_method(DeleteMethod::NsFileManager);
+    #[cfg(target_os = "macos")]
+    trash::macos::TrashContextExtMacos::set_delete_method(
+        &mut trash,
+        trash::macos::DeleteMethod::NsFileManager,
+    );
     let full: Vec<PathBuf> = paths.iter().map(|path| root.join(path)).collect();
     trash
         .delete_all(&full)
