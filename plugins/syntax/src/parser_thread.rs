@@ -11,7 +11,7 @@ use tree_sitter::{InputEdit, Language, Parser, Query, QueryCursor, Tree};
 
 use crate::highlighter::{Chunks, Highlighter};
 use crate::queries::UserQueries;
-use crate::{Grammar, Injections};
+use crate::{Grammar, Injections, wasm};
 
 /// Where the parser thread leaves a buffer's newest tree.
 pub(crate) type ParseSlot = Arc<Mutex<Option<Parse>>>;
@@ -383,10 +383,9 @@ pub(crate) fn parse_in(
     old_tree: Option<&Tree>,
     terminator: Option<u8>,
 ) -> Option<Tree> {
-    if parser
-        .set_language(&Language::new(grammar.language))
-        .is_err()
-    {
+    // A downloaded grammar not there yet, e.g. a Markdown block's, leaves its code plain.
+    let language = grammar.language()?;
+    if !wasm::set_language(parser, &language) {
         eprintln!("remacs: {} grammar is incompatible", grammar.mode);
         return None;
     }
@@ -455,12 +454,13 @@ impl Compiled {
 
     fn highlighter(&mut self, grammar: &'static Grammar) -> Option<Arc<Highlighter>> {
         let own = self.queries.get(grammar.mode).map(String::as_str);
+        let language = grammar.language()?;
         self.highlighters
             .entry(grammar.mode)
             .or_insert_with(|| {
                 let own = own.map(|own| [own]);
                 let sources = own.as_ref().map_or(grammar.highlights, |own| own);
-                Highlighter::new(&Language::new(grammar.language), sources)
+                Highlighter::new(&language, sources)
                     .inspect_err(|error| eprintln!("remacs: {} highlights: {error}", grammar.mode))
                     .ok()
                     .map(Arc::new)
@@ -478,10 +478,11 @@ impl Compiled {
         let injections = injections
             .iter()
             .find(|injections| injections.host == host.mode)?;
+        let language = host.language()?;
         self.injections
             .entry(host.mode)
             .or_insert_with(|| {
-                InjectionQuery::new(&Language::new(host.language), injections.query, grammars)
+                InjectionQuery::new(&language, injections.query, grammars)
                     .inspect_err(|error| eprintln!("remacs: {} injections: {error}", host.mode))
                     .ok()
                     .map(Arc::new)

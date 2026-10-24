@@ -318,3 +318,34 @@ file-names = ["COMMIT_EDITMSG", "MERGE_MSG", "TAG_EDITMSG", "SQUASH_MSG"]
 aliases = ["gitcommit", "git-commit"]
 pairs = ["()", "[]", "{}", "``"]
 comment = "# "
+
+# The steps of `git rebase -i`, as `$EDITOR` gets them.
+[[languages]]
+name = "Git Rebase"
+file-names = ["git-rebase-todo"]
+aliases = ["git_rebase", "git-rebase", "gitrebase"]
+comment = "# "
+
+# Their grammars are downloaded the first time a file wants one (ADR 0087).
+[[languages]]
+name = "Git Ignore"
+file-names = [".gitignore", ".ignore", ".rgignore", ".dockerignore"]
+aliases = ["gitignore", "gitignore-mode"]
+pairs = ["[]"]
+comment = "# "
+
+[[languages]]
+name = "Dockerfile"
+extensions = ["dockerfile", "containerfile"]
+file-names = ["Dockerfile", "Containerfile"]
+aliases = ["dockerfile", "dockerfile-ts"]
+pairs = ["()", "[]", "{}", '""', "''"]
+comment = "# "
+
+[[languages]]
+name = "Fish"
+extensions = ["fish"]
+interpreters = ["fish"]
+aliases = ["fish"]
+pairs = ["()", "[]", "{}", '""', "''"]
+comment = "# "

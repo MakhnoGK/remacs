@@ -247,11 +247,13 @@ impl LocalsQueries {
     }
 
     fn query(&mut self, locals: &'static [Locals], grammar: &Grammar) -> Option<&LocalsQuery> {
+        // Before the cache: a grammar not downloaded yet is not without locals for good.
+        let language = grammar.language()?;
         self.0
             .entry(grammar.mode)
             .or_insert_with(|| {
                 let locals = locals.iter().find(|locals| locals.mode == grammar.mode)?;
-                LocalsQuery::new(&Language::new(grammar.language), locals.queries)
+                LocalsQuery::new(&language, locals.queries)
                     .inspect_err(|error| eprintln!("remacs: {} locals: {error}", grammar.mode))
                     .ok()
             })

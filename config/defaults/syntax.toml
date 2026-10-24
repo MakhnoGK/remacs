@@ -24,6 +24,12 @@ todo-keywords = ["TODO", "FIXME", "XXX", "HACK", "BUG", "NOTE"]
 # macros and built-in functions; 4 adds function calls.
 highlight-level = 4
 
+# Whether the grammar of a language remacs does not build in (Dockerfile, Fish,
+# .gitignore, git rebase's steps) is downloaded the first time a file of it opens, from
+# remacs's own releases, into ~/.config/remacs/cache/tools/. Until it is there, and when
+# off, such files get only comments, strings and numbers highlighted.
+download-grammars = true
+
 # Whether a function's parameters and local variables are highlighted, in the theme's
 # variable color, where they are defined and wherever the function uses them.
 local-variables = true

@@ -246,10 +246,12 @@ impl Indenter {
     }
 
     fn query(&mut self, grammar: &Grammar, indents: &Indents) -> Option<Rc<IndentQuery>> {
+        // Before the cache: a grammar not downloaded yet is not without indents for good.
+        let language = grammar.language()?;
         self.queries
             .entry(grammar.mode)
             .or_insert_with(|| {
-                IndentQuery::new(&Language::new(grammar.language), indents.queries)
+                IndentQuery::new(&language, indents.queries)
                     .inspect_err(|error| eprintln!("remacs: {} indents: {error}", grammar.mode))
                     .ok()
                     .map(Rc::new)

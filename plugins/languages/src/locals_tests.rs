@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use remacs_core::{Buffer, Editor, Face};
 use remacs_syntax::SyntaxPlugin;
 use remacs_text::Text;
-use tree_sitter::{Language, Query};
+use tree_sitter::Query;
 
 use crate::modes::*;
 use crate::{GRAMMARS, INJECTIONS, LOCALS, LanguagesPlugin};
@@ -151,7 +151,7 @@ fn every_locals_query_compiles() {
         let grammar = (GRAMMARS.iter())
             .find(|grammar| grammar.mode == locals.mode)
             .unwrap();
-        let query = Query::new(&Language::new(grammar.language), &locals.queries.join("\n"))
+        let query = Query::new(&grammar.language().unwrap(), &locals.queries.join("\n"))
             .unwrap_or_else(|error| panic!("{}: {error}", locals.mode));
         for name in query.capture_names() {
             assert!(name.starts_with("local."), "{}: @{name}", locals.mode);

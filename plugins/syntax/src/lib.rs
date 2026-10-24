@@ -1,6 +1,7 @@
 //! Built-in plugin: tree-sitter parsing on a background thread and syntax highlighting.
 
 mod buffer_syntax;
+mod downloads;
 mod fallback;
 mod highlighter;
 mod indent;
@@ -12,6 +13,7 @@ mod sexp;
 mod sexp_edit;
 mod snippet;
 mod todo;
+mod wasm;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -19,8 +21,11 @@ use std::rc::Rc;
 pub use highlighter::known_capture;
 pub use queries::keep_queries_in;
 use remacs_core::{Command, Hook, MenuItem, Plugin, Registry, Section};
+use remacs_tools::ToolKind;
 use serde::Deserialize;
+use tree_sitter::Language;
 pub use tree_sitter_language::LanguageFn;
+pub use wasm::load as load_downloaded;
 
 /// `syntax.toml`.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -38,6 +43,8 @@ pub struct SyntaxSettings {
     pub local_variables: bool,
     /// How much is highlighted, 1–4, like Emacs `treesit-font-lock-level`.
     pub highlight_level: u8,
+    /// Whether a grammar remacs does not build in is downloaded when a file wants it.
+    pub download_grammars: bool,
 }
 
 impl Default for SyntaxSettings {
@@ -47,6 +54,7 @@ impl Default for SyntaxSettings {
             embedded_languages: true,
             local_variables: true,
             highlight_level: 4,
+            download_grammars: true,
             todo_keywords: ["TODO", "FIXME", "XXX", "HACK", "BUG", "NOTE"]
                 .map(String::from)
                 .into(),
@@ -61,9 +69,33 @@ impl Section for SyntaxSettings {
 /// A tree-sitter grammar and its highlight queries, for one major mode.
 pub struct Grammar {
     pub mode: &'static str,
-    pub language: LanguageFn,
+    pub language: Source,
     /// Queries joined in order; when several patterns capture one node, the last wins.
     pub highlights: &'static [&'static str],
+}
+
+/// Where a grammar's parser comes from.
+#[derive(Clone, Copy)]
+pub enum Source {
+    /// Compiled into remacs.
+    Built(LanguageFn),
+    /// Built to WebAssembly by remacs's CI and downloaded once a file wants it (ADR 0087):
+    /// `tree-sitter-<name>.wasm` of the `grammars-<release>` release, whose node types
+    /// remacs's queries are written for.
+    Downloaded {
+        name: &'static str,
+        release: &'static str,
+    },
+}
+
+impl Grammar {
+    /// Its language; none for a downloaded grammar not loaded yet.
+    pub fn language(&self) -> Option<Language> {
+        match self.language {
+            Source::Built(language) => Some(Language::new(language)),
+            Source::Downloaded { name, .. } => wasm::loaded(name),
+        }
+    }
 }
 
 /// Where a mode's text holds code of other languages, e.g. scripts in HTML: each
@@ -216,16 +248,19 @@ impl Plugin for SyntaxPlugin {
         registry.menu_items.extend_from_slice(MENU_ITEMS);
         let (grammars, injections) = (self.grammars, self.injections);
         let settings = Rc::new(RefCell::new(SyntaxSettings::default()));
+        let tools = downloads::tools(grammars);
         registry.settings_hooks.push(Rc::new({
             let settings = Rc::clone(&settings);
             move |editor| {
                 *settings.borrow_mut() = editor.settings_section::<SyntaxSettings>();
                 queries::know_grammars(editor, grammars);
+                remacs_tools::provide(editor, ToolKind::Grammar, &tools);
             }
         }));
         let sync: Hook = Rc::new({
             let settings = Rc::clone(&settings);
             move |editor| {
+                downloads::want(editor, grammars, settings.borrow().download_grammars);
                 let injections = if settings.borrow().embedded_languages {
                     injections
                 } else {

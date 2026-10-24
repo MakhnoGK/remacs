@@ -15,7 +15,7 @@ fn the_default_file_reads_as_the_defaults() {
 const GRAMMARS: &[Grammar] = &[
     Grammar {
         mode: "Rust",
-        language: tree_sitter_rust::LANGUAGE,
+        language: Source::Built(tree_sitter_rust::LANGUAGE),
         highlights: &[
             include_str!("../../languages/queries/rust/highlights.scm"),
             include_str!("../../languages/queries/rust/text.scm"),
@@ -23,14 +23,14 @@ const GRAMMARS: &[Grammar] = &[
     },
     Grammar {
         mode: "JavaScript",
-        language: tree_sitter_javascript::LANGUAGE,
+        language: Source::Built(tree_sitter_javascript::LANGUAGE),
         highlights: &[include_str!(
             "../../languages/queries/ecmascript/highlights.scm"
         )],
     },
     Grammar {
         mode: "HTML",
-        language: tree_sitter_html::LANGUAGE,
+        language: Source::Built(tree_sitter_html::LANGUAGE),
         highlights: &[include_str!("../../languages/queries/html/highlights.scm")],
     },
 ];
@@ -177,6 +177,58 @@ fn highlights_after_the_background_parse() {
             ("1".into(), Face::Constant),
         ]
     );
+}
+
+#[test]
+fn a_downloaded_grammar_highlights_once_it_is_loaded() {
+    static DOWNLOADED: &[Grammar] = &[Grammar {
+        mode: "Git Rebase",
+        language: Source::Downloaded {
+            name: "git_rebase",
+            release: "7",
+        },
+        highlights: &[include_str!(
+            "../../languages/queries/git_rebase/highlights.scm"
+        )],
+    }];
+    static PLUGIN: SyntaxPlugin = SyntaxPlugin::new(DOWNLOADED, &[]);
+    let home = std::env::temp_dir().join(format!("remacs-grammars-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    let mut editor = Editor::new(&[&PLUGIN, &remacs_tools::ToolsPlugin]);
+    let source = "pick 1a2b3c4 feat: add\n";
+    editor.add_buffer(Buffer::new(
+        "git-rebase-todo",
+        Text::from(source),
+        "Git Rebase",
+    ));
+    // Turned off, nothing is fetched, and the grammar is not there.
+    let off = "download-grammars = false\n".to_owned();
+    editor.set_settings(Settings::from_files([(PathBuf::from("syntax.toml"), off)]));
+    remacs_tools::keep_tools_in(&mut editor, &home);
+    editor.refresh();
+    assert_eq!(faces(&editor), []);
+    assert!(wasm::loaded("git_rebase").is_none());
+
+    // Where the tools plugin keeps the release's asset, built by `cargo xtask grammars`.
+    let installed = home.join("cache/tools/tree-sitter-git_rebase/7");
+    std::fs::create_dir_all(&installed).unwrap();
+    let fixture = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../languages/tests/grammars/tree-sitter-git_rebase.wasm"
+    );
+    std::fs::copy(fixture, installed.join("tree-sitter-git_rebase.wasm")).unwrap();
+    remacs_tools::keep_tools_in(&mut editor, &home);
+    let faces = wait_for(&mut editor, ("pick", Face::Keyword));
+    assert_eq!(
+        faces,
+        [
+            ("pick".into(), Face::Keyword),
+            ("1a2b3c4".into(), Face::Constant),
+        ]
+    );
+    let missing = wasm::load("git_rebase", "/no/such.wasm".as_ref());
+    assert!(missing.unwrap_err().starts_with("/no/such.wasm: "));
+    std::fs::remove_dir_all(home).unwrap();
 }
 
 #[test]

@@ -216,6 +216,21 @@ fn tools_toml_pins_a_version_or_names_a_program_of_ones_own() {
     let program = wait_for(&mut editor, &got).unwrap();
     assert!(program.starts_with(home.join("cache/tools/codelldb/1.10.0")));
 
+    // A tool can be bound to its release, as a grammar is to remacs's queries.
+    let home = directory("bound");
+    let releases = Releases::new(&home);
+    releases.publish("1.10.0", false, None);
+    releases.publish("1.12.3", true, None);
+    let mut editor = self::editor(&home, &releases, "");
+    let bound: &'static Tool = Box::leak(Box::new(Tool {
+        version: Some("1.10.0"),
+        ..CODELLDB
+    }));
+    provide(&mut editor, ToolKind::DebugAdapter, &[bound]);
+    let got = ensure_codelldb(&mut editor);
+    let program = wait_for(&mut editor, &got).unwrap();
+    assert!(program.starts_with(home.join("cache/tools/codelldb/1.10.0")));
+
     let own = "[tools.codelldb]\npath = \"/opt/llvm/codelldb\"\n";
     let mut editor = self::editor(&home, &releases, own);
     let got = ensure_codelldb(&mut editor);

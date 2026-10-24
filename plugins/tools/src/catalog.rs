@@ -7,6 +7,8 @@ use serde::Deserialize;
 pub enum ToolKind {
     DebugAdapter,
     LanguageServer,
+    /// A tree-sitter grammar built to WebAssembly (ADR 0087).
+    Grammar,
 }
 
 impl ToolKind {
@@ -14,6 +16,7 @@ impl ToolKind {
         match self {
             ToolKind::DebugAdapter => "Debug adapters",
             ToolKind::LanguageServer => "Language servers",
+            ToolKind::Grammar => "Grammars",
         }
     }
 }
@@ -83,6 +86,9 @@ pub struct Tool {
     pub arch: Option<(&'static str, &'static str)>,
     /// Programs it runs with, such as Java, which must be on `PATH` to offer it.
     pub needs: &'static [&'static str],
+    /// The only release that will do, unless `tools.toml` pins another: a grammar's,
+    /// which remacs's queries are written for.
+    pub version: Option<&'static str>,
 }
 
 impl Tool {
@@ -224,6 +230,7 @@ impl InstallSpec {
                 .map(|program| leak(program))
                 .collect::<Vec<_>>()
                 .leak(),
+            version: None,
         })))
     }
 }
@@ -240,6 +247,7 @@ pub const CODELLDB: Tool = Tool {
     program: "extension/adapter/codelldb",
     arch: None,
     needs: &[],
+    version: None,
 };
 
 /// Debugs JavaScript and TypeScript on Node; run by Node itself.
@@ -254,6 +262,7 @@ pub const JS_DEBUG: Tool = Tool {
     program: "js-debug/src/dapDebugServer.js",
     arch: None,
     needs: &[],
+    version: None,
 };
 
 pub const DEBUG_ADAPTERS: &[&Tool] = &[&CODELLDB, &JS_DEBUG];

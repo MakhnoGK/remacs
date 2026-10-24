@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use remacs_core::{CommandResult, Editor};
-use tree_sitter::Language;
 
 use crate::Grammar;
 use crate::highlighter::Highlighter;
@@ -75,7 +74,12 @@ fn load(editor: &mut Editor) -> Option<usize> {
         } else {
             own
         };
-        match Highlighter::new(&Language::new(grammar.language), &[&source]) {
+        // shortcut: a downloaded grammar's own queries are read once it is loaded and
+        // queries are reloaded; reload them on load if anyone writes such queries.
+        let Some(language) = grammar.language() else {
+            continue;
+        };
+        match Highlighter::new(&language, &[&source]) {
             Ok(_) => {
                 highlights.insert(grammar.mode, source);
             }

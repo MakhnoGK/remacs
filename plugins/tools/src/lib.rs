@@ -23,7 +23,7 @@ use remacs_core::{Editor, MenuItem, Plugin, Registry, StatusItem, StatusSegment,
 use crate::settings::ToolsSettings;
 use crate::state::{Progress, Tools, tools};
 
-pub use catalog::{CODELLDB, InstallSpec, JS_DEBUG, Tool, ToolKind};
+pub use catalog::{CODELLDB, InstallSpec, JS_DEBUG, Source, Tool, ToolKind};
 pub use state::Program;
 
 pub struct ToolsPlugin;
@@ -78,6 +78,10 @@ pub fn can_install(editor: &Editor, tool: &Tool) -> bool {
 pub fn provide(editor: &mut Editor, kind: ToolKind, tools: &[&'static Tool]) {
     let state = self::tools(editor);
     state.provide(kind, tools);
+    // Grammars are provided before the servers, whose names would not be known yet.
+    if kind == ToolKind::Grammar {
+        return;
+    }
     let unknown = state
         .settings
         .tools

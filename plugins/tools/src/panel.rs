@@ -170,7 +170,7 @@ fn describe(tools: &Tools, entry: &Entry, own: bool) -> String {
             (None, _) if !tools.can_install(entry.tool) => {
                 format!("Needs {} on PATH", tools.needs(entry.tool).join(", "))
             }
-            (None, _) if entry.tool.kind == ToolKind::DebugAdapter => {
+            (None, _) if entry.tool.kind != ToolKind::LanguageServer => {
                 "Downloaded on first use".into()
             }
             (None, _) => "Not installed".into(),

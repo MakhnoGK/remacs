@@ -123,7 +123,7 @@ pub(crate) fn sync(
     let grammar = grammars
         .iter()
         .find(|grammar| grammar.mode == buffer.mode())
-        .filter(|_| buffer.text().len() <= MAX_PARSED_BYTES);
+        .filter(|grammar| buffer.text().len() <= MAX_PARSED_BYTES && grammar.language().is_some());
     let Some(grammar) = grammar else {
         buffer.remove_local::<BufferSyntax>();
         let stale = buffer

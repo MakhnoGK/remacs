@@ -5,7 +5,6 @@ use remacs_core::{Buffer, Editor};
 use remacs_editing::EditingPlugin;
 use remacs_syntax::SyntaxPlugin;
 use remacs_text::Text;
-use tree_sitter::Language;
 
 use crate::modes::*;
 use crate::{GRAMMARS, INDENTS, INJECTIONS, LanguagesPlugin};
@@ -462,11 +461,9 @@ fn every_indent_query_compiles() {
             .iter()
             .find(|grammar| grammar.mode == indents.mode)
             .unwrap();
-        let query = tree_sitter::Query::new(
-            &Language::new(grammar.language),
-            &indents.queries.join("\n"),
-        )
-        .unwrap_or_else(|error| panic!("{}: {error}", indents.mode));
+        let query =
+            tree_sitter::Query::new(&grammar.language().unwrap(), &indents.queries.join("\n"))
+                .unwrap_or_else(|error| panic!("{}: {error}", indents.mode));
         for name in query.capture_names() {
             assert!(name.starts_with("indent."), "{}: @{name}", indents.mode);
         }

@@ -45,6 +45,10 @@ pub(crate) const SCSS: &str = "SCSS";
 pub(crate) const VUE: &str = "Vue";
 pub(crate) const SVELTE: &str = "Svelte";
 pub(crate) const GIT_COMMIT: &str = "Git Commit";
+pub(crate) const GIT_REBASE: &str = "Git Rebase";
+pub(crate) const GIT_IGNORE: &str = "Git Ignore";
+pub(crate) const DOCKERFILE: &str = "Dockerfile";
+pub(crate) const FISH: &str = "Fish";
 
 /// Modes whose files prettier formats.
 pub const PRETTIER_MODES: &[&str] = &[TYPESCRIPT, TSX, JAVASCRIPT, JSX, HTML, CSS];

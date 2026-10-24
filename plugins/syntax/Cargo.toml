@@ -9,9 +9,10 @@ publish.workspace = true
 [dependencies]
 remacs-core.workspace = true
 remacs-text.workspace = true
+remacs-tools.workspace = true
 serde.workspace = true
 streaming-iterator.workspace = true
-tree-sitter.workspace = true
+tree-sitter = { workspace = true, features = ["wasm"] }
 tree-sitter-language.workspace = true
 
 [dev-dependencies]

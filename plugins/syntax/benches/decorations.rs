@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use divan::{Bencher, black_box};
 use remacs_core::{Buffer, Editor};
-use remacs_syntax::{Grammar, Locals, SyntaxPlugin};
+use remacs_syntax::{Grammar, Locals, Source, SyntaxPlugin};
 use remacs_text::Text;
 
 #[global_allocator]
@@ -13,7 +13,7 @@ static ALLOC: divan::AllocProfiler = divan::AllocProfiler::system();
 
 const GRAMMARS: &[Grammar] = &[Grammar {
     mode: "Rust",
-    language: tree_sitter_rust::LANGUAGE,
+    language: Source::Built(tree_sitter_rust::LANGUAGE),
     highlights: &[
         include_str!("../../languages/queries/rust/highlights.scm"),
         include_str!("../../languages/queries/rust/text.scm"),

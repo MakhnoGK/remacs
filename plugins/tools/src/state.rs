@@ -140,9 +140,12 @@ impl Tools {
             .find(|entry| entry.tool.name == name)
     }
 
-    /// The version `tools.toml` asks for, if it does.
+    /// The version `tools.toml` asks for, else the one the tool must be, if any.
     pub fn pinned(&self, name: &str) -> Option<&str> {
-        self.settings.of(name)?.version.as_deref()
+        self.settings
+            .of(name)
+            .and_then(|settings| settings.version.as_deref())
+            .or_else(|| self.entry(name)?.tool.version)
     }
 
     /// A program of one's own from `tools.toml`, used instead of a download.

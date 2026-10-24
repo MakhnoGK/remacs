@@ -1,0 +1,33 @@
+name: Grammars
+
+# Builds the grammars remacs downloads (plugins/languages/grammars.toml, ADR 0087) and
+# publishes them as the release `grammars-<release>`, once: a release that exists is
+# left as it is, since remacs's queries are written for what it holds.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: cargo xtask grammars target/grammars
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          release=$(sed -n 's/^release = "\(.*\)"$/\1/p' plugins/languages/grammars.toml)
+          gh release create "grammars-$release" target/grammars/* \
+            --latest=false \
+            --title "Grammars $release" \
+            --notes "Tree-sitter grammars built to WebAssembly from plugins/languages/grammars.toml at $GITHUB_SHA, each with its license. remacs downloads them when a file wants one."

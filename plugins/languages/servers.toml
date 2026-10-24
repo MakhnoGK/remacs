@@ -132,6 +132,20 @@ languages = { Bash = "shellscript" }
 install = { from = "npm", package = "bash-language-server" }
 
 [[servers]]
+name = "fish-lsp"
+command = "fish-lsp"
+args = ["start"]
+languages = { Fish = "fish" }
+install = { from = "npm", package = "fish-lsp" }
+
+[[servers]]
+name = "docker-langserver"
+command = "docker-langserver"
+args = ["--stdio"]
+languages = { Dockerfile = "dockerfile" }
+install = { from = "npm", package = "dockerfile-language-server-nodejs" }
+
+[[servers]]
 name = "neocmakelsp"
 command = "neocmakelsp"
 args = ["stdio"]

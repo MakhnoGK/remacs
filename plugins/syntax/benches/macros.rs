@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use divan::{Bencher, black_box};
 use remacs_core::{Buffer, Editor};
-use remacs_syntax::{Grammar, Injections, SyntaxPlugin};
+use remacs_syntax::{Grammar, Injections, Source, SyntaxPlugin};
 use remacs_text::Text;
 
 #[global_allocator]
@@ -19,12 +19,12 @@ const CODE: &str = include_str!("../../languages/queries/rust/highlights.scm");
 const GRAMMARS: &[Grammar] = &[
     Grammar {
         mode: "Rust",
-        language: tree_sitter_rust::LANGUAGE,
+        language: Source::Built(tree_sitter_rust::LANGUAGE),
         highlights: &[CODE, include_str!("../../languages/queries/rust/text.scm")],
     },
     Grammar {
         mode: "rust_macro_arguments",
-        language: tree_sitter_rust::LANGUAGE,
+        language: Source::Built(tree_sitter_rust::LANGUAGE),
         highlights: &[CODE],
     },
 ];

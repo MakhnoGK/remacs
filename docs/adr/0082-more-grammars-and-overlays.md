@@ -19,7 +19,8 @@ Status: accepted, 2026-10-23 (issue #102, step 4)
   grammar injected into every language's comments, whose node names differ in each.
 - **Left out**: Dockerfile, gitignore and git-rebase have no grammar on crates.io built for
   the tree-sitter remacs uses (Dockerfile's needs tree-sitter 0.20 and its own copy of the
-  runtime); they wait for downloadable grammars (step 6).
+  runtime); they wait for downloadable grammars (step 6), which brought them, and Fish,
+  in ADR 0087.
 
 Measured, release build, time to the first full paint: Markdown of 3000 paragraphs
 50 → 140 ms with its inline overlays, JavaScript with 1000 doc comments 16 → 27 ms.

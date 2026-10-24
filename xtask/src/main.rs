@@ -13,11 +13,16 @@ const PREVIOUS: &str = "Remacs.previous.app";
 const EXECUTABLE: &str = "remacs";
 /// In the bundle's Resources, where `view-third-party-notices` finds it.
 const NOTICES: &str = "THIRD-PARTY-NOTICES";
-const USAGE: &str = "usage: cargo xtask <bundle | install | rollback | changelog [version]>
+const USAGE: &str =
+    "usage: cargo xtask <bundle | install | rollback | changelog [version] | grammars <dir>>
   bundle     build target/bundle/Remacs.app
   install    bundle, then install it in ~/Applications and `remacs` in ~/.local/bin
   rollback   swap the installed app with the one it replaced
-  changelog  write CHANGELOG.md from the history, what is untagged under `version`";
+  changelog  write CHANGELOG.md from the history, what is untagged under `version`
+  grammars   build grammars.toml's grammars to WebAssembly in `dir`, with their licenses";
+
+/// Builds grammars to WebAssembly; it fetches the WASI SDK it compiles with itself.
+const TREE_SITTER_CLI: &str = "tree-sitter-cli@0.27.1";
 
 /// The commit types that make a changelog's groups, in its order; the others (chore, ci,
 /// docs, refactor, style, test) change nothing people see.
@@ -52,6 +57,7 @@ fn main() -> ExitCode {
         ["rollback"] => rollback(),
         ["changelog"] => changelog(None),
         ["changelog", version] => changelog(Some(version)),
+        ["grammars", dir] => grammars(Path::new(dir)),
         _ => Err(USAGE.to_owned()),
     };
     match result {
@@ -370,6 +376,69 @@ fn git(root: &Path, args: &[&str]) -> Result<String> {
         ));
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+}
+
+/// `plugins/languages/grammars.toml`.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Grammars {
+    #[allow(dead_code, reason = "named by the release, read by CI")]
+    release: String,
+    grammars: Vec<Grammar>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Grammar {
+    name: String,
+    repository: String,
+    revision: String,
+}
+
+/// `tree-sitter-<name>.wasm` and `.LICENSE` in `out` for each grammar, from its sources at
+/// its revision; their queries are left out, unread (ADR 0081).
+fn grammars(out: &Path) -> Result {
+    let list: Grammars = toml::from_str(&read(&root().join("plugins/languages/grammars.toml"))?)
+        .map_err(|error| format!("grammars.toml: {error}"))?;
+    create(out)?;
+    let out = out
+        .canonicalize()
+        .map_err(|error| format!("{}: {error}", out.display()))?;
+    let sources = root().join("target/grammar-sources");
+    for grammar in &list.grammars {
+        let source = sources.join(&grammar.name);
+        remove(&source)?;
+        create(&source)?;
+        let archive = source.with_extension("tar.gz");
+        run(Command::new("curl")
+            .args([
+                "--fail",
+                "--silent",
+                "--show-error",
+                "--location",
+                "--output",
+            ])
+            .arg(&archive)
+            .arg(format!(
+                "https://codeload.github.com/{}/tar.gz/{}",
+                grammar.repository, grammar.revision
+            )))?;
+        run(Command::new("tar")
+            .args(["-xzf"])
+            .arg(&archive)
+            .args(["--strip-components=1", "--exclude=*/queries", "-C"])
+            .arg(&source))?;
+        let file = format!("tree-sitter-{}", grammar.name);
+        run(Command::new("npx")
+            .current_dir(&source)
+            .args(["--yes", TREE_SITTER_CLI, "build", "--wasm", "--output"])
+            .arg(out.join(format!("{file}.wasm")))
+            .arg("."))?;
+        fs::copy(source.join("LICENSE"), out.join(format!("{file}.LICENSE")))
+            .map_err(|error| format!("{}'s license: {error}", grammar.name))?;
+        eprintln!("built {file}.wasm");
+    }
+    Ok(())
 }
 
 /// Shows what the tool says on stderr (cargo's progress, anyone's errors), not its chatter.

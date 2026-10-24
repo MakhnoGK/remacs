@@ -41,18 +41,56 @@ mod tests {
     use remacs_editing::EditingPlugin;
     use remacs_syntax::SyntaxPlugin;
     use remacs_text::Text;
-    use tree_sitter::{Language, Query};
+    use tree_sitter::Query;
 
     use super::*;
     use crate::modes::{
-        BASH, C, CMAKE, CPP, CSHARP, CSS, DART, DIFF, ELIXIR, GIT_COMMIT, GO, GRAPHQL, HASKELL,
-        HCL, HTML, JAVA, JAVASCRIPT, JSON, KOTLIN, LUA, MAKE, MARKDOWN, MODES, NIX, OBJC, PHP,
-        PROTOBUF, PYTHON, RUBY, RUST, SCALA, SCSS, SQL, SVELTE, SWIFT, TOML, TSX, TYPESCRIPT, VUE,
-        XML, YAML, ZIG,
+        BASH, C, CMAKE, CPP, CSHARP, CSS, DART, DIFF, DOCKERFILE, ELIXIR, FISH, GIT_COMMIT,
+        GIT_IGNORE, GIT_REBASE, GO, GRAPHQL, HASKELL, HCL, HTML, JAVA, JAVASCRIPT, JSON, KOTLIN,
+        LUA, MAKE, MARKDOWN, MODES, NIX, OBJC, PHP, PROTOBUF, PYTHON, RUBY, RUST, SCALA, SCSS, SQL,
+        SVELTE, SWIFT, TOML, TSX, TYPESCRIPT, VUE, XML, YAML, ZIG,
     };
+
+    /// The downloaded grammars, as if downloaded: built from `grammars.toml`'s revisions by
+    /// `cargo xtask grammars`, which the release is built by too.
+    pub(crate) fn load_downloaded_grammars() {
+        for grammar in GRAMMARS {
+            if let remacs_syntax::Source::Downloaded { name, .. } = grammar.language {
+                let path = format!(
+                    "{}/tests/grammars/tree-sitter-{name}.wasm",
+                    env!("CARGO_MANIFEST_DIR")
+                );
+                remacs_syntax::load_downloaded(name, path.as_ref()).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn downloaded_grammars_are_those_of_grammars_toml_and_its_release() {
+        #[derive(serde::Deserialize)]
+        struct List {
+            release: String,
+            grammars: Vec<toml::Table>,
+        }
+        let list: List = toml::from_str(include_str!("../grammars.toml")).unwrap();
+        let mut listed: Vec<_> = (list.grammars.iter())
+            .map(|grammar| grammar["name"].as_str().unwrap())
+            .collect();
+        let mut downloaded = Vec::new();
+        for grammar in GRAMMARS {
+            if let remacs_syntax::Source::Downloaded { name, release } = grammar.language {
+                assert_eq!(release, list.release, "{name}");
+                downloaded.push(name);
+            }
+        }
+        listed.sort_unstable();
+        downloaded.sort_unstable();
+        assert_eq!(downloaded, listed);
+    }
 
     #[test]
     fn every_mode_has_a_grammar_whose_queries_compile() {
+        load_downloaded_grammars();
         for grammar in GRAMMARS {
             let known = MODES.iter().any(|mode| mode.name == grammar.mode)
                 || grammars::INJECTED_ONLY.contains(&grammar.mode);
@@ -63,7 +101,7 @@ mod tests {
                 .iter()
                 .find(|grammar| grammar.mode == mode)
                 .unwrap();
-            let language = Language::new(grammar.language);
+            let language = grammar.language().unwrap();
             let query = Query::new(&language, &grammar.highlights.concat())
                 .unwrap_or_else(|error| panic!("{mode}: {error}"));
             for name in query.capture_names() {
@@ -323,6 +361,7 @@ mod tests {
     #[test]
     fn each_language_highlights_its_code() {
         use Face::*;
+        load_downloaded_grammars();
         let cases: &[Sample] = &[
             (
                 RUST,
@@ -981,6 +1020,66 @@ mod tests {
                     ("# Please enter the commit message\n", Comment),
                 ],
             ),
+            (
+                GIT_REBASE,
+                "pick 1a2b3c4 feat: add\nfixup -C 5d6e7f8 fix\n# Rebase onto 0f0f\n",
+                &[
+                    ("pick", Keyword),
+                    ("1a2b3c4", Constant),
+                    ("fixup", Keyword),
+                    ("-C", Builtin),
+                    ("# Rebase onto 0f0f", Comment),
+                ],
+            ),
+            (
+                GIT_IGNORE,
+                "# output\n/target/\n*.log\n!keep.log\nfoo[0-9].txt\n\\#hash\n",
+                &[
+                    ("# output", Comment),
+                    ("*", Constant),
+                    ("!", Keyword),
+                    ("[0-9]", String),
+                    ("\\#", String),
+                ],
+            ),
+            (
+                DOCKERFILE,
+                "# Build\nFROM rust:1.98 AS build\nARG MODE=release\nENV PATH=\"/x:$PATH\"\n\
+                 COPY --chown=app . /src\nLABEL version=\"1\"\nEXPOSE 8080/tcp\nCMD [\"/app\"]\n",
+                &[
+                    ("# Build", Comment),
+                    ("FROM", Keyword),
+                    ("rust", Type),
+                    (":1.98", Constant),
+                    ("AS", Keyword),
+                    ("build", Constant),
+                    ("MODE", Constant),
+                    ("$PATH", Constant),
+                    ("--chown=app", Builtin),
+                    ("version", Function),
+                    ("8080/tcp", Constant),
+                    ("\"/app\"", String),
+                ],
+            ),
+            (
+                FISH,
+                "# config\nfunction greet --description 'Say hi'\n    echo \"hi $argv\" (date)\n\
+                 \x20   if test -n \"$argv\"; and true\n        return 0\n    end\nend\n\
+                 for f in ~/*.fish; greet $f; end\n",
+                &[
+                    ("# config", Comment),
+                    ("function", Keyword),
+                    ("greet", Function),
+                    ("'Say hi'", String),
+                    ("echo", Builtin),
+                    ("$argv", Constant),
+                    ("date", Function),
+                    ("and", Keyword),
+                    ("0", Constant),
+                    ("f", Constant),
+                    ("~", Constant),
+                ],
+            ),
         ];
         for &(mode, source, expected) in cases {
             let faces = highlighted(mode, source);
@@ -1207,9 +1306,16 @@ mod tests {
     #[test]
     fn every_mode_with_a_language_server_has_one_built_in() {
         let servers = remacs_lsp::catalog_servers(SERVERS).unwrap();
-        // Make, diff and commit messages have no language server worth running; Vue's
-        // asks a TypeScript server for its scripts, which nothing passes on yet.
-        let without = ["Make", "Diff", "Git Commit", "Vue"];
+        // Make, diff, Git's own files have no language server worth running; Vue's asks
+        // a TypeScript server for its scripts, which nothing passes on yet.
+        let without = [
+            "Make",
+            "Diff",
+            "Git Commit",
+            "Git Rebase",
+            "Git Ignore",
+            "Vue",
+        ];
         for mode in MODES.iter().filter(|mode| !without.contains(&mode.name)) {
             let served = servers
                 .iter()

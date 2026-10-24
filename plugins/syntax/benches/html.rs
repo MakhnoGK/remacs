@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use divan::{Bencher, black_box};
 use remacs_core::{Buffer, Editor};
-use remacs_syntax::{Grammar, Injections, SyntaxPlugin};
+use remacs_syntax::{Grammar, Injections, Source, SyntaxPlugin};
 use remacs_text::Text;
 
 #[global_allocator]
@@ -18,19 +18,19 @@ static ALLOC: divan::AllocProfiler = divan::AllocProfiler::system();
 const GRAMMARS: &[Grammar] = &[
     Grammar {
         mode: "HTML",
-        language: tree_sitter_html::LANGUAGE,
+        language: Source::Built(tree_sitter_html::LANGUAGE),
         highlights: &[include_str!("../../languages/queries/html/highlights.scm")],
     },
     Grammar {
         mode: "JavaScript",
-        language: tree_sitter_javascript::LANGUAGE,
+        language: Source::Built(tree_sitter_javascript::LANGUAGE),
         highlights: &[include_str!(
             "../../languages/queries/ecmascript/highlights.scm"
         )],
     },
     Grammar {
         mode: "CSS",
-        language: tree_sitter_css::LANGUAGE,
+        language: Source::Built(tree_sitter_css::LANGUAGE),
         highlights: &[include_str!("../../languages/queries/css/highlights.scm")],
     },
 ];

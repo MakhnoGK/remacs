@@ -1,0 +1,27 @@
+# The grammars remacs downloads rather than builds in (ADR 0087). `cargo xtask grammars
+# <dir>` builds each to WebAssembly from its repository at `revision`, without the
+# repository's own queries (remacs writes its own, ADR 0081); CI's Grammars workflow
+# publishes them as the release `grammars-<release>`, and the tests load the copies in
+# tests/grammars/. A new revision or grammar makes a new release, which
+# GRAMMARS_RELEASE in src/grammars.rs then names.
+release = "1"
+
+[[grammars]]
+name = "dockerfile"
+repository = "camdencheek/tree-sitter-dockerfile"
+revision = "971acdd908568b4531b0ba28a445bf0bb720aba5"
+
+[[grammars]]
+name = "fish"
+repository = "ram02z/tree-sitter-fish"
+revision = "b7f1d682941e0c62dfcd6bf9ef481638351bab16"
+
+[[grammars]]
+name = "git_rebase"
+repository = "the-mikedavis/tree-sitter-git-rebase"
+revision = "32686d6b72980b36f876ae2d07719c9c3ed154e2"
+
+[[grammars]]
+name = "gitignore"
+repository = "shunsambongi/tree-sitter-gitignore"
+revision = "f4685bf11ac466dd278449bcfe5fd014e94aa504"
