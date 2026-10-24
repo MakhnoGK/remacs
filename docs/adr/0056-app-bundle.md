@@ -81,15 +81,21 @@ Tagged `v0.1.0-alpha.1`, `v0.1.0-alpha.2`, …, then `v0.1.0`. `CHANGELOG.md` is
 by `cargo xtask changelog [version]` from the history: a section per tag of the `feat`,
 `fix` and `perf` subjects since the one before, the untagged commits under `version` (or
 "Unreleased"); the other types change nothing people see. It is regenerated whole, so
-fix a wording in the commit, not in the file. Cutting a release:
+fix a wording in the commit, not in the file.
 
-1. On a branch from `main`, `cargo xtask changelog 0.1.0-alpha.2`, read it, and open a
-   pull request `chore: release v0.1.0-alpha.2`; the owner merges it.
-2. On the merged commit, `git tag -a v0.1.0-alpha.2 -m v0.1.0-alpha.2`, then
-   `git push origin v0.1.0-alpha.2`.
-3. `gh release create v0.1.0-alpha.2 --prerelease --verify-tag` (a prerelease until
+Work lands on `dev`, the default branch; `main` holds releases only, so it moves once
+per release, not with every change. Cutting a release:
+
+1. On a branch from `dev`, `cargo xtask changelog 0.1.0-alpha.2`, read it, and open a
+   pull request `chore: release v0.1.0-alpha.2` into `dev`; the owner merges it.
+2. A pull request from `dev` into `main`, merged with a merge commit (a ruleset allows
+   no other), so `main` keeps `dev`'s commits and the two never diverge.
+3. On the release commit in `dev`, which `main` now contains too,
+   `git tag -a v0.1.0-alpha.2 -m v0.1.0-alpha.2`, then `git push origin v0.1.0-alpha.2`;
+   tagged there, `git describe` finds it from both branches.
+4. `gh release create v0.1.0-alpha.2 --prerelease --verify-tag` (a prerelease until
    `v0.1.0`), its notes the version's section of `CHANGELOG.md`.
-4. `cargo xtask bundle` (or `install`): the bundle is `0.1.0-alpha.2`, not `-dirty`.
+5. `cargo xtask bundle` (or `install`): the bundle is `0.1.0-alpha.2`, not `-dirty`.
 
 ## Later
 
