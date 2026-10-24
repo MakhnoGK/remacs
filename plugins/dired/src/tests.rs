@@ -3,6 +3,7 @@ use std::io;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -20,7 +21,9 @@ use crate::entry::{
     size_label, sort,
 };
 use crate::file_ops::replace;
-use crate::listing::{DIRED_MODE, Listing};
+use crate::listing::{
+    DIRED_MODE, Listing, entry_at_point, new_listing, select_entry, set_entries,
+};
 use crate::{DiredPlugin, deliver_rename_edits, take_rename_requests};
 
 const READ_TIMEOUT: Duration = Duration::from_secs(10);
@@ -78,6 +81,7 @@ fn line_at_point(editor: &Editor) -> String {
 }
 
 /// Refreshes until the window's listing satisfies `done`, as background reads arrive.
+#[track_caller]
 fn wait_until(editor: &mut Editor, done: impl Fn(&Editor) -> bool) {
     let start = Instant::now();
     while !done(editor) {
@@ -87,6 +91,7 @@ fn wait_until(editor: &mut Editor, done: impl Fn(&Editor) -> bool) {
     }
 }
 
+#[track_caller]
 fn wait_for_listing(editor: &mut Editor) {
     wait_until(editor, |editor| {
         editor
@@ -454,6 +459,22 @@ fn a_new_folder_is_listed_with_point_on_it() {
 
     press(&mut editor, "+ n e w RET");
     assert!(editor.echo().unwrap().ends_with("new already exists"));
+}
+
+#[test]
+fn a_read_from_before_the_entry_was_made_keeps_its_selection_for_the_next() {
+    let tree = Tree::new("stale-read");
+    let mut buffer = new_listing(tree.0.clone(), None, Arc::new(|| {}));
+    let before = || vec![entry("a", false, 0, 0), entry("b", false, 0, 0)];
+    set_entries(&mut buffer, before());
+    select_entry(&mut buffer, "new".into());
+
+    set_entries(&mut buffer, before());
+    let mut after = before();
+    after.push(entry("new", true, 0, 0));
+    set_entries(&mut buffer, after);
+
+    assert_eq!(entry_at_point(&buffer).unwrap().name, "new");
 }
 
 #[test]
