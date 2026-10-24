@@ -1,0 +1,25 @@
+name: Audit
+
+# Checks Cargo.lock against the RustSec advisories; weekly too, as new ones come out for
+# dependencies that did not change. Fails on vulnerabilities, warns on unmaintained crates.
+# No path filter: a required check has to run on every pull request.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - run: cargo audit
