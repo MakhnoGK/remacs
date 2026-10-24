@@ -301,7 +301,7 @@ fn fake_installer(home: &Path) -> String {
          install)\n\
          \x20 mkdir -p \"$2/bin\"\n\
          \x20 for program in one two; do printf '#!/bin/sh\\n' > \"$2/bin/$program\"; done\n\
-         \x20 echo \"$3\" >> {log} ;;\n\
+         \x20 shift 2; echo \"$@\" >> {log} ;;\n\
          fail) echo 'error: no such package' >&2; mkdir -p \"$2/bin\"; exit 1 ;;\n\
          esac\n",
         log = log.display()
@@ -317,7 +317,7 @@ fn fake_installer(home: &Path) -> String {
         "[installers.fake]\n\
          needs = [\"{manager}\"]\n\
          latest = {{ command = [\"{manager}\", \"latest\"] }}\n\
-         install = [[\"{manager}\", \"install\", \"{{dir}}\", \"{{package}}@{{version}}\"]]\n\
+         install = [[\"{manager}\", \"install\", \"{{dir}}\", \"{{package}}@{{version}}\", \"{{with}}\"]]\n\
          program = \"bin/{{program}}\"\n\
          run-env = {{ FAKE_HOME = \"{{dir}}\" }}\n\
          [installers.broken]\n\
@@ -336,8 +336,9 @@ fn installers_install_packages_once_for_all_their_tools() {
     let home = directory("installers");
     let releases = Releases::new(&home);
     let mut editor = editor(&home, &releases, &fake_installer(&home));
-    let one = server("one", "from = \"fake\"\npackage = \"package-x\"");
-    let two = server("two", "from = \"fake\"\npackage = \"package-x\"");
+    let both = "from = \"fake\"\npackage = \"package-x\"\nwith = [\"plugin-y\", \"z@6\"]";
+    let one = server("one", both);
+    let two = server("two", both);
     let absent = server("absent", "from = \"absent\"\npackage = \"x\"");
     let github = server(
         "gh",
@@ -366,7 +367,7 @@ fn installers_install_packages_once_for_all_their_tools() {
     assert_eq!(first, version.join("bin/one"));
     assert_eq!(second, version.join("bin/two"));
     let log = fs::read_to_string(home.join("installs.log")).unwrap();
-    assert_eq!(log, "package-x@4.10.0\n");
+    assert_eq!(log, "package-x@4.10.0 plugin-y z@6\n");
     let program = installed(&editor, "two").unwrap();
     let env = vec![("FAKE_HOME".to_owned(), version.display().to_string())];
     assert_eq!(program.env, env);

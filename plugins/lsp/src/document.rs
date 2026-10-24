@@ -668,6 +668,39 @@ impl Clients {
             .map(|&(server, _)| server)
     }
 
+    /// Server `name`'s TypeScript server `tsserver`, running for `root`; `Some(None)` once
+    /// it failed, is missing, or never starts beside `name`, e.g. disabled, for other
+    /// languages or roots, or one of a group; `None` while it may still start, e.g. again
+    /// after a restart.
+    fn tsserver_for(
+        &self,
+        servers: &[LanguageServer],
+        name: &str,
+        root: &Path,
+        tsserver: &'static str,
+    ) -> Option<Option<&Rc<Client>>> {
+        if let Some(target) = self.running.get(&(tsserver, root.to_path_buf())) {
+            return Some(Some(target));
+        }
+        let server = |name: &str| servers.iter().find(|server| server.name == name);
+        let starts_beside = server(name)
+            .zip(server(tsserver))
+            .is_some_and(|(asker, target)| {
+                // A group's member starts only when no earlier one is found.
+                target.group.is_none()
+                    && target.root_markers == asker.root_markers
+                    && asker
+                        .languages
+                        .iter()
+                        .any(|&(mode, _)| target.language_id(mode).is_some())
+            });
+        let gave_up = !starts_beside
+            || self.failed.contains(tsserver)
+            || self.missing.contains_key(tsserver)
+            || self.declined.contains_key(tsserver);
+        gave_up.then_some(None)
+    }
+
     /// Looks for server `name`'s program again, e.g. once it was downloaded.
     pub(crate) fn forget_missing(&mut self, name: &str) {
         self.missing.remove(name);
@@ -1075,6 +1108,7 @@ pub(crate) fn embedded_text(editor: &Editor, path: &Path) -> Option<Snapshot> {
 /// ask. Runs after every command and whenever a server published or answered something.
 pub(crate) fn sync(editor: &mut Editor, servers: &'static [LanguageServer]) {
     report_exits(editor);
+    pass_on_tsserver_requests(editor.plugin_state::<Clients>(), servers);
     hand_over_answers(editor);
     let clients = editor.plugin_state::<Clients>();
     let (painting, paintings) = (Rc::clone(&clients.painting), clients.paintings);
@@ -1105,6 +1139,30 @@ pub(crate) fn sync(editor: &mut Editor, servers: &'static [LanguageServer]) {
         }
     }
     send_requests(editor);
+}
+
+/// Passes what servers ask of their TypeScript server on to the one running for the same
+/// project root.
+// shortcut: Vue keeps an empty answer for good, so with vue-typescript downloaded only
+// later, Vue's server sees its project once restarted; restart it after such a download
+// if that is seen.
+fn pass_on_tsserver_requests(clients: &Clients, servers: &[LanguageServer]) {
+    for ((name, root), client) in &clients.running {
+        let target = match client.tsserver() {
+            Some(tsserver) => match clients.tsserver_for(servers, name, root, tsserver) {
+                Some(target) => target,
+                None => continue,
+            },
+            // E.g. a server of one's own running Vue's, without `tsserver` set.
+            None => None,
+        };
+        for request in client.take_tsserver_requests() {
+            match target {
+                Some(target) => target.ask_tsserver(request, client),
+                None => client.answer_tsserver(request.id),
+            }
+        }
+    }
 }
 
 fn hand_over_answers(editor: &mut Editor) {
@@ -1717,6 +1775,42 @@ mod tests {
         // Servers of another language than the one asked about answered nothing.
         let mut gathering = Gathering::new(3, &[false, true]);
         assert_eq!(gather(&mut gathering, 3, 1, "css"), Some(vec!["", "css"]));
+    }
+
+    #[test]
+    fn tsserver_requests_wait_only_for_a_typescript_server_that_may_still_start() {
+        let server = |name, tsserver, languages| LanguageServer {
+            name,
+            tsserver,
+            languages,
+            ..LanguageServer::default()
+        };
+        let vue = || server("vue", Some("vue-ts"), &[("Vue", "vue")]);
+        let vue_ts = || server("vue-ts", None, &[("Vue", "vue")]);
+        let mut clients = Clients::default();
+        let answer = |clients: &Clients, servers: &[LanguageServer]| {
+            let target = clients.tsserver_for(servers, "vue", Path::new("/p"), "vue-ts");
+            target.map(|target| target.is_some())
+        };
+
+        assert_eq!(answer(&clients, &[vue(), vue_ts()]), None);
+        // Answered with nothing: disabled or misnamed, for other languages or roots, one of
+        // a group, failed.
+        assert_eq!(answer(&clients, &[vue()]), Some(false));
+        let for_typescript = server("vue-ts", None, &[("TypeScript", "typescript")]);
+        assert_eq!(answer(&clients, &[vue(), for_typescript]), Some(false));
+        let other_root = LanguageServer {
+            root_markers: &["tsconfig.json"],
+            ..vue_ts()
+        };
+        assert_eq!(answer(&clients, &[vue(), other_root]), Some(false));
+        let grouped = LanguageServer {
+            group: Some("typescript"),
+            ..vue_ts()
+        };
+        assert_eq!(answer(&clients, &[vue(), grouped]), Some(false));
+        clients.failed.insert("vue-ts");
+        assert_eq!(answer(&clients, &[vue(), vue_ts()]), Some(false));
     }
 
     #[test]

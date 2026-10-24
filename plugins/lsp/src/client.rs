@@ -1,5 +1,6 @@
 use std::cell::Cell;
 use std::collections::{HashMap, VecDeque};
+use std::fs;
 use std::io::{self, BufRead, BufReader, BufWriter};
 use std::iter;
 use std::ops::Range;
@@ -50,6 +51,47 @@ use crate::{code_action, definition, document_symbols, hover, symbol_rename, uri
 const INITIALIZE_ID: u64 = 0;
 /// rust-analyzer's, with `quiescent` false while it loads the project.
 const SERVER_STATUS: &str = "experimental/serverStatus";
+/// Vue's server asks for its scripts' TypeScript with `[id, command, args]` and is answered
+/// `[id, body]`, each wrapped in one more array as vscode-jsonrpc sends an array argument.
+const TSSERVER_REQUEST: &str = "tsserver/request";
+const TSSERVER_RESPONSE: &str = "tsserver/response";
+/// Stands for the directory of the server's program, as links lead to it, in its
+/// initialization options: where plugins installed beside it are found.
+const PROGRAM_DIR: &str = "{program-dir}";
+
+/// What a server asks of its project's TypeScript server, in tsserver's own protocol.
+pub(crate) struct TsserverRequest {
+    pub id: Value,
+    command: Value,
+    args: Value,
+}
+
+/// Where a `tsserver/request` is answered. The asking server waits for every answer, so
+/// one dropped unsent, as with a server that exited before answering, answers with nothing.
+pub(crate) struct TsserverReply(Cell<Option<(Value, SharedReplies)>>);
+
+impl TsserverReply {
+    fn new(id: Value, replies: &SharedReplies) -> Self {
+        Self(Cell::new(Some((id, Arc::clone(replies)))))
+    }
+
+    fn send(&self, body: Value) {
+        if let Some((id, replies)) = self.0.take() {
+            send_reply(&replies, Outgoing::TsserverResponse { id, body });
+        }
+    }
+
+    /// Moves the answering out of a message the writer only borrows.
+    fn take(&self) -> Self {
+        Self(Cell::new(self.0.take()))
+    }
+}
+
+impl Drop for TsserverReply {
+    fn drop(&mut self) {
+        self.send(Value::Null);
+    }
+}
 
 /// What the editor tells a server; the writer thread turns it into JSON once it knows how
 /// the server counts positions.
@@ -199,6 +241,17 @@ pub(crate) enum Outgoing {
     Reply {
         id: Value,
         result: Value,
+    },
+    /// Asks this TypeScript server what another server asked of it; the answer goes to
+    /// that one, by `reply`.
+    Tsserver {
+        request: TsserverRequest,
+        reply: TsserverReply,
+    },
+    /// Answers the server's `tsserver/request` `id`.
+    TsserverResponse {
+        id: Value,
+        body: Value,
     },
 }
 
@@ -384,6 +437,7 @@ enum Pending {
     Rename {
         id: u64,
     },
+    Tsserver(TsserverReply),
 }
 
 impl Pending {
@@ -418,6 +472,7 @@ struct Inbox {
     found: Vec<Found>,
     document_symbols: Vec<Found>,
     symbol_renamed: Vec<SymbolRenamed>,
+    tsserver_requests: Vec<TsserverRequest>,
     /// Why the server exited, once it has.
     exit: Option<String>,
 }
@@ -434,6 +489,15 @@ fn lock(inbox: &SharedInbox) -> MutexGuard<'_, Inbox> {
 /// The reader's way to the writer, taken when the client is dropped: the writer ends
 /// once no one can send to it, which closes the server's input so that it exits.
 type SharedReplies = Arc<Mutex<Option<Sender<Outgoing>>>>;
+
+fn send_reply(replies: &SharedReplies, message: Outgoing) {
+    let replies = replies
+        .lock()
+        .expect("no thread panics holding the replies");
+    if let Some(replies) = &*replies {
+        let _ = replies.send(message);
+    }
+}
 
 /// Lines of a server's stderr kept to say why it exited.
 const KEPT_ERROR_LINES: usize = 3;
@@ -497,6 +561,7 @@ pub(crate) struct Client {
     /// are taken as settled.
     settled: Arc<AtomicBool>,
     replies: SharedReplies,
+    tsserver: Option<&'static str>,
 }
 
 impl Drop for Client {
@@ -546,8 +611,16 @@ impl Client {
             next_id: INITIALIZE_ID + 1,
             signatures: Arc::clone(&signatures),
         };
+        let program_dir = fs::canonicalize(program).unwrap_or_else(|_| program.to_path_buf());
+        let program_dir = program_dir
+            .parent()
+            .unwrap_or(&program_dir)
+            .to_string_lossy();
         let initialize = initialize_params(
-            server.initialization_options.clone(),
+            server.initialization_options.clone().map(|mut options| {
+                fill_program_dir(&mut options, &program_dir);
+                options
+            }),
             server.configuration.is_some(),
             root,
         );
@@ -588,7 +661,32 @@ impl Client {
             settled,
             signatures,
             replies,
+            tsserver: server.tsserver,
         })
+    }
+
+    /// The server its `tsserver/request`s go to.
+    pub fn tsserver(&self) -> Option<&'static str> {
+        self.tsserver
+    }
+
+    pub fn take_tsserver_requests(&self) -> Vec<TsserverRequest> {
+        std::mem::take(&mut lock(&self.inbox).tsserver_requests)
+    }
+
+    /// Asks this TypeScript server what `from` asked of it.
+    pub fn ask_tsserver(&self, request: TsserverRequest, from: &Client) {
+        let reply = TsserverReply::new(request.id.clone(), &from.replies);
+        self.send(Outgoing::Tsserver { request, reply });
+    }
+
+    /// Answers its `tsserver/request` `id` with nothing, as there is no TypeScript server
+    /// to ask.
+    pub fn answer_tsserver(&self, id: Value) {
+        self.send(Outgoing::TsserverResponse {
+            id,
+            body: Value::Null,
+        });
     }
 
     pub fn is_settled(&self) -> bool {
@@ -674,6 +772,19 @@ impl Client {
     pub fn pull_all_again(&self) {
         self.pull_generation.fetch_add(1, Ordering::Relaxed);
         (self.notifier)();
+    }
+}
+
+fn fill_program_dir(value: &mut Value, program_dir: &str) {
+    match value {
+        Value::String(text) => *text = text.replace(PROGRAM_DIR, program_dir),
+        Value::Array(items) => items
+            .iter_mut()
+            .for_each(|item| fill_program_dir(item, program_dir)),
+        Value::Object(fields) => fields
+            .values_mut()
+            .for_each(|field| fill_program_dir(field, program_dir)),
+        _ => {}
     }
 }
 
@@ -997,6 +1108,18 @@ impl Writer {
                 }
                 self.ask(ExecuteCommand::METHOD, params, Pending::Execute { id: *id })
             }
+            Outgoing::Tsserver { request, reply } => {
+                // As VS Code asks it, which Vue's server is written for.
+                let params = json!({
+                    "command": "typescript.tsserverRequest",
+                    "arguments": [request.command, request.args, { "isAsync": true, "lowPriority": true }],
+                });
+                self.ask(
+                    ExecuteCommand::METHOD,
+                    params,
+                    Pending::Tsserver(reply.take()),
+                )
+            }
             Outgoing::WillRename { id, files } => {
                 if !negotiated.will_rename {
                     lock(&self.inbox).renamed.push(Renamed {
@@ -1233,9 +1356,13 @@ impl Outgoing {
             | Outgoing::Symbols { .. }
             | Outgoing::DocumentSymbols { .. }
             | Outgoing::PrepareRename { .. }
-            | Outgoing::Rename { .. } => unreachable!("the writer numbers requests"),
+            | Outgoing::Rename { .. }
+            | Outgoing::Tsserver { .. } => unreachable!("the writer numbers requests"),
             Outgoing::Reply { id, result } => {
                 json!({ "jsonrpc": "2.0", "id": id, "result": result })
+            }
+            Outgoing::TsserverResponse { id, body } => {
+                json!({ "jsonrpc": "2.0", "method": TSSERVER_RESPONSE, "params": [[id, body]] })
             }
         }
     }
@@ -1314,6 +1441,9 @@ impl Reader {
                 }
             }
         }
+        // Answers what another server asked with nothing now, not once the client goes.
+        let requests = std::mem::take(&mut lock(&self.inbox).requests);
+        drop(requests);
     }
 
     fn handle(&mut self, mut message: Value) {
@@ -1322,6 +1452,7 @@ impl Reader {
         match (message["method"].as_str(), id) {
             (Some(method), Some(id)) => self.answer(method, &params, id),
             (Some(PublishDiagnostics::METHOD), None) => self.publish(params),
+            (Some(TSSERVER_REQUEST), None) => self.ask_tsserver(params),
             (Some(SERVER_STATUS), None) => {
                 let settled = params["quiescent"].as_bool().unwrap_or(true);
                 if self.settled.swap(settled, Ordering::Relaxed) != settled {
@@ -1371,13 +1502,21 @@ impl Reader {
             }
             _ => Value::Null,
         };
-        let replies = self
-            .replies
-            .lock()
-            .expect("no thread panics holding the replies");
-        if let Some(replies) = &*replies {
-            let _ = replies.send(Outgoing::Reply { id, result });
-        }
+        send_reply(&self.replies, Outgoing::Reply { id, result });
+    }
+
+    /// Left for the editor to pass on to the project's TypeScript server.
+    fn ask_tsserver(&mut self, params: Value) {
+        let request = match params {
+            Value::Array(mut wrapped) if wrapped.len() == 1 => wrapped.remove(0),
+            params => params,
+        };
+        let Ok((id, command, args)) = serde_json::from_value(request) else {
+            return;
+        };
+        let request = TsserverRequest { id, command, args };
+        lock(&self.inbox).tsserver_requests.push(request);
+        (self.notifier)();
     }
 
     fn initialized(&mut self, response: &Value) {
@@ -1622,6 +1761,11 @@ impl Reader {
                 let encoding = self.encoding;
                 self.deliver_renamed(SymbolRenamed::Edit { id, edit, encoding });
             }
+            // The whole tsserver response comes back; a failure is answered with nothing,
+            // as the asking server waits for an answer.
+            Pending::Tsserver(reply) => {
+                reply.send(result.get_mut("body").map(Value::take).unwrap_or_default());
+            }
         }
     }
 
@@ -1732,5 +1876,132 @@ mod tests {
                 .recv_timeout(Duration::from_secs(5))
                 .expect("the server exits");
         }
+    }
+
+    /// A shell command writing `json` as a message.
+    fn message(json: &str) -> String {
+        format!(
+            "printf 'Content-Length: {}\\r\\n\\r\\n%s' '{json}'",
+            json.len()
+        )
+    }
+
+    /// A server that answers `initialize`, runs the shell command `then` once its input
+    /// holds `after`, and keeps its input in `input`.
+    fn fake_server(input: &Path, after: &str, then: &str) -> LanguageServer {
+        let initialized = r#"{"jsonrpc":"2.0","id":0,"result":{"capabilities":{}}}"#;
+        let input = input.display();
+        let script = format!(
+            // A background command's input is /dev/null unless taken from another fd.
+            "{}; exec 3<&0; cat <&3 > {input} & \
+             until grep -q '{after}' {input} 2>/dev/null; do sleep 0.02; done; {}; wait",
+            message(initialized),
+            then,
+        );
+        LanguageServer {
+            name: "fake",
+            args: Vec::leak(vec!["-c", String::leak(script)]),
+            ..LanguageServer::default()
+        }
+    }
+
+    /// Vue's server asks the TypeScript server, which runs `then` once asked; Vue's input
+    /// once answered, and the TypeScript server's.
+    fn ask_tsserver(test: &str, then: &str) -> (String, String) {
+        let directory = std::env::temp_dir().join(format!("remacs-{test}-{}", std::process::id()));
+        fs::create_dir_all(&directory).unwrap();
+        let (vue_input, typescript_input) = (directory.join("vue"), directory.join("typescript"));
+        let request = r#"{"jsonrpc":"2.0","method":"tsserver/request","params":[[7,"_vue:projectInfo",{"file":"/a.vue"}]]}"#;
+        let vue = fake_server(&vue_input, "initialized", &message(request));
+        let typescript = fake_server(&typescript_input, "tsserverRequest", then);
+        let (sender, notified) = mpsc::channel();
+        let notifier: Notifier = Arc::new(move || {
+            let _ = sender.send(());
+        });
+        let start = |server| {
+            Client::start(
+                server,
+                Path::new("sh"),
+                &[],
+                Path::new("/"),
+                Arc::clone(&notifier),
+            )
+            .unwrap()
+        };
+        let (vue, typescript) = (start(&vue), start(&typescript));
+
+        let requests = loop {
+            notified.recv_timeout(Duration::from_secs(5)).unwrap();
+            let requests = vue.take_tsserver_requests();
+            if !requests.is_empty() {
+                break requests;
+            }
+        };
+        for request in requests {
+            typescript.ask_tsserver(request, &vue);
+        }
+
+        let started = std::time::Instant::now();
+        let answered = loop {
+            let input = fs::read_to_string(&vue_input).unwrap_or_default();
+            if input.contains(TSSERVER_RESPONSE) {
+                break input;
+            }
+            assert!(started.elapsed() < Duration::from_secs(5), "never answered");
+            thread::sleep(Duration::from_millis(20));
+        };
+        let asked = fs::read_to_string(&typescript_input).unwrap();
+        let _ = fs::remove_dir_all(&directory);
+        (answered, asked)
+    }
+
+    #[test]
+    fn a_tsserver_request_is_asked_of_the_typescript_server_and_answered() {
+        let response = r#"{"jsonrpc":"2.0","id":1,"result":{"type":"response","body":{"configFileName":"/tsconfig.json"}}}"#;
+        let (answered, asked) = ask_tsserver("tsserver-answers", &message(response));
+        let answer = r#"{"jsonrpc":"2.0","method":"tsserver/response","params":[[7,{"configFileName":"/tsconfig.json"}]]}"#;
+        assert!(answered.contains(answer), "{answered}");
+        assert!(
+            asked.contains(r#""arguments":["_vue:projectInfo",{"file":"/a.vue"},"#),
+            "{asked}"
+        );
+    }
+
+    #[test]
+    fn a_typescript_server_exiting_unasked_answers_with_nothing() {
+        let (answered, _) = ask_tsserver("tsserver-exits", "exit 0");
+        let answer = r#"{"jsonrpc":"2.0","method":"tsserver/response","params":[[7,null]]}"#;
+        assert!(answered.contains(answer), "{answered}");
+    }
+
+    #[test]
+    fn a_tsserver_answer_dropped_unsent_answers_with_nothing() {
+        let (sender, sent) = mpsc::channel();
+        let replies: SharedReplies = Arc::new(Mutex::new(Some(sender)));
+        TsserverReply::new(json!(1), &replies).send(json!("body"));
+        // E.g. left in the queue of a server that exited before it was initialized.
+        drop(TsserverReply::new(json!(2), &replies));
+        let answers: Vec<_> = sent
+            .try_iter()
+            .map(|message| match message {
+                Outgoing::TsserverResponse { id, body } => (id, body),
+                _ => panic!("not an answer"),
+            })
+            .collect();
+        assert_eq!(
+            answers,
+            [(json!(1), json!("body")), (json!(2), Value::Null)]
+        );
+    }
+
+    #[test]
+    fn the_program_dir_is_filled_into_initialization_options() {
+        let mut options =
+            json!({ "plugins": [{ "location": "{program-dir}", "languages": ["vue"] }] });
+        fill_program_dir(&mut options, "/tools/bin");
+        assert_eq!(
+            options,
+            json!({ "plugins": [{ "location": "/tools/bin", "languages": ["vue"] }] })
+        );
     }
 }

@@ -100,6 +100,10 @@ semantic-tokens = true
 # when = { files = ["src/app.css"] }
 # configuration = { classFunctions = ["cn", "clsx", "tv"] }   # whose strings hold classes
 #
+# [servers.vue-language-server]
+# tsserver = "vtsls"                 # the server of the project its scripts' TypeScript is asked of;
+#                                    # it must serve Vue too, else Vue is answered nothing
+#
 # [servers.jedi]                     # a server of your own, one more Python choice
 # command = "jedi-language-server"
 # languages = { Python = "python" }

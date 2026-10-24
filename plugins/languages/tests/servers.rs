@@ -1,8 +1,10 @@
 //! Runs the real language servers, so it needs them installed: `cargo test -- --ignored`.
 
+use std::cell::RefCell;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
@@ -23,6 +25,7 @@ use remacs_lsp::LspPlugin;
 use remacs_prettier::PrettierPlugin;
 use remacs_rename::RenamePlugin;
 use remacs_syntax::SyntaxPlugin;
+use remacs_tools::{ToolKind, ToolsPlugin, ensure, keep_tools_in, provide};
 use remacs_xref::XrefPlugin;
 
 static LSP: LspPlugin = LspPlugin::new(SERVERS);
@@ -1488,5 +1491,105 @@ fn servers_of_embedded_languages_complete_and_check_their_code() {
             (Icon::Error, "Expression expected.".into())
         ],
         "first {first:?}"
+    );
+}
+
+/// Vue's server asks vue-typescript for its scripts' TypeScript (#104): both downloaded
+/// as when offered, into a home of their own, for a project with Vue installed. Its own
+/// TypeScript 5 is the one run, which finds Vue's plugin only where it is told to look.
+#[test]
+#[ignore = "downloads Vue's servers and Vue"]
+fn vue_completes_templates_and_scripts_and_checks_its_typescript() {
+    let root = project(
+        "vue",
+        &[
+            (
+                "package.json",
+                "{ \"dependencies\": { \"vue\": \"^3.5.0\", \"typescript\": \"^5.9.0\" } }\n",
+            ),
+            (
+                "tsconfig.json",
+                "{ \"compilerOptions\": { \"strict\": true, \"module\": \"esnext\", \
+                 \"moduleResolution\": \"bundler\" }, \"include\": [\"*.vue\"] }\n",
+            ),
+            (
+                "Child.vue",
+                "<script setup lang=\"ts\">\ndefineProps<{ message: string }>()\n</script>\n\
+                 <template><p>{{ message }}</p></template>\n",
+            ),
+            (
+                "App.vue",
+                "<script setup lang=\"ts\">\nimport Child from './Child.vue'\n\
+                 const label = \"a\"\nlabel.toUpp\n</script>\n\
+                 <template>\n  <Child mes />\n</template>\n",
+            ),
+            (
+                "Broken.vue",
+                "<script setup lang=\"ts\">\nconst count: number = \"a\"\n</script>\n\
+                 <template><p>{{ count }}</p></template>\n",
+            ),
+        ],
+    );
+    let npm = std::process::Command::new("npm")
+        .args(["install", "--no-audit", "--no-fund", "--silent"])
+        .current_dir(&root)
+        .status()
+        .unwrap();
+    assert!(npm.success());
+    let plugins: Vec<&dyn Plugin> = PLUGINS.iter().copied().chain([&ToolsPlugin as _]).collect();
+    let mut editor = Editor::new(&plugins);
+    keep_tools_in(&mut editor, &root.join("home"));
+    let servers: &'static [_] = remacs_lsp::catalog_servers(SERVERS).unwrap().leak();
+    let tools: Vec<_> = servers.iter().filter_map(|server| server.tool).collect();
+    provide(&mut editor, ToolKind::LanguageServer, &tools);
+    for name in ["vue-language-server", "vue-typescript"] {
+        let got: Rc<RefCell<Option<Result<PathBuf, String>>>> = Rc::default();
+        let shared = Rc::clone(&got);
+        ensure(&mut editor, name, move |_, result| {
+            *shared.borrow_mut() = Some(result);
+        });
+        while got.borrow().is_none() {
+            thread::sleep(Duration::from_millis(100));
+            editor.refresh();
+        }
+        let program = got.borrow_mut().take().unwrap().unwrap();
+        eprintln!("{name}: {}", program.display());
+    }
+
+    let app = root.join("App.vue");
+    assert!(offers_in(
+        &mut editor,
+        &app,
+        "label.toUpp",
+        "toUpperCase",
+        TIMEOUT
+    ));
+    // Only Vue's server completes a component's props, from what TypeScript says of them.
+    // Each of its questions to TypeScript is passed on by a refresh, so the test refreshes
+    // often and asks again only now and then, unlike `offers_in`.
+    let source = fs::read_to_string(&app).unwrap();
+    let point = source.find("<Child mes").unwrap() + "<Child mes".len();
+    editor.window_buffer_mut().set_point(point);
+    let started = Instant::now();
+    let popup = loop {
+        assert!(started.elapsed() < TIMEOUT, "no props offered");
+        editor.run_command("completion-at-point");
+        let asked = Instant::now();
+        while asked.elapsed() < Duration::from_secs(2) && editor.popups().is_empty() {
+            thread::sleep(Duration::from_millis(10));
+            editor.refresh();
+        }
+        if let Some(popup) = editor.popups().pop() {
+            break popup;
+        }
+    };
+    assert!(popup.rows.iter().any(|row| row.label == "message"));
+    editor.visit_file(&root.join("Broken.vue")).unwrap();
+    let problems = wait_until(&mut editor, |problems| !problems.is_empty());
+    assert!(
+        problems
+            .iter()
+            .any(|(icon, text)| *icon == Icon::Error && text.contains("not assignable")),
+        "{problems:?}"
     );
 }

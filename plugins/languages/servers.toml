@@ -12,13 +12,17 @@
 # env           added to the server's environment, for projects where `env-when` holds
 #               (as `when`; without it, for every project)
 # formats-first formats its files ahead of the language's own server
+# tsserver      the server of the same project root its TypeScript is asked of, as Vue's
+#               asks (`tsserver/request`); initialization options may say {program-dir},
+#               the directory of the server's program
 # node-modules  the project's own copy in node_modules/.bin comes first
 # min-version   a program found in node_modules or on PATH whose `--version` names an
 #               older major version, or none, is passed over for the downloaded copy
 # install       where it is downloaded from when a project wants it and it is nowhere:
 #               `from = "github"` with `package` (owner/name), `asset`, `tag-prefix`; or
 #               an installer of tools.toml (npm, go, pip, gem, dotnet, cargo, coursier,
-#               url) with its `package`; `program` when it is not the command; `needs`,
+#               url) with its `package`, and other packages `with` it; `program` when it
+#               is not the command; `needs`,
 #               programs it runs with; `arch`, what the builds call Apple silicon and Intel
 # Without `install`, a server runs only when it is on PATH: one that comes with its
 # language's own tools, like sourcekit-lsp or dart.
@@ -383,6 +387,30 @@ args = ["--stdio"]
 languages = { Svelte = "svelte" }
 root-markers = ["package.json", "svelte.config.js"]
 install = { from = "npm", package = "svelte-language-server" }
+
+# Templates and styles; it asks vue-typescript for its scripts' TypeScript. Both come in
+# one download, with the TypeScript plugin they share; TypeScript 7 has no tsserver.
+[[servers]]
+name = "vue-language-server"
+command = "vue-language-server"
+args = ["--stdio"]
+min-version = 3
+languages = { Vue = "vue" }
+root-markers = ["package.json", "tsconfig.json", "jsconfig.json"]
+tsserver = "vue-typescript"
+install = { from = "npm", package = "@vue/language-server", with = ["typescript@6", "typescript-language-server"] }
+
+# Scripts, through Vue's TypeScript plugin found beside the program. No command of its
+# name is anywhere, so a typescript-language-server on PATH, lacking the plugin, is never
+# taken for it.
+[[servers]]
+name = "vue-typescript"
+command = "vue-typescript"
+args = ["--stdio"]
+languages = { Vue = "vue" }
+root-markers = ["package.json", "tsconfig.json", "jsconfig.json"]
+initialization-options = { plugins = [{ name = "@vue/typescript-plugin", location = "{program-dir}", languages = ["vue"] }] }
+install = { from = "npm", package = "@vue/language-server", with = ["typescript@6", "typescript-language-server"], program = "typescript-language-server" }
 
 # Add-ons, after the languages' own servers.
 

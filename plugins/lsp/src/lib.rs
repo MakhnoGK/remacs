@@ -90,6 +90,9 @@ pub struct LanguageServer {
     /// Servers of one group are alternatives for the same languages, e.g. Python's:
     /// the first found serves, and a project lacking all of them is offered a choice.
     pub group: Option<&'static str>,
+    /// The server of the same project root that the TypeScript of its files is asked of,
+    /// as Vue's asks (`tsserver/request`): by `typescript.tsserverRequest`.
+    pub tsserver: Option<&'static str>,
     /// What remacs downloads, when offered to, for a project wanting the server while
     /// `command` is on neither `PATH` nor in `node_modules`.
     pub tool: Option<&'static Tool>,

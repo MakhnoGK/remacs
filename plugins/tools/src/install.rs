@@ -237,7 +237,7 @@ fn install(
         (Some(release), _, _) => {
             install_release(tool, &release, &version, &target, report, cancelled)?
         }
-        (None, Some(installer), Source::Package { package, .. }) => {
+        (None, Some(installer), Source::Package { package, with, .. }) => {
             report(Event::Installing);
             let _ = fs::remove_dir_all(&target);
             fs::create_dir_all(&target).map_err(|error| error.to_string())?;
@@ -248,7 +248,7 @@ fn install(
                 version: &version,
                 program: tool.program,
             };
-            let installed = installer.install(&vars, cancelled).and_then(|()| {
+            let installed = installer.install(&vars, with, cancelled).and_then(|()| {
                 if program.is_file() {
                     Ok(())
                 } else {

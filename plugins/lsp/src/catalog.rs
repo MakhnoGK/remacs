@@ -52,6 +52,7 @@ pub(crate) struct ServerSpec {
     env_when: Option<WhenSpec>,
     formats_first: Option<bool>,
     group: Option<String>,
+    tsserver: Option<String>,
     install: Option<InstallSpec>,
 }
 
@@ -215,6 +216,7 @@ impl ServerSpec {
             env_when: change.env_when.or(self.env_when),
             formats_first: change.formats_first.or(self.formats_first),
             group: change.group.or(self.group),
+            tsserver: change.tsserver.or(self.tsserver),
             install: change.install.or(self.install),
         }
     }
@@ -259,6 +261,7 @@ impl ServerSpec {
             env_when: leak_when(self.env_when.as_ref()),
             formats_first: self.formats_first.unwrap_or(false),
             group: self.group.as_deref().map(leak),
+            tsserver: self.tsserver.as_deref().map(leak),
             tool,
             own_program: own_command.then(|| &*Box::leak(expand_home(command).into_boxed_path())),
         })

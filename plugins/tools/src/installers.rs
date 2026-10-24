@@ -111,8 +111,14 @@ impl Installer {
         }
     }
 
-    /// Runs the install commands, stopping at the first that fails or once `cancelled`.
-    pub fn install(&self, vars: &Vars, cancelled: &AtomicBool) -> Result<(), String> {
+    /// Runs the install commands, stopping at the first that fails or once `cancelled`;
+    /// an argument `{with}` stands for the packages of `with`, none or several.
+    pub fn install(
+        &self,
+        vars: &Vars,
+        with: &[&str],
+        cancelled: &AtomicBool,
+    ) -> Result<(), String> {
         let env: Vec<_> = self
             .env
             .iter()
@@ -121,8 +127,12 @@ impl Installer {
         for command in &self.install {
             let (program, args) = command.split_first().ok_or("an empty install command")?;
             let program = vars.fill(program);
+            let args = args.iter().flat_map(|arg| match arg.as_str() {
+                "{with}" => with.iter().map(|&package| package.to_owned()).collect(),
+                _ => vec![vars.fill(arg)],
+            });
             let child = Command::new(&program)
-                .args(args.iter().map(|arg| vars.fill(arg)))
+                .args(args)
                 .envs(env.iter().map(|(name, value)| (name, value)))
                 .current_dir(vars.dir)
                 .stdin(Stdio::null())

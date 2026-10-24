@@ -68,6 +68,9 @@ pub enum Source {
     Package {
         installer: &'static str,
         package: &'static str,
+        /// Other packages installed beside it, where the installer's commands say
+        /// `{with}`.
+        with: &'static [&'static str],
     },
 }
 
@@ -133,10 +136,12 @@ impl Tool {
         match self.source {
             Source::GitHub { .. } => self.name.to_owned(),
             // A URL names no package, so its tool does.
-            Source::Package { installer, package } if package.contains("://") => {
-                format!("{installer}-{}", self.name)
-            }
-            Source::Package { installer, package } => {
+            Source::Package {
+                installer, package, ..
+            } if package.contains("://") => format!("{installer}-{}", self.name),
+            Source::Package {
+                installer, package, ..
+            } => {
                 format!("{installer}-{}", package.replace(['/', '@'], "+"))
             }
         }
@@ -189,6 +194,9 @@ pub struct InstallSpec {
     pub arch: Option<[String; 2]>,
     #[serde(default)]
     pub needs: Vec<String>,
+    /// Installer only: other packages installed beside it, such as a plugin it loads.
+    #[serde(default)]
+    pub with: Vec<String>,
 }
 
 impl InstallSpec {
@@ -196,7 +204,19 @@ impl InstallSpec {
     /// shared with background installs; `command` is its program unless it names one.
     pub fn tool(&self, name: &str, command: &str) -> Result<&'static Tool, String> {
         let leak = |text: &str| -> &'static str { text.to_owned().leak() };
+        let leak_all = |texts: &[String]| -> &'static [&'static str] {
+            texts
+                .iter()
+                .map(|text| leak(text))
+                .collect::<Vec<_>>()
+                .leak()
+        };
         let source = if self.from == "github" {
+            if !self.with.is_empty() {
+                return Err(format!(
+                    "{name}: only installers install packages `with` it"
+                ));
+            }
             let asset = self
                 .asset
                 .as_deref()
@@ -213,6 +233,7 @@ impl InstallSpec {
             Source::Package {
                 installer: leak(&self.from),
                 package: leak(&self.package),
+                with: leak_all(&self.with),
             }
         };
         Ok(Box::leak(Box::new(Tool {
@@ -224,12 +245,7 @@ impl InstallSpec {
                 .arch
                 .as_ref()
                 .map(|[apple, intel]| (leak(apple), leak(intel))),
-            needs: self
-                .needs
-                .iter()
-                .map(|program| leak(program))
-                .collect::<Vec<_>>()
-                .leak(),
+            needs: leak_all(&self.needs),
             version: None,
         })))
     }

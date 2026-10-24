@@ -19,7 +19,8 @@ check-updates = true
 # Installers: npm, go, pip, gem, dotnet, cargo, coursier and url are built in
 # (plugins/tools/installers.toml). One here changes a built-in one or adds one, for
 # servers' `install = { from = "<name>", package = "…" }`. In commands and paths: {dir}
-# is the version's directory, {package}, {version}, {program} the tool's.
+# is the version's directory, {package}, {version}, {program} the tool's; an argument
+# {with} is the packages an `install` lists `with` it, none or several.
 #
 # [installers.luarocks]
 # needs = ["luarocks"]
