@@ -35,6 +35,12 @@ Emacs-inspired IDE from scratch in Rust + gpui. Everything is a plugin.
 ## Workflow
 
 - Commits: Conventional Commits, subject line only.
+- Every change goes through a pull request: a branch from `origin/main`
+  (`git switch -c <type>/<name> --no-track origin/main`), pushed under its own name, a PR
+  titled like a commit with `Closes #N` for its issue. Never push to `main`; only the owner
+  merges, once CI's `check` and `audit` pass. The issue closes with the merge.
+- Actions in `.github/workflows` are pinned by commit SHA with the version in a comment
+  (`uses: owner/action@<sha> # v1.2.3`); Dependabot bumps both.
 - GitHub: the repo is `MakhnoGK/remacs`; run `gh` as the `MakhnoGK` account, which the
   active `gh` account may not be: `GH_TOKEN=$(gh auth token --user MakhnoGK) gh … -R MakhnoGK/remacs`.
 - After every completed action, re-index the repo with Cerebrium `code_index`.
