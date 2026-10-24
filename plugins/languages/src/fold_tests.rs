@@ -84,6 +84,18 @@ fn an_edit_in_a_hidden_block_shows_it() {
     assert_eq!(shown(&editor).len(), 6);
 }
 
+#[test]
+fn a_function_in_a_pages_script_is_a_block() {
+    let text = "<script>\nfunction f() {\n  a();\n}\n</script>\n";
+    let mut editor = parsed("page.html", HTML, text);
+    editor.buffer_mut().set_point(text.find("a()").unwrap());
+    editor.run_command("hs-toggle-hiding");
+    assert_eq!(
+        shown(&editor),
+        ["<script>", "function f() {", "}", "</script>", ""]
+    );
+}
+
 /// Without an indent query, the lists between brackets are the blocks.
 #[test]
 fn brackets_make_the_blocks_of_other_languages() {

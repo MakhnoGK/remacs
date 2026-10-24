@@ -375,7 +375,7 @@ fn touches(range: &Range<usize>, owner: &Range<usize>) -> bool {
 // shortcut: a string, template or comment a piece leaves open runs on into the next
 // pieces, a line comment into the rest of its line; a tree per piece costs 4.6 ms a
 // keystroke on a page of thousands, so split the layer into small trees if that matters.
-fn parse_in(
+pub(crate) fn parse_in(
     parser: &mut Parser,
     grammar: &Grammar,
     text: &Snapshot,

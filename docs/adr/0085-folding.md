@@ -23,6 +23,8 @@ Status: accepted, 2026-10-23 (issue #102, step 5b)
   brackets. Of those starting on one line the outermost is the block. A block's closing
   line stays shown when it starts with the node's closing token (`}`, `end`, `</div>`),
   so a Rust function shows `fn f() {` then `}`, a Python one only its `def` line.
+  Injected code, a page's scripts, gives its blocks too, read from its tree as last
+  parsed, a keystroke behind at most.
 - **Commands, Emacs's hideshow**: `hs-toggle-hiding` (`C-c @ C-c`) shows the blocks
   hidden after point's line, else hides the block starting on it or the innermost one
   point is in; `hs-hide-all` (`C-c @ C-M-h`) hides every block, those within others too,

@@ -324,6 +324,52 @@ languages = { Nix = "nix" }
 root-markers = ["flake.nix"]
 group = "nix"
 
+# JetBrains' own, installed with Homebrew: `brew install JetBrains/utils/kotlin-lsp`; its
+# macOS builds come only as a VS Code extension or a StuffIt archive.
+[[servers]]
+name = "kotlin-lsp"
+command = "kotlin-lsp"
+args = ["--stdio"]
+languages = { Kotlin = "kotlin" }
+root-markers = ["settings.gradle.kts", "settings.gradle", "build.gradle.kts", "build.gradle", "pom.xml"]
+
+# Terraform's HCL only, not Packer's or Nomad's.
+# shortcut: `.tfvars` files go as `terraform` too, as a mode has one language id; give
+# them a mode of their own, `terraform-vars`, if the server reports their variables.
+[[servers]]
+name = "terraform-ls"
+command = "terraform-ls"
+args = ["serve"]
+languages = { HCL = "terraform" }
+root-markers = [".terraform", ".terraform.lock.hcl"]
+when = { files = ["*.tf"] }
+install = { from = "go", package = "github.com/hashicorp/terraform-ls" }
+
+# Reads the schema from the project's GraphQL config, without which it has nothing to say.
+[[servers]]
+name = "graphql-lsp"
+command = "graphql-lsp"
+args = ["server", "-m", "stream"]
+languages = { GraphQL = "graphql" }
+when = { files = [".graphqlrc", ".graphqlrc.*", "graphql.config.*"] }
+install = { from = "npm", package = "graphql-language-service-cli" }
+
+[[servers]]
+name = "protols"
+command = "protols"
+languages = { Protobuf = "proto" }
+root-markers = ["buf.yaml", "buf.work.yaml"]
+install = { from = "github", package = "coder3101/protols", asset = "protols-{target}.tar.gz" }
+
+# Its own TypeScript is in it: a component's script is checked with the project's types.
+[[servers]]
+name = "svelteserver"
+command = "svelteserver"
+args = ["--stdio"]
+languages = { Svelte = "svelte" }
+root-markers = ["package.json", "svelte.config.js"]
+install = { from = "npm", package = "svelte-language-server" }
+
 # Add-ons, after the languages' own servers.
 
 # A linter beside tsc, which answers the questions; only for projects that use it.

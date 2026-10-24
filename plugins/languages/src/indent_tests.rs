@@ -1,3 +1,6 @@
+use std::thread;
+use std::time::{Duration, Instant};
+
 use remacs_core::{Buffer, Editor};
 use remacs_editing::EditingPlugin;
 use remacs_syntax::SyntaxPlugin;
@@ -559,6 +562,50 @@ fn breaking_a_line_indents_the_new_one_by_the_syntax() {
         "if a:\n    b\n        c\n        x",
         "Python's code lines are where their author put them"
     );
+}
+
+/// A page's script is indented by JavaScript's syntax, its top level where its first line
+/// is, and the tag closing it by the page's.
+#[test]
+fn code_of_another_language_is_indented_by_its_own_syntax() {
+    let indented = "<div>
+    <script>
+        function f(a) {
+            if (a) {
+                return [
+                    1,
+                ];
+            }
+        }
+        f(2);
+    </script>
+</div>
+";
+    // Its first line as written, the page's lines too: they tell the indent unit.
+    let written: String = (indented.lines())
+        .map(|line| match line.trim_start() {
+            code if code.contains("script") || code.starts_with("function") => line,
+            code => code,
+        })
+        .map(|line| format!("{line}\n"))
+        .collect();
+    let mut editor = editor_with("page.html", HTML, &written);
+    let start = Instant::now();
+    while editor.blocks(editor.buffer(), 0..1).is_none() {
+        assert!(start.elapsed() < Duration::from_secs(5), "never parsed");
+        thread::sleep(Duration::from_millis(5));
+        editor.refresh();
+    }
+    editor.run_command("mark-whole-buffer");
+    editor.run_command("indent-region");
+    assert_eq!(contents(&editor), indented);
+
+    // A line broken before the script is parsed again: its tree is edited to follow.
+    let call = indented.find("f(2);").unwrap();
+    editor.buffer_mut().set_point(call + "f(2);".len());
+    editor.run_command("newline");
+    editor.buffer_mut().insert("x");
+    assert!(contents(&editor).contains("f(2);\n        x\n    </script>"));
 }
 
 #[test]

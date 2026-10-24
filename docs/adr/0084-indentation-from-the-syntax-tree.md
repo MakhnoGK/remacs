@@ -29,9 +29,14 @@ Status: accepted, 2026-10-23 (issue #102, step 5a); extends ADR 0024
 - **Python and YAML**: their indentation is their structure, so only blank lines are
   told, the one `RET` leaves among them; `TAB` on a code line adds blanks to the next
   tab stop, as before, and `indent-region` leaves their code lines.
+- **Injected code** (scripts in HTML and Vue, fenced Markdown) is indented by its own
+  language's query, from its tree edited to follow the text and parsed again in its
+  ranges. Its top level lines up with its first code line, as its author put it: a
+  page's scripts sit a level deeper than their tag, a Vue component's do not. The tag
+  closing it, after its code, is the host's line.
 - **The brackets stay the fallback**: where the tree around the line is broken (code
-  being typed, an `ERROR` node), in code of an injected language, or for a mode without
-  an indent query, `RET` indents as ADR 0024 says and `TAB` inserts to the next tab stop.
+  being typed, an `ERROR` node), or for a mode without an indent query, `RET` indents
+  as ADR 0024 says and `TAB` inserts to the next tab stop.
 - **Keys**: `TAB` is `indent-for-tab-command` (the region's lines when it is active;
   point in the blanks goes to their end), `C-M-\` is `indent-region` (the region's lines
   only, as in Emacs, so a stray key does not reindent a large file for seconds), `M-i`
@@ -42,6 +47,7 @@ Status: accepted, 2026-10-23 (issue #102, step 5a); extends ADR 0024
 
 ## Open
 
-- Injected code (scripts in HTML, Vue, fenced Markdown) is indented by the brackets.
+- An injected script's first line, with no code above it in its language, is left where
+  it is written.
 - A file not yet indented gets 4 spaces, whatever the language's custom.
 - Indent queries of one's own (ADR 0083) are not read yet.

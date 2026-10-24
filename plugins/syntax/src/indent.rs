@@ -102,11 +102,21 @@ impl Roles<'_> {
     }
 }
 
+/// The code a line is in: the buffer's own or another language's, its tree edited to
+/// follow the text, and whether that tree is a parse of the text itself.
+struct Code {
+    grammar: &'static Grammar,
+    tree: Option<Tree>,
+    parsed: bool,
+    terminator: Option<u8>,
+}
+
 /// Answers the editor's indent probe: keeps a parser for text the parser thread has not
 /// caught up with, its last tree, and each mode's compiled query.
 pub(crate) struct Indenter {
     parser: Parser,
-    parsed: Option<(&'static str, Snapshot, Tree)>,
+    /// The mode and start of the code parsed, the text and its tree.
+    parsed: Option<(&'static str, usize, Snapshot, Tree)>,
     queries: HashMap<&'static str, Option<Rc<IndentQuery>>>,
 }
 
@@ -127,22 +137,64 @@ impl Indenter {
     ) -> Option<Indentation> {
         let text = buffer.text().snapshot();
         let range = text.line_range(line)?;
-        if buffer_syntax::in_injected_code(buffer, range.start) {
-            return None;
+        // Code of another language, a script in a page, is indented by its own syntax; the
+        // tag closing it, after its code, is the page's.
+        let at = first_code(&text, range.clone())
+            .map_or(range.start..range.start, |code| code..code + 1);
+        let Some((layer, parsed)) = buffer_syntax::layer_for(buffer, &text, at) else {
+            let (grammar, tree, parsed) = buffer_syntax::tree_for(buffer, &text)?;
+            let code = Code {
+                grammar,
+                tree,
+                parsed,
+                terminator: None,
+            };
+            return self.indentation_by(indents, code, &text, line);
+        };
+        let ranges = layer.tree.included_ranges();
+        let in_code = |code: usize| {
+            (ranges.iter()).any(|range| range.start_byte <= code && code < range.end_byte)
+        };
+        let code = Code {
+            grammar: layer.grammar,
+            tree: Some(layer.tree),
+            parsed,
+            terminator: layer.terminator,
+        };
+        let own = self.indentation_by(indents, code, &text, line)?;
+        let anchored_in_code = (own.anchor)
+            .and_then(|anchor| first_code(&text, text.line_range(anchor)?))
+            .is_some_and(in_code);
+        if anchored_in_code {
+            return Some(own);
         }
-        let (grammar, tree, parsed) = buffer_syntax::tree_for(buffer, &text)?;
+        // Its top level lines up with its first line, as its author put it: a page's
+        // scripts are a level deeper than their tag, a Vue component's are not.
+        let first_line = (ranges.iter())
+            .find_map(|range| first_code(&text, range.start_byte..range.end_byte))
+            .map(|code| text.line_of(code))?;
+        Some(at_line(first_line, false))
+    }
+
+    fn indentation_by(
+        &mut self,
+        indents: &'static [Indents],
+        code: Code,
+        text: &Snapshot,
+        line: usize,
+    ) -> Option<Indentation> {
         let indents = indents
             .iter()
-            .find(|indents| indents.mode == grammar.mode)?;
-        if indents.only_blank_lines && first_code(&text, range).is_some() {
+            .find(|indents| indents.mode == code.grammar.mode)?;
+        if indents.only_blank_lines && first_code(text, text.line_range(line)?).is_some() {
             return None;
         }
-        let query = self.query(grammar, indents)?;
-        let tree = match (tree, parsed) {
+        let query = self.query(code.grammar, indents)?;
+        let tree = match (code.tree, code.parsed) {
             (Some(tree), true) => tree,
-            (tree, _) => self.parse(grammar, &text, tree)?,
+            (tree, _) => self.parse(code.grammar, text, tree, code.terminator)?,
         };
-        indentation(&query, &tree, &text, line)
+        indentation(&query, &tree, text, line)
     }
 
     pub fn forget_parse(&mut self) {
@@ -161,25 +213,32 @@ impl Indenter {
         let text = buffer.text().snapshot();
         let (grammar, tree, _) = buffer_syntax::tree_for(buffer, &text)?;
         let tree = tree?;
-        let query = (indents.iter())
-            .find(|indents| indents.mode == grammar.mode)
-            .and_then(|indents| self.query(grammar, indents));
         let start = text.line_start(lines.start)?;
         let end = (text.line_range(lines.end.max(lines.start + 1) - 1))
             .map_or(text.len(), |line| line.end);
-        let roles = query.map(|query| query.roles_at(&tree, &text, start..end));
-        let candidates: Vec<Node> = match &roles {
-            Some(roles) => (roles.captured.iter())
-                .filter(|(_, role)| *role == Role::Begin)
-                .map(|(node, _)| *node)
-                .collect(),
-            None => lists_in(tree.root_node(), start..end),
-        };
-        let mut blocks: Vec<Block> = candidates
-            .into_iter()
-            .filter_map(|node| block(&text, roles.as_ref(), node))
-            .filter(|block| block.lines.start < lines.end && lines.start < block.lines.end)
-            .collect();
+        // shortcut: the code of other languages, a page's scripts, is read from its trees as
+        // last parsed, a keystroke behind at most; edit them too if a fold misses by that.
+        let injected = buffer_syntax::layers_in(buffer, &(start..end));
+        let mut blocks = Vec::new();
+        for (grammar, tree) in std::iter::once((grammar, &tree)).chain(injected) {
+            let query = (indents.iter())
+                .find(|indents| indents.mode == grammar.mode)
+                .and_then(|indents| self.query(grammar, indents));
+            let roles = query.map(|query| query.roles_at(tree, &text, start..end));
+            let candidates: Vec<Node> = match &roles {
+                Some(roles) => (roles.captured.iter())
+                    .filter(|(_, role)| *role == Role::Begin)
+                    .map(|(node, _)| *node)
+                    .collect(),
+                None => lists_in(tree.root_node(), start..end),
+            };
+            blocks.extend(
+                candidates
+                    .into_iter()
+                    .filter_map(|node| block(&text, roles.as_ref(), node))
+                    .filter(|block| block.lines.start < lines.end && lines.start < block.lines.end),
+            );
+        }
         // The outermost of those starting on one line.
         blocks.sort_by_key(|block| (block.lines.start, std::cmp::Reverse(block.lines.end)));
         blocks.dedup_by_key(|block| block.lines.start);
@@ -198,10 +257,20 @@ impl Indenter {
             .clone()
     }
 
-    /// `text` parsed again from `old`, its tree edited to follow it.
-    fn parse(&mut self, grammar: &Grammar, text: &Snapshot, old: Option<Tree>) -> Option<Tree> {
-        if let Some((mode, parsed, tree)) = &self.parsed
+    /// `text` parsed again from `old`, its tree edited to follow it, in `old`'s ranges when
+    /// it is code of another language.
+    fn parse(
+        &mut self,
+        grammar: &'static Grammar,
+        text: &Snapshot,
+        old: Option<Tree>,
+        terminator: Option<u8>,
+    ) -> Option<Tree> {
+        let ranges = old.as_ref().map(Tree::included_ranges).unwrap_or_default();
+        let start = ranges.first().map_or(0, |range| range.start_byte);
+        if let Some((mode, parsed_start, parsed, tree)) = &self.parsed
             && *mode == grammar.mode
+            && *parsed_start == start
             && parsed.is_same(text)
         {
             return Some(tree.clone());
@@ -209,11 +278,15 @@ impl Indenter {
         if old.is_none() && text.len() > MAX_FIRST_PARSE {
             return None;
         }
-        self.parser
-            .set_language(&Language::new(grammar.language))
-            .ok()?;
-        let tree = parser_thread::parse(&mut self.parser, text, old.as_ref())?;
-        self.parsed = Some((grammar.mode, text.clone(), tree.clone()));
+        let tree = parser_thread::parse_in(
+            &mut self.parser,
+            grammar,
+            text,
+            &ranges,
+            old.as_ref(),
+            terminator,
+        )?;
+        self.parsed = Some((grammar.mode, start, text.clone(), tree.clone()));
         Some(tree)
     }
 }

@@ -389,11 +389,56 @@ pub(crate) fn tree_for(
     Some((syntax.grammar, tree, parsed))
 }
 
-/// Whether `offset` is in code of another language, which the buffer's tree does not hold.
-pub(crate) fn in_injected_code(buffer: &Buffer, offset: usize) -> bool {
-    buffer
-        .local::<BufferSyntax>()
-        .is_some_and(|syntax| layer_at(&syntax.layers, &(offset..offset)).is_some())
+/// The innermost code of another language that holds `range` of `text`, overlays aside,
+/// its tree edited to follow `text`, with whether that tree is a parse of `text` itself.
+pub(crate) fn layer_for(
+    buffer: &Buffer,
+    text: &Snapshot,
+    range: Range<usize>,
+) -> Option<(Layer, bool)> {
+    let syntax = buffer.local::<BufferSyntax>()?;
+    let edit = text.edit_from(&syntax.snapshot);
+    let before = |offset: usize| match edit {
+        Some(edit) if offset >= edit.new_end => offset - edit.new_end + edit.old_end,
+        Some(edit) if offset > edit.start => edit.start,
+        _ => offset,
+    };
+    let before = before(range.start)..before(range.end);
+    let outer = (syntax.layers.iter())
+        .find(|layer| layer_at(std::slice::from_ref(*layer), &before).is_some())?;
+    // Only that one is edited: a Rust file has hundreds, one per macro.
+    let mut outer = outer.clone();
+    if let Some(edit) = edit {
+        outer.edit(&input_edit(edit, &syntax.snapshot, text));
+    }
+    let layer = layer_at(std::slice::from_ref(&outer), &range)?.clone();
+    Some((layer, edit.is_none() && is_reparsed(buffer)))
+}
+
+/// The trees of the code of other languages that overlaps `range`, and of that injected
+/// into it, overlays aside, as highlighting reads them.
+pub(crate) fn layers_in<'a>(
+    buffer: &'a Buffer,
+    range: &Range<usize>,
+) -> Vec<(&'static Grammar, &'a Tree)> {
+    fn collect<'a>(
+        layers: &'a [Layer],
+        range: &Range<usize>,
+        found: &mut Vec<(&'static Grammar, &'a Tree)>,
+    ) {
+        for layer in layers
+            .iter()
+            .filter(|layer| !layer.overlay && overlaps(&layer.bounds(), range))
+        {
+            found.push((layer.grammar, &layer.tree));
+            collect(&layer.layers, range, found);
+        }
+    }
+    let mut found = Vec::new();
+    if let Some(syntax) = buffer.local::<BufferSyntax>() {
+        collect(&syntax.layers, range, &mut found);
+    }
+    found
 }
 
 /// Whether the trees are a parse of the text as it is, not ones edited to follow it.

@@ -120,6 +120,17 @@ def area(«width», «height» = 1)
 end",
     ),
     (
+        HTML,
+        "page.html",
+        "<p>limit</p>
+<script>
+function render(«items») {
+  const «total» = «items».length;
+  return «total»;
+}
+</script>",
+    ),
+    (
         LUA,
         "main.lua",
         "local limit = 3

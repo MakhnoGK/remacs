@@ -226,13 +226,19 @@ impl LocalsQueries {
         let Some((grammar, tree, text)) = buffer_syntax::own_tree(buffer) else {
             return spans;
         };
-        let Some(query) = self.query(locals, grammar) else {
-            return spans;
-        };
-        let local = query.spans(tree, text, range);
+        // A page's scripts are their own language's code, with their own locals.
+        let trees =
+            std::iter::once((grammar, tree)).chain(buffer_syntax::layers_in(buffer, &range));
+        let mut local = Vec::new();
+        for (grammar, tree) in trees {
+            if let Some(query) = self.query(locals, grammar) {
+                local.extend(query.spans(tree, text, range.clone()));
+            }
+        }
         if local.is_empty() {
             return spans;
         }
+        local.sort_by_key(|span| span.range.start);
         let painted: Vec<Range<usize>> = spans.iter().map(|span| span.range.clone()).collect();
         let mut spans = spans;
         spans.extend(buffer_syntax::outside(local, &painted));

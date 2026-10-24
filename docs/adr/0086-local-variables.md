@@ -33,6 +33,8 @@ Status: accepted, 2026-10-24 (issue #102, step 5c)
 
 ## Open
 
-- Code of other languages in a file (scripts in HTML, Vue) gets no locals.
+- Code of other languages in a file (scripts in HTML and Vue, fenced Markdown) gets its
+  language's locals, from its own tree; an overlay's (ADR 0081), like a Rust macro's
+  arguments, are the host's.
 - Names are matched, not resolved: a local shadowing a global colors the global's uses
   in the scope too.

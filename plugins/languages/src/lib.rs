@@ -1207,19 +1207,9 @@ mod tests {
     #[test]
     fn every_mode_with_a_language_server_has_one_built_in() {
         let servers = remacs_lsp::catalog_servers(SERVERS).unwrap();
-        // Make, diff and commit messages have no language server worth running; the rest
-        // came with their grammars (#102) and get theirs later.
-        let without = [
-            "Make",
-            "Diff",
-            "Git Commit",
-            "Kotlin",
-            "HCL",
-            "GraphQL",
-            "Protobuf",
-            "Vue",
-            "Svelte",
-        ];
+        // Make, diff and commit messages have no language server worth running; Vue's
+        // asks a TypeScript server for its scripts, which nothing passes on yet.
+        let without = ["Make", "Diff", "Git Commit", "Vue"];
         for mode in MODES.iter().filter(|mode| !without.contains(&mode.name)) {
             let served = servers
                 .iter()
