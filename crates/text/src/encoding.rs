@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::io::{self, Read, Write};
 use std::mem;
 
+use chardetng::{EncodingDetector, Iso2022JpDetection, Utf8Detection};
 use encoding_rs::{
     BIG5, CoderResult, EUC_JP, EUC_KR, Encoder, EncoderResult, Encoding, GB18030, GBK, IBM866,
     ISO_2022_JP, ISO_8859_2, ISO_8859_3, ISO_8859_4, ISO_8859_5, ISO_8859_6, ISO_8859_7,
@@ -113,9 +114,10 @@ pub(crate) fn first_line_ends_in_crlf(head: &[u8]) -> bool {
 /// The legacy encoding `sample`, which isn't UTF-8, is likeliest in; `whole` when it is
 /// the whole file.
 pub(crate) fn detect(sample: &[u8], whole: bool) -> &'static Encoding {
-    let mut detector = chardetng::EncodingDetector::new();
+    // ISO-2022-JP is safe to guess where nothing runs scripts, as 0.1 always did.
+    let mut detector = EncodingDetector::new(Iso2022JpDetection::Allow);
     detector.feed(sample, whole);
-    detector.guess(None, false)
+    detector.guess(None, Utf8Detection::Deny)
 }
 
 /// Why reading a file in a format stopped.
