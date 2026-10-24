@@ -1,5 +1,11 @@
 # remacs
 
+[![CI](https://github.com/MakhnoGK/remacs/actions/workflows/ci.yml/badge.svg)](https://github.com/MakhnoGK/remacs/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/tag/MakhnoGK/remacs?filter=v*&sort=semver&label=release)](https://github.com/MakhnoGK/remacs/releases)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/MakhnoGK/remacs/badge)](https://scorecard.dev/viewer/?uri=github.com/MakhnoGK/remacs)
+[![Platform](https://img.shields.io/badge/macOS_14+-Apple_Silicon-lightgrey?logo=apple)](#install)
+[![License](https://img.shields.io/badge/license-Apache--2.0_+_Commons_Clause-blue)](LICENSE)
+
 An Emacs-inspired IDE for macOS, written from scratch in Rust on [gpui](https://www.gpui.rs).
 Emacs keys, language servers, tree-sitter, Git, a debugger, terminals; everything is a
 plugin. Alpha: expect rough edges, and report them in the
