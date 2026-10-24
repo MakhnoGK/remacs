@@ -31,6 +31,9 @@ pub const ROW_PITCH: f32 = ROW_HEIGHT + ROW_GAP;
 const CELL_GAP: f32 = 12.0;
 const ICON_WIDTH: f32 = 16.0;
 const MARK_WIDTH: f32 = 18.0;
+/// How far the selected row's shadow reaches past it (gpui blurs 3× its radius, plus its
+/// offset); the clipping boxes grow by it.
+const SHADOW_ROOM: f32 = 10.0;
 const PREVIEW_GAP: f32 = 20.0;
 /// Narrower, the names would be cut short to make room for a preview.
 const MIN_LIST_WIDTH: f32 = 520.0;
@@ -90,10 +93,14 @@ pub fn render_table(
     let rows = scrolled_by(
         div().flex().flex_col().gap(px(ROW_GAP)).children(rows),
         ROW_PITCH * scrolled_past,
-    );
+    )
+    .m(px(-SHADOW_ROOM))
+    .p(px(SHADOW_ROOM));
     let list = div()
         .flex_1()
         .min_w_0()
+        .m(px(-SHADOW_ROOM))
+        .p(px(SHADOW_ROOM))
         .overflow_hidden()
         .flex()
         .flex_col()
