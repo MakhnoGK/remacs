@@ -105,6 +105,19 @@ fn a_mode_without_a_grammar_reads_its_comments_strings_and_numbers() {
             (" c".into(), Face::Comment),
         ]
     );
+    let file = "highlight-level = 2\n".to_owned();
+    editor.set_settings(Settings::from_files([(PathBuf::from("syntax.toml"), file)]));
+    editor.refresh();
+    assert!(!faces(&editor).contains(&("12".into(), Face::Constant)));
+    let file = "highlight-level = 0\n".to_owned();
+    editor.set_settings(Settings::from_files([(PathBuf::from("syntax.toml"), file)]));
+    editor.refresh();
+    let faces_at_0 = faces(&editor);
+    assert!(
+        !faces_at_0.iter().any(|(_, face)| *face == Face::Comment),
+        "{faces_at_0:?}"
+    );
+    editor.set_settings(Default::default());
 
     // A line of megabytes is read only where it shows.
     let long = "(f \"s\" 1) ".repeat(100_000);
@@ -164,6 +177,43 @@ fn highlights_after_the_background_parse() {
             ("1".into(), Face::Constant),
         ]
     );
+}
+
+#[test]
+fn each_highlight_level_adds_to_the_one_below() {
+    let mut editor = rust_editor("// c\nfn main() { f(MAX, \"s\", 1); }\n");
+    wait_for(&mut editor, ("main", Face::Function));
+    let mut at = |level: u8| {
+        let file = format!("highlight-level = {level}\n");
+        editor.set_settings(Settings::from_files([(PathBuf::from("syntax.toml"), file)]));
+        editor.refresh();
+        faces(&editor)
+    };
+    let level_1 = vec![
+        ("// c".into(), Face::Comment),
+        ("main".into(), Face::Function),
+    ];
+    assert_eq!(at(1), level_1);
+    // `MAX` is a constant, not left the type its capitalized name would make it.
+    let level_2 = [
+        ("// c".into(), Face::Comment),
+        ("fn".into(), Face::Keyword),
+        ("main".into(), Face::Function),
+        ("\"s\"".into(), Face::String),
+    ];
+    assert_eq!(at(2), level_2);
+    let level_3 = [
+        ("// c".into(), Face::Comment),
+        ("fn".into(), Face::Keyword),
+        ("main".into(), Face::Function),
+        ("MAX".into(), Face::Constant),
+        ("\"s\"".into(), Face::String),
+        ("1".into(), Face::Constant),
+    ];
+    assert_eq!(at(3), level_3);
+    let mut level_4 = level_3.to_vec();
+    level_4.insert(3, ("f".into(), Face::Function));
+    assert_eq!(at(4), level_4);
 }
 
 #[test]

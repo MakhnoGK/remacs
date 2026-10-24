@@ -162,14 +162,14 @@ pub(crate) fn sync(
     }
 }
 
-pub(crate) fn highlight(buffer: &Buffer, range: Range<usize>) -> Vec<Span> {
+pub(crate) fn highlight(buffer: &Buffer, range: Range<usize>, level: u8) -> Vec<Span> {
     let Some(syntax) = buffer.local::<BufferSyntax>() else {
-        return fallback::highlight(buffer, range);
+        return fallback::highlight(buffer, range, level);
     };
     match (&syntax.tree, &syntax.highlighter) {
         (Some(tree), Some(highlighter)) => {
-            let spans = highlighter.spans(tree, &syntax.snapshot, range.clone());
-            paint_layers(&syntax.layers, &syntax.snapshot, &range, spans)
+            let spans = highlighter.spans(tree, &syntax.snapshot, range.clone(), level);
+            paint_layers(&syntax.layers, &syntax.snapshot, &range, level, spans)
         }
         _ => Vec::new(),
     }
@@ -181,6 +181,7 @@ fn paint_layers(
     layers: &[Layer],
     text: &Snapshot,
     range: &Range<usize>,
+    level: u8,
     mut spans: Vec<Span>,
 ) -> Vec<Span> {
     let mut held = Vec::new();
@@ -192,8 +193,8 @@ fn paint_layers(
         let Some(highlighter) = &layer.highlighter else {
             continue;
         };
-        let own = highlighter.spans(&layer.tree, text, range.clone());
-        let painted = paint_layers(&layer.layers, text, range, own);
+        let own = highlighter.spans(&layer.tree, text, range.clone(), level);
+        let painted = paint_layers(&layer.layers, text, range, level, own);
         if layer.overlay {
             // Only where it has faces: the rest of the comment or string stays as it was.
             held.extend(painted.iter().map(|span| span.range.clone()));

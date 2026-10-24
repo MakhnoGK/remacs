@@ -5,6 +5,8 @@ use std::ops::Range;
 
 use remacs_core::{Buffer, Face, Mode, Span};
 
+use crate::highlighter::face_for;
+
 /// What a buffer's mode says about its code.
 pub(crate) struct Fallback {
     pub mode: &'static str,
@@ -34,12 +36,20 @@ impl Fallback {
 /// Comments, strings and numbers on the lines of `range`, each read only within it.
 // shortcut: a string or comment begun left of `range` on its line goes unseen; a file
 // this big is often one line of megabytes, read on every redraw otherwise.
-pub(crate) fn highlight(buffer: &Buffer, range: Range<usize>) -> Vec<Span> {
+pub(crate) fn highlight(buffer: &Buffer, range: Range<usize>, level: u8) -> Vec<Span> {
     let Some(fallback) = buffer.local::<Fallback>() else {
         return Vec::new();
     };
     let text = buffer.text();
     let lines = text.line_of(range.start)..=text.line_of(range.end.min(text.len()));
+    let shown = |face: &Face| {
+        let capture = match face {
+            Face::Comment => "comment",
+            Face::String => "string",
+            _ => "number",
+        };
+        face_for(capture).is_some_and(|(_, needed)| needed <= level)
+    };
     let mut spans = Vec::new();
     for line in lines {
         let Some(bounds) = text.line_range(line) else {
@@ -47,10 +57,15 @@ pub(crate) fn highlight(buffer: &Buffer, range: Range<usize>) -> Vec<Span> {
         };
         let start = bounds.start.max(range.start);
         let bytes = text.bytes_in(start..bounds.end.min(range.end).max(start));
-        spans.extend(scan(fallback, &bytes).into_iter().map(|(span, face)| Span {
-            range: start + span.start..start + span.end,
-            face,
-        }));
+        spans.extend(
+            scan(fallback, &bytes)
+                .into_iter()
+                .filter(|(_, face)| shown(face))
+                .map(|(span, face)| Span {
+                    range: start + span.start..start + span.end,
+                    face,
+                }),
+        );
     }
     spans
 }

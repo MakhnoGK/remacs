@@ -18,6 +18,12 @@ embedded-languages = true
 # Words highlighted where they stand whole in a comment, like Emacs hl-todo; [] for none.
 todo-keywords = ["TODO", "FIXME", "XXX", "HACK", "BUG", "NOTE"]
 
+# How much of the code is highlighted, like Emacs treesit-font-lock-level: 1 comments,
+# headings, diffs and the names functions are defined with; 2 adds keywords, strings, types,
+# tags, keys of data files and preprocessor lines; 3 adds constants, numbers, attributes,
+# macros and built-in functions; 4 adds function calls.
+highlight-level = 4
+
 # Whether a function's parameters and local variables are highlighted, in the theme's
 # variable color, where they are defined and wherever the function uses them.
 local-variables = true

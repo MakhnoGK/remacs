@@ -28,6 +28,14 @@ patching around them (Rust's all-caps constants, HTML's injections).
 - **Inheritance by concatenation**: a dialect lists its base first — C under C++ and
   Objective-C; `ecmascript` under JavaScript, JSX, TypeScript and TSX, with `jsx` and
   `typescript` on top.
+- **Levels** (step 9): each capture name has a level, 1–4, and `highlight-level` in
+  `syntax.toml` draws those up to it, as Emacs's `treesit-font-lock-level` does: 1
+  comments, headings, diffs and function definitions; 2 keywords, strings, types, tags,
+  data keys, preprocessor lines; 3 constants, numbers, attributes, macros, built-ins;
+  4 function calls. The default is 4, everything, as before. A capture above the level
+  still wins its node, drawing the face around it, so all-caps `MAX` is not left a type.
+  Code with no grammar follows it too (comments 1, strings 2, numbers 3); local variables
+  and TODO keep their own settings.
 - Predicates are tree-sitter's own (`#match?`, `#eq?`, `#any-of?` and their `not-`
   forms); none of our own until a query needs one.
 - Each language has a sample in `each_language_highlights_its_code` with the faces its

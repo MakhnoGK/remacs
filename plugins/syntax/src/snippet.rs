@@ -26,7 +26,7 @@ impl SnippetHighlighter {
         }
     }
 
-    pub fn highlight(&mut self, mode: &'static str, code: &str) -> Option<Vec<Span>> {
+    pub fn highlight(&mut self, mode: &'static str, code: &str, level: u8) -> Option<Vec<Span>> {
         let grammar = self.grammars.iter().find(|grammar| grammar.mode == mode)?;
         let language = Language::new(grammar.language);
         let highlighter = self
@@ -37,6 +37,6 @@ impl SnippetHighlighter {
         self.parser.set_language(&language).ok()?;
         let text = Text::from(code).snapshot();
         let tree = parse(&mut self.parser, &text, None)?;
-        Some(highlighter.spans(&tree, &text, 0..text.len()))
+        Some(highlighter.spans(&tree, &text, 0..text.len(), level))
     }
 }

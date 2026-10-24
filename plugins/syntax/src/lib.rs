@@ -36,6 +36,8 @@ pub struct SyntaxSettings {
     /// Whether a function's parameters and local variables are highlighted wherever they
     /// are used in it.
     pub local_variables: bool,
+    /// How much is highlighted, 1–4, like Emacs `treesit-font-lock-level`.
+    pub highlight_level: u8,
 }
 
 impl Default for SyntaxSettings {
@@ -44,6 +46,7 @@ impl Default for SyntaxSettings {
             matching_pairs: true,
             embedded_languages: true,
             local_variables: true,
+            highlight_level: 4,
             todo_keywords: ["TODO", "FIXME", "XXX", "HACK", "BUG", "NOTE"]
                 .map(String::from)
                 .into(),
@@ -239,7 +242,8 @@ impl Plugin for SyntaxPlugin {
             let settings = Rc::clone(&settings);
             move |buffer, range| {
                 let settings = settings.borrow();
-                let mut spans = buffer_syntax::highlight(buffer, range.clone());
+                let mut spans =
+                    buffer_syntax::highlight(buffer, range.clone(), settings.highlight_level);
                 if settings.local_variables {
                     spans = locals_queries
                         .borrow_mut()
@@ -248,11 +252,14 @@ impl Plugin for SyntaxPlugin {
                 todo::mark(buffer, spans, &settings.todo_keywords)
             }
         }));
-        registry.decorators.push(Rc::new(move |buffer, range| {
-            if settings.borrow().matching_pairs {
-                matching_pair::highlight(buffer, range)
-            } else {
-                Vec::new()
+        registry.decorators.push(Rc::new({
+            let settings = Rc::clone(&settings);
+            move |buffer, range| {
+                if settings.borrow().matching_pairs {
+                    matching_pair::highlight(buffer, range)
+                } else {
+                    Vec::new()
+                }
             }
         }));
         registry
@@ -277,7 +284,8 @@ impl Plugin for SyntaxPlugin {
             .push(Rc::new(move |_| indenter.borrow_mut().forget_parse()));
         let snippets = RefCell::new(snippet::SnippetHighlighter::new(grammars));
         registry.code_highlighters.push(Rc::new(move |mode, code| {
-            snippets.borrow_mut().highlight(mode, code)
+            let level = settings.borrow().highlight_level;
+            snippets.borrow_mut().highlight(mode, code, level)
         }));
     }
 }

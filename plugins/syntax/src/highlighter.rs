@@ -7,32 +7,35 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Language, Node, Query, QueryCursor, QueryError, TextProvider, Tree};
 
 /// The capture names of remacs's queries (`plugins/languages/queries`, ADR 0081), most
-/// specific first, and the faces they get; a name matches its dotted extensions too
-/// (`function.call` is a `function`). Others keep the default color.
-const FACES: &[(&str, Face)] = &[
-    ("comment.doc", Face::Docstring),
-    ("comment", Face::Comment),
-    ("string", Face::String),
-    ("markup.raw", Face::String),
-    ("keyword", Face::Keyword),
-    ("variable.builtin", Face::Keyword),
-    ("markup.heading", Face::Keyword),
-    ("type", Face::Type),
-    ("function.macro", Face::Builtin),
-    ("function.builtin", Face::Builtin),
-    ("attribute", Face::Builtin),
-    ("preproc", Face::Builtin),
-    ("function", Face::Function),
-    ("tag", Face::Function),
+/// specific first, the faces they get and the highlight level from which they get them;
+/// a name matches its dotted extensions too (`function.call` is a `function`). Others keep
+/// the default color.
+const FACES: &[(&str, Face, u8)] = &[
+    ("comment.doc", Face::Docstring, 1),
+    ("comment", Face::Comment, 1),
+    ("string", Face::String, 2),
+    ("markup.raw", Face::String, 2),
+    ("keyword", Face::Keyword, 2),
+    ("variable.builtin", Face::Keyword, 2),
+    ("markup.heading", Face::Keyword, 1),
+    ("type", Face::Type, 2),
+    ("function.macro", Face::Builtin, 3),
+    ("function.builtin", Face::Builtin, 3),
+    ("attribute", Face::Builtin, 3),
+    ("preproc", Face::Builtin, 2),
+    ("function.call", Face::Function, 4),
+    // Definitions: calls are `function.call`.
+    ("function", Face::Function, 1),
+    ("tag", Face::Function, 2),
     // Keys of data files.
-    ("property", Face::Function),
-    ("diff.plus", Face::Added),
-    ("diff.minus", Face::Removed),
-    ("constant", Face::Constant),
-    ("number", Face::Constant),
-    ("boolean", Face::Constant),
-    ("label", Face::Constant),
-    ("markup.link", Face::Constant),
+    ("property", Face::Function, 2),
+    ("diff.plus", Face::Added, 1),
+    ("diff.minus", Face::Removed, 1),
+    ("constant", Face::Constant, 3),
+    ("number", Face::Constant, 3),
+    ("boolean", Face::Constant, 3),
+    ("label", Face::Constant, 3),
+    ("markup.link", Face::Constant, 3),
 ];
 
 /// Code interpolated into strings (`${…}`, `#{…}`, f-strings' `{…}`) is captured so,
@@ -55,8 +58,8 @@ enum Paint {
 /// A compiled highlight query and how each of its captures is drawn.
 pub(crate) struct Highlighter {
     query: Query,
-    /// None for a capture that draws nothing.
-    paints: Vec<Option<Paint>>,
+    /// None for a capture that draws nothing; else its paint and the level it needs.
+    paints: Vec<Option<(Paint, u8)>>,
     format_string: Option<u32>,
 }
 
@@ -78,8 +81,10 @@ impl Highlighter {
 
     /// Faces for `range`, sorted and non-overlapping. As in tree-sitter-highlight, a node
     /// captured by several patterns gets the last one's face, and a nested node draws over
-    /// the node around it unless its capture has no face.
-    pub fn spans(&self, tree: &Tree, text: &Snapshot, range: Range<usize>) -> Vec<Span> {
+    /// the node around it unless its capture has no face. Captures above `level` are kept
+    /// but draw no face of their own, so that `FOO` read as a constant does not fall back
+    /// to the type its capitalized-name pattern before says.
+    pub fn spans(&self, tree: &Tree, text: &Snapshot, range: Range<usize>, level: u8) -> Vec<Span> {
         let mut cursor = QueryCursor::new();
         cursor.set_byte_range(range.clone());
         let mut matches = cursor.captures(&self.query, tree.root_node(), Chunks(text));
@@ -96,7 +101,12 @@ impl Highlighter {
             }
             // A `_`-named capture is only read by predicates: it must not take the node's face
             // from a pattern before, like `println`'s from its macro call's.
-            if let Some(paint) = self.paints[capture.index as usize] {
+            if let Some((paint, needed)) = self.paints[capture.index as usize] {
+                let paint = if needed > level {
+                    Paint::Inherit
+                } else {
+                    paint
+                };
                 captures.push((node, pattern, paint));
             }
         }
@@ -115,12 +125,12 @@ impl Highlighter {
     }
 }
 
-fn face_for(capture_name: &str) -> Option<Face> {
-    FACES.iter().find_map(|&(name, face)| {
+pub(crate) fn face_for(capture_name: &str) -> Option<(Face, u8)> {
+    FACES.iter().find_map(|&(name, face, level)| {
         let matches = capture_name
             .strip_prefix(name)
             .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'));
-        matches.then_some(face)
+        matches.then_some((face, level))
     })
 }
 
@@ -132,14 +142,18 @@ pub fn known_capture(capture_name: &str) -> bool {
         || face_for(capture_name).is_some()
 }
 
-fn paint_for(capture_name: &str) -> Option<Paint> {
+fn paint_for(capture_name: &str) -> Option<(Paint, u8)> {
     if capture_name.starts_with('_') {
         return None;
     }
     if capture_name == CODE_CAPTURE {
-        return Some(Paint::Plain);
+        return Some((Paint::Plain, 1));
     }
-    Some(face_for(capture_name).map_or(Paint::Inherit, Paint::Face))
+    Some(
+        face_for(capture_name).map_or((Paint::Inherit, 1), |(face, level)| {
+            (Paint::Face(face), level)
+        }),
+    )
 }
 
 /// The `{…}` placeholders of a format string, `{{` and `}}` being literal braces.
@@ -224,9 +238,10 @@ mod tests {
 
     #[test]
     fn capture_names_match_by_dotted_prefix() {
-        assert_eq!(face_for("comment.doc"), Some(Face::Docstring));
-        assert_eq!(face_for("function.call"), Some(Face::Function));
-        assert_eq!(face_for("type.builtin"), Some(Face::Type));
+        assert_eq!(face_for("comment.doc"), Some((Face::Docstring, 1)));
+        assert_eq!(face_for("function.call.method"), Some((Face::Function, 4)));
+        assert_eq!(face_for("function"), Some((Face::Function, 1)));
+        assert_eq!(face_for("type.builtin"), Some((Face::Type, 2)));
         assert_eq!(face_for("typed"), None);
         assert_eq!(face_for("variable"), None);
     }
