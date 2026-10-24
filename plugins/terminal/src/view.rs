@@ -49,7 +49,14 @@ const WINDOW_HINTS: &[(&str, &str)] = &[
 const EXITED_HINTS: &[(&str, &str)] = &[("↵", "Restart"), ("q", "Close"), ("C-x [", "Copy mode")];
 const FAILED_HINTS: &[(&str, &str)] = &[
     ("↵", "Open config"),
-    ("z", "Start zsh once"),
+    (
+        "z",
+        if cfg!(target_os = "macos") {
+            "Start zsh once"
+        } else {
+            "Start sh once"
+        },
+    ),
     ("r", "Retry"),
 ];
 const COPY_HINTS: &[(&str, &str)] = &[

@@ -26,7 +26,7 @@ Emacs-inspired IDE from scratch in Rust + gpui. Everything is a plugin.
 
 ## Fixed decisions
 
-- Platform: macOS only.
+- Platform: macOS first; a minimal Linux build (ADR 0089), checked on Arch + KDE Wayland.
 - Third-party plugins: WASM (wasmtime). Built-in plugins: Rust crates, registered statically.
 - License: Apache-2.0 + Commons Clause (open source, no paid redistribution by third parties).
 - Priorities: latency, memory, files measured in gigabytes.

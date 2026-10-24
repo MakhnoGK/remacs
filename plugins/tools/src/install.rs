@@ -28,6 +28,12 @@ const UNPACKING: &str = ".partial";
 const UNFINISHED: &str = ".installing";
 /// Releases looked through for a tool's latest, in a repository that releases several.
 const RELEASES_PER_PAGE: usize = 100;
+/// Prints a file's SHA-256 first; Arch keeps Perl's `shasum` off `PATH`.
+pub(crate) const SHA256: (&str, &[&str]) = if cfg!(target_os = "macos") {
+    ("shasum", &["-a", "256"])
+} else {
+    ("sha256sum", &[])
+};
 
 pub enum Event {
     /// The release to install was found.
@@ -448,11 +454,12 @@ fn check_digest(asset: &Asset, file: &Path) -> Result<(), String> {
     else {
         return Ok(());
     };
-    let output = Command::new("shasum")
-        .args(["-a", "256"])
+    let (program, args) = SHA256;
+    let output = Command::new(program)
+        .args(args)
         .arg(file)
         .output()
-        .map_err(|error| format!("could not run shasum: {error}"))?;
+        .map_err(|error| format!("could not run {program}: {error}"))?;
     let actual = String::from_utf8_lossy(&output.stdout);
     match actual.split_whitespace().next() {
         Some(actual) if actual.eq_ignore_ascii_case(expected) => Ok(()),

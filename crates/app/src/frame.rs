@@ -1,11 +1,15 @@
+#[cfg(target_os = "macos")]
 use std::ffi::{CStr, CString};
 
 use gpui::{AnyWindowHandle, App, WindowAppearance};
+#[cfg(target_os = "macos")]
 use objc2::runtime::AnyObject;
+#[cfg(target_os = "macos")]
 use objc2::{class, msg_send};
 use remacs_core::FrameRequest;
 use remacs_theme::Appearance;
 
+#[cfg(target_os = "macos")]
 use crate::version::{COMMIT, VERSION};
 
 /// Does what commands asked of the application and of `window`, once the update that
@@ -17,7 +21,16 @@ pub fn act(requests: Vec<FrameRequest>, window: AnyWindowHandle, cx: &mut App) {
     cx.defer(move |cx| {
         for request in requests {
             match request {
+                #[cfg(target_os = "macos")]
                 FrameRequest::About => show_about_panel(),
+                #[cfg(not(target_os = "macos"))]
+                FrameRequest::About => {
+                    let _ = window.update(cx, |_, window, cx| {
+                        let title = format!("Remacs {}", crate::version::VERSION);
+                        let detail = Some(crate::version::COMMIT);
+                        window.prompt(gpui::PromptLevel::Info, &title, detail, &["OK"], cx)
+                    });
+                }
                 FrameRequest::Hide => cx.hide(),
                 FrameRequest::HideOthers => cx.hide_other_apps(),
                 FrameRequest::ShowAll => cx.unhide_other_apps(),
@@ -40,6 +53,7 @@ pub fn act(requests: Vec<FrameRequest>, window: AnyWindowHandle, cx: &mut App) {
 /// Has macOS draw its own parts — menus, the window's buttons and shadow — light or dark
 /// with the theme rather than with the system; `None` leaves them, and the window's
 /// appearance gpui reports, to the system.
+#[cfg(target_os = "macos")]
 pub fn set_appearance(appearance: Option<Appearance>) {
     let name = appearance.map(|appearance| match appearance {
         Appearance::Light => c"NSAppearanceNameAqua",
@@ -62,8 +76,13 @@ pub fn set_appearance(appearance: Option<Appearance>) {
     }
 }
 
+/// The window's decorations follow the desktop's theme there.
+#[cfg(not(target_os = "macos"))]
+pub fn set_appearance(_: Option<Appearance>) {}
+
 /// Whether macOS is light or dark now, whatever remacs set its own parts to; read from
 /// the user's defaults, so it needs no window, nor the application running.
+#[cfg(target_os = "macos")]
 pub fn system_appearance() -> Appearance {
     // SAFETY: NSUserDefaults is thread-safe; the key is a NUL-terminated UTF-8 string, and
     // a missing value is nil, which `stringForKey:` returns as such.
@@ -84,6 +103,13 @@ pub fn system_appearance() -> Appearance {
     }
 }
 
+// shortcut: dark until the window opens and gpui reports the desktop's (xdg portal), read
+// the portal here if a light desktop's first frame flashes dark.
+#[cfg(not(target_os = "macos"))]
+pub fn system_appearance() -> Appearance {
+    Appearance::Dark
+}
+
 /// The light or the dark of gpui's appearances.
 pub fn appearance_of(window: WindowAppearance) -> Appearance {
     match window {
@@ -94,6 +120,7 @@ pub fn appearance_of(window: WindowAppearance) -> Appearance {
 
 /// macOS's own, with the bundle's name and icon, and the version and commit built in, so
 /// that a `cargo run` build shows them too; gpui has none.
+#[cfg(target_os = "macos")]
 fn show_about_panel() {
     let options = [
         (

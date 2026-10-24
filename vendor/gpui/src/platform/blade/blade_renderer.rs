@@ -813,6 +813,8 @@ impl BladeRenderer {
                     );
                     encoder.draw(0, 4, 0, sprites.len() as u32);
                 }
+                // remacs: blur and fades are drawn by the Metal renderer only (ADR 0035, 0038).
+                PrimitiveBatch::BackdropBlurs(_) | PrimitiveBatch::Fades(_) => {}
                 PrimitiveBatch::Surfaces(surfaces) => {
                     let mut _encoder = pass.with(&self.pipelines.surfaces);
 

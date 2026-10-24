@@ -4,7 +4,7 @@ Status: accepted, 2026-10-04
 
 ## Decision
 
-- macOS only.
+- macOS only; Linux since ADR 0089.
 - UI on gpui 0.2.2 from crates.io, `default-features = false` + `font-kit`
   (without it macOS gets a no-op text system and renders no text).
 - Only visible lines are laid out (`uniform_list`); long lines are clipped before layout.

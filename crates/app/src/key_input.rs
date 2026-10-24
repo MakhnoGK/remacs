@@ -1,5 +1,7 @@
 use gpui::Keystroke;
+#[cfg(target_os = "macos")]
 use objc2::runtime::AnyObject;
+#[cfg(target_os = "macos")]
 use objc2::{class, msg_send};
 use remacs_core::{Key, KeyCode, Modifiers};
 
@@ -79,6 +81,7 @@ fn holds_meta_option(meta: MetaOption, flags: usize) -> bool {
 
 /// The modifier flags of the event AppKit is handling, device-dependent bits included;
 /// none without one.
+#[cfg(target_os = "macos")]
 fn current_event_flags() -> usize {
     // SAFETY: called on the main thread, as every gpui callback is; NSApplication exists
     // once gpui runs; a nil current event is checked before it is asked for its flags.
@@ -90,6 +93,12 @@ fn current_event_flags() -> usize {
         }
         msg_send![event, modifierFlags]
     }
+}
+
+/// Either Alt: AltGr, which types, is a key of its own there.
+#[cfg(not(target_os = "macos"))]
+fn current_event_flags() -> usize {
+    LEFT_OPTION | RIGHT_OPTION
 }
 
 /// `8` for gpui's `f8`.

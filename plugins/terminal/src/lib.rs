@@ -69,7 +69,7 @@ const COMMANDS: &[Command] = &[
     Command::new(RESTART, "Start the ended terminal's shell again", commands::restart),
     Command::new(CLOSE_ENDED, "Close the ended terminal", commands::close_ended),
     Command::new(OPEN_SETTINGS, "Visit terminal.toml at the shell it names", commands::open_settings),
-    Command::new(START_FALLBACK, "Start zsh in the terminal whose shell could not start, this once", commands::start_fallback),
+    Command::new(START_FALLBACK, "Start /bin/zsh, or /bin/sh off macOS, in the terminal whose shell could not start, this once", commands::start_fallback),
 ];
 
 const BINDINGS: &[(&str, &str)] = &[("M-<f12>", TOGGLE), ("C-`", TOGGLE), ("s-t", NEW)];

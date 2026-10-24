@@ -110,8 +110,10 @@ tree-sitter-yaml = "0.7"
 tree-sitter-zig = "1.1"
 
 # gpui patched for thin and thick text strokes; see docs/adr/0034-text-strokes.md.
+# xattr, pulled in by gpui's http client, patched to build on Linux.
 [patch.crates-io]
 gpui = { path = "vendor/gpui" }
+xattr = { path = "vendor/xattr" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
