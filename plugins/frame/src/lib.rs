@@ -2,6 +2,7 @@
 
 mod default_settings;
 mod theme;
+mod ui_file;
 
 use remacs_config::{config_dir, home};
 use remacs_core::{
@@ -18,6 +19,7 @@ const OPEN_SETTINGS: &str = "open-settings";
 const WRITE_DEFAULT_SETTINGS: &str = "write-default-settings";
 const VIEW_DEFAULT_SETTINGS: &str = "view-default-settings";
 const SELECT_THEME: &str = "select-theme";
+const TOGGLE_KEY_HINTS: &str = "toggle-key-hints";
 const HIDE: &str = "hide-remacs";
 const HIDE_OTHERS: &str = "hide-others";
 const SHOW_ALL: &str = "show-all";
@@ -39,6 +41,7 @@ const COMMANDS: &[Command] = &[
     Command::new(WRITE_DEFAULT_SETTINGS, "Write a settings file of the defaults, each one explained, to change", default_settings::write_default_settings),
     Command::new(VIEW_DEFAULT_SETTINGS, "Show a settings file of the defaults, each one explained", default_settings::view_default_settings),
     Command::new(SELECT_THEME, "Choose the theme, kept in ui.toml", theme::select_theme),
+    Command::new(TOGGLE_KEY_HINTS, "Show or hide the keys under the view, kept in ui.toml", toggle_key_hints),
     Command::new(HIDE, "Hide remacs", |editor| request(editor, FrameRequest::Hide)),
     Command::new(HIDE_OTHERS, "Hide the other applications", |editor| request(editor, FrameRequest::HideOthers)),
     Command::new(SHOW_ALL, "Show the hidden applications", |editor| request(editor, FrameRequest::ShowAll)),
@@ -92,6 +95,7 @@ const MENU_ITEMS: &[MenuItem] = &[
     MenuItem::new(VIEW_MENU, "text-size", "Zoom Out", TEXT_SMALLER),
     MenuItem::new(VIEW_MENU, "text-size", "Actual Size", TEXT_CONFIGURED),
     MenuItem::new(VIEW_MENU, "theme", "Theme…", SELECT_THEME),
+    MenuItem::new(VIEW_MENU, "theme", "Toggle Key Hints", TOGGLE_KEY_HINTS),
     MenuItem::new("Help", "help", "Settings Reference…", VIEW_DEFAULT_SETTINGS),
     MenuItem::new("Help", "about", "Third-Party Notices", VIEW_NOTICES),
 ];
@@ -134,6 +138,18 @@ fn view_notices(editor: &mut Editor) -> CommandResult {
         .map_err(error)?
         .set_read_only(true);
     editor.visit_file(&notices).map_err(error)?;
+    Ok(())
+}
+
+fn toggle_key_hints(editor: &mut Editor) -> CommandResult {
+    let home = home().ok_or("No home directory")?;
+    let show = !editor.settings_section::<ui_file::Ui>().hints.show;
+    ui_file::set(&config_dir(&home), "hints", "show", &show.to_string())?;
+    editor.set_message(if show {
+        "Key hints shown"
+    } else {
+        "Key hints hidden"
+    });
     Ok(())
 }
 
