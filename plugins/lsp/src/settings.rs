@@ -1,12 +1,14 @@
 use std::collections::BTreeMap;
 
 use remacs_core::{Editor, Section};
+use remacs_syntax::SyntaxSettings;
 use remacs_tools::ToolKind;
 use serde::Deserialize;
 
 use crate::LanguageServer;
 use crate::catalog::{self, ServerSpec};
 use crate::document::{self, Clients};
+use crate::semantic::{self, Painting};
 
 /// `lsp.toml`: changes to the built-in servers, and servers of one's own, by name.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -20,6 +22,10 @@ pub(crate) struct LspSettings {
     /// Typing a call's opening bracket, or what else its server says starts its
     /// arguments, shows the call's signature; off, only `signature-help` does.
     signature_help_on_typing: bool,
+    /// What servers know each name to be paints over tree-sitter's faces (ADR 0088).
+    semantic_tokens: bool,
+    /// Changes to which capture each token type takes, over `semantic::CAPTURES`.
+    semantic_token_captures: BTreeMap<String, String>,
     servers: BTreeMap<String, ServerSpec>,
 }
 
@@ -29,6 +35,8 @@ impl Default for LspSettings {
             offer_downloads: true,
             embedded_code: true,
             signature_help_on_typing: true,
+            semantic_tokens: true,
+            semantic_token_captures: BTreeMap::new(),
             servers: BTreeMap::new(),
         }
     }
@@ -50,6 +58,16 @@ impl LspSettings {
     pub fn signature_help_on_typing(&self) -> bool {
         self.signature_help_on_typing
     }
+
+    /// How semantic tokens are painted, with `syntax`'s level and variables.
+    pub fn painting(&self, syntax: &SyntaxSettings) -> Painting {
+        Painting {
+            enabled: self.semantic_tokens,
+            captures: semantic::captures(&self.semantic_token_captures),
+            level: syntax.highlight_level,
+            variables: syntax.local_variables,
+        }
+    }
 }
 
 /// The servers, built from `catalog` and `lsp.toml` the first time they are wanted.
@@ -64,6 +82,8 @@ pub(crate) fn servers(editor: &mut Editor, catalog: &str) -> &'static [LanguageS
 /// restarted, or stopped when gone, on their next use.
 pub(crate) fn read(editor: &mut Editor, catalog: &str) -> &'static [LanguageServer] {
     let settings = editor.settings_section::<LspSettings>();
+    let painting = settings.painting(&editor.settings_section::<SyntaxSettings>());
+    editor.plugin_state::<Clients>().paint_with(painting);
     let specs = catalog::merge(catalog::built_in(catalog), &settings.servers);
     let mut errors = Vec::new();
     let servers: Vec<LanguageServer> = specs

@@ -21,6 +21,60 @@ embedded-code = true
 # until point leaves it. Off, ⌘P (signature-help) shows it, and again the next overload.
 signature-help-on-typing = true
 
+# Whether what a server knows each name to be (its semantic tokens) paints over the faces
+# tree-sitter gives it: a constant named in lowercase, a call through a variable. They
+# follow syntax.toml's highlight-level, and local-variables for parameters and variables.
+semantic-tokens = true
+
+# The capture of syntax.toml's scheme each token type takes, as `type` or `"type.modifier"`
+# for a modifier that changes it; "" paints nothing, leaving tree-sitter's face. What you
+# name here goes over these, the built-in ones: the LSP's own types, then rust-analyzer's
+# and TypeScript's. Types left out, like comment, string, number and keyword, paint
+# nothing: tree-sitter tells them, and paints the TODOs in comments too.
+[semantic-token-captures]
+# namespace = ""
+# type = "type"
+# class = "type"
+# enum = "type"
+# interface = "type"
+# struct = "type"
+# typeParameter = "type"
+# parameter = "variable"
+# variable = "variable"
+# "variable.constant" = "constant"
+# "variable.static" = "constant"
+# property = ""
+# enumMember = "constant"
+# event = ""
+# function = "function.call"
+# "function.declaration" = "function"
+# "function.definition" = "function"
+# method = "function.call"
+# "method.declaration" = "function"
+# "method.definition" = "function"
+# macro = "function.macro"
+# decorator = "attribute"
+# label = "label"
+# attribute = "attribute"
+# builtinAttribute = "attribute"
+# builtinType = "type.builtin"
+# const = "constant"
+# constParameter = "constant"
+# derive = "type"
+# deriveHelper = "attribute"
+# formatSpecifier = ""
+# generic = ""
+# lifetime = "label"
+# macroBang = "function.macro"
+# procMacro = "function.macro"
+# selfKeyword = "variable.builtin"
+# selfTypeKeyword = "type"
+# static = "constant"
+# toolModule = ""
+# typeAlias = "type"
+# union = "type"
+# unresolvedReference = ""
+
 # [servers.rust-analyzer]
 # command = "~/bin/rust-analyzer"    # a path, or a name looked up on PATH, run as it is
 # args = []

@@ -18,8 +18,8 @@ use lsp_types::request::{
     ApplyWorkspaceEdit, CodeActionRequest, CodeActionResolveRequest, Completion, DocumentColor,
     DocumentDiagnosticRequest, DocumentSymbolRequest, ExecuteCommand, Formatting, GotoDefinition,
     HoverRequest, Initialize, PrepareRenameRequest, RangeFormatting, References, Rename, Request,
-    ResolveCompletionItem, SignatureHelpRequest, WillRenameFiles, WorkspaceConfiguration,
-    WorkspaceDiagnosticRefresh, WorkspaceSymbolRequest,
+    ResolveCompletionItem, SemanticTokensFullRequest, SemanticTokensRefresh, SignatureHelpRequest,
+    WillRenameFiles, WorkspaceConfiguration, WorkspaceDiagnosticRefresh, WorkspaceSymbolRequest,
 };
 use lsp_types::{
     ApplyWorkspaceEditParams, CodeAction, CodeActionOrCommand, CompletionItem,
@@ -41,6 +41,7 @@ use crate::color::{self, Swatch};
 use crate::completion::{self, CompletionSupport, Origin};
 use crate::markdown::CodeModes;
 use crate::position::{Encoding, from_lsp, to_lsp};
+use crate::semantic::{self, Legend, Token};
 use crate::signature::{self, SignatureSupport};
 use crate::symbols::{self, FoundSymbol};
 use crate::transport::{read_message, write_message};
@@ -80,6 +81,12 @@ pub(crate) enum Outgoing {
     },
     /// Asks for the colors `text`, the text the server has, names.
     Colors {
+        uri: Uri,
+        path: PathBuf,
+        text: Snapshot,
+    },
+    /// Asks what each name of `text`, the text the server has, is.
+    SemanticTokens {
         uri: Uri,
         path: PathBuf,
         text: Snapshot,
@@ -323,6 +330,10 @@ enum Pending {
         path: PathBuf,
         text: Snapshot,
     },
+    SemanticTokens {
+        path: PathBuf,
+        text: Snapshot,
+    },
     Complete {
         id: u64,
         origin: Origin,
@@ -382,7 +393,10 @@ impl Pending {
     fn answers_failure(&self) -> bool {
         !matches!(
             self,
-            Pending::Pull { .. } | Pending::Colors { .. } | Pending::Resolve { .. }
+            Pending::Pull { .. }
+                | Pending::Colors { .. }
+                | Pending::SemanticTokens { .. }
+                | Pending::Resolve { .. }
         )
     }
 }
@@ -393,6 +407,10 @@ struct Inbox {
     published: HashMap<PathBuf, Published>,
     /// The newest colors of each file and the text they were found in.
     colors: HashMap<PathBuf, (Snapshot, Vec<Swatch>)>,
+    /// Likewise its semantic tokens, with the legend that names them.
+    semantic_tokens: HashMap<PathBuf, SemanticTokens>,
+    /// Bumped when the server asks for every file's tokens again, e.g. once it loaded.
+    semantic_refreshes: u64,
     requests: HashMap<u64, Pending>,
     answers: Vec<Answer>,
     /// Kept apart from `answers`, which are for the window buffer's document.
@@ -405,6 +423,9 @@ struct Inbox {
 }
 
 type SharedInbox = Arc<Mutex<Inbox>>;
+
+/// A file's semantic tokens, the text they were found in and the legend naming them.
+pub(crate) type SemanticTokens = (Snapshot, Arc<Legend>, Vec<(Range<usize>, Token)>);
 
 fn lock(inbox: &SharedInbox) -> MutexGuard<'_, Inbox> {
     inbox.lock().expect("no thread panics holding the inbox")
@@ -449,6 +470,7 @@ struct Negotiated {
     incremental: bool,
     completion: Option<CompletionSupport>,
     colors: bool,
+    semantic_tokens: bool,
     will_rename: bool,
     did_rename: bool,
     formatting: bool,
@@ -544,6 +566,7 @@ impl Client {
             notifier: Arc::clone(&notifier),
             settled: Arc::clone(&settled),
             signatures: Arc::clone(&signatures),
+            legend: None,
         };
         let (exit_inbox, exit_notifier) = (Arc::clone(&inbox), Arc::clone(&notifier));
         thread::Builder::new()
@@ -603,6 +626,15 @@ impl Client {
 
     pub fn take_colors(&self, path: &Path) -> Option<(Snapshot, Vec<Swatch>)> {
         lock(&self.inbox).colors.remove(path)
+    }
+
+    pub fn take_semantic_tokens(&self, path: &Path) -> Option<SemanticTokens> {
+        lock(&self.inbox).semantic_tokens.remove(path)
+    }
+
+    /// How many times the server asked for every file's tokens again.
+    pub fn semantic_refreshes(&self) -> u64 {
+        lock(&self.inbox).semantic_refreshes
     }
 
     /// Why the server exited, the first time it is asked after it has.
@@ -682,6 +714,23 @@ fn initialize_params(options: Option<Value>, configured: bool, root: &Path) -> V
                     "contextSupport": true,
                 },
                 "colorProvider": {},
+                // Whole files only; servers may leave what tree-sitter paints anyway.
+                "semanticTokens": {
+                    "requests": { "full": true },
+                    "tokenTypes": semantic::CAPTURES
+                        .iter()
+                        .map(|(kind, _)| *kind)
+                        .filter(|kind| !kind.contains('.'))
+                        .collect::<Vec<_>>(),
+                    "tokenModifiers": [
+                        "declaration", "definition", "readonly", "static", "deprecated",
+                        "abstract", "async", "modification", "documentation", "defaultLibrary",
+                    ],
+                    "formats": ["relative"],
+                    "overlappingTokenSupport": false,
+                    "multilineTokenSupport": false,
+                    "augmentsSyntaxTokens": true,
+                },
                 "definition": { "linkSupport": true },
                 "references": {},
                 "rename": { "prepareSupport": true },
@@ -710,6 +759,7 @@ fn initialize_params(options: Option<Value>, configured: bool, root: &Path) -> V
                     "failureHandling": "abort",
                 },
                 "fileOperations": { "willRename": true, "didRename": true },
+                "semanticTokens": { "refreshSupport": true },
                 // Every kind, up to type parameters; else servers keep to the first 18.
                 "symbol": { "symbolKind": { "valueSet": (1..=26).collect::<Vec<u8>>() } },
             },
@@ -787,6 +837,17 @@ impl Writer {
                     text: text.clone(),
                 };
                 self.ask(DocumentColor::METHOD, params, pending)
+            }
+            Outgoing::SemanticTokens { uri, path, text } => {
+                if !negotiated.semantic_tokens {
+                    return Ok(());
+                }
+                let params = json!({ "textDocument": TextDocumentIdentifier::new(uri.clone()) });
+                let pending = Pending::SemanticTokens {
+                    path: path.clone(),
+                    text: text.clone(),
+                };
+                self.ask(SemanticTokensFullRequest::METHOD, params, pending)
             }
             Outgoing::Complete {
                 uri,
@@ -1099,6 +1160,7 @@ fn is_superseded(message: &Outgoing, later: &[Outgoing]) -> bool {
     later.iter().any(|other| match (message, other) {
         (Outgoing::Pull { uri, .. }, Outgoing::Pull { uri: other, .. })
         | (Outgoing::Colors { uri, .. }, Outgoing::Colors { uri: other, .. })
+        | (Outgoing::SemanticTokens { uri, .. }, Outgoing::SemanticTokens { uri: other, .. })
         | (Outgoing::Complete { uri, .. }, Outgoing::Complete { uri: other, .. })
         | (Outgoing::Signatures { uri, .. }, Outgoing::Signatures { uri: other, .. })
         | (Outgoing::CodeActions { uri, .. }, Outgoing::CodeActions { uri: other, .. }) => {
@@ -1157,6 +1219,7 @@ impl Outgoing {
             }
             Outgoing::Pull { .. }
             | Outgoing::Colors { .. }
+            | Outgoing::SemanticTokens { .. }
             | Outgoing::Complete { .. }
             | Outgoing::Resolve { .. }
             | Outgoing::AtPoint { .. }
@@ -1234,6 +1297,8 @@ struct Reader {
     notifier: Notifier,
     settled: Arc<AtomicBool>,
     signatures: SharedSignatureSupport,
+    /// What the server's semantic token numbers stand for, once `initialize` is answered.
+    legend: Option<Arc<Legend>>,
 }
 
 impl Reader {
@@ -1299,6 +1364,11 @@ impl Reader {
                 (self.notifier)();
                 Value::Null
             }
+            SemanticTokensRefresh::METHOD => {
+                lock(&self.inbox).semantic_refreshes += 1;
+                (self.notifier)();
+                Value::Null
+            }
             _ => Value::Null,
         };
         let replies = self
@@ -1327,11 +1397,13 @@ impl Reader {
         let sync = &capabilities["textDocumentSync"];
         let full_sync = sync.get("change").unwrap_or(sync).as_u64() == Some(1);
         let _ = (self.signatures).set(SignatureSupport::from_capabilities(capabilities));
+        self.legend = Legend::offered(capabilities).map(Arc::new);
         let _ = agreed.send(Negotiated {
             encoding: self.encoding,
             incremental: !full_sync,
             completion: CompletionSupport::from_capabilities(capabilities),
             colors: is_provided(&capabilities["colorProvider"]),
+            semantic_tokens: self.legend.is_some(),
             will_rename: capabilities["workspace"]["fileOperations"]["willRename"].is_object(),
             did_rename: capabilities["workspace"]["fileOperations"]["didRename"].is_object(),
             formatting: is_provided(&capabilities["documentFormattingProvider"]),
@@ -1358,13 +1430,24 @@ impl Reader {
         if error.is_some() && !pending.answers_failure() {
             return;
         }
-        let result = response["result"].take();
+        let mut result = response["result"].take();
         match pending {
             Pending::Pull { path, version } => self.pulled(path, version, result),
             Pending::Colors { path, text } => {
                 let found = serde_json::from_value(result).unwrap_or_default();
                 let swatches = color::swatches(found, &text, self.encoding);
                 lock(&self.inbox).colors.insert(path, (text, swatches));
+                (self.notifier)();
+            }
+            Pending::SemanticTokens { path, text } => {
+                let Some(legend) = &self.legend else {
+                    return;
+                };
+                let data: Vec<u32> =
+                    serde_json::from_value(result["data"].take()).unwrap_or_default();
+                let tokens = semantic::decode(&data, &text, self.encoding);
+                let found = (text, Arc::clone(legend), tokens);
+                lock(&self.inbox).semantic_tokens.insert(path, found);
                 (self.notifier)();
             }
             Pending::Complete { id, origin } => {

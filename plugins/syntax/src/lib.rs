@@ -18,7 +18,7 @@ mod wasm;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-pub use highlighter::known_capture;
+pub use highlighter::{face_for, known_capture};
 pub use queries::keep_queries_in;
 use remacs_core::{Command, Hook, MenuItem, Plugin, Registry, Section};
 use remacs_tools::ToolKind;

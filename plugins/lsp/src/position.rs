@@ -28,10 +28,29 @@ pub fn from_lsp(text: &Snapshot, position: Position, encoding: Encoding) -> usiz
     let Some(line) = text.line_range(position.line as usize) else {
         return text.len();
     };
-    let character = position.character as usize;
+    let start = (line.start, 0);
+    offset_in_line(text, line, start, position.character, encoding)
+}
+
+/// [`from_lsp`] of `character` on `line`, counted on from `from`: a character boundary of
+/// the line, and its character as the server counts. Positions of one line read in order
+/// then read it once, not each from its start.
+pub fn offset_in_line(
+    text: &Snapshot,
+    line: Range<usize>,
+    from: (usize, u32),
+    character: u32,
+    encoding: Encoding,
+) -> usize {
+    let (from, from_character) = match character >= from.1 {
+        true => from,
+        false => (line.start, 0),
+    };
     let offset = match encoding {
-        Encoding::Utf8 => (line.start + character).min(line.end),
-        Encoding::Utf16 => utf16_offset(text, line.clone(), character),
+        Encoding::Utf8 => (line.start + character as usize).min(line.end),
+        Encoding::Utf16 => {
+            utf16_offset(text, from..line.end, (character - from_character) as usize)
+        }
     };
     if text.is_char_boundary(offset) {
         offset

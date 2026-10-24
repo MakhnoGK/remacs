@@ -36,6 +36,8 @@ const FACES: &[(&str, Face, u8)] = &[
     ("boolean", Face::Constant, 3),
     ("label", Face::Constant, 3),
     ("markup.link", Face::Constant, 3),
+    // Parameters and variables, as language servers tell them (ADR 0088).
+    ("variable", Face::Variable, 4),
 ];
 
 /// Code interpolated into strings (`${…}`, `#{…}`, f-strings' `{…}`) is captured so,
@@ -125,7 +127,8 @@ impl Highlighter {
     }
 }
 
-pub(crate) fn face_for(capture_name: &str) -> Option<(Face, u8)> {
+/// The face a capture name gets, and the highlight level it needs.
+pub fn face_for(capture_name: &str) -> Option<(Face, u8)> {
     FACES.iter().find_map(|&(name, face, level)| {
         let matches = capture_name
             .strip_prefix(name)
@@ -243,7 +246,8 @@ mod tests {
         assert_eq!(face_for("function"), Some((Face::Function, 1)));
         assert_eq!(face_for("type.builtin"), Some((Face::Type, 2)));
         assert_eq!(face_for("typed"), None);
-        assert_eq!(face_for("variable"), None);
+        assert_eq!(face_for("variable.parameter"), Some((Face::Variable, 4)));
+        assert_eq!(face_for("variables"), None);
     }
 
     #[test]

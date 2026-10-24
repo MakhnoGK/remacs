@@ -26,6 +26,7 @@ use crate::completion::Origin;
 use crate::embedded::{self, Mirror};
 use crate::markdown::CodeModes;
 use crate::position::{Encoding, from_lsp};
+use crate::semantic::Painting;
 use crate::settings::LspSettings;
 use crate::version::Versions;
 use crate::{code_action, definition, offer, uri};
@@ -146,6 +147,10 @@ struct Document {
     /// The colors the file names, as of the buffer's text, and the version last asked.
     colors: Vec<Swatch>,
     colors_asked: Option<i32>,
+    /// Faces of its semantic tokens, as of the buffer's text, and when they were last
+    /// asked: the version, the server's refreshes and the paintings so far.
+    semantic: Vec<(Range<usize>, Face)>,
+    semantic_asked: Option<(i32, u64, u64)>,
     /// The newest completion list, as the server sent it, for resolving its items.
     listed: Option<Listed>,
     /// The diagnostics last taken, as the server sent them, and the text they refer to;
@@ -204,6 +209,8 @@ impl Document {
             pulled: None,
             colors: Vec::new(),
             colors_asked: None,
+            semantic: Vec::new(),
+            semantic_asked: None,
             listed: None,
             reported: None,
             offered: None,
@@ -249,6 +256,7 @@ impl Document {
         buffer: Snapshot,
         embedded: Option<&[Embedded]>,
         modified: bool,
+        painting: (&Painting, u64),
     ) -> Option<(Snapshot, Vec<Diagnostic>)> {
         let sent = self.sent_text();
         let text = match &mut self.mirror {
@@ -278,6 +286,7 @@ impl Document {
                 self.pending.pop_front();
             }
             color::shift(&mut self.colors, edit);
+            color::shift(&mut self.semantic, edit);
         }
         if self.modified && !modified {
             self.client.send(Outgoing::Save {
@@ -290,6 +299,7 @@ impl Document {
         self.modified = modified;
         self.pull(edit.is_some());
         self.update_colors();
+        self.update_semantic(painting);
         self.resolve_when_settled();
         self.take_diagnostics()
     }
@@ -311,6 +321,32 @@ impl Document {
                 color::shift(&mut colors, edit);
             }
             self.colors = colors;
+        }
+    }
+
+    /// Asks for the semantic tokens of each version once, again when the server or the
+    /// painting asks for it, and takes those found, painted and moved onto the text since.
+    fn update_semantic(&mut self, (painting, paintings): (&Painting, u64)) {
+        if !painting.enabled {
+            self.semantic.clear();
+            return;
+        }
+        let text = self.sent_text();
+        let asked = (self.version, self.client.semantic_refreshes(), paintings);
+        if self.semantic_asked != Some(asked) {
+            self.semantic_asked = Some(asked);
+            self.client.send(Outgoing::SemanticTokens {
+                uri: self.uri.clone(),
+                path: self.path.clone(),
+                text: text.clone(),
+            });
+        }
+        if let Some((found_in, legend, tokens)) = self.client.take_semantic_tokens(&self.path) {
+            let mut faces = painting.paint(&legend, &tokens);
+            if let Some(edit) = text.edit_from(&found_in) {
+                color::shift(&mut faces, edit);
+            }
+            self.semantic = faces;
         }
     }
 
@@ -557,6 +593,9 @@ pub(crate) struct Clients {
     servers: Option<&'static [LanguageServer]>,
     /// What they were built from, to tell which changed.
     specs: BTreeMap<String, ServerSpec>,
+    /// How semantic tokens are painted, and how many times that changed.
+    painting: Rc<Painting>,
+    paintings: u64,
 }
 
 /// Why a server wanted for a file is not running for it.
@@ -588,6 +627,14 @@ impl Clients {
 
     pub(crate) fn settings(&self) -> &LspSettings {
         &self.settings
+    }
+
+    /// Paints semantic tokens so from now on; every file's are asked again if it changed.
+    pub(crate) fn paint_with(&mut self, painting: Painting) {
+        if *self.painting != painting {
+            self.painting = Rc::new(painting);
+            self.paintings += 1;
+        }
     }
 
     pub(crate) fn servers(&self) -> Option<&'static [LanguageServer]> {
@@ -875,17 +922,44 @@ fn detach(editor: &mut Editor, name: &'static str) {
 
 /// The colors the buffer's servers found in `range`; where two found one, the first's.
 pub(crate) fn swatch_spans(buffer: &Buffer, range: Range<usize>) -> Vec<Span> {
+    found_spans(
+        buffer,
+        range,
+        |document| &document.colors,
+        |&rgba| Face::Swatch(rgba),
+    )
+}
+
+/// The faces of the semantic tokens the buffer's servers found in `range`, over
+/// tree-sitter's; where two found one, the first's.
+pub(crate) fn semantic_spans(buffer: &Buffer, range: Range<usize>) -> Vec<Span> {
+    found_spans(buffer, range, |document| &document.semantic, |&face| face)
+}
+
+/// What each of the buffer's servers found in `range`, sorted, without overlaps.
+fn found_spans<T>(
+    buffer: &Buffer,
+    range: Range<usize>,
+    found: impl Fn(&Document) -> &[(Range<usize>, T)],
+    face: impl Fn(&T) -> Face,
+) -> Vec<Span> {
     let Some(documents) = buffer.local::<Documents>() else {
         return Vec::new();
     };
     let mut spans: Vec<_> = documents
         .list
         .iter()
-        .flat_map(|document| &document.colors)
-        .filter(|(color, _)| color.start < range.end && color.end > range.start)
-        .map(|(color, rgba)| Span {
-            range: color.clone(),
-            face: Face::Swatch(*rgba),
+        .flat_map(|document| {
+            // Each server's are in order, so a file's thousands are not all looked at.
+            let found = found(document);
+            let first = found.partition_point(|(span, _)| span.end <= range.start);
+            found[first..]
+                .iter()
+                .take_while(|(span, _)| span.start < range.end)
+        })
+        .map(|(span, value)| Span {
+            range: span.clone(),
+            face: face(value),
         })
         .collect();
     spans.sort_by_key(|span| span.range.start);
@@ -1002,6 +1076,8 @@ pub(crate) fn embedded_text(editor: &Editor, path: &Path) -> Option<Snapshot> {
 pub(crate) fn sync(editor: &mut Editor, servers: &'static [LanguageServer]) {
     report_exits(editor);
     hand_over_answers(editor);
+    let clients = editor.plugin_state::<Clients>();
+    let (painting, paintings) = (Rc::clone(&clients.painting), clients.paintings);
     // After the answers, so that a file a definition opened is attached at once.
     for index in 0..editor.buffers().len() {
         attach(editor, index, servers);
@@ -1015,8 +1091,12 @@ pub(crate) fn sync(editor: &mut Editor, servers: &'static [LanguageServer]) {
             .list
             .iter_mut()
             .filter_map(|document| {
-                let (text, diagnostics) =
-                    document.sync(text.clone(), embedded.as_deref(), modified)?;
+                let (text, diagnostics) = document.sync(
+                    text.clone(),
+                    embedded.as_deref(),
+                    modified,
+                    (&painting, paintings),
+                )?;
                 Some((document.checker(), text, diagnostics))
             })
             .collect();

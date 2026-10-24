@@ -17,6 +17,7 @@ remacs-dired.workspace = true
 remacs-documentation.workspace = true
 remacs-format.workspace = true
 remacs-rename.workspace = true
+remacs-syntax.workspace = true
 remacs-text.workspace = true
 remacs-tools.workspace = true
 remacs-xref.workspace = true
@@ -39,6 +40,10 @@ harness = false
 
 [[bench]]
 name = "references"
+harness = false
+
+[[bench]]
+name = "semantic_tokens"
 harness = false
 
 [lints]

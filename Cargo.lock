@@ -4643,6 +4643,7 @@ dependencies = [
  "remacs-format",
  "remacs-minibuffer",
  "remacs-rename",
+ "remacs-syntax",
  "remacs-text",
  "remacs-tools",
  "remacs-xref",

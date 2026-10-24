@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use remacs_actions::ActionsPlugin;
 use remacs_completion::CompletionPlugin;
 use remacs_core::{
-    Changes, Documentation, Editor, Elsewhere, Icon, Plugin, Popup, Settings, parse_sequence,
+    Changes, Documentation, Editor, Elsewhere, Face, Icon, Plugin, Popup, Settings, parse_sequence,
 };
 use remacs_diagnostics::DiagnosticsPlugin;
 use remacs_dired::{DiredPlugin, list_directory};
@@ -614,6 +614,67 @@ fn rust_analyzer_checks_on_open_and_save() {
     );
     let mut editor = check(&root.join("src/main.rs"), Icon::Error);
     fix_and_save(&mut editor, "let x: i32 = \"a\"", "let _x: i32 = 1");
+}
+
+/// The face the top layer gives the `n`th `text` of the window buffer, once one does.
+fn shown_face(editor: &mut Editor, text: &str, n: usize, wanted: Face) {
+    let started = Instant::now();
+    loop {
+        editor.refresh();
+        let buffer = editor.window_buffer();
+        let source = buffer.contents(0..buffer.text().len());
+        let start = source.match_indices(text).nth(n).unwrap().0;
+        let faces: Vec<Face> = editor
+            .decorations(start..start + text.len())
+            .iter()
+            .filter_map(|layer| layer.iter().find(|span| span.range.contains(&start)))
+            .map(|span| span.face)
+            .collect();
+        if faces.last() == Some(&wanted) {
+            return;
+        }
+        assert!(started.elapsed() < TIMEOUT, "{text} is {faces:?}");
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
+#[test]
+#[ignore]
+fn rust_analyzer_paints_what_tree_sitter_cannot_tell() {
+    // Lowercase, `limit` reads as no constant to tree-sitter.
+    let main = "#![allow(non_upper_case_globals)]\nconst limit: u32 = 3;\n\
+                /// TODO: more\n\
+                fn twice(count: u32) -> u32 { count * 2 }\n\
+                fn main() { let total = twice(limit); assert_eq!(total, 6); }\n";
+    let root = project(
+        "rust-semantic",
+        &[
+            (
+                "Cargo.toml",
+                "[package]\nname = \"demo\"\nedition = \"2024\"\n",
+            ),
+            ("src/main.rs", main),
+        ],
+    );
+    let mut editor = Editor::new(PLUGINS);
+    editor.visit_file(&root.join("src/main.rs")).unwrap();
+    shown_face(&mut editor, "limit", 1, Face::Constant);
+    shown_face(&mut editor, "twice", 1, Face::Function);
+    shown_face(&mut editor, "count", 1, Face::Variable);
+    // Told that tree-sitter paints comments, rust-analyzer still sends a `comment` over a
+    // whole doc comment, which is left to tree-sitter's faces.
+    shown_face(&mut editor, "TODO", 0, Face::Keyword);
+
+    // Typed before them, they move along, and the server's next answer agrees.
+    editor.window_buffer_mut().set_point(0);
+    editor.window_buffer_mut().insert("// top\n");
+    shown_face(&mut editor, "limit", 1, Face::Constant);
+
+    // Painted, it would hide the TODO.
+    let painted = "[semantic-token-captures]\n\"comment.documentation\" = \"comment.doc\"\n";
+    let lsp_toml = (PathBuf::from("lsp.toml"), painted.to_owned());
+    editor.set_settings(Settings::from_files([lsp_toml]));
+    shown_face(&mut editor, "TODO", 0, Face::Docstring);
 }
 
 #[test]

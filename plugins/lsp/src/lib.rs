@@ -24,6 +24,9 @@ mod offer;
 #[doc(hidden)]
 pub mod position;
 mod restart;
+/// Public for the benchmarks only.
+#[doc(hidden)]
+pub mod semantic;
 mod settings;
 mod signature;
 mod snippet;
@@ -126,6 +129,8 @@ impl Plugin for LspPlugin {
             document_symbols::sync(editor, servers);
             offer::ask(editor);
         }));
+        // After the syntax plugin's, which they paint over.
+        registry.decorators.push(Rc::new(document::semantic_spans));
         registry.decorators.push(Rc::new(document::swatch_spans));
         registry.settings_hooks.push(Rc::new(move |editor| {
             settings::read(editor, catalog);

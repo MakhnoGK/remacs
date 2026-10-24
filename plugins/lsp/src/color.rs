@@ -36,10 +36,10 @@ fn rgba(color: lsp_types::Color) -> u32 {
         })
 }
 
-/// Keeps `swatches` on their text through `edit`: those it touches are dropped until the
-/// server looks again, those after it move with it.
-pub(crate) fn shift(swatches: &mut Vec<Swatch>, edit: Edit) {
-    swatches.retain_mut(|(range, _)| {
+/// Keeps what a server found, swatches or semantic tokens, on their text through `edit`:
+/// those it touches are dropped until the server looks again, those after it move with it.
+pub(crate) fn shift<T>(found: &mut Vec<(Range<usize>, T)>, edit: Edit) {
+    found.retain_mut(|(range, _)| {
         if range.end <= edit.start {
             return true;
         }
