@@ -22,8 +22,7 @@ use remacs_core::{
     Command, CommandResult, Editor, Keymap, MenuItem, MinorKeymap, Plugin, Registry,
 };
 
-use crate::listing::DIRED_MODE;
-
+pub use listing::DIRED_MODE;
 pub use references::{RenameRequest, deliver_rename_edits, take_rename_requests};
 
 pub struct DiredPlugin;
