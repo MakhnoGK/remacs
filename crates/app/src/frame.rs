@@ -103,11 +103,30 @@ pub fn system_appearance() -> Appearance {
     }
 }
 
-// shortcut: dark until the window opens and gpui reports the desktop's (xdg portal), read
-// the portal here if a light desktop's first frame flashes dark.
+/// Whether the desktop is light or dark now, as its settings portal says, which gpui
+/// reports only once a window is open.
 #[cfg(not(target_os = "macos"))]
 pub fn system_appearance() -> Appearance {
-    Appearance::Dark
+    let output = std::process::Command::new("busctl")
+        .args([
+            "--user",
+            "--timeout=1s",
+            "call",
+            "org.freedesktop.portal.Desktop",
+            "/org/freedesktop/portal/desktop",
+            "org.freedesktop.portal.Settings",
+            // As gpui asks; `ReadOne` is missing from older portals.
+            "Read",
+            "ss",
+            "org.freedesktop.appearance",
+            "color-scheme",
+        ])
+        .output();
+    // Printed as `v v u 1`; 1 prefers dark, and the rest are light, as gpui has them.
+    match output {
+        Ok(output) if output.stdout.trim_ascii().ends_with(b" 1") => Appearance::Dark,
+        _ => Appearance::Light,
+    }
 }
 
 /// The light or the dark of gpui's appearances.
