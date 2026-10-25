@@ -591,6 +591,14 @@ fn a_closer_is_typed_when_the_line_needs_one() {
 }
 
 #[test]
+fn a_closer_typed_over_the_region_replaces_it() {
+    let mut editor = code_editor_with("foo(bar)");
+    press(&mut editor, "C-f C-f C-f C-f C-SPC M-f");
+    type_text(&mut editor, ")");
+    assert_eq!(contents(&editor), "foo())");
+}
+
+#[test]
 fn delete_takes_an_empty_pair_whole() {
     let mut editor = code_editor_with("");
     type_text(&mut editor, "{");
@@ -1058,6 +1066,14 @@ fn cursor_points(editor: &Editor) -> Vec<usize> {
         .iter()
         .map(|cursor| cursor.point)
         .collect()
+}
+
+#[test]
+fn typing_replaces_the_region_at_every_cursor() {
+    let mut editor = editor_with("foo(1)\nfoo(2)");
+    press(&mut editor, "C-SPC C-f C-f C-f C->");
+    type_text(&mut editor, "x");
+    assert_eq!(contents(&editor), "x(1)\nx(2)");
 }
 
 #[test]

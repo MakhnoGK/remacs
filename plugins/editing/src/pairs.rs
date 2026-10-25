@@ -62,8 +62,9 @@ pub fn type_paired(
         return false;
     };
     let point = buffer.point();
-    let steps_over =
-        buffer.char_after(point) == Some(closer) && is_balanced_on_line(buffer, opener, closer);
+    let steps_over = buffer.region().is_none()
+        && buffer.char_after(point) == Some(closer)
+        && is_balanced_on_line(buffer, opener, closer);
     if steps_over {
         buffer.set_point(point + closer.len_utf8());
     }
