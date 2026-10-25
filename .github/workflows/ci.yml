@@ -16,7 +16,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check:
+  macos:
     runs-on: macos-latest
     timeout-minutes: 90
     steps:
@@ -50,6 +50,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libxkbcommon-x11-dev libwayland-dev libvulkan-dev \
             libfontconfig-dev libfreetype-dev libx11-xcb-dev libxcb1-dev libzstd-dev zsh
+          # The runner's group-writable zsh directories make Ubuntu's compinit ask before
+          # the terminal tests' prompt.
+          zsh -fc 'autoload -U compaudit; compaudit' 2>/dev/null | xargs -r sudo chmod g-w,o-w
       - run: cargo build
       - run: cargo test --workspace
       - run: cargo clippy --workspace --all-targets -- -D warnings

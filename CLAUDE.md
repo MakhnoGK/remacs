@@ -38,7 +38,7 @@ Emacs-inspired IDE from scratch in Rust + gpui. Everything is a plugin.
 - Every change goes through a pull request into `dev`, the default branch: a branch from
   `origin/dev` (`git switch -c <type>/<name> --no-track origin/dev`), pushed under its own
   name, a PR titled like a commit with `Closes #N` for its issue. Never push to `dev` or
-  `main`; only the owner merges, once CI's `check` and `audit` pass. The issue closes
+  `main`; only the owner merges, once CI's `macos`, `linux` and `audit` pass. The issue closes
   with the merge. `main` takes only releases, merged from `dev` (ADR 0056).
 - Actions in `.github/workflows` are pinned by commit SHA with the version in a comment
   (`uses: owner/action@<sha> # v1.2.3`); Dependabot bumps both.
