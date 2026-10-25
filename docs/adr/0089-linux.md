@@ -35,7 +35,32 @@ Arch Linux with KDE Plasma on Wayland.
   names `libc::ENOATTR`, which libc no longer defines on Linux.
 - **CI** builds, tests and lints on `ubuntu-latest` too.
 
+## Releases (2026-10-25)
+
+- **A prebuilt archive** next to the source one in each GitHub release:
+  `remacs-<version>-x86_64-linux.tar.gz`, built by `release.yml`'s `linux` job from the
+  tag on `ubuntu-22.04`, so it needs glibc 2.35 or later, with its build provenance
+  (`.sigstore.json`). No AUR package yet: AUR had closed registration; `remacs-bin`
+  from this archive comes once it opens. No Flatpak (its sandbox keeps language
+  servers, terminals and the shell's `PATH` out) nor AppImage.
+- **`cargo xtask bundle`** on Linux makes `target/bundle/remacs-<version>-<cpu>-linux`,
+  laid out as a prefix: `lib/remacs/remacs` and its `THIRD-PARTY-NOTICES` (Help's
+  notices are read next to the binary), `bin/remacs`, the launcher that starts it
+  apart from the terminal as on macOS, `share/applications/io.github.makhnogk.remacs.desktop`,
+  the hicolor icons, and `install.sh`.
+- **`install.sh [prefix]`** copies them under `~/.local` by default, replacing
+  `lib/remacs` whole by a rename; the menu entry runs the binary by its full path, as the
+  desktop's session may not have `~/.local/bin` on its `PATH`. `cargo xtask install` runs
+  it; there is no `rollback` on Linux.
+- **The icon** is macOS's, rendered once at 16–512 px into
+  `crates/app/bundle/linux/icons` (16 and 32 from their heavier masters), as Linux has
+  no `sips`. The window's app id, `io.github.makhnogk.remacs`, is the menu entry's name,
+  so Wayland desktops show that icon for the window; X11 gets it as `WM_CLASS`.
+- **The menu entry** offers remacs for `text/plain`, not folders, so that it never
+  becomes what opens a folder in the file manager.
+
 ## Later
 
 A menu bar drawn in the window, blur and fades in blade's WGSL, strokes on cosmic-text,
-Linux assets for the catalog's macOS-only entries and tombi's musl build, a `.desktop` file and a package.
+Linux assets for the catalog's macOS-only entries and tombi's musl build, an AUR package,
+an arm64 archive.
