@@ -247,6 +247,9 @@ const BINDINGS: &[(&str, &str)] = &[
     ("M-<down>", expand::CONTRACT_REGION),
     ("C-y", killing::YANK),
     ("s-v", killing::YANK),
+    // KDE keeps Super+V for its clipboard history.
+    #[cfg(not(target_os = "macos"))]
+    ("C-S-v", killing::YANK),
     ("M-y", killing::YANK_POP),
     ("C-t", "transpose-chars"),
     ("M-t", "transpose-words"),
@@ -267,7 +270,11 @@ const BINDINGS: &[(&str, &str)] = &[
     ("C-<", cursors::MARK_PREVIOUS),
     ("C-c C->", cursors::SKIP_TO_NEXT),
     ("C-c C-<", cursors::MARK_ALL),
+    #[cfg(target_os = "macos")]
     ("C-S-c C-S-c", cursors::EDIT_LINES),
+    // Copies as in Konsole and GNOME Terminal, where Emacs's mc/edit-lines key would be.
+    #[cfg(not(target_os = "macos"))]
+    ("C-S-c", "kill-ring-save"),
     ("C-;", cursors::IEDIT_MODE),
     ("C-x SPC", "rectangle-mark-mode"),
     ("C-x r t", "string-rectangle"),

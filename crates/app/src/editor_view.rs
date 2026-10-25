@@ -284,9 +284,13 @@ impl EditorView {
         })
         .detach();
         // Another app may have changed the clipboard while this window was in the background.
-        let activation = cx.observe_window_activation(window, |view, window, cx| {
+        let activation = cx.observe_window_activation(window, |_, window, cx| {
             if window.is_window_active() {
-                view.receive_clipboard(cx);
+                // KWin offers the clipboard only after the window has the keyboard.
+                cx.spawn(async move |view, cx| {
+                    view.update(cx, |view, cx| view.receive_clipboard(cx))
+                })
+                .detach();
             }
         });
         // Seen only while following the system, when macOS is left to draw as it is.
