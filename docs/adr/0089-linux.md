@@ -24,7 +24,10 @@ Arch Linux with KDE Plasma on Wayland.
   `<cpu>-unknown-linux-gnu` on Linux, so rust-analyzer, ruff, ty, oxlint and the like
   download as on macOS, and codelldb takes its Linux build. An asset named for macOS
   (`darwin`, `mac`, `osx`) is not downloaded there: that tool must be on `PATH`.
-  Checksums use `sha256sum`, since Arch keeps Perl's `shasum` off `PATH`.
+  Checksums use `sha256sum`, since Arch keeps Perl's `shasum` off `PATH`. tombi builds
+  Linux for musl only, so its `{target}` download fails there.
+- **"system" theme** reads the desktop's color scheme from the settings portal
+  (`busctl`), as gpui does once its window is open.
 - **System calls**: the Trash is freedesktop's (the `trash` crate), an exclusive rename is
   `renameat2(RENAME_NOREPLACE)`, links open with `xdg-open`, the fallback shell is
   `/bin/sh`.
@@ -35,4 +38,4 @@ Arch Linux with KDE Plasma on Wayland.
 ## Later
 
 A menu bar drawn in the window, blur and fades in blade's WGSL, strokes on cosmic-text,
-Linux assets for the catalog's macOS-only entries, a `.desktop` file and a package.
+Linux assets for the catalog's macOS-only entries and tombi's musl build, a `.desktop` file and a package.

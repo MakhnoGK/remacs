@@ -98,6 +98,8 @@ command = "tombi"
 args = ["lsp"]
 languages = { TOML = "toml" }
 group = "toml"
+# shortcut: tombi builds Linux for musl only, so its download fails there; install tombi
+# on PATH until the catalog can name another target per system.
 install = { from = "github", package = "tombi-toml/tombi", tag-prefix = "v", asset = "tombi-cli-{version}-{target}.tar.gz", program = "tombi-cli-{version}-{target}/tombi" }
 
 [[servers]]
