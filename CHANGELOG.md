@@ -2,6 +2,27 @@
 
 What changed for people using remacs, release by release; written by `cargo xtask changelog` from the commit subjects.
 
+## 0.1.0-alpha.2 — 2026-10-26
+
+### Added
+
+- Linux release archive with an installer, menu entry and icons
+- Linux copies and pastes with C-S-c and C-S-v, and reads the clipboard KWin offers after focus
+- minimal Linux build on Wayland and X11, macOS-only parts gated or turned off
+- compile runs from the nearest package root, or a Dired buffer's directory
+
+### Fixed
+
+- clippy accepts the search query's large literal variant on x86_64
+- Linux leaves out a window's title bar while nothing is in it
+- Linux draws panes, popups and modals opaque, fades as gradients, no second title nor macOS button inset, and names keys as it does
+- a desktop theme change no longer panics on Linux, gpui releases its client before the windows' callbacks
+- blade's shadow shader takes the element's bounds the Metal one does, so Vulkan starts
+- Linux reads the system theme from the settings portal, exclusive rename is tested
+- a closer typed over the active region replaces it
+- typing or yanking over the active region replaces it
+- a listing read before a new entry was made no longer drops the selection meant for it
+
 ## 0.1.0-alpha.1 — 2026-10-24
 
 ### Added
