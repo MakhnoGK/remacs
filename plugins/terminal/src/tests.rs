@@ -117,7 +117,12 @@ fn a_terminal_in_the_panel_takes_the_keys_until_they_go_back_to_the_text() {
     assert_eq!(window_text(&editor), "", "nothing typed reached the text");
     // C-c reaches the shell, not remacs's prefix.
     type_text(&mut editor, "sleep 30");
+    wait_for_text(&mut editor, "sleep 30");
     press(&mut editor, "C-c");
+    // dash drops a line typed before it is back at its prompt along with the interrupted one.
+    wait_for(&mut editor, "the prompt after C-c", |screen| {
+        text(screen).trim_end().ends_with(['$', '#'])
+    });
     type_text(&mut editor, "echo after\n");
     wait_for_text(&mut editor, "\nafter");
 
