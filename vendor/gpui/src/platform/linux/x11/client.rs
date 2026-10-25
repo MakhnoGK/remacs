@@ -457,8 +457,16 @@ impl X11Client {
                 move |event, _, client| match event {
                     XDPEvent::WindowAppearance(appearance) => {
                         client.with_common(|common| common.appearance = appearance);
-                        for window in client.0.borrow_mut().windows.values_mut() {
-                            window.window.set_appearance(appearance);
+                        // remacs: released before the windows' callbacks, as on Wayland.
+                        let windows: Vec<_> = client
+                            .0
+                            .borrow()
+                            .windows
+                            .values()
+                            .map(|window| window.window.clone())
+                            .collect();
+                        for mut window in windows {
+                            window.set_appearance(appearance);
                         }
                     }
                     XDPEvent::CursorTheme(_) | XDPEvent::CursorSize(_) => {
