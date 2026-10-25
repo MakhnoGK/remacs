@@ -4702,6 +4702,7 @@ dependencies = [
  "remacs-config",
  "remacs-core",
  "remacs-diagnostics",
+ "remacs-dired",
  "remacs-editing",
  "remacs-files",
  "remacs-minibuffer",

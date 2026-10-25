@@ -30,8 +30,10 @@ CARGO_TERM_COLOR = "always"
 CLICOLOR_FORCE = "1"
 FORCE_COLOR = "1"
 
-# compile (⌘F9), as in Emacs: a shell command run from the project root, its output in
-# the project's *compile* console; M-g M-n and M-g M-p visit its file:line locations.
+# compile (⌘F9), as in Emacs: a shell command run from the nearest directory, within the
+# project, holding the file of one of the defaults below (else the project root), or
+# from a Dired buffer's directory; its output in that directory's *compile* console;
+# M-g M-n and M-g M-p visit its file:line locations.
 # Run configurations of kind = "shell" run on the same shell.
 [compile]
 # The shell given the command with -c: a path or a name on PATH; "" is $SHELL.

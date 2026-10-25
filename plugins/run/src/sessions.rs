@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use remacs_core::{CommandResult, Editor, Tone};
+use remacs_files::project_root;
 
 use crate::compile;
 use crate::configuration::Configuration;
@@ -314,7 +315,9 @@ pub fn show(editor: &mut Editor, id: u64) {
         .settings;
     let cwd = launch(&session.configuration, &session.root, settings)
         .map_or_else(|_| session.root.clone(), |launch| launch.cwd);
-    let buffer = console::new_buffer(session.console_name.clone(), id, &cwd, &session.root);
+    // A compile runs in a package, but tools like cargo print paths from the project root.
+    let root = project_root(&session.root);
+    let buffer = console::new_buffer(session.console_name.clone(), id, &cwd, &root);
     editor.add_buffer(buffer);
 }
 

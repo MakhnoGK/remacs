@@ -1,5 +1,6 @@
-//! `compile`, as in Emacs: a shell command line run from the project root, its output in
-//! the project's compile console, whose `file:line`s `compile-next-error` visits in turn.
+//! `compile`, as in Emacs: a shell command line run from the project's root nearest the
+//! file, or a Dired buffer's directory, its output in that directory's compile console,
+//! whose `file:line`s `compile-next-error` visits in turn.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -7,12 +8,13 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use remacs_core::{Candidate, CommandResult, Completions, Editor, Prompt, filter_candidates};
+use remacs_dired::DIRED_MODE;
 use remacs_files::links::follow;
 use remacs_files::{abbreviate_home, with_slash};
 
 use crate::configuration::{Configuration, Kind};
 use crate::console::{Console, next_location};
-use crate::sessions::{self, Session, find_compile, latest, sessions};
+use crate::sessions::{self, Session, Sessions, find_compile, latest, sessions};
 use crate::settings::CompileSettings;
 use crate::window::window_root;
 
@@ -77,10 +79,42 @@ fn settings(editor: &mut Editor) -> CompileSettings {
     sessions(editor).settings.compile.clone()
 }
 
-/// Asks for a command line, the project's last one first, and runs it from the project
-/// root in its compile console.
+/// Where `compile` runs: a console's own directory; a Dired buffer's; else the nearest
+/// directory within the project with the file of one of [compile] `defaults`, else the
+/// project root.
+pub fn compile_directory(editor: &Editor) -> Option<PathBuf> {
+    let buffer = editor.window_buffer();
+    let directory = buffer.default_directory().map(canonical);
+    if buffer.mode() == DIRED_MODE {
+        return directory;
+    }
+    let root = window_root(editor)?;
+    if buffer.local::<Console>().is_some() {
+        return Some(root);
+    }
+    let settings = editor
+        .find_plugin_state::<Sessions>()
+        .map(|sessions| &sessions.settings.compile);
+    let nearest = directory.zip(settings).and_then(|(directory, settings)| {
+        directory
+            .ancestors()
+            .take_while(|ancestor| ancestor.starts_with(&root))
+            .find(|ancestor| default_command(ancestor, settings).is_some())
+            .map(Path::to_path_buf)
+    });
+    Some(nearest.unwrap_or(root))
+}
+
+fn canonical(directory: &Path) -> PathBuf {
+    directory
+        .canonicalize()
+        .unwrap_or_else(|_| directory.to_path_buf())
+}
+
+/// Asks for a command line, the directory's last one first, and runs it there in its
+/// compile console.
 pub fn compile(editor: &mut Editor) -> CommandResult {
-    let root = window_root(editor).ok_or("Not in a project")?;
+    let root = compile_directory(editor).ok_or("Not in a project")?;
     let commands = history(editor).of(&root).to_vec();
     let suggested = default_command(&root, &settings(editor));
     let default = commands.first().cloned().or_else(|| suggested.clone());
@@ -88,7 +122,7 @@ pub fn compile(editor: &mut Editor) -> CommandResult {
         label: "Compile".into(),
         private: true,
         directory: with_slash(&abbreviate_home(&root)),
-        placeholder: "A shell command, run from the project root",
+        placeholder: "A shell command, run in this directory",
         default,
         hints: HINTS,
         ..Prompt::default()
@@ -160,7 +194,7 @@ pub fn run(editor: &mut Editor, root: &Path, command: &str) -> CommandResult {
 
 /// Runs the project's compile again, else its last command, else asks for one.
 pub fn recompile(editor: &mut Editor) -> CommandResult {
-    let root = window_root(editor).ok_or("Not in a project")?;
+    let root = compile_directory(editor).ok_or("Not in a project")?;
     if let Some(id) = find_compile(editor, &root) {
         return sessions::rerun(editor, id, None);
     }
@@ -205,6 +239,7 @@ fn visit_location(editor: &mut Editor, forward: bool) -> CommandResult {
         "No earlier locations"
     })?;
     let directories = console.directories.to_vec();
+    editor.plugin_state::<Visited>().0 = Some(console.session);
     let buffer = editor.buffer_named_mut(&name).expect("found by name");
     buffer.set_point(start);
     if let Some(console) = buffer.local_mut::<Console>() {
@@ -214,11 +249,21 @@ fn visit_location(editor: &mut Editor, forward: bool) -> CommandResult {
     follow(editor, &target, &directories, in_window)
 }
 
-/// The console of the window buffer's project's compile, else of the latest run.
+/// The session whose console `compile-next-error` went through last.
+#[derive(Default)]
+struct Visited(Option<u64>);
+
+/// The console of the window buffer's directory's compile, else the one visited last,
+/// so that a location in another package goes on there, else of the latest run.
 fn output_console(editor: &Editor) -> Option<String> {
-    let compiled = window_root(editor).and_then(|root| find_compile(editor, &root));
-    let id = compiled.or_else(|| latest(editor))?;
-    Session::buffer_name(editor, id)
+    let compiled = compile_directory(editor).and_then(|root| find_compile(editor, &root));
+    let visited = editor
+        .find_plugin_state::<Visited>()
+        .and_then(|visited| visited.0);
+    [compiled, visited, latest(editor)]
+        .into_iter()
+        .flatten()
+        .find_map(|id| Session::buffer_name(editor, id))
 }
 
 pub fn has_output(editor: &Editor) -> bool {
