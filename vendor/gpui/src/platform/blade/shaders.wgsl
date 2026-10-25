@@ -914,6 +914,8 @@ struct Shadow {
     corner_radii: Corners,
     content_mask: Bounds,
     color: Hsla,
+    // remacs: as in the Metal shader, the shadow is not drawn under its element.
+    element_bounds: Bounds,
 }
 var<storage, read> b_shadows: array<Shadow>;
 
@@ -974,6 +976,7 @@ fn fs_shadow(input: ShadowVarying) -> @location(0) vec4<f32> {
         alpha +=  blur * gaussian(y, shadow.blur_radius) * step;
         y += step;
     }
+    alpha *= saturate(0.5 + quad_sdf(input.position.xy, shadow.element_bounds, shadow.corner_radii));
 
     return blend_color(input.color, alpha);
 }
