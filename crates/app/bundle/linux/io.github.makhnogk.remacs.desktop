@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Remacs
+GenericName=Text Editor
+Comment=An Emacs-inspired IDE
+Exec=remacs %F
+Icon=io.github.makhnogk.remacs
+Terminal=false
+Categories=Development;TextEditor;IDE;
+MimeType=text/plain;
+StartupWMClass=io.github.makhnogk.remacs
+StartupNotify=true

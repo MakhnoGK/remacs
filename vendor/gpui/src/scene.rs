@@ -1,5 +1,6 @@
 // todo("windows"): remove
-#![cfg_attr(windows, allow(dead_code))]
+// remacs: and wherever blade, which draws no blurs nor fades, renders.
+#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

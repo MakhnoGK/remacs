@@ -118,15 +118,19 @@ fn request(editor: &mut Editor, request: FrameRequest) -> CommandResult {
     Ok(())
 }
 
-/// `THIRD-PARTY-NOTICES` in the bundle's Resources, read-only; `cargo xtask bundle` puts
-/// it there.
+/// `THIRD-PARTY-NOTICES` in the bundle's Resources, on Linux next to the binary,
+/// read-only; `cargo xtask bundle` puts it there.
 fn view_notices(editor: &mut Editor) -> CommandResult {
     let binary = std::env::current_exe().map_err(|error| error.to_string())?;
-    let notices = binary
-        .ancestors()
-        .nth(2)
-        .ok_or("No app bundle")?
-        .join("Resources/THIRD-PARTY-NOTICES");
+    let notices = if cfg!(target_os = "linux") {
+        binary.with_file_name("THIRD-PARTY-NOTICES")
+    } else {
+        binary
+            .ancestors()
+            .nth(2)
+            .ok_or("No app bundle")?
+            .join("Resources/THIRD-PARTY-NOTICES")
+    };
     if !notices.is_file() {
         return Err(
             "No third-party notices: they come with the app, made by `cargo xtask bundle`".into(),

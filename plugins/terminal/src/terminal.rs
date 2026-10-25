@@ -23,7 +23,11 @@ const SHELL_DIRECTORIES: &[&str] = &["/opt/homebrew/bin", "/usr/local/bin", "/bi
 /// Characters of a title shown in a chip and a buffer name.
 const MAX_TITLE: usize = 28;
 /// Started in place of a shell that could not be.
-pub const FALLBACK_SHELL: &str = "/bin/zsh";
+pub const FALLBACK_SHELL: &str = if cfg!(target_os = "macos") {
+    "/bin/zsh"
+} else {
+    "/bin/sh"
+};
 
 /// Kept in a terminal's buffer.
 pub struct Terminal {

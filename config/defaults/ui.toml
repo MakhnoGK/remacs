@@ -5,7 +5,8 @@
 # a file <name>.toml of yours in ~/.config/remacs/themes. A theme file sets only what it
 # changes; the rest comes from `inherits = "<theme>"`, else from the built-in theme of its
 # `appearance` ("light" or "dark"). M-x select-theme (View > Theme…) writes this line.
-# "system" shows `light` or `dark` below as macOS is, and switches when macOS does.
+# "system" shows `light` or `dark` below as macOS is, and switches when macOS does; on
+# Linux, as the desktop's settings portal says.
 name = "modus-vivendi"
 
 # Under name = "system", the theme while macOS is light.
@@ -15,7 +16,8 @@ light = "modus-operandi"
 dark = "modus-vivendi"
 
 [font]
-# The font of code, everywhere monospace text is shown.
+# The font of code, everywhere monospace text is shown. On Linux, Monaco stands for the
+# desktop's monospace font (fc-match monospace).
 family = "Monaco"
 
 # Of the text in buffers: 6 to 72.
@@ -29,7 +31,8 @@ line-height = 1.7
 # the family lacks takes its nearest face.
 weight = "regular"
 
-# "thick" draws glyphs slightly bolder, "thin" as the font's outlines are.
+# "thick" draws glyphs slightly bolder, "thin" as the font's outlines are; macOS only,
+# Linux draws them thin.
 strokes = "thick"
 
 # Whether the font may join characters into one glyph, e.g. => into an arrow, if it has
@@ -38,7 +41,8 @@ ligatures = true
 
 [ui-font]
 # The font of the interface's own text: the mode line, menus, popups' prose, chips.
-# Code, terminals and tables keep the [font] family.
+# Code, terminals and tables keep the [font] family. On Linux, SF Pro Text stands for the
+# desktop's sans-serif font (fc-match sans-serif).
 family = "SF Pro Text"
 
 # Of the interface's text, 10 to 16; status, small and input text follow it, rows keep
@@ -66,6 +70,8 @@ max-size = 36
 wheel-step = 100
 
 [glass]
+# macOS only: on Linux the window is opaque and nothing is blurred.
+
 # Of the window's tint, the theme's background, over the desktop: 0.0 (the desktop as it
 # is) to 1.0 (opaque). Left out, the theme's own: 0.8 for modus-vivendi, 0.92 for
 # modus-operandi, whose light tint lets a dark desktop through as gray.
@@ -85,7 +91,8 @@ radius = 1
 [keyboard]
 # The Option keys that are Meta: "both", "left" or "right". The other one types what
 # the keyboard layout gives it, like @ or | on many European layouts, or a dead key's
-# accent; input methods and dead keys compose text at the cursor either way.
+# accent; input methods and dead keys compose text at the cursor either way. macOS only:
+# on Linux either Alt is Meta, and AltGr types.
 meta = "both"
 
 [mouse]

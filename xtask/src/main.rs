@@ -1,6 +1,7 @@
 //! `cargo xtask install` builds remacs, bundles it as `Remacs.app` and puts it in
 //! `~/Applications`, keeping the app it replaces; `cargo xtask rollback` swaps them back.
 //! The installed app is a snapshot: building the workspace afterwards does not touch it.
+//! On Linux, the bundle is a folder laid out as a prefix, installed under `~/.local`.
 
 use std::env;
 use std::fs;
@@ -11,13 +12,20 @@ use std::process::{Command, ExitCode, Stdio};
 const APP: &str = "Remacs.app";
 const PREVIOUS: &str = "Remacs.previous.app";
 const EXECUTABLE: &str = "remacs";
+/// Info.plist's bundle identifier; on Linux, the window's app id and the names of the
+/// menu entry and icon.
+const APP_ID: &str = "io.github.makhnogk.remacs";
+/// Linux's icons, `crates/app/bundle/linux/icons/<size>.png`, rendered from the macOS
+/// masters.
+const LINUX_ICON_SIZES: [u32; 7] = [16, 32, 48, 64, 128, 256, 512];
 /// In the bundle's Resources, where `view-third-party-notices` finds it.
 const NOTICES: &str = "THIRD-PARTY-NOTICES";
 const USAGE: &str =
     "usage: cargo xtask <bundle | install | rollback | changelog [version] | grammars <dir>>
-  bundle     build target/bundle/Remacs.app
-  install    bundle, then install it in ~/Applications and `remacs` in ~/.local/bin
-  rollback   swap the installed app with the one it replaced
+  bundle     build target/bundle/Remacs.app; on Linux, target/bundle/remacs-<version>-<cpu>-linux
+  install    bundle, then install it in ~/Applications and `remacs` in ~/.local/bin;
+             on Linux, all of it under ~/.local
+  rollback   swap the installed app with the one it replaced (macOS)
   changelog  write CHANGELOG.md from the history, what is untagged under `version`
   grammars   build grammars.toml's grammars to WebAssembly in `dir`, with their licenses";
 
@@ -95,6 +103,9 @@ fn bundle() -> Result<PathBuf> {
     let sources = root.join("crates/app/bundle");
     let out = root.join("target/bundle");
     let notices = notices(&cargo, &root, &sources, &out)?;
+    if cfg!(target_os = "linux") {
+        return bundle_linux(&root, &sources, &out, &notices, &version);
+    }
     let app = out.join(APP);
     remove(&app)?;
     let contents = app.join("Contents");
@@ -122,6 +133,48 @@ fn bundle() -> Result<PathBuf> {
         .args(["--force", "--sign", "-"])
         .arg(&app))?;
     Ok(app)
+}
+
+/// `remacs-<version>-<cpu>-linux`, laid out as a prefix: the binary and its notices in
+/// lib/remacs, the launcher in bin, the menu entry and icons in share; its `install.sh`
+/// copies them under one, `~/.local` by default (ADR 0089).
+fn bundle_linux(
+    root: &Path,
+    sources: &Path,
+    out: &Path,
+    notices: &Path,
+    version: &Version,
+) -> Result<PathBuf> {
+    let linux = sources.join("linux");
+    let desktop = format!("{APP_ID}.desktop");
+    let folder = out.join(format!(
+        "{EXECUTABLE}-{}-{}-linux",
+        version.version,
+        env::consts::ARCH
+    ));
+    remove(&folder)?;
+    let (bin, lib) = (folder.join("bin"), folder.join("lib").join(EXECUTABLE));
+    let applications = folder.join("share/applications");
+    for dir in [&bin, &lib, &applications] {
+        create(dir)?;
+    }
+    copy(
+        &root.join("target/release").join(EXECUTABLE),
+        &lib.join(EXECUTABLE),
+    )?;
+    copy(notices, &lib.join(NOTICES))?;
+    copy(&linux.join("launcher.sh"), &bin.join(EXECUTABLE))?;
+    copy(&linux.join("install.sh"), &folder.join("install.sh"))?;
+    copy(&linux.join(&desktop), &applications.join(&desktop))?;
+    for size in LINUX_ICON_SIZES {
+        let apps = folder.join(format!("share/icons/hicolor/{size}x{size}/apps"));
+        create(&apps)?;
+        copy(
+            &linux.join(format!("icons/{size}.png")),
+            &apps.join(format!("{APP_ID}.png")),
+        )?;
+    }
+    Ok(folder)
 }
 
 /// The licenses of every crate built in, the tree-sitter grammars among them, from their
@@ -183,6 +236,15 @@ fn icon(sources: &Path, out: &Path, icns: &Path) -> Result {
 
 fn install() -> Result {
     let built = bundle()?;
+    if cfg!(target_os = "linux") {
+        run(Command::new("sh").arg(built.join("install.sh")))?;
+        let version = Version::read(&root())?;
+        println!(
+            "installed remacs {} ({}) in ~/.local/lib/{EXECUTABLE}\n`{EXECUTABLE}` starts it: ~/.local/bin/{EXECUTABLE}",
+            version.version, version.commit
+        );
+        return Ok(());
+    }
     let home = home()?;
     let applications = home.join("Applications");
     create(&applications)?;
@@ -231,6 +293,9 @@ fn launcher_script(app: &Path) -> String {
 }
 
 fn rollback() -> Result {
+    if cfg!(target_os = "linux") {
+        return Err("on Linux, install keeps no previous remacs to go back to".to_owned());
+    }
     let applications = home()?.join("Applications");
     let (installed, previous) = (applications.join(APP), applications.join(PREVIOUS));
     if !previous.exists() {
@@ -473,6 +538,13 @@ fn write(path: &Path, contents: &str) -> Result {
 
 fn create(path: &Path) -> Result {
     fs::create_dir_all(path).map_err(|error| format!("{}: {error}", path.display()))
+}
+
+/// Keeps the file's permissions, so scripts stay executable.
+fn copy(from: &Path, to: &Path) -> Result {
+    fs::copy(from, to)
+        .map(drop)
+        .map_err(|error| format!("{} → {}: {error}", from.display(), to.display()))
 }
 
 fn rename(from: &Path, to: &Path) -> Result {

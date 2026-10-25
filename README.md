@@ -46,6 +46,21 @@ so have one of the two, not both.
 There is no .dmg: the app is signed ad hoc, not notarized, so macOS would block one
 downloaded from a browser; Homebrew's install is not blocked.
 
+### Linux
+
+x86_64 with glibc 2.35 or later and a Vulkan driver; checked on Arch with KDE Plasma on
+Wayland. Download `remacs-<version>-x86_64-linux.tar.gz` from the
+[releases](https://github.com/MakhnoGK/remacs/releases), then:
+
+```sh
+tar -xzf remacs-*-x86_64-linux.tar.gz
+remacs-*-x86_64-linux/install.sh     # or install.sh <prefix>; ~/.local by default
+```
+
+It puts `remacs` in `~/.local/bin` and Remacs in the applications menu. From source,
+`cargo fetch --locked && cargo xtask install` does the same (needs `cargo install
+cargo-about --locked --features cli` and the Wayland, X11, Vulkan and fontconfig headers).
+
 ## First run
 
 ```sh

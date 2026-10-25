@@ -117,7 +117,12 @@ fn a_terminal_in_the_panel_takes_the_keys_until_they_go_back_to_the_text() {
     assert_eq!(window_text(&editor), "", "nothing typed reached the text");
     // C-c reaches the shell, not remacs's prefix.
     type_text(&mut editor, "sleep 30");
+    wait_for_text(&mut editor, "sleep 30");
     press(&mut editor, "C-c");
+    // dash drops a line typed before it is back at its prompt along with the interrupted one.
+    wait_for(&mut editor, "the prompt after C-c", |screen| {
+        text(screen).trim_end().ends_with(['$', '#'])
+    });
     type_text(&mut editor, "echo after\n");
     wait_for_text(&mut editor, "\nafter");
 
@@ -325,16 +330,17 @@ fn command_click_visits_a_file_line_in_the_output() {
 
 #[test]
 fn programs_that_ask_get_the_mouse_and_the_keys_they_tell_apart() {
-    let script = r"stty raw -echo; printf '\033[?1000h\033[?1006h\033[>1u\033[?uready'; dd bs=1 count=22 2>/dev/null | od -An -c; sleep 5";
+    let script = r"stty raw -echo; printf '\033[?1000h\033[?1006h\033[>1u\033[?uready'; dd bs=1 count=22 2>/dev/null | od -An -c | tr -s ' \n' ' '; sleep 5";
     let (mut editor, name) = running(script);
     wait_for_text(&mut editor, "ready");
     let wheel = ScreenMouse::Wheel { rows: 1 };
     editor.screen_mouse(&name, pointer(2, 4, "", wheel));
     press(&mut editor, "S-RET");
-    // The answer to the query, the wheel at row 3 column 5, then ⇧↵.
-    wait_for_text(&mut editor, "?   1   u");
-    wait_for_text(&mut editor, "<   6   5   ;   5   ;   3   M");
-    wait_for_text(&mut editor, "1   3   ;   2   u");
+    // The answer to the query, the wheel at row 3 column 5, then ⇧↵; on one line, as raw
+    // mode returns no carriage at od's line ends.
+    wait_for_text(&mut editor, "? 1 u");
+    wait_for_text(&mut editor, "< 6 5 ; 5 ; 3 M");
+    wait_for_text(&mut editor, "1 3 ; 2 u");
 }
 
 /// `shell` started with its hooks in a home of its own holding `files`; checks that it

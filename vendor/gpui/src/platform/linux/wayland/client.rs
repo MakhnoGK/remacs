@@ -525,11 +525,14 @@ impl WaylandClient {
                 move |event, _, client| match event {
                     XDPEvent::WindowAppearance(appearance) => {
                         if let Some(client) = client.0.upgrade() {
-                            let mut client = client.borrow_mut();
-
-                            client.common.appearance = appearance;
-
-                            for window in client.windows.values_mut() {
+                            // remacs: released before the windows' callbacks, which may ask
+                            // the platform for something and so borrow the client again.
+                            let windows: Vec<_> = {
+                                let mut client = client.borrow_mut();
+                                client.common.appearance = appearance;
+                                client.windows.values().cloned().collect()
+                            };
+                            for mut window in windows {
                                 window.set_appearance(appearance);
                             }
                         }

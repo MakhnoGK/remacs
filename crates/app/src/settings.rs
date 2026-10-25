@@ -74,6 +74,26 @@ pub struct ReadSettings {
     pub errors: Vec<SettingsError>,
 }
 
+/// The desktop's own monospace or sans-serif family in place of the macOS one the defaults
+/// name, which other systems lack.
+#[cfg(not(target_os = "macos"))]
+fn desktop_font(family: &str) -> Option<String> {
+    let generic = if *family == *CodeFont::default().family {
+        "monospace"
+    } else if family == font::DEFAULT_UI {
+        "sans-serif"
+    } else {
+        return None;
+    };
+    let output = std::process::Command::new("fc-match")
+        .args(["--format=%{family[0]}", generic])
+        .output()
+        .ok()?;
+    String::from_utf8(output.stdout)
+        .ok()
+        .filter(|family| !family.is_empty())
+}
+
 /// Reads the settings and applies the process-wide part of `ui`, the theme as for macOS in
 /// `system` appearance; the view and the plugins apply the rest.
 pub fn read_settings(system: Appearance) -> ReadSettings {
@@ -90,7 +110,20 @@ pub fn read_settings(system: Appearance) -> ReadSettings {
         });
     let theme = read_theme(ui.theme.shown(system), home.as_deref(), &mut errors);
     remacs_theme::install(&theme);
+    // Only the Metal renderer blurs (ADR 0035); unblurred, the desktop would show through.
+    if cfg!(not(target_os = "macos")) {
+        ui.glass = GlassSettings {
+            opacity: Some(1.0),
+            blur: 0,
+        };
+    }
     glass::set_window_opacity(*ui.glass.opacity.get_or_insert(theme.opacity));
+    #[cfg(not(target_os = "macos"))]
+    for family in [&mut ui.font.family, &mut ui.ui_font.family] {
+        if let Some(desktop) = desktop_font(family) {
+            *family = desktop;
+        }
+    }
     let code_font = ui.font.code_font();
     set_family_weights(vec![
         (

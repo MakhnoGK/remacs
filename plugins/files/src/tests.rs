@@ -64,10 +64,14 @@ fn open_find_file(editor: &mut Editor) -> Receiver<()> {
         let _ = sender.send(());
     }));
     press(editor, "C-x C-f");
-    notifications
-        .recv_timeout(INDEX_TIMEOUT)
-        .expect("the index finishes its first scan");
-    editor.refresh();
+    // The notifier is shared: auto-revert's file watcher may wake it before the index.
+    let deadline = Instant::now() + INDEX_TIMEOUT;
+    while candidate_values(editor).is_empty() {
+        notifications
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .expect("the index finishes its first scan");
+        editor.refresh();
+    }
     notifications
 }
 

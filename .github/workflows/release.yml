@@ -2,7 +2,7 @@ name: Release
 
 # A merge from dev into main is a release (ADR 0056): the version is CHANGELOG.md's newest
 # section. Tags the release commit, publishes the source archive with its build
-# provenance, and opens the formula's bump in the Homebrew tap.
+# provenance, opens the formula's bump in the Homebrew tap, and adds the Linux build.
 on:
   push:
     branches: [main]
@@ -115,3 +115,52 @@ jobs:
           git push origin "$branch"
           gh pr create --base main --head "$branch" --title "remacs $VERSION" \
             --body "Release $URL"
+
+  # The tag's build for Linux (ADR 0089), on the oldest runner's glibc so newer
+  # distributions run it too, with its provenance, added to the release.
+  linux:
+    needs: release
+    if: needs.release.outputs.url != ''
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: v${{ needs.release.outputs.version }}
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: 1.98.0
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-x11-dev libwayland-dev libvulkan-dev \
+            libfontconfig-dev libfreetype-dev libx11-xcb-dev libxcb1-dev libzstd-dev
+      - run: cargo install cargo-about@0.9.2 --locked --features cli
+      # The notices read every crate in the lock file offline, other platforms' too.
+      - run: cargo fetch --locked
+      - id: bundle
+        env:
+          REMACS_VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          folder=$(REMACS_COMMIT=$(git rev-parse --short HEAD) cargo xtask bundle | tail -1)
+          archive="$(basename "$folder").tar.gz"
+          tar -czf "$archive" -C "$(dirname "$folder")" "$(basename "$folder")"
+          echo "path=$archive" >> "$GITHUB_OUTPUT"
+      - id: attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ steps.bundle.outputs.path }}
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.release.outputs.version }}
+          ARCHIVE: ${{ steps.bundle.outputs.path }}
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          cp "$BUNDLE" "$ARCHIVE.sigstore.json"
+          gh release upload "v$VERSION" "$ARCHIVE" "$ARCHIVE.sigstore.json"

@@ -20,7 +20,7 @@ use crate::entry::{
     Entry, LocalTime, PARENT, SortKey, date_label, full_date_label, items_label, mode_label,
     size_label, sort,
 };
-use crate::file_ops::replace;
+use crate::file_ops::{rename_exclusive, replace};
 use crate::listing::{
     DIRED_MODE, Listing, entry_at_point, new_listing, select_entry, set_entries,
 };
@@ -683,6 +683,20 @@ fn replacing_a_file_keeps_it_until_its_replacement_is_complete() {
     replace(&source, &target, false, keep).unwrap();
     assert_eq!(fs::read_to_string(&target).unwrap(), "new");
     assert_eq!(names(tree.0.join("sub")), 2);
+}
+
+#[test]
+fn an_exclusive_rename_leaves_a_file_already_there() {
+    let tree = Tree::new("rename-exclusive");
+    let (lib, backup) = (tree.0.join("lib.rs"), tree.0.join("lib.rs~"));
+    let error = rename_exclusive(&lib, &backup).unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+    assert_eq!(fs::read_to_string(&backup).unwrap(), "");
+    assert!(lib.exists());
+
+    let moved = tree.0.join("main.rs");
+    rename_exclusive(&lib, &moved).unwrap();
+    assert_eq!(fs::read_to_string(&moved).unwrap(), "fn main() {}\n");
 }
 
 #[test]
