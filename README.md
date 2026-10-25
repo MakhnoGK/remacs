@@ -3,33 +3,64 @@
 [![CI](https://github.com/MakhnoGK/remacs/actions/workflows/ci.yml/badge.svg)](https://github.com/MakhnoGK/remacs/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/tag/MakhnoGK/remacs?filter=v*&sort=semver&label=release)](https://github.com/MakhnoGK/remacs/releases)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/MakhnoGK/remacs/badge)](https://scorecard.dev/viewer/?uri=github.com/MakhnoGK/remacs)
-[![Platform](https://img.shields.io/badge/macOS_14+-Apple_Silicon-lightgrey?logo=apple)](#install)
+[![macOS](https://img.shields.io/badge/macOS_14+-Apple_Silicon-lightgrey?logo=apple)](#install)
+[![Linux](https://img.shields.io/badge/Linux-x86__64-lightgrey?logo=linux&logoColor=white)](#linux)
+[![Homebrew](https://img.shields.io/badge/brew-makhnogk%2Fremacs-orange?logo=homebrew)](https://github.com/MakhnoGK/homebrew-remacs)
 [![License](https://img.shields.io/badge/license-Apache--2.0_+_Commons_Clause-blue)](LICENSE)
 
-An Emacs-inspired IDE for macOS, written from scratch in Rust on [gpui](https://www.gpui.rs).
+An Emacs-inspired IDE for macOS and Linux, written from scratch in Rust on [gpui](https://www.gpui.rs).
 Emacs keys, language servers, tree-sitter, Git, a debugger, terminals; everything is a
 plugin. Alpha: expect rough edges, and report them in the
 [issues](https://github.com/MakhnoGK/remacs/issues).
 
 ## Install
 
-Needs macOS 14 or later, stable Rust (CI builds with 1.98), and Xcode with its Metal toolchain (gpui
-compiles its shaders at build time):
+On macOS 15 or later, from Homebrew:
+
+```sh
+brew install makhnogk/remacs/remacs
+```
+
+`brew upgrade remacs` updates it to the next release; `brew info remacs` says how to add
+the app to Launchpad. `brew install --HEAD makhnogk/remacs/remacs` builds `dev` instead
+(needs Xcode).
+
+### From source
+
+On macOS 14, or to change remacs. Needs stable Rust (CI builds with 1.98) and Xcode with
+its Metal toolchain (gpui compiles its shaders at build time):
 
 ```sh
 xcodebuild -downloadComponent MetalToolchain   # Xcode 26 and later ship it separately
-git clone https://github.com/MakhnoGK/remacs && cd remacs
+git clone --branch main https://github.com/MakhnoGK/remacs && cd remacs
 cargo xtask install
 ```
 
-This builds `Remacs.app` into `~/Applications` and a `remacs` launcher into
-`~/.local/bin` (put it on your `PATH`). Run `cargo xtask install` again to update;
+`main` is the latest release; `dev`, the default branch, has what comes next. This
+builds `Remacs.app` into `~/Applications` and a `remacs` launcher into `~/.local/bin`
+(put it on your `PATH`). `git pull` and `cargo xtask install` again update it;
 `cargo xtask rollback` brings back the app it replaced. Without the Metal toolchain,
 `cargo build --release -p remacs-app --features runtime-shaders` builds a binary that compiles
-the shaders at startup instead.
+the shaders at startup instead. Its launcher comes before Homebrew's on a usual `PATH`,
+so have one of the two, not both.
 
-There are no prebuilt downloads yet: the app is signed ad hoc, which only the Mac that
-built it trusts.
+There is no .dmg: the app is signed ad hoc, not notarized, so macOS would block one
+downloaded from a browser; Homebrew's install is not blocked.
+
+### Linux
+
+x86_64 with glibc 2.35 or later and a Vulkan driver; checked on Arch with KDE Plasma on
+Wayland. Download `remacs-<version>-x86_64-linux.tar.gz` from the
+[releases](https://github.com/MakhnoGK/remacs/releases), then:
+
+```sh
+tar -xzf remacs-*-x86_64-linux.tar.gz
+remacs-*-x86_64-linux/install.sh     # or install.sh <prefix>; ~/.local by default
+```
+
+It puts `remacs` in `~/.local/bin` and Remacs in the applications menu. From source,
+`cargo fetch --locked && cargo xtask install` does the same (needs `cargo install
+cargo-about --locked --features cli` and the Wayland, X11, Vulkan and fontconfig headers).
 
 ## First run
 
@@ -37,7 +68,7 @@ built it trusts.
 remacs ~/src/my-project      # a folder opens its listing; a file opens the file
 ```
 
-or open the app from Finder, or drop files onto its window. A project's open files come
+or open the app from Finder or the applications menu, or drop files onto its window. A project's open files come
 back when you open it again, or on a start without arguments.
 
 - Language servers: when a project needs one that is not installed, remacs offers to
@@ -50,7 +81,8 @@ back when you open it again, or on a start without arguments.
 ## Keys
 
 Emacs keys, with the ⌘ ones of Emacs on macOS. Option is Meta (`M-`; `ui.toml`
-`[keyboard] meta` keeps one Option key for typing), Command is `s-`.
+`[keyboard] meta` keeps one Option key for typing), Command is `s-`. On Linux, Alt is Meta,
+Super is `s-`, and `C-S-c` / `C-S-v` copy and paste, as in a terminal.
 
 | Keys | Does |
 | --- | --- |
@@ -71,8 +103,9 @@ Emacs keys, with the ⌘ ones of Emacs on macOS. Option is Meta (`M-`; `ui.toml`
 | `C-h k` / `C-h x` / `C-h b` | describe a key / a command, list the view's keys |
 | `C-x C-c` | quit |
 
-The menus show the main commands with their keys. `keys.toml` changes any binding (see
-Config); `C-c` and a letter is left for your own.
+The menus show the main commands with their keys; Linux has no menu bar yet, so there
+`M-x` runs them. `keys.toml` changes any binding (see Config); `C-c` and a letter is left
+for your own.
 
 ## Config
 

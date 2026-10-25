@@ -16,6 +16,10 @@ const MAX_MATCH: usize = 4 * 1024;
 /// What to find: a literal string, or a regular expression; either with smart case like
 /// the prompts' filters: case is ignored unless it has an uppercase letter.
 #[derive(Clone)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "one per search; x86_64's SIMD finder is the large one, boxing it costs a pointer chase per line"
+)]
 pub enum Query {
     Literal {
         finder: Finder<'static>,

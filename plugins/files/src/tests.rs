@@ -64,10 +64,14 @@ fn open_find_file(editor: &mut Editor) -> Receiver<()> {
         let _ = sender.send(());
     }));
     press(editor, "C-x C-f");
-    notifications
-        .recv_timeout(INDEX_TIMEOUT)
-        .expect("the index finishes its first scan");
-    editor.refresh();
+    // The notifier is shared: auto-revert's file watcher may wake it before the index.
+    let deadline = Instant::now() + INDEX_TIMEOUT;
+    while candidate_values(editor).is_empty() {
+        notifications
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .expect("the index finishes its first scan");
+        editor.refresh();
+    }
     notifications
 }
 
@@ -468,6 +472,10 @@ fn an_unmodified_buffer_follows_its_file_and_only_its_changes_wake_the_editor() 
         let _ = sender.send(());
     }));
     press(&mut editor, "C-n C-f C-f");
+    // FSEvents may still deliver the write that made the file, from before the watch began.
+    std::thread::sleep(Duration::from_millis(300));
+    editor.refresh();
+    wakeups.store(0, Ordering::SeqCst);
 
     for file in 0..20 {
         fs::write(project.path(&format!("other_{file}.txt")), "x").unwrap();

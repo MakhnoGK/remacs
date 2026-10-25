@@ -2,7 +2,9 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui::{Bounds, Div, IntoElement, Pixels, Styled, canvas, div, prelude::*};
+#[cfg(target_os = "macos")]
 use objc2::runtime::AnyObject;
+#[cfg(target_os = "macos")]
 use objc2::{class, msg_send};
 
 /// Text an input method is composing, e.g. a dead key's accent or kana before they are
@@ -41,6 +43,7 @@ impl Composition {
 }
 
 /// Has the input method drop what it is composing, e.g. once the view committed it itself.
+#[cfg(target_os = "macos")]
 pub fn discard_marked_text() {
     // SAFETY: called on the main thread, as every gpui callback is; a nil context, with no
     // text input in focus, is checked before it is sent the message.
@@ -51,3 +54,8 @@ pub fn discard_marked_text() {
         }
     }
 }
+
+// shortcut: gpui's Linux input methods cannot be told to drop their text, so a composition
+// committed by the view may be typed again; find a way if IME users hit it.
+#[cfg(not(target_os = "macos"))]
+pub fn discard_marked_text() {}

@@ -185,6 +185,7 @@ impl Tools {
     /// is on `PATH`.
     pub fn can_install(&self, tool: &Tool) -> bool {
         self.dir.is_some()
+            && tool.builds_here()
             && tool
                 .needs
                 .iter()
@@ -198,9 +199,10 @@ impl Tools {
     /// What the tool and its installer need, for saying why it cannot be installed.
     pub fn needs(&self, tool: &Tool) -> Vec<String> {
         let installer = self.installer(tool).map(|installer| &installer.needs);
-        tool.needs
-            .iter()
-            .map(|program| (*program).to_owned())
+        let itself = (!tool.builds_here()).then(|| tool.name.to_owned());
+        itself
+            .into_iter()
+            .chain(tool.needs.iter().map(|program| (*program).to_owned()))
             .chain(installer.into_iter().flatten().cloned())
             .collect()
     }
@@ -273,6 +275,14 @@ pub fn start_install(editor: &mut Editor, name: &str, version: Option<String>, f
     let Some(tool) = tools.entry(name).map(|entry| entry.tool) else {
         return;
     };
+    if !tool.builds_here() {
+        fail(
+            editor,
+            name,
+            format!("no build for this system; install {name} on PATH"),
+        );
+        return;
+    }
     if tools.sibling_installing(tool) {
         return;
     }

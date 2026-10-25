@@ -3,6 +3,7 @@ use std::io;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -19,8 +20,10 @@ use crate::entry::{
     Entry, LocalTime, PARENT, SortKey, date_label, full_date_label, items_label, mode_label,
     size_label, sort,
 };
-use crate::file_ops::replace;
-use crate::listing::{DIRED_MODE, Listing};
+use crate::file_ops::{rename_exclusive, replace};
+use crate::listing::{
+    DIRED_MODE, Listing, entry_at_point, new_listing, select_entry, set_entries,
+};
 use crate::{DiredPlugin, deliver_rename_edits, take_rename_requests};
 
 const READ_TIMEOUT: Duration = Duration::from_secs(10);
@@ -78,6 +81,7 @@ fn line_at_point(editor: &Editor) -> String {
 }
 
 /// Refreshes until the window's listing satisfies `done`, as background reads arrive.
+#[track_caller]
 fn wait_until(editor: &mut Editor, done: impl Fn(&Editor) -> bool) {
     let start = Instant::now();
     while !done(editor) {
@@ -87,6 +91,7 @@ fn wait_until(editor: &mut Editor, done: impl Fn(&Editor) -> bool) {
     }
 }
 
+#[track_caller]
 fn wait_for_listing(editor: &mut Editor) {
     wait_until(editor, |editor| {
         editor
@@ -457,6 +462,22 @@ fn a_new_folder_is_listed_with_point_on_it() {
 }
 
 #[test]
+fn a_read_from_before_the_entry_was_made_keeps_its_selection_for_the_next() {
+    let tree = Tree::new("stale-read");
+    let mut buffer = new_listing(tree.0.clone(), None, Arc::new(|| {}));
+    let before = || vec![entry("a", false, 0, 0), entry("b", false, 0, 0)];
+    set_entries(&mut buffer, before());
+    select_entry(&mut buffer, "new".into());
+
+    set_entries(&mut buffer, before());
+    let mut after = before();
+    after.push(entry("new", true, 0, 0));
+    set_entries(&mut buffer, after);
+
+    assert_eq!(entry_at_point(&buffer).unwrap().name, "new");
+}
+
+#[test]
 fn a_new_file_is_named_in_the_prompt_and_listed_with_point_on_it() {
     let tree = Tree::new("new-file");
     let mut editor = editor();
@@ -662,6 +683,20 @@ fn replacing_a_file_keeps_it_until_its_replacement_is_complete() {
     replace(&source, &target, false, keep).unwrap();
     assert_eq!(fs::read_to_string(&target).unwrap(), "new");
     assert_eq!(names(tree.0.join("sub")), 2);
+}
+
+#[test]
+fn an_exclusive_rename_leaves_a_file_already_there() {
+    let tree = Tree::new("rename-exclusive");
+    let (lib, backup) = (tree.0.join("lib.rs"), tree.0.join("lib.rs~"));
+    let error = rename_exclusive(&lib, &backup).unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+    assert_eq!(fs::read_to_string(&backup).unwrap(), "");
+    assert!(lib.exists());
+
+    let moved = tree.0.join("main.rs");
+    rename_exclusive(&lib, &moved).unwrap();
+    assert_eq!(fs::read_to_string(&moved).unwrap(), "fn main() {}\n");
 }
 
 #[test]

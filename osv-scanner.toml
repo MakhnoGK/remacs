@@ -1,0 +1,50 @@
+# Advisories OSV reports for Cargo.lock (OpenSSF Scorecard's Vulnerabilities check) that
+# do not affect remacs. All come in through gpui; `cargo audit` in CI still lists them.
+
+# Unmaintained crates: notices, not vulnerabilities. They go when gpui drops them.
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0052"
+reason = "async-std is discontinued; unmaintained, no vulnerability; pulled in by gpui"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0384"
+reason = "instant is unmaintained, no vulnerability; via gpui_util's futures-lite 1"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0436"
+reason = "paste is unmaintained, no vulnerability; a proc macro gpui builds with"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0173"
+reason = "proc-macro-error2 is unmaintained, no vulnerability; a build-time proc macro dependency of gpui"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0134"
+reason = "rustls-pemfile is unmaintained, no vulnerability; gpui's HTTP client, which remacs does not call"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0206"
+reason = "rustybuzz is unmaintained, no vulnerability; gpui's text shaping"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0192"
+reason = "ttf-parser is unmaintained, no vulnerability; gpui's font parsing"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0371"
+reason = "zbus_names is unmaintained, no vulnerability; D-Bus for gpui's Linux keyring (oo7), not built on macOS"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0370"
+reason = "zvariant is unmaintained, no vulnerability; D-Bus for gpui's Linux keyring (oo7), not built on macOS"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0372"
+reason = "zvariant_derive is unmaintained, no vulnerability; D-Bus for gpui's Linux keyring (oo7), not built on macOS"
+
+# A vulnerability in code remacs never reaches.
+
+[[IgnoredVulns]]
+id = "GHSA-38c5-483c-4qqp"
+reason = "grid 0.18 Grid::expand_rows overflow (CVE-2026-42199); taffy 0.9, its only user here, never calls expand_rows (it rebuilds the grid in CellOccupancyMatrix::expand_to_fit_range). Goes with the taffy upgrade, #116"

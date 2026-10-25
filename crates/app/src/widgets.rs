@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use gpui::{
     BoxShadow, Div, Font, FontFeatures, FontWeight, HighlightStyle, Hsla, IntoElement,
-    ParentElement, Rgba, Styled, StyledText, Svg, TextRun, canvas, div, linear_color_stop,
+    ParentElement, Rgba, Styled, StyledText, Svg, TextRun, canvas, div, fill, linear_color_stop,
     linear_gradient, point, prelude::FluentBuilder, px, rgb, rgba, svg, transparent_black,
 };
 use remacs_core::{FileState, Icon, LineCounts, ListItem, Mark, Tone, quoted_parts};
@@ -120,9 +120,22 @@ pub fn edge_fade(edge: Edge, size: f32, under: Hsla) -> impl IntoElement {
         linear_color_stop(hsla(0x000000), 0.0),
         linear_color_stop(rgba(0x00000000), 1.0),
     );
+    // Only Metal mixes (ADR 0038); elsewhere surfaces are opaque, so a gradient over the
+    // content looks the same.
+    let over_content = linear_gradient(
+        angle,
+        linear_color_stop(under, 0.0),
+        linear_color_stop(under.opacity(0.0), 1.0),
+    );
     let fade = canvas(
         |_, _, _| {},
-        move |bounds, _, window, _| window.paint_fade(bounds, amount, under),
+        move |bounds, _, window, _| {
+            if cfg!(target_os = "macos") {
+                window.paint_fade(bounds, amount, under);
+            } else {
+                window.paint_quad(fill(bounds, over_content));
+            }
+        },
     )
     .absolute();
     match edge {
@@ -572,5 +585,24 @@ pub fn kbd(key: &str, selected: bool) -> Div {
         .font_family(font::mono())
         .text_size(px(font::small_size()))
         .text_color(rgb(foreground))
-        .child(key.to_owned())
+        .child(key_label(key))
+}
+
+/// The key as the system names it: macOS's symbols, ⌘ being Super, spelled out elsewhere,
+/// and ↩, which desktop fonts draw as an emoji, as ↵.
+fn key_label(key: &str) -> String {
+    if cfg!(target_os = "macos") {
+        return key.to_owned();
+    }
+    [
+        ("⌘", "Super+"),
+        ("⌃", "Ctrl+"),
+        ("⌥", "Alt+"),
+        ("⇧", "Shift+"),
+        ("↩", "↵"),
+    ]
+    .iter()
+    .fold(key.to_owned(), |label, (symbol, name)| {
+        label.replace(symbol, name)
+    })
 }

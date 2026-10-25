@@ -194,6 +194,8 @@ fn main() -> ExitCode {
             }),
             // Blurred by the radius in the settings, not by the system's fixed material.
             window_background: ui.glass.window_background(),
+            // Linux desktops match the window to its menu entry and icon by it.
+            app_id: Some("io.github.makhnogk.remacs".into()),
             ..Default::default()
         };
         let window = cx

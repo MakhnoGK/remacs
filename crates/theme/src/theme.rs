@@ -96,9 +96,29 @@ impl Theme {
         self.colors.put_in_place();
         color::put_ansi_in_place(&self.ansi);
         self.styles.put_in_place();
-        self.glass.put_in_place();
+        self.shown_glass().put_in_place();
         glass::put_inks_in_place(self.ink, self.shadow);
         LIGHT_APPEARANCE.store(self.appearance == Appearance::Light, Ordering::Relaxed);
+    }
+
+    /// Only Metal blurs (ADR 0035): elsewhere panes, popups and modals are their tint over
+    /// the background, opaque, so that what is under them does not show through.
+    fn shown_glass(&self) -> Glass {
+        let mut glass = self.glass;
+        if cfg!(not(target_os = "macos")) {
+            let Glass {
+                surface,
+                note,
+                modal,
+                pill,
+                pane,
+                ..
+            } = &mut glass;
+            for tint in [surface, note, modal, pill, pane] {
+                *tint = tint.over(self.colors.bg_main);
+            }
+        }
+        glass
     }
 }
 
@@ -245,6 +265,14 @@ mod tests {
             fs::write(dir.join(name), text).unwrap();
         }
         dir
+    }
+
+    #[test]
+    fn a_tint_over_the_background_is_one_opaque_color() {
+        use crate::Rgba;
+        assert_eq!(Rgba(0xffffff80).over(Rgb(0x000000)), Rgba(0x808080ff));
+        assert_eq!(Rgba(0x123456ff).over(Rgb(0xffffff)), Rgba(0x123456ff));
+        assert_eq!(Rgba(0x12345600).over(Rgb(0xabcdef)), Rgba(0xabcdefff));
     }
 
     #[test]

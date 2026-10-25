@@ -149,7 +149,11 @@ pub fn set_entries(buffer: &mut Buffer, mut entries: Vec<Entry>) {
         .marks
         .retain(|name, _| names.contains(name.as_str()));
     listing.entries = entries;
-    let target = listing.select.take().or(current);
+    // Kept until a listing has it: a read from before it was made may arrive first.
+    let selected = listing
+        .select
+        .take_if(|name| listing.entries.iter().any(|entry| entry.name == *name));
+    let target = selected.or(current);
     let first_load = !std::mem::replace(&mut listing.loaded, true);
     redisplay(buffer, target, first_load);
 }

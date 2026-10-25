@@ -1,5 +1,7 @@
 //! A test binary of its own, so that no other test's heap is counted. Tree-sitter's trees
 //! are allocated by its C code, which only malloc's own statistics see, not dhat.
+//! macOS's malloc zones are what it reads.
+#![cfg(target_os = "macos")]
 
 use std::thread;
 use std::time::Duration;

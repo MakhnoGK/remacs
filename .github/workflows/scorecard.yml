@@ -1,10 +1,10 @@
 name: Scorecard
 
 # OpenSSF Scorecard: rates the repository's security practices and publishes the score
-# the README's badge shows. Publishing needs a public repository.
+# the README's badge shows. Publishing needs a public repository and the default branch.
 on:
   push:
-    branches: [main]
+    branches: [dev]
   schedule:
     - cron: "30 4 * * 1"
   branch_protection_rule:

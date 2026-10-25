@@ -181,6 +181,8 @@ struct WindowState {
     showing_rows: bool,
     /// The window buffer was last drawn as a screen.
     showing_screen: bool,
+    /// Its title bar was last drawn with nothing in it.
+    bare_title_bar: bool,
 }
 
 /// What comes and goes over the editor, each kept to be drawn as it goes.
@@ -284,9 +286,13 @@ impl EditorView {
         })
         .detach();
         // Another app may have changed the clipboard while this window was in the background.
-        let activation = cx.observe_window_activation(window, |view, window, cx| {
+        let activation = cx.observe_window_activation(window, |_, window, cx| {
             if window.is_window_active() {
-                view.receive_clipboard(cx);
+                // KWin offers the clipboard only after the window has the keyboard.
+                cx.spawn(async move |view, cx| {
+                    view.update(cx, |view, cx| view.receive_clipboard(cx))
+                })
+                .detach();
             }
         });
         // Seen only while following the system, when macOS is left to draw as it is.
@@ -560,11 +566,16 @@ impl Render for EditorView {
             // A window under another is drawn as one with a title bar, its top hidden
             // under the strip naming it; one over another as one with the bottom row
             // under it, hidden past its bottom.
-            let title_height = if at_top {
-                px(TITLE_BAR_HEIGHT)
-            } else {
-                px(header_height)
-            };
+            // Elsewhere than on macOS, whose buttons it holds, a title bar with nothing in
+            // it is left out; that shows once the window is drawn, so the last drawing tells.
+            let title_height =
+                if at_top && cfg!(not(target_os = "macos")) && !split && state.bare_title_bar {
+                    px(0.0)
+                } else if at_top {
+                    px(TITLE_BAR_HEIGHT)
+                } else {
+                    px(header_height)
+                };
             let hidden_top = px(TITLE_BAR_HEIGHT) - title_height;
             let clip_bottom = if at_bottom {
                 frame_size.height
@@ -584,6 +595,11 @@ impl Render for EditorView {
             );
             state.reserved = if at_bottom { reserved } else { px(0.0) };
             let parts = self.render_window(&screen_owners, window, cx);
+            let bare_title_bar = parts.toolbar.is_none() && !parts.tabbed;
+            if self.window_state.bare_title_bar != bare_title_bar {
+                self.window_state.bare_title_bar = bare_title_bar;
+                cx.notify();
+            }
             let state = &self.window_state;
             let (clip, frame) = (state.clip, state.frame);
             let header = self

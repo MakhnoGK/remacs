@@ -80,6 +80,12 @@ fn press(editor: &mut Editor, keys: &str) {
     }
 }
 
+/// A cursor on each of the first three lines; by name, as only macOS binds a key to it.
+fn cursors_on_three_lines(editor: &mut Editor) {
+    press(editor, "C-SPC C-n C-n");
+    editor.run_command(crate::cursors::EDIT_LINES);
+}
+
 fn type_text(editor: &mut Editor, text: &str) {
     for character in text.chars() {
         editor.handle_key(Key::parse(&character.to_string()).unwrap());
@@ -591,6 +597,14 @@ fn a_closer_is_typed_when_the_line_needs_one() {
 }
 
 #[test]
+fn a_closer_typed_over_the_region_replaces_it() {
+    let mut editor = code_editor_with("foo(bar)");
+    press(&mut editor, "C-f C-f C-f C-f C-SPC M-f");
+    type_text(&mut editor, ")");
+    assert_eq!(contents(&editor), "foo())");
+}
+
+#[test]
 fn delete_takes_an_empty_pair_whole() {
     let mut editor = code_editor_with("");
     type_text(&mut editor, "{");
@@ -856,6 +870,19 @@ fn region_is_killed_and_yanked_back() {
 }
 
 #[test]
+fn typing_or_yanking_replaces_the_active_region() {
+    let mut editor = editor_with("hello brave world");
+    press(&mut editor, "M-f C-SPC M-f");
+    type_text(&mut editor, "x");
+    assert_eq!(contents(&editor), "hellox world");
+    editor.kill_ring.push("big".into());
+    press(&mut editor, "C-SPC M-f C-y");
+    assert_eq!(contents(&editor), "helloxbig");
+    press(&mut editor, "C-/");
+    assert_eq!(contents(&editor), "hellox world");
+}
+
+#[test]
 fn consecutive_kills_yank_as_one() {
     let mut editor = editor_with("one\ntwo\nthree");
     press(&mut editor, "C-k C-k");
@@ -1048,6 +1075,14 @@ fn cursor_points(editor: &Editor) -> Vec<usize> {
 }
 
 #[test]
+fn typing_replaces_the_region_at_every_cursor() {
+    let mut editor = editor_with("foo(1)\nfoo(2)");
+    press(&mut editor, "C-SPC C-f C-f C-f C->");
+    type_text(&mut editor, "x");
+    assert_eq!(contents(&editor), "x(1)\nx(2)");
+}
+
+#[test]
 fn typing_and_deleting_happen_at_every_cursor_as_one_undo() {
     let mut editor = editor_with("foo(1)\nfoo(2)\nfoo(3)");
     press(&mut editor, "C-SPC C-f C-f C-f C-> C->");
@@ -1071,7 +1106,8 @@ fn typing_and_deleting_happen_at_every_cursor_as_one_undo() {
 #[test]
 fn clipboard_text_from_elsewhere_yanks_at_every_cursor() {
     let mut editor = editor_with("a1 b\na2 b\na3 b");
-    press(&mut editor, "C-SPC C-n C-n C-S-c C-S-c M-d");
+    cursors_on_three_lines(&mut editor);
+    press(&mut editor, "M-d");
     // remacs's own kill coming back from the clipboard leaves the cursors' kills alone.
     let own = editor.kill_ring.newest().unwrap().to_owned();
     editor.receive_clipboard(own);
@@ -1086,7 +1122,7 @@ fn clipboard_text_from_elsewhere_yanks_at_every_cursor() {
 #[test]
 fn undo_and_redo_put_cursors_back_with_the_text() {
     let mut editor = editor_with("ab\nab\nab");
-    press(&mut editor, "C-SPC C-n C-n C-S-c C-S-c");
+    cursors_on_three_lines(&mut editor);
     assert_eq!(cursor_points(&editor), [0, 3]);
     type_text(&mut editor, "x");
     assert_eq!(cursor_points(&editor), [1, 5]);
@@ -1104,7 +1140,7 @@ fn undo_and_redo_put_cursors_back_with_the_text() {
 #[test]
 fn undo_neither_brings_back_removed_cursors_nor_removes_new_ones() {
     let mut editor = editor_with("ab\nab\nab");
-    press(&mut editor, "C-SPC C-n C-n C-S-c C-S-c");
+    cursors_on_three_lines(&mut editor);
     type_text(&mut editor, "x");
     press(&mut editor, "C-g C-/");
     assert_eq!(contents(&editor), "ab\nab\nab");
@@ -1132,7 +1168,7 @@ fn cursors_a_run_once_command_moved_together_type_once() {
 #[test]
 fn each_cursor_kills_and_yanks_its_own_text() {
     let mut editor = editor_with("a1 b\na2 b\na3 b");
-    press(&mut editor, "C-SPC C-n C-n C-S-c C-S-c");
+    cursors_on_three_lines(&mut editor);
     assert_eq!(cursor_points(&editor), [0, 5]);
     press(&mut editor, "M-d C-e C-y");
     assert_eq!(contents(&editor), " ba1\n ba2\n ba3");

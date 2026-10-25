@@ -28,7 +28,11 @@ const SKIPPED: &[&str] = &[
     "COLUMNS",
     "LINES",
 ];
-const FALLBACK_SHELL: &str = "/bin/zsh";
+const FALLBACK_SHELL: &str = if cfg!(target_os = "macos") {
+    "/bin/zsh"
+} else {
+    "/bin/sh"
+};
 
 /// `environment.toml`.
 #[derive(Debug, Deserialize, PartialEq)]

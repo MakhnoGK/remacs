@@ -81,15 +81,58 @@ Tagged `v0.1.0-alpha.1`, `v0.1.0-alpha.2`, …, then `v0.1.0`. `CHANGELOG.md` is
 by `cargo xtask changelog [version]` from the history: a section per tag of the `feat`,
 `fix` and `perf` subjects since the one before, the untagged commits under `version` (or
 "Unreleased"); the other types change nothing people see. It is regenerated whole, so
-fix a wording in the commit, not in the file. Cutting a release:
+fix a wording in the commit, not in the file.
 
-1. On a branch from `main`, `cargo xtask changelog 0.1.0-alpha.2`, read it, and open a
-   pull request `chore: release v0.1.0-alpha.2`; the owner merges it.
-2. On the merged commit, `git tag -a v0.1.0-alpha.2 -m v0.1.0-alpha.2`, then
-   `git push origin v0.1.0-alpha.2`.
-3. `gh release create v0.1.0-alpha.2 --prerelease --verify-tag` (a prerelease until
-   `v0.1.0`), its notes the version's section of `CHANGELOG.md`.
-4. `cargo xtask bundle` (or `install`): the bundle is `0.1.0-alpha.2`, not `-dirty`.
+Work lands on `dev`, the default branch; `main` holds releases only, so it moves once
+per release, not with every change. Cutting a release:
+
+1. On a branch from `dev`, `cargo xtask changelog 0.1.0-alpha.2`, read it, and open a
+   pull request `chore: release v0.1.0-alpha.2` into `dev`; the owner merges it.
+2. A pull request from `dev` into `main`, merged with a merge commit (a ruleset allows
+   no other), so `main` keeps `dev`'s commits and the two never diverge.
+
+The rest is `.github/workflows/release.yml`, on the push to `main` (#115); a version
+already tagged does nothing:
+
+3. The version is `CHANGELOG.md`'s newest section. The tag `v0.1.0-alpha.2` goes on the
+   merge's second parent, the release commit in `dev`, which `main` contains too, so
+   `git describe` finds it from both branches.
+4. A GitHub release, a prerelease while the version has a `-`, its notes that section:
+   `remacs-0.1.0-alpha.2.tar.gz` (`git archive` of the tag) and its SLSA build
+   provenance from `actions/attest` as `remacs-0.1.0-alpha.2.tar.gz.sigstore.json`
+   (`gh attestation verify remacs-0.1.0-alpha.2.tar.gz -R MakhnoGK/remacs`).
+5. A pull request `bump-remacs-0.1.0-alpha.2` in the tap with that archive's URL and
+   SHA-256, opened with the secret `TAP_TOKEN` (a fine-grained token for the tap alone,
+   contents and pull requests: the workflow's own token cannot write to another
+   repository, and a pull request it opens runs no CI). The tap's test-bot builds the
+   bottle; its `auto-publish` then runs `brew pr-pull`, which publishes it. `brew upgrade
+   remacs` installs it some 15 minutes after the merge.
+
+By hand, if a step fails: tag and `gh release create v<version> --prerelease
+--verify-tag`; `brew bump-formula-pr --url <the archive> makhnogk/remacs/remacs`, then the
+tap's `brew pr-pull` workflow with the pull request's number, as `MakhnoGK`.
+
+## Homebrew (2026-10-24)
+
+Without a Developer ID (#82) a downloaded app is quarantined and Gatekeeper blocks it,
+so a cask of a .dmg would not open; an app Homebrew installs from a bottle has no
+quarantine and opens. remacs is a formula in our tap
+[`MakhnoGK/homebrew-remacs`](https://github.com/MakhnoGK/homebrew-remacs): it builds the
+tag's source archive with `cargo xtask bundle` (`REMACS_VERSION` from the formula,
+`REMACS_COMMIT` `homebrew`), installs `Remacs.app` in its prefix and a `remacs` launcher
+like the one above; `head` builds `dev`.
+
+- **Bottles** are built by the tap's `brew test-bot` and published by `brew pr-pull` into
+  the tap's releases: arm64 only, on macOS 15, which every later macOS takes. Homebrew no
+  longer bottles `rust` for macOS 14, so there test-bot skips the formula; the formula
+  needs Sequoia, and macOS 14 builds from source with `cargo xtask install`.
+- **Build dependencies**: `rust`, `cargo-about`, `cmake` (wasmtime's C API builds with
+  it), Xcode for the Metal shaders. `cargo fetch --locked` runs first, as the notices
+  read every crate in the lock file offline.
+- No scheduled autobump in the tap: a pull request opened by a workflow's token runs no
+  CI; remacs's release opens the bump instead (step 5 above).
+- Since 0.1.0-alpha.2 the formula builds the release's attested archive, not GitHub's
+  generated tag archive.
 
 ## Later
 

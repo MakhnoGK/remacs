@@ -1047,3 +1047,57 @@ fn compile_commands_are_remembered_per_project_newest_first() {
     });
     fs::remove_dir_all(home).unwrap();
 }
+
+#[test]
+fn compile_runs_from_the_nearest_manifest_or_a_dired_directory() {
+    let home = directory("compile-directory");
+    let mut editor = compile_editor(&home);
+    let root = home.join("project");
+    let package = root.join("crates/a");
+    fs::create_dir_all(root.join(".git")).unwrap();
+    write(&root.join("Cargo.toml"), "");
+    write(&package.join("Cargo.toml"), "");
+    write(&package.join("src/lib.rs"), "");
+    write(&root.join("docs/notes.md"), "");
+    let in_window = |editor: &mut Editor, expected: Option<&Path>| {
+        window::update(editor);
+        assert_eq!(compile::compile_directory(editor).as_deref(), expected);
+    };
+
+    editor.visit_file(&package.join("src/lib.rs")).unwrap();
+    in_window(&mut editor, Some(&package));
+    editor.visit_file(&root.join("docs/notes.md")).unwrap();
+    in_window(&mut editor, Some(&root));
+
+    let docs = root.join("docs");
+    editor.add_buffer(
+        remacs_core::Buffer::new("docs", Default::default(), remacs_dired::DIRED_MODE)
+            .with_directory(docs.clone()),
+    );
+    in_window(&mut editor, Some(&docs));
+
+    // Paths printed from the project root, as cargo does in a workspace, lead to files.
+    write(&root.join("crates/b/src/x.rs"), "one\ntwo\n");
+    let script = "echo crates/b/src/x.rs:1:1: e; echo crates/b/src/x.rs:2:1: e";
+    compile::run(&mut editor, &package, script).unwrap();
+    in_window(&mut editor, Some(&package));
+    wait_until(&mut editor, |editor| {
+        contents(editor).contains("Process exited")
+    });
+    press(&mut editor, "M-<");
+    press(&mut editor, "M-g M-n");
+    assert_eq!(position(&editor), ("x.rs", 0, 0));
+
+    // From the file, next-error goes on in the console visited, not the latest run's.
+    let other = root.join("crates/c");
+    write(&other.join("Cargo.toml"), "");
+    compile::run(&mut editor, &other, "true").unwrap();
+    wait_until(&mut editor, |editor| {
+        contents(editor).contains("Process exited")
+    });
+    editor.switch_to_buffer("x.rs");
+    window::update(&mut editor);
+    press(&mut editor, "M-g M-n");
+    assert_eq!(position(&editor), ("x.rs", 1, 0));
+    fs::remove_dir_all(home).unwrap();
+}

@@ -23,6 +23,11 @@ Status: accepted, 2026-10-16
   the console shows the line itself, not the shell's arguments.
 - **`recompile`** (⌘⇧F9, `g` in any console, as `C-r` there) runs the project's compile
   again, else its last command, else asks.
+- **The directory is the nearest project root, or Dired's** (2026-10-25): from a file,
+  the nearest directory within the project holding the file of one of [compile]
+  `defaults` (Cargo.toml, package.json, …), else the project root; from a Dired buffer,
+  its directory; from a console, its run's. Commands and the console are that
+  directory's, so a monorepo's packages each keep their own.
 - **`compile-next-error` / `compile-previous-error`** (M-g M-n / M-g M-p, also C-x `)
   visit the output's `file:line` links in turn, URLs skipped, like Emacs next-error: in
   a console from point, elsewhere from the location visited last in the project's

@@ -84,6 +84,18 @@ pub struct Rgb(pub u32);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Rgba(pub u32);
 
+impl Rgba {
+    /// This drawn over `bottom`, as one opaque color.
+    pub fn over(self, bottom: Rgb) -> Rgba {
+        let alpha = self.0 & 0xff;
+        let mix = |shift: u32| {
+            let (top, bottom) = ((self.0 >> (shift + 8)) & 0xff, (bottom.0 >> shift) & 0xff);
+            ((top * alpha + bottom * (255 - alpha) + 127) / 255) << shift
+        };
+        Rgba((mix(16) | mix(8) | mix(0)) << 8 | 0xff)
+    }
+}
+
 impl Token for Rgb {
     type Read = u32;
 
