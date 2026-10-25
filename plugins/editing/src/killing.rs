@@ -1,6 +1,6 @@
 use remacs_core::{Candidate, CommandResult, Editor, Prompt, filter_candidates};
 
-use crate::editing::writable_buffer;
+use crate::editing::{delete_selection, writable_buffer};
 use crate::motion::{
     at_end_of_buffer, backward_kill_word_start, kill_word_end, line_end, paragraph_end,
     paragraph_start,
@@ -229,6 +229,7 @@ fn yank_from_kill_ring(editor: &mut Editor) -> CommandResult {
 /// Inserts at point and leaves the mark at the start, so `yank-pop` can replace it.
 fn insert_yanked(editor: &mut Editor, text: &str) {
     let buffer = editor.buffer_mut();
+    delete_selection(buffer);
     let start = buffer.point();
     buffer.insert(text);
     buffer.set_mark(start);
