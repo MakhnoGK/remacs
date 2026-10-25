@@ -856,6 +856,19 @@ fn region_is_killed_and_yanked_back() {
 }
 
 #[test]
+fn typing_or_yanking_replaces_the_active_region() {
+    let mut editor = editor_with("hello brave world");
+    press(&mut editor, "M-f C-SPC M-f");
+    type_text(&mut editor, "x");
+    assert_eq!(contents(&editor), "hellox world");
+    editor.kill_ring.push("big".into());
+    press(&mut editor, "C-SPC M-f C-y");
+    assert_eq!(contents(&editor), "helloxbig");
+    press(&mut editor, "C-/");
+    assert_eq!(contents(&editor), "hellox world");
+}
+
+#[test]
 fn consecutive_kills_yank_as_one() {
     let mut editor = editor_with("one\ntwo\nthree");
     press(&mut editor, "C-k C-k");

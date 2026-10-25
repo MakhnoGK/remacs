@@ -21,9 +21,18 @@ pub fn self_insert(editor: &mut Editor) -> CommandResult {
     if pairs::type_paired(buffer, pairs, context, character) {
         return Ok(());
     }
+    delete_selection(buffer);
     indent::indent_for_closer(buffer, character);
     buffer.insert(character.encode_utf8(&mut [0; 4]));
     Ok(())
+}
+
+/// Text typed or yanked over the active region replaces it, as in Emacs'
+/// `delete-selection-mode`.
+pub fn delete_selection(buffer: &mut Buffer) {
+    if let Some(region) = buffer.region().filter(|_| !buffer.is_rectangle()) {
+        buffer.delete(region);
+    }
 }
 
 /// Deletes the next character, or the active region without saving it, as in Emacs.
