@@ -94,6 +94,11 @@ const TERMINAL_BINDINGS: &[(&str, &str)] = &[
     ("s-f", SEARCH),
     ("s-c", COPY),
     ("s-v", PASTE),
+    // As in Konsole and GNOME Terminal; KDE keeps Super+V for its clipboard history.
+    #[cfg(not(target_os = "macos"))]
+    ("C-S-c", COPY),
+    #[cfg(not(target_os = "macos"))]
+    ("C-S-v", PASTE),
     ("s-k", CLEAR),
     ("s-<up>", PREVIOUS_PROMPT),
     ("s-<down>", NEXT_PROMPT),

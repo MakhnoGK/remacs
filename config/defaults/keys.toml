@@ -67,7 +67,9 @@
 # "M-^" = "join-line"                  # onto the line above, or the region's lines into one
 # "M-SPC" = "cycle-spacing"            # one space, none, as it was
 # "M-u" = "upcase-dwim"                # M-l downcase, M-c capitalize: the word or the region
-# "s-d" = "duplicate-dwim"             # ⌘D: the line or the region, point to the copy
+# "C-y" = "yank"                       # also ⌘V; on Linux C-S-v, as KDE keeps Super+V,
+#                                      # and C-S-c kill-ring-save
+# "s-d" = "duplicate-dwim"            # ⌘D: the line or the region, point to the copy
 # "M-S-<up>" = "move-line-up"          # ⌥⇧↑, ⌥⇧↓ down: the line or the region's lines
 # "C-x \\" = "align-regexp"            # the region's first matches in one column
 # "C-x |" = "align-regexp-repeat"      # every match, in columns
@@ -79,7 +81,8 @@
 # "C-<" = "mc/mark-previous-like-this"
 # "C-c C->" = "mc/skip-to-next-like-this"
 # "C-c C-<" = "mc/mark-all-like-this"
-# "C-S-c C-S-c" = "mc/edit-lines"      # one on each line of the region
+# "C-S-c C-S-c" = "mc/edit-lines"      # one on each line of the region; M-x only on Linux,
+#                                      # where C-S-c copies
 # "C-;" = "iedit-mode"                 # at each occurrence of the symbol at point; again to stop
 #
 # Rectangles: the columns between point and mark on the lines between them:
@@ -160,6 +163,7 @@
 # "s-f" = "terminal-search"
 # "s-c" = "terminal-copy"              # what the mouse selected
 # "s-v" = "terminal-paste"
+#                                      # Linux: also C-S-c terminal-copy, C-S-v terminal-paste
 # "s-k" = "terminal-clear"
 # "s-<up>" = "terminal-previous-prompt"   # when the shell reports prompts, as fish does
 # "s-<down>" = "terminal-next-prompt"
