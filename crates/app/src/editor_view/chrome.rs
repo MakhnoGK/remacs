@@ -221,7 +221,8 @@ impl EditorView {
             .gap(px(6.0))
             .font_family(font::ui())
             .text_size(px(font::ui_size()));
-        if !titled {
+        // Elsewhere than on macOS the desktop's title bar already says it.
+        if !titled || (!split && cfg!(not(target_os = "macos"))) {
             return header;
         }
         if split {

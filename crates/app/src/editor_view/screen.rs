@@ -231,8 +231,9 @@ impl EditorView {
             return None;
         }
         let clip = self.window_state.clip;
-        // Only the window in the top left corner has the frame's buttons in its title bar.
-        let tabs_left = if clip.origin == Point::default() {
+        // Only the window in the top left corner has macOS's buttons in its title bar;
+        // elsewhere the desktop draws its own above the window.
+        let tabs_left = if cfg!(target_os = "macos") && clip.origin == Point::default() {
             HEADER_TABS_LEFT
         } else {
             HEADER_TABS_SIDE
