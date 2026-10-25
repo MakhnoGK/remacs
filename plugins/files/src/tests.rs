@@ -472,6 +472,10 @@ fn an_unmodified_buffer_follows_its_file_and_only_its_changes_wake_the_editor() 
         let _ = sender.send(());
     }));
     press(&mut editor, "C-n C-f C-f");
+    // FSEvents may still deliver the write that made the file, from before the watch began.
+    std::thread::sleep(Duration::from_millis(300));
+    editor.refresh();
+    wakeups.store(0, Ordering::SeqCst);
 
     for file in 0..20 {
         fs::write(project.path(&format!("other_{file}.txt")), "x").unwrap();
