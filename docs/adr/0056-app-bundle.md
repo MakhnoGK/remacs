@@ -107,6 +107,10 @@ already tagged does nothing:
    repository, and a pull request it opens runs no CI). The tap's test-bot builds the
    bottle; its `auto-publish` then runs `brew pr-pull`, which publishes it. `brew upgrade
    remacs` installs it some 15 minutes after the merge.
+6. `macos-app.yml` builds the tag's `Remacs.app` on macOS 15 and adds it to the release
+   as `remacs-0.1.0-alpha.2-arm64-macos.zip` with its provenance, then opens the cask's
+   bump `cask-remacs-0.1.0-alpha.2` in the tap, merged by hand (a `bump-remacs-` branch
+   would start `brew pr-pull`). Run by hand with a version, it builds an existing tag's.
 
 By hand, if a step fails: tag and `gh release create v<version> --prerelease
 --verify-tag`; `brew bump-formula-pr --url <the archive> makhnogk/remacs/remacs`, then the
@@ -133,6 +137,16 @@ like the one above; `head` builds `dev`.
   CI; remacs's release opens the bump instead (step 5 above).
 - Since 0.1.0-alpha.2 the formula builds the release's attested archive, not GitHub's
   generated tag archive.
+
+## Cask (2026-10-26)
+
+A formula's app stays in Homebrew's prefix, which Spotlight does not index, and a
+formula cannot write to /Applications; a Finder alias there shows in Spotlight without
+its icon. The tap's cask `remacs` installs the release's zipped `Remacs.app` into
+/Applications instead, and links its `Contents/Resources/launcher` as `remacs`. Not
+notarized, a quarantined copy is killed when it starts, so the cask's postflight removes
+the quarantine; Gatekeeper does not check the app for anyone installing from the tap.
+The formula stays for Linux and `--HEAD`; both link `remacs`, so one is installed.
 
 ## Later
 
