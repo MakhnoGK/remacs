@@ -557,9 +557,13 @@ fn untracked_files_unfold_into_added_lines_and_directories_into_their_files() {
     wait_until(&mut editor, "the untracked files' diffs", |editor| {
         editor.outline(0..100).is_some_and(|_| {
             let rows = rows(editor);
-            ["+one", " Large file, 12 B, not shown", " Binary file"]
-                .iter()
-                .all(|shown| rows.contains(&(*shown).to_owned()))
+            [
+                "+one",
+                " Diff of 12 B not shown, past git.toml's limits",
+                " Binary file",
+            ]
+            .iter()
+            .all(|shown| rows.contains(&(*shown).to_owned()))
         })
     });
     assert!(rows(&editor).contains(&"@@ -0,0 +1 @@".to_owned()));
@@ -585,6 +589,21 @@ fn untracked_files_unfold_into_added_lines_and_directories_into_their_files() {
 }
 
 #[test]
+fn diffs_show_and_stage_whatever_prefixes_the_users_config_asks_for() {
+    let repository = Repository::new("prefixes");
+    repository.git(&["config", "diff.noprefix", "true"]);
+    repository.git(&["config", "diff.mnemonicPrefix", "true"]);
+    repository.write("lib.rs", "one\ntwo\n");
+    let mut editor = status_buffer(&repository);
+    wait_until(&mut editor, "the diff", |editor| {
+        rows(editor).contains(&"+two".to_owned())
+    });
+    go_to_row(&mut editor, "+two");
+    press(&mut editor, "s");
+    wait_for_status(&mut editor, &repository, "M  lib.rs\n");
+}
+
+#[test]
 fn untracked_files_share_one_budget_of_bytes() {
     let repository = Repository::new("untracked-budget");
     repository.write("a.md", "four\n");
@@ -596,7 +615,9 @@ fn untracked_files_share_one_budget_of_bytes() {
     editor.visit_file(&repository.0.join("lib.rs")).unwrap();
     editor.run_command("git-status");
     wait_until(&mut editor, "both untracked files", |editor| {
-        editor.outline(0..100).is_some_and(|_| rows(editor).len() == 6)
+        editor
+            .outline(0..100)
+            .is_some_and(|_| rows(editor).len() == 6)
     });
     assert_eq!(
         rows(&editor),
@@ -606,7 +627,7 @@ fn untracked_files_share_one_budget_of_bytes() {
             "@@ -0,0 +1 @@",
             "+four",
             "? ./b.md",
-            " Large file, 5 B, not shown",
+            " Diff of 5 B not shown, past git.toml's limits",
         ]
     );
 }

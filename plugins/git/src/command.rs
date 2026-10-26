@@ -9,6 +9,14 @@ pub fn git(root: &Path) -> Command {
     command
         .arg("-C")
         .arg(root)
+        // Diffs are read and applied by their `a/` and `b/`, whatever the user's config says.
+        .args([
+            "-c",
+            "diff.noprefix=false",
+            "-c",
+            "diff.mnemonicPrefix=false",
+        ])
+        .args(["-c", "diff.srcPrefix=a/", "-c", "diff.dstPrefix=b/"])
         .env("GIT_OPTIONAL_LOCKS", "0")
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_LITERAL_PATHSPECS", "1")

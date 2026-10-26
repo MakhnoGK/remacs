@@ -33,10 +33,12 @@ pub fn diff(root: &Path, relative: &Path, max_bytes: u64) -> io::Result<FileDiff
             ..FileDiff::default()
         });
     }
-    // A link's contents, to Git, are its target.
-    let bytes = match metadata.file_type().is_symlink() {
-        true => fs::read_link(&path)?.into_os_string().into_vec(),
-        false => fs::read(&path)?,
+    // A link's contents, to Git, are its target; a pipe made since Git listed it would
+    // never end.
+    let bytes = match metadata.file_type() {
+        kind if kind.is_symlink() => fs::read_link(&path)?.into_os_string().into_vec(),
+        kind if kind.is_file() => fs::read(&path)?,
+        _ => return Ok(FileDiff::default()),
     };
     let name = relative.display();
     let mut diff = FileDiff {

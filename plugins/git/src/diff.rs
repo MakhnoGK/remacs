@@ -80,7 +80,7 @@ impl FileDiff {
     /// What is said in place of the hunks when there are none.
     pub fn summary(&self) -> String {
         match self.too_large {
-            Some(bytes) => format!("Large file, {}, not shown", size(bytes)),
+            Some(bytes) => format!("Diff of {} not shown, past git.toml's limits", size(bytes)),
             None if self.binary => "Binary file".into(),
             None if self.header.contains("\nnew file mode") => "Empty file".into(),
             None => "No changes to show".into(),
