@@ -239,11 +239,14 @@ fn show_files(editor: &mut Editor, root: &Path, id: String, files: Vec<ChangedFi
     }
 }
 
-/// Shows the commit whose files are listed, at the file at point if there is one.
+/// Shows the commit whose files are listed, at the file at point if there is one; the
+/// selected one while its files are read.
 pub fn open_listed(editor: &mut Editor) -> CommandResult {
     let point_line = editor.window_buffer().point_line();
     let view = window_view(editor)?;
-    let Some((id, files)) = view.history.files.clone() else {
+    // While the selected commit's files are read, those listed are another's.
+    let listed = view.history.files.clone();
+    let Some((id, files)) = listed.filter(|_| view.history.reading.is_none()) else {
         return open_commit(editor);
     };
     let file = match view.line(point_line) {
@@ -339,15 +342,6 @@ pub fn ago(seconds: i64) -> String {
         MONTH..YEAR => count(MONTH, "month", "months"),
         _ => count(YEAR, "year", "years"),
     }
-}
-
-/// Shows the commits of all branches, or only those of the current one, like Emacs
-/// `magit-log-all` and `magit-log-current`.
-pub fn toggle_scope(editor: &mut Editor) -> CommandResult {
-    let view = window_view(editor)?;
-    let all = !view.history.all;
-    view.history.set_all(all);
-    Ok(())
 }
 
 /// Shows the status with only the commits that changed the visited file in its

@@ -552,11 +552,33 @@ fn commit_layout(view: &StatusView) -> (Vec<Line>, Vec<String>) {
 /// The changes' headings, files and stashes, each going to its line on a click; and for
 /// each line, the row it is under. None in the history, whose lines are the side.
 fn side_rows(view: &StatusView, snapshot: &Snapshot) -> (SideRows, Vec<Option<usize>>) {
+    // Each section's files read once, by path: one look-up per file keeps this linear.
+    let sections: HashMap<Section, Vec<SectionFile>> = Section::FILES
+        .into_iter()
+        .map(|section| (section, section_files(snapshot, section)))
+        .collect();
     let (mut rows, mut actions) = (Vec::new(), Vec::new());
     let mut under = Vec::with_capacity(view.lines.len());
     for (index, line) in view.lines.iter().enumerate() {
-        let listed = matches!(line, Line::Heading(_) | Line::File(..) | Line::Stash(_));
-        if let Some(row) = row(view, snapshot, line).filter(|_| listed) {
+        let row = match line {
+            Line::File(section, path) => {
+                let files = &sections[section];
+                let file = match files.binary_search_by(|file| file.path.as_path().cmp(path)) {
+                    Ok(at) => &files[at],
+                    // Not in the section, it is one an unfolded untracked directory lists.
+                    Err(_) => &SectionFile {
+                        path: path.clone(),
+                        state: FileState::Untracked,
+                        lines: None,
+                        original: None,
+                    },
+                };
+                Some(file_row(view, snapshot, *section, file))
+            }
+            Line::Heading(_) | Line::Stash(_) => row(view, snapshot, line),
+            _ => None,
+        };
+        if let Some(row) = row {
             rows.push(row);
             let action: Action = Rc::new(move |editor| go_to_line(editor, index));
             actions.push(Some(action));
@@ -791,26 +813,12 @@ fn row(view: &StatusView, snapshot: &Snapshot, line: &Line) -> Option<OutlineRow
                 Tone::Plain
             },
         },
-        Line::File(section, path) => {
-            let file = section_file(snapshot, *section, path)?;
-            let is_directory = snapshot.untracked_directories.contains(path);
-            let name = path
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            OutlineRow::File {
-                state: file.state,
-                name: if is_directory {
-                    format!("{name}/")
-                } else {
-                    name
-                },
-                directory: directory_label(path),
-                lines: file.lines,
-                note: conflict_view::file_note(view, snapshot, *section, path),
-                open: view.is_open(snapshot, *section, path),
-            }
-        }
+        Line::File(section, path) => file_row(
+            view,
+            snapshot,
+            *section,
+            &section_file(snapshot, *section, path)?,
+        ),
         Line::CommitFiles => OutlineRow::Heading {
             title: "Files".into(),
             count: view.history.files()?.len(),
@@ -882,6 +890,32 @@ fn row(view: &StatusView, snapshot: &Snapshot, line: &Line) -> Option<OutlineRow
             }
         }
     })
+}
+
+fn file_row(
+    view: &StatusView,
+    snapshot: &Snapshot,
+    section: Section,
+    file: &SectionFile,
+) -> OutlineRow {
+    let path = &file.path;
+    let is_directory = snapshot.untracked_directories.contains(path);
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    OutlineRow::File {
+        state: file.state,
+        name: if is_directory {
+            format!("{name}/")
+        } else {
+            name
+        },
+        directory: directory_label(path),
+        lines: file.lines,
+        note: conflict_view::file_note(view, snapshot, section, path),
+        open: view.is_open(snapshot, section, path),
+    }
 }
 
 fn commit_file_row(file: &ChangedFile) -> OutlineRow {

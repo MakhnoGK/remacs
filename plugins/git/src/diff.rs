@@ -218,11 +218,12 @@ impl PatchFile {
 /// second half of `diff --git a/<path> b/<path>`.
 fn patched_path(file: &str) -> Option<PathBuf> {
     let header = file.split("\n@@").next().unwrap_or(file);
+    // Git ends the name with a tab when it holds a space.
     let named = |prefix: &str| {
         header
             .lines()
             .find_map(|line| line.strip_prefix(prefix))
-            .map(PathBuf::from)
+            .map(|name| PathBuf::from(name.strip_suffix('\t').unwrap_or(name)))
     };
     named("+++ b/").or_else(|| named("--- a/")).or_else(|| {
         let paths = header.lines().next()?.strip_prefix("diff --git a/")?;
@@ -315,6 +316,28 @@ Binary files a/i m.png and b/i m.png differ\n"
         assert_eq!(files[1].1.hunks[0].lines, ["-x"]);
         assert!(files[2].1.binary);
         assert!(split_patch("").is_empty());
+    }
+
+    #[test]
+    fn a_work_tree_diff_splits_at_files_with_conflicts_and_names_with_spaces() {
+        let patch = "diff --git a/a b.rs b/a b.rs\n\
+--- a/a b.rs\t\n\
++++ b/a b.rs\t\n\
+@@ -1 +1 @@\n\
+-a\n\
++b\n\
+diff --cc both.rs\n\
+index 1111111,2222222..0000000\n\
+--- a/both.rs\n\
++++ b/both.rs\n\
+@@@ -1,1 -1,1 +1,5 @@@\n\
+++<<<<<<< HEAD\n\
+* Unmerged path gone.rs\n";
+        let files = split_patch(patch);
+        assert_eq!(files[0].0, PathBuf::from("a b.rs"));
+        assert_eq!(files[0].1.hunks[0].lines, ["-a", "+b"]);
+        assert_eq!(files[1].0, PathBuf::from("both.rs"));
+        assert_eq!(files.len(), 2);
     }
 
     #[test]
