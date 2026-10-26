@@ -392,6 +392,27 @@ fn status_buffer(repository: &Repository) -> Editor {
     editor
 }
 
+#[test]
+fn status_of_a_folder_made_a_repository_after_it_was_opened_lists_its_files() {
+    let root = std::env::temp_dir().join(format!("remacs-git-later-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    let repository = Repository(root.canonicalize().unwrap());
+    repository.write("draft.md", "one\n");
+    let mut editor = editor();
+    editor.visit_file(&repository.0.join("draft.md")).unwrap();
+    editor.refresh();
+    repository.git(&["init", "-q", "-b", "main"]);
+
+    editor.run_command("git-status");
+    wait_until(&mut editor, "the untracked file", |editor| {
+        editor
+            .outline(0..100)
+            .is_some_and(|outline| outline.rows.len() == 2)
+    });
+    assert_eq!(rows(&editor), ["v Untracked 1", "? ./draft.md"]);
+}
+
 /// Each row in short: `> Staged 2`, `A src/x.rs +3`, `+line`.
 fn rows(editor: &Editor) -> Vec<String> {
     editor
