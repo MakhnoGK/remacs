@@ -126,6 +126,11 @@ like the one above; `head` builds `dev`.
   the tap's releases: arm64 only, on macOS 15, which every later macOS takes. Homebrew no
   longer bottles `rust` for macOS 14, so there test-bot skips the formula; the formula
   needs Sequoia, and macOS 14 builds from source with `cargo xtask install`.
+- **Linux** (since 0.1.0-alpha.2): the formula installs the Linux bundle (ADR 0089) as
+  its prefix, without `install.sh`, the menu entry running `opt_lib/remacs/remacs`; it
+  depends on `libxcb` and `libxkbcommon`. Its x86_64 bottle is built on `ubuntu-24.04`,
+  as `brew doctor` fails on 22.04's glibc 2.35. The menu entry and icons show once the
+  session's `XDG_DATA_DIRS` has Homebrew's `share`, as `brew info remacs` says.
 - **Build dependencies**: `rust`, `cargo-about`, `cmake` (wasmtime's C API builds with
   it), Xcode for the Metal shaders. `cargo fetch --locked` runs first, as the notices
   read every crate in the lock file offline.

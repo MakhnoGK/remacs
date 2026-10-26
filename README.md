@@ -58,7 +58,9 @@ tar -xzf remacs-*-x86_64-linux.tar.gz
 remacs-*-x86_64-linux/install.sh     # or install.sh <prefix>; ~/.local by default
 ```
 
-It puts `remacs` in `~/.local/bin` and Remacs in the applications menu. From source,
+It puts `remacs` in `~/.local/bin` and Remacs in the applications menu. Homebrew on
+Linux installs it too, with `brew install makhnogk/remacs/remacs`; `brew info remacs`
+says how to have it in the applications menu. Have one of the two, not both. From source,
 `cargo fetch --locked && cargo xtask install` does the same (needs `cargo install
 cargo-about --locked --features cli` and the Wayland, X11, Vulkan and fontconfig headers).
 
