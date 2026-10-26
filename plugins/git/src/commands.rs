@@ -25,6 +25,7 @@ pub fn status(editor: &mut Editor) -> CommandResult {
         .or_else(|| std::env::current_dir().ok())
         .ok_or("No directory")?;
     let root = working_tree(&directory).ok_or("Not in a Git working tree")?;
+    editor.plugin_state::<Repositories>().forget_outside();
     let existing = editor
         .buffers()
         .iter()
