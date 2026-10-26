@@ -58,6 +58,8 @@ Arch Linux with KDE Plasma on Wayland.
   so Wayland desktops show that icon for the window; X11 gets it as `WM_CLASS`.
 - **The menu entry** offers remacs for `text/plain`, not folders, so that it never
   becomes what opens a folder in the file manager.
+- **Homebrew** on Linux installs the same bundle from the tap's formula, bottled for
+  x86_64 (ADR 0056).
 
 ## Later
 
