@@ -746,8 +746,9 @@ pub fn outline(editor: &Editor, range: Range<usize>) -> Option<Outline> {
 /// The changes, the history of every branch and that of the current one.
 fn tabs(view: &StatusView) -> Vec<Button> {
     let all = view.history.all();
+    // The changes ignore `all`.
     [
-        ("Changes", Tab::Changes, all),
+        ("Changes", Tab::Changes, true),
         ("History", Tab::History, true),
         ("Current branch", Tab::History, false),
     ]

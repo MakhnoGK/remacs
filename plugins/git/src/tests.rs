@@ -585,6 +585,33 @@ fn untracked_files_unfold_into_added_lines_and_directories_into_their_files() {
 }
 
 #[test]
+fn untracked_files_share_one_budget_of_bytes() {
+    let repository = Repository::new("untracked-budget");
+    repository.write("a.md", "four\n");
+    repository.write("b.md", "more\n");
+    let mut editor = editor();
+    let settings = [("git.toml", "changes-max-bytes = 6\n")]
+        .map(|(name, text)| (PathBuf::from(name), text.to_owned()));
+    editor.set_settings(Settings::from_files(settings));
+    editor.visit_file(&repository.0.join("lib.rs")).unwrap();
+    editor.run_command("git-status");
+    wait_until(&mut editor, "both untracked files", |editor| {
+        editor.outline(0..100).is_some_and(|_| rows(editor).len() == 6)
+    });
+    assert_eq!(
+        rows(&editor),
+        [
+            "v Untracked 2",
+            "? ./a.md",
+            "@@ -0,0 +1 @@",
+            "+four",
+            "? ./b.md",
+            " Large file, 5 B, not shown",
+        ]
+    );
+}
+
+#[test]
 fn upstream_and_base_say_how_far_the_branch_is() {
     let repository = Repository::new("base");
     let _remote = Remote::for_repository(&repository);

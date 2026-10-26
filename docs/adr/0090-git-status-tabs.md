@@ -27,8 +27,11 @@ The status had the changes as an accordion at the left and the history at the ri
   them all.
 - **The Changes tab reads every diff at once**: one `git diff -M` for what is staged and
   one for what is not, kept up to `git.toml` `changes-max-bytes` each (a file past it
-  shows its size), and each untracked file's as added lines. `read_patch` also splits at
-  `diff --cc` and `* Unmerged path`, so conflicted files do not run into others.
+  shows its size). Untracked files are read here, not by `git diff --no-index`, which
+  took a process per file (300 files: 4.1 s a refresh, now 0.3 s), as added lines under
+  a `changes-max-bytes` of their own. `read_patch` also splits at `diff --cc` and
+  `* Unmerged path`, so conflicted files do not run into others, and reads back the
+  names Git quotes.
 - **The same keys in every tab** (user, 2026-10-26): `C-n`/`C-p` and the arrows move
   through the column at the right, a diff's lines or the commits; `n`/`p` by hunk or
   commit; `M-n`/`M-p` through the files at the left.

@@ -387,7 +387,7 @@ fn read(
 }
 
 /// The diffs of every changed file: what is staged and what is not each in one `git diff`,
-/// kept up to `changes_max_bytes`; untracked files' as all added lines.
+/// and the untracked files' as all added lines, each kept up to `changes_max_bytes`.
 fn read_changes(root: &Path, snapshot: &mut Snapshot, settings: &GitSettings) -> io::Result<()> {
     let has_changes = |staged: bool| {
         snapshot.files.values().any(|entry| match staged {
@@ -419,13 +419,19 @@ fn read_changes(root: &Path, snapshot: &mut Snapshot, settings: &GitSettings) ->
             }
         }
     }
-    let untracked: Vec<PathBuf> = (snapshot.files.iter())
+    let mut untracked: Vec<PathBuf> = (snapshot.files.iter())
         .filter(|(_, entry)| entry.staged == b'?')
         .map(|(path, _)| path.clone())
         .collect();
+    // By path, so the same files fit the budget from read to read.
+    untracked.sort();
+    let mut left = settings.changes_max_bytes;
     for path in untracked {
+        let max_bytes = settings.untracked_max_bytes.min(left);
         // Gone since it was listed, it is left out until the status is read again.
-        if let Ok(diff) = untracked::diff(root, &path, settings.untracked_max_bytes) {
+        if let Ok(diff) = untracked::diff(root, &path, max_bytes) {
+            let kept = diff.hunks.iter().flat_map(|hunk| &hunk.lines);
+            left = left.saturating_sub(kept.map(|line| line.len() as u64).sum());
             snapshot.diffs.insert(
                 DiffKey {
                     staged: false,

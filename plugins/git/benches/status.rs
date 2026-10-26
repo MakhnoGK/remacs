@@ -7,7 +7,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use divan::{Bencher, black_box};
-use remacs_core::{Editor, parse_sequence};
+use remacs_core::{Editor, OutlineRow, TextSide, parse_sequence};
 use remacs_dired::DiredPlugin;
 use remacs_editing::EditingPlugin;
 use remacs_files::FilesPlugin;
@@ -23,11 +23,12 @@ fn main() {
     divan::main();
 }
 
-/// A repository with `files` committed files, each changed since, removed on drop.
+/// A repository with `files` committed files, each changed since, and `untracked` files of
+/// 20 lines among them, so Git lists each; removed on drop.
 struct Repository(PathBuf);
 
 impl Repository {
-    fn new(files: usize) -> Self {
+    fn new(files: usize, untracked: usize) -> Self {
         let root = std::env::temp_dir().join(format!("remacs-bench-status-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
@@ -47,6 +48,12 @@ impl Repository {
         repository.git(&["commit", "-q", "-m", "First"]);
         for file in 0..files {
             fs::write(path(file), "line\nchanged\n").unwrap();
+        }
+        let lines: String = (0..20)
+            .map(|line| format!("let line_{line} = {line};\n"))
+            .collect();
+        for file in files..files + untracked {
+            fs::write(path(file), &lines).unwrap();
         }
         repository
     }
@@ -80,7 +87,35 @@ fn wait_until(editor: &mut Editor, what: &str, done: impl Fn(&Editor) -> bool) {
 /// folded or unfolded, as after every new status read.
 #[divan::bench(args = [3000], sample_count = 10)]
 fn redraw_changes(bencher: Bencher, files: usize) {
-    let repository = Repository::new(files);
+    let repository = Repository::new(files, 0);
+    let mut editor = status(&repository, files + 1);
+    let toggle = parse_sequence("S-TAB").unwrap();
+    bencher.bench_local(|| {
+        for key in &toggle {
+            editor.handle_key(*key);
+        }
+        black_box(editor.outline(0..40));
+    });
+}
+
+/// What the status takes to show a file just made, among `untracked` other new files,
+/// as after any save while the changes are shown.
+#[divan::bench(args = [300], sample_count = 10)]
+fn refresh_with_untracked(bencher: Bencher, untracked: usize) {
+    const CHANGED: usize = 100;
+    let repository = Repository::new(CHANGED, untracked);
+    let mut editor = status(&repository, CHANGED + untracked + 2);
+    let mut made = 0;
+    bencher.bench_local(|| {
+        made += 1;
+        let name = format!("made_{made}.rs");
+        fs::write(repository.0.join(&name), "new\n").unwrap();
+        wait_until(&mut editor, &name, |editor| lists(editor, &name));
+    });
+}
+
+/// The status of `repository`, once it lists `rows` headings and files.
+fn status(repository: &Repository, rows: usize) -> Editor {
     let mut editor = Editor::new(&[
         &EditingPlugin,
         &MinibufferPlugin,
@@ -94,16 +129,18 @@ fn redraw_changes(bencher: Bencher, files: usize) {
         .unwrap();
     editor.run_command("git-status");
     wait_until(&mut editor, "the changes", |editor| {
-        editor
-            .outline(0..1)
-            .and_then(|outline| outline.side)
-            .is_some_and(|side| side.rows.len() == files + 1)
+        side(editor).is_some_and(|side| side.rows.len() == rows)
     });
-    let toggle = parse_sequence("S-TAB").unwrap();
-    bencher.bench_local(|| {
-        for key in &toggle {
-            editor.handle_key(*key);
-        }
-        black_box(editor.outline(0..40));
-    });
+    editor
+}
+
+fn side(editor: &Editor) -> Option<TextSide> {
+    editor.outline(0..1).and_then(|outline| outline.side)
+}
+
+/// Whether the changes list `name`, its diff read.
+fn lists(editor: &Editor, name: &str) -> bool {
+    let shown =
+        |row: &OutlineRow| matches!(row, OutlineRow::File { name: listed, .. } if listed == name);
+    side(editor).is_some_and(|side| side.rows.iter().any(shown))
 }

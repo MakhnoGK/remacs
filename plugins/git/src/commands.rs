@@ -109,8 +109,7 @@ pub fn collapse_all(editor: &mut Editor) -> CommandResult {
 }
 
 pub fn show_changes(editor: &mut Editor) -> CommandResult {
-    let all = status_view(editor)?.history.all();
-    status_view::show_tab(editor, Tab::Changes, all)
+    status_view::show_tab(editor, Tab::Changes, true)
 }
 
 pub fn show_history(editor: &mut Editor) -> CommandResult {
