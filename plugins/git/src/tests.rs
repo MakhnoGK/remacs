@@ -408,9 +408,9 @@ fn status_of_a_folder_made_a_repository_after_it_was_opened_lists_its_files() {
     wait_until(&mut editor, "the untracked file", |editor| {
         editor
             .outline(0..100)
-            .is_some_and(|outline| outline.rows.len() == 2)
+            .is_some_and(|outline| outline.side.is_some_and(|side| side.rows.len() == 2))
     });
-    assert_eq!(rows(&editor), ["v Untracked 1", "? ./draft.md"]);
+    assert_eq!(listed(&editor), ["v Untracked 1", "? ./draft.md"]);
 }
 
 /// Each row in short: `> Staged 2`, `A src/x.rs +3`, `+line`.
