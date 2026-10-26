@@ -6,7 +6,7 @@ use gpui::{
     div, point, prelude::*, px, quad, rgb, rgba, size, svg,
 };
 use remacs_core::{
-    Banner, BannerButton, BannerPart, Code, CommitRow, DiffRow, Fact, FactValue, GraphNode,
+    Banner, BannerButton, BannerPart, Button, Code, CommitRow, DiffRow, Fact, FactValue, GraphNode,
     GraphRow, History, Outline, OutlineRow, RefChip, RefKind, TextSide, Tone, ToolbarButton,
 };
 use remacs_theme::{color, font, glass};
@@ -74,7 +74,11 @@ pub fn fitting_rows(
     has_banner: bool,
     window_height: Pixels,
 ) -> usize {
-    let room = rows_height(window_height, fact_count, has_banner);
+    fitting_rows_in(rows, rows_height(window_height, fact_count, has_banner))
+}
+
+/// How many of `rows`, from the first, fit in `room` pixels.
+pub fn fitting_rows_in(rows: &[OutlineRow], room: f32) -> usize {
     let mut used = 0.0;
     for index in 0..rows.len() {
         used += row_height(rows, index);
@@ -115,6 +119,15 @@ fn rows_height(window_height: Pixels, fact_count: usize, has_banner: bool) -> f3
     (window_height / px(1.0)) - pane_top(has_banner) - LIST_BOTTOM - 2.0 * PANE_PADDING - facts
 }
 
+/// The room under the tabs of the column at the right, for its rows or its commits.
+pub fn beside_height(window_height: Pixels, has_banner: bool) -> f32 {
+    (window_height / px(1.0))
+        - pane_top(has_banner)
+        - LIST_BOTTOM
+        - HISTORY_HEADER_HEIGHT
+        - HISTORY_HEADER_GAP
+}
+
 /// Whether the outline's rows and its history go on beyond what is shown, and how far
 /// their first row is scrolled past, in pixels.
 pub struct OutlineScrolled {
@@ -126,12 +139,13 @@ pub struct OutlineScrolled {
 
 /// The outline's facts and its rows from `first_line` on, point's line selected, in a
 /// pane at the left of the window; beside it the history or a file's conflicts, and the
-/// banner over both.
+/// banner over both. With a side, the side goes in the pane and the rows beside it.
 pub fn render_outline(
     outline: Outline,
     first_line: usize,
     point_line: usize,
     scrolled: OutlineScrolled,
+    window_height: Pixels,
     code_faces: &dyn Fn(&Code) -> Highlights,
     cx: &mut Context<EditorView>,
 ) -> impl IntoElement {
@@ -143,11 +157,12 @@ pub fn render_outline(
         history,
         conflict,
         banner,
+        tabs,
+        side,
         ..
     } = outline;
     let has_banner = banner.is_some();
     let banner = banner.map(|banner| render_banner(banner, cx));
-    let facts = (!facts.is_empty()).then(|| render_facts(facts, cx));
     let rows: Vec<(Div, bool)> = rows
         .into_iter()
         .enumerate()
@@ -171,18 +186,35 @@ pub fn render_outline(
         })
         .collect();
     let children = framed(rows);
-    let side = match conflict {
-        Some(conflict) => Some(render_conflict(conflict, code_faces, cx)),
-        None => history
-            .map(|history| render_history(history, scrolled.history, scrolled.history_shift, cx)),
+    let (pane, side) = match side {
+        Some(mut side) => {
+            side.facts = facts;
+            let beside = match conflict {
+                Some(conflict) => render_conflict(conflict, code_faces, cx),
+                None => render_beside_rows(tabs, children, scrolled.rows, scrolled.rows_shift, cx),
+            };
+            let pane = side_pane(side, PANE_WIDTH, window_height, has_banner, cx);
+            (pane, Some(beside))
+        }
+        None => {
+            let facts = (!facts.is_empty()).then(|| render_facts(facts, cx));
+            let side = match conflict {
+                Some(conflict) => Some(render_conflict(conflict, code_faces, cx)),
+                None => history.map(|history| {
+                    let (scrolled, shift) = (scrolled.history, scrolled.history_shift);
+                    render_history(history, tabs, scrolled, shift, cx)
+                }),
+            };
+            let pane = pane_column(
+                facts,
+                children,
+                scrolled.rows,
+                scrolled.rows_shift,
+                PANE_WIDTH,
+            );
+            (pane, side)
+        }
     };
-    let pane = pane_column(
-        facts,
-        children,
-        scrolled.rows,
-        scrolled.rows_shift,
-        PANE_WIDTH,
-    );
     let panes = div()
         .absolute()
         .top(px(pane_top(has_banner)))
@@ -238,6 +270,26 @@ pub fn render_text_side(
     height: Pixels,
     cx: &mut Context<EditorView>,
 ) -> AnyElement {
+    div()
+        .absolute()
+        .top(px(PANE_TOP))
+        .left(px(PANE_SIDE))
+        .bottom(px(LIST_BOTTOM))
+        .flex()
+        // Clicks between rows stay off the text.
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .child(side_pane(side, width, height, false, cx))
+        .into_any_element()
+}
+
+/// A side's pane `width` wide, in a window `height` tall; its selected row kept in sight.
+fn side_pane(
+    side: TextSide,
+    width: f32,
+    height: Pixels,
+    has_banner: bool,
+    cx: &mut Context<EditorView>,
+) -> Div {
     let TextSide {
         facts,
         rows,
@@ -246,8 +298,8 @@ pub fn render_text_side(
     } = side;
     let fact_count = facts.len();
     let facts = (!facts.is_empty()).then(|| render_facts(facts, cx));
-    let first = first_shown(&rows, fact_count, height, selected);
-    let shown = fitting_rows(&rows[first..], fact_count, false, height);
+    let first = first_shown(&rows, fact_count, has_banner, height, selected);
+    let shown = fitting_rows(&rows[first..], fact_count, has_banner, height);
     let scrolled = Scrolled {
         above: first > 0,
         below: first + shown < rows.len(),
@@ -264,16 +316,7 @@ pub fn render_text_side(
             (body, is_diff)
         })
         .collect();
-    div()
-        .absolute()
-        .top(px(PANE_TOP))
-        .left(px(PANE_SIDE))
-        .bottom(px(LIST_BOTTOM))
-        .flex()
-        // Clicks between rows stay off the text.
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .child(pane_column(facts, framed(rows), scrolled, 0.0, width))
-        .into_any_element()
+    pane_column(facts, framed(rows), scrolled, 0.0, width)
 }
 
 /// The first of `rows` shown under `fact_count` facts in a window `height` tall: the
@@ -281,13 +324,14 @@ pub fn render_text_side(
 fn first_shown(
     rows: &[OutlineRow],
     fact_count: usize,
+    has_banner: bool,
     height: Pixels,
     selected: Option<usize>,
 ) -> usize {
     let Some(selected) = selected else {
         return 0;
     };
-    let fitting = |first: usize| fitting_rows(&rows[first..], fact_count, false, height);
+    let fitting = |first: usize| fitting_rows(&rows[first..], fact_count, has_banner, height);
     // No more rows than this fit, so none further back can be the first.
     let mut first = selected.saturating_sub(max_outline_lines(height));
     while first < selected && selected >= first + fitting(first) {
@@ -508,22 +552,66 @@ pub fn fits_beside(window_width: Pixels, width: f32) -> bool {
 
 /// How many commits fit under the history's header in a window this tall.
 pub fn fitting_commits(window_height: Pixels, has_banner: bool) -> usize {
-    let room = (window_height / px(1.0))
-        - pane_top(has_banner)
-        - LIST_BOTTOM
-        - HISTORY_HEADER_HEIGHT
-        - HISTORY_HEADER_GAP;
-    (room / COMMIT_HEIGHT).floor().max(0.0) as usize
+    (beside_height(window_height, has_banner) / COMMIT_HEIGHT)
+        .floor()
+        .max(0.0) as usize
+}
+
+/// The tabs atop the column at the right; a click on one switches to it.
+fn tabs_header(tabs: Vec<Button>, cx: &mut Context<EditorView>) -> Div {
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(12.0))
+        .h(px(HISTORY_HEADER_HEIGHT))
+        .pl(px(12.0))
+        .pr(px(4.0))
+        .child(
+            segmented().children(
+                tabs.into_iter()
+                    .map(|tab| clickable(segment(&tab.label, tab.selected), tab.action, cx)),
+            ),
+        )
+}
+
+/// An outline's rows at the right under its tabs, moved up by `shift` pixels.
+fn render_beside_rows(
+    tabs: Vec<Button>,
+    rows: Vec<AnyElement>,
+    scrolled: Scrolled,
+    shift: f32,
+    cx: &mut Context<EditorView>,
+) -> Div {
+    let rows = scrolled_by(
+        div().flex().flex_col().gap(px(ROW_GAP)).children(rows),
+        shift,
+    );
+    div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_w_0()
+        .gap(px(HISTORY_HEADER_GAP))
+        .overflow_hidden()
+        .font_family(font::ui())
+        .text_size(px(font::ui_size()))
+        .child(tabs_header(tabs, cx))
+        .child(fade_scrolled(
+            rows,
+            scrolled,
+            rgba(glass::window_tint()).into(),
+        ))
 }
 
 fn render_history(
     history: History,
+    tabs: Vec<Button>,
     scrolled: Scrolled,
     shift: f32,
     cx: &mut Context<EditorView>,
 ) -> Div {
     let History {
-        scopes,
         search,
         file,
         commits,
@@ -550,39 +638,20 @@ fn render_history(
             .child(format!("“{search}”")),
         None => div().child("Search history"),
     };
-    let header =
-        div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(12.0))
-            .h(px(HISTORY_HEADER_HEIGHT))
-            .pl(px(12.0))
-            .pr(px(4.0))
-            .child(
-                div()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(rgb(color::fg_main()))
-                    .child("History"),
-            )
-            .child(segmented().children(
-                scopes.into_iter().map(|scope| {
-                    clickable(segment(&scope.label, scope.selected), scope.action, cx)
-                }),
-            ))
-            .children(file.map(|file| clickable(file_chip(file.label), file.action, cx)))
-            .child(div().flex_1())
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.0))
-                    .px(px(8.0))
-                    .text_size(px(font::status_size()))
-                    .text_color(rgb(color::fg_faint()))
-                    .child(kbd("/", false))
-                    .child(search_hint),
-            );
+    let header = tabs_header(tabs, cx)
+        .children(file.map(|file| clickable(file_chip(file.label), file.action, cx)))
+        .child(div().flex_1())
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.0))
+                .px(px(8.0))
+                .text_size(px(font::status_size()))
+                .text_color(rgb(color::fg_faint()))
+                .child(kbd("/", false))
+                .child(search_hint),
+        );
     let list = if commits.is_empty() {
         div()
             .pl(px(12.0))
@@ -1127,10 +1196,10 @@ mod tests {
         let rows = file_rows(3000);
         let height = px(900.0);
         let fit = fitting_rows(&rows, 3, false, height);
-        assert_eq!(first_shown(&rows, 3, height, None), 0);
-        assert_eq!(first_shown(&rows, 3, height, Some(fit - 1)), 0);
+        assert_eq!(first_shown(&rows, 3, false, height, None), 0);
+        assert_eq!(first_shown(&rows, 3, false, height, Some(fit - 1)), 0);
         for selected in [fit, 1500, 3000] {
-            let first = first_shown(&rows, 3, height, Some(selected));
+            let first = first_shown(&rows, 3, false, height, Some(selected));
             assert_eq!(
                 first + fitting_rows(&rows[first..], 3, false, height),
                 selected + 1
@@ -1138,7 +1207,7 @@ mod tests {
         }
         let start = Instant::now();
         for _ in 0..100 {
-            std::hint::black_box(first_shown(&rows, 3, height, Some(3000)));
+            std::hint::black_box(first_shown(&rows, 3, false, height, Some(3000)));
         }
         eprintln!(
             "first_shown, last of 3000 rows: {:?}",

@@ -4,6 +4,7 @@ use std::rc::Rc;
 use crate::command::CommandResult;
 use crate::completion::Icon;
 use crate::editor::Editor;
+use crate::gutter::TextSide;
 use crate::status::Tone;
 use crate::table::{Action, Button};
 use crate::vc::{FileState, LineCounts};
@@ -30,6 +31,12 @@ pub struct Outline {
     pub banner: Option<Banner>,
     /// At the right of the title bar, e.g. Pull and Push.
     pub toolbar: Vec<ToolbarButton>,
+    /// Atop the column at the right: what it shows, e.g. the changes or the history; a
+    /// click switches.
+    pub tabs: Vec<Button>,
+    /// At the left under the facts, its own facts left out, e.g. the changed files; the
+    /// rows then go at the right under the tabs, in place of the history.
+    pub side: Option<TextSide>,
 }
 
 pub struct ToolbarButton {
@@ -125,9 +132,6 @@ pub struct ConflictSide {
 /// Commits, newest first, with the graph of how they descend from each other, like Emacs
 /// `magit-log`.
 pub struct History {
-    /// Which commits are shown, e.g. of all branches or of the current one; a click
-    /// switches.
-    pub scopes: Vec<Button>,
     /// What the commit messages were searched for, if they were.
     pub search: Option<String>,
     /// The file whose commits alone are shown, if one is; a click shows them all again.

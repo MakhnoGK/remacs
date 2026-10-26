@@ -8,8 +8,8 @@ use std::time::{Duration, Instant};
 use notify::{Event, EventKind, RecursiveMode, Watcher};
 use remacs_core::Notifier;
 
-use crate::command::{git, output};
-use crate::diff::parse_diff;
+use crate::command::{git, output, read_output};
+use crate::diff::{parse_diff, read_patch};
 use crate::history::{HistoryCache, HistoryWants};
 use crate::ignore_rules::IgnoreRules;
 use crate::settings::GitSettings;
@@ -56,7 +56,9 @@ pub enum Update {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Wants {
     pub details: bool,
-    /// An untracked directory's is the list of its files.
+    /// Every changed file's diffs, staged and not.
+    pub changes: bool,
+    /// Others; an untracked directory's is the list of its files.
     pub diffs: Vec<DiffKey>,
     pub history: Option<HistoryWants>,
     pub settings: GitSettings,
@@ -344,8 +346,14 @@ fn read(
     if let Some(history_wants) = wants.history.as_ref().filter(|_| !snapshot.is_unborn()) {
         snapshot.history = Some(history.read(root, history_wants, &snapshot)?);
     }
+    if wants.changes {
+        read_changes(root, &mut snapshot, &wants.settings)?;
+    }
     for key in &wants.diffs {
         let settings = &wants.settings;
+        if snapshot.diffs.contains_key(key) {
+            continue;
+        }
         if snapshot.untracked_directories.contains(&key.path) {
             let listing = untracked::list(root, &key.path, settings.untracked_max_files)?;
             snapshot.listings.insert(key.path.clone(), listing);
@@ -376,6 +384,58 @@ fn read(
         }
     }
     Ok(snapshot)
+}
+
+/// The diffs of every changed file: what is staged and what is not each in one `git diff`,
+/// kept up to `changes_max_bytes`; untracked files' as all added lines.
+fn read_changes(root: &Path, snapshot: &mut Snapshot, settings: &GitSettings) -> io::Result<()> {
+    let has_changes = |staged: bool| {
+        snapshot.files.values().any(|entry| match staged {
+            true => !matches!(entry.staged, b'.' | b'?'),
+            false => entry.staged != b'?' && entry.unstaged != b'.',
+        })
+    };
+    let sides: Vec<bool> = [true, false]
+        .into_iter()
+        .filter(|&staged| has_changes(staged))
+        .collect();
+    for staged in sides {
+        let mut command = git(root);
+        command.args(["-c", "core.quotePath=false", "diff", "-M"]);
+        command.args(["--no-color", "--no-ext-diff", "--no-textconv"]);
+        if staged {
+            command.arg("--cached");
+        }
+        let files = read_output(command.arg("--"), |printed| {
+            read_patch(printed, settings.changes_max_bytes)
+        })??;
+        for (path, diff) in files {
+            if snapshot
+                .files
+                .get(&path)
+                .is_some_and(|entry| !entry.conflicted)
+            {
+                snapshot.diffs.insert(DiffKey { staged, path }, diff);
+            }
+        }
+    }
+    let untracked: Vec<PathBuf> = (snapshot.files.iter())
+        .filter(|(_, entry)| entry.staged == b'?')
+        .map(|(path, _)| path.clone())
+        .collect();
+    for path in untracked {
+        // Gone since it was listed, it is left out until the status is read again.
+        if let Ok(diff) = untracked::diff(root, &path, settings.untracked_max_bytes) {
+            snapshot.diffs.insert(
+                DiffKey {
+                    staged: false,
+                    path,
+                },
+                diff,
+            );
+        }
+    }
+    Ok(())
 }
 
 /// `git diff --numstat` against `against`, else of what is not staged.

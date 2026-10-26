@@ -158,7 +158,11 @@ pub fn read_patch(
     loop {
         line.clear();
         let ended = printed.read_until(b'\n', &mut line)? == 0;
-        if ended || line.starts_with(b"diff --git ") {
+        // A diff of the work tree tells of files with conflicts its own way.
+        let starts_file = [&b"diff --git "[..], b"diff --cc ", b"* Unmerged path "]
+            .iter()
+            .any(|start| line.starts_with(start));
+        if ended || starts_file {
             files.extend(mem::take(&mut file).finish(&mut left));
             if ended {
                 return Ok(files);

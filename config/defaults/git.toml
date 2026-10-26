@@ -11,6 +11,10 @@ untracked-max-files = 500
 # shows its size instead.
 commit-max-bytes = 8388608
 
+# The diffs the status's Changes tab keeps at most, in bytes, of what is staged and again
+# of what is not; a file whose diff does not fit what is left shows its size instead.
+changes-max-bytes = 8388608
+
 # Characters of an author's name the gutter of a blame buffer (C-x v g) shows; longer
 # names are cut with an ellipsis.
 blame-author-width = 12
