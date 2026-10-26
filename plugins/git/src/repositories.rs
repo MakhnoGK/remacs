@@ -31,6 +31,12 @@ impl Repositories {
         self.open.get(root)
     }
 
+    /// Forgets the directories found outside any working tree, so that one made a
+    /// repository since is looked at again.
+    pub fn forget_outside(&mut self) {
+        self.roots.retain(|_, root| root.is_some());
+    }
+
     /// The open working tree `path` is in, innermost first, with `path` relative to it.
     pub fn find<'a>(&'a self, path: &'a Path) -> Option<(&'a Path, &'a Repository, &'a Path)> {
         self.open
