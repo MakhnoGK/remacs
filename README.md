@@ -15,15 +15,16 @@ plugin. Alpha: expect rough edges, and report them in the
 
 ## Install
 
-On macOS 15 or later, from Homebrew:
+On macOS 14 or later on Apple Silicon, from Homebrew, into /Applications (Launchpad and
+Spotlight find it) with `remacs` on the command line:
 
 ```sh
-brew install makhnogk/remacs/remacs
+brew install --cask makhnogk/remacs/remacs
 ```
 
-`brew upgrade remacs` updates it to the next release; `brew info remacs` says how to add
-the app to Launchpad. `brew install --HEAD makhnogk/remacs/remacs` builds `dev` instead
-(needs Xcode).
+`brew upgrade remacs` updates it to the next release. The app is not notarized, so the
+cask removes macOS's quarantine from it. `brew install --HEAD makhnogk/remacs/remacs`
+builds `dev` instead (needs Xcode); uninstall one before installing the other.
 
 ### From source
 
@@ -45,7 +46,7 @@ the shaders at startup instead. Its launcher comes before Homebrew's on a usual 
 so have one of the two, not both.
 
 There is no .dmg: the app is signed ad hoc, not notarized, so macOS would block one
-downloaded from a browser; Homebrew's install is not blocked.
+downloaded from a browser; the cask removes the quarantine that blocks it.
 
 ### Linux
 
@@ -58,7 +59,9 @@ tar -xzf remacs-*-x86_64-linux.tar.gz
 remacs-*-x86_64-linux/install.sh     # or install.sh <prefix>; ~/.local by default
 ```
 
-It puts `remacs` in `~/.local/bin` and Remacs in the applications menu. From source,
+It puts `remacs` in `~/.local/bin` and Remacs in the applications menu. Homebrew on
+Linux installs it too, with `brew install makhnogk/remacs/remacs`; `brew info remacs`
+says how to have it in the applications menu. Have one of the two, not both. From source,
 `cargo fetch --locked && cargo xtask install` does the same (needs `cargo install
 cargo-about --locked --features cli` and the Wayland, X11, Vulkan and fontconfig headers).
 

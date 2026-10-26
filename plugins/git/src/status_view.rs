@@ -7,13 +7,15 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use remacs_core::{
-    Buffer, Button, DiffRow, Editor, Fact, FactValue, FileState, Icon, LineCounts, Outline,
-    OutlineRow, RefChip, RefKind, StatusItem, StatusSegment, Tone, ToolbarButton,
+    Action, Buffer, Button, CommandResult, DiffRow, Editor, Fact, FactValue, FileState, Icon,
+    LineCounts, Outline, OutlineRow, RefChip, RefKind, StatusItem, StatusSegment, TextSide, Tone,
+    ToolbarButton,
 };
 use remacs_text::Text;
 
 use crate::conflict_view::{self, ConflictState};
 use crate::diff::FileDiff;
+use crate::history::ChangedFile;
 use crate::history_view::{self, HistoryState};
 use crate::integrate;
 use crate::monitor::Wants;
@@ -37,6 +39,13 @@ const HINTS: &[(&str, &str)] = &[
     ("z", "Stash"),
     ("s", "Stage"),
     ("u", "Unstage"),
+];
+const HISTORY_HINTS: &[(&str, &str)] = &[
+    ("n/p", "Commit"),
+    ("M-n/M-p", "File"),
+    ("↵", "Open"),
+    ("/", "Search"),
+    ("l", "Tab"),
 ];
 /// Diff lines shown of one file at most, so a huge change does not swamp the buffer.
 pub const MAX_DIFF_LINES: usize = 2000;
@@ -89,9 +98,23 @@ impl Section {
     }
 }
 
+/// What the status shows beside the facts.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Tab {
+    /// The changed files at the left, their diffs at the right.
+    #[default]
+    Changes,
+    /// The history at the right, the selected commit's files at the left.
+    History,
+}
+
 /// What a line of the status buffer stands for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Line {
+    /// Over the files of the commit selected in the history.
+    CommitFiles,
+    /// One of them, by its place.
+    CommitFile(usize),
     Heading(Section),
     File(Section, PathBuf),
     /// A hunk's header, with `line` `None`, or one of its lines.
@@ -143,14 +166,26 @@ impl Line {
     }
 }
 
+/// Rows beside the lines, and what a click on each does.
+type SideRows = (Rc<[OutlineRow]>, Rc<[Option<Action>]>);
+
 /// The state of a status buffer.
 pub struct StatusView {
     pub root: PathBuf,
+    pub tab: Tab,
     folded: HashSet<Section>,
-    open: HashSet<(Section, PathBuf)>,
+    /// Files whose diffs are shown the other way than by default, see [`Self::is_open`].
+    toggled: HashSet<(Section, PathBuf)>,
     pub lines: Vec<Line>,
     /// The snapshot generation drawn; `None` to draw again.
     drawn: Option<u64>,
+    /// Point goes to the first file when the buffer is drawn again.
+    from_top: bool,
+    /// The headings, files and stashes of the changes, at the left of their diffs; kept,
+    /// so a frame does not build a row per file.
+    side: SideRows,
+    /// For each line, the row of the side it is under.
+    side_of_line: Vec<Option<usize>>,
     pub history: HistoryState,
     pub conflicts: ConflictState,
     /// Stashes unfolded, by id.
@@ -161,14 +196,40 @@ impl StatusView {
     pub fn new(root: PathBuf) -> Self {
         Self {
             root,
+            tab: Tab::default(),
             folded: HashSet::from([Section::Stashes]),
-            open: HashSet::new(),
+            toggled: HashSet::new(),
             lines: Vec::new(),
             drawn: None,
+            from_top: false,
+            side: (Rc::new([]), Rc::new([])),
+            side_of_line: Vec::new(),
             history: HistoryState::default(),
             conflicts: ConflictState::default(),
             open_stashes: HashMap::new(),
         }
+    }
+
+    /// Draws the buffer again, point on its first file.
+    pub fn redraw_from_top(&mut self) {
+        self.drawn = None;
+        self.from_top = true;
+    }
+
+    /// Shows `tab`; the history of every branch with `all`, else of the current one.
+    pub fn show_tab(&mut self, tab: Tab, all: bool) {
+        self.tab = tab;
+        if tab == Tab::History {
+            self.history.set_all(all);
+        }
+        self.redraw_from_top();
+    }
+
+    /// Whether the diff of `section`'s file at `path` is shown: one Git lists is unless
+    /// folded, an untracked directory and the files it lists only once unfolded.
+    fn is_open(&self, snapshot: &Snapshot, section: Section, path: &Path) -> bool {
+        let by_default = section.has_diffs() && snapshot.files.contains_key(path);
+        by_default != self.toggled.contains(&(section, path.to_path_buf()))
     }
 
     /// Unfolds the stashes and the stash `id`, which holds `contents`.
@@ -193,37 +254,34 @@ impl StatusView {
 
     pub fn toggle_file(&mut self, section: Section, path: &Path) {
         let key = (section, path.to_path_buf());
-        if !self.open.remove(&key) {
-            self.open.insert(key);
+        if !self.toggled.remove(&key) {
+            self.toggled.insert(key);
         }
         self.drawn = None;
     }
 
     /// Whether the diff of a file in the buffer is shown.
     pub fn any_file_open(&self) -> bool {
-        self.open
-            .iter()
-            .any(|(section, path)| self.lines.contains(&Line::File(*section, path.clone())))
+        (self.lines.iter()).any(|line| matches!(line, Line::Diff { .. } | Line::NoDiff(..)))
     }
 
-    /// Unfolds the sections with diffs and shows the diff of each of their files.
-    pub fn open_all(&mut self, snapshot: &Snapshot) {
+    /// Unfolds the sections with diffs and shows the diff of each of their files, or with
+    /// `open` false hides them all.
+    pub fn open_all(&mut self, snapshot: &Snapshot, open: bool) {
+        self.toggled.clear();
         for section in Section::FILES
             .into_iter()
             .filter(|section| section.has_diffs())
         {
-            self.folded.remove(&section);
-            self.open.extend(
-                section_files(snapshot, section)
-                    .into_iter()
-                    .map(|file| (section, file.path)),
-            );
+            if open {
+                self.folded.remove(&section);
+            }
+            for file in section_files(snapshot, section) {
+                if self.is_open(snapshot, section, &file.path) != open {
+                    self.toggled.insert((section, file.path));
+                }
+            }
         }
-        self.drawn = None;
-    }
-
-    pub fn close_all(&mut self) {
-        self.open.clear();
         self.drawn = None;
     }
 
@@ -311,7 +369,7 @@ fn section_file(snapshot: &Snapshot, section: Section, path: &Path) -> Option<Se
 }
 
 /// A letter of `git status --short` as a state.
-fn side_state(letter: u8) -> FileState {
+pub fn side_state(letter: u8) -> FileState {
     match letter {
         b'A' | b'C' => FileState::Added,
         b'D' => FileState::Deleted,
@@ -336,8 +394,13 @@ pub fn wants(editor: &Editor) -> HashMap<PathBuf, Wants> {
         wanted.details = true;
         wanted.settings = settings.clone();
         wanted.history = Some(view.history.wants());
+        if view.tab != Tab::Changes {
+            continue;
+        }
+        wanted.changes = true;
+        // Those folded are read along with the rest, so asking for them costs nothing.
         let mut diffs: Vec<DiffKey> = view
-            .open
+            .toggled
             .iter()
             .filter(|(section, _)| !view.folded.contains(section))
             .map(|(section, path)| DiffKey {
@@ -363,11 +426,15 @@ pub fn sync(editor: &mut Editor) {
     else {
         return;
     };
+    let tab = view.tab;
     if let Some(snapshot) = repository.snapshot.clone()
         && view.drawn != Some(repository.generation)
     {
         let generation = repository.generation;
         draw(editor.window_buffer_mut(), &snapshot, generation);
+    }
+    if tab == Tab::History {
+        history_view::read_selected_files(editor);
     }
 }
 
@@ -378,10 +445,16 @@ fn draw(buffer: &mut Buffer, snapshot: &Snapshot, generation: u64) {
         return;
     };
     let current = view.lines.get(current_line).cloned();
-    let first_draw = view.drawn.is_none() && view.lines.is_empty();
-    let (lines, texts) = layout(view, snapshot);
+    let from_top = view.from_top || (view.drawn.is_none() && view.lines.is_empty());
+    view.from_top = false;
+    let (lines, texts) = match view.tab {
+        Tab::Changes => layout(view, snapshot),
+        Tab::History => commit_layout(view),
+    };
     let target = match &current {
-        _ if first_draw => lines.iter().position(|line| matches!(line, Line::File(..))),
+        _ if from_top => {
+            (lines.iter()).position(|line| matches!(line, Line::File(..) | Line::CommitFile(_)))
+        }
         Some(current) => lines.iter().position(|line| line == current).or_else(|| {
             let (section, path) = current.file()?;
             lines
@@ -393,6 +466,7 @@ fn draw(buffer: &mut Buffer, snapshot: &Snapshot, generation: u64) {
     .unwrap_or(current_line.min(lines.len().saturating_sub(1)));
     view.lines = lines;
     view.drawn = Some(generation);
+    (view.side, view.side_of_line) = side_rows(view, snapshot);
     if let Some(details) = &snapshot.details {
         view.open_stashes
             .retain(|id, _| details.stashes.iter().any(|stash| stash.id == *id));
@@ -423,7 +497,7 @@ fn layout(view: &StatusView, snapshot: &Snapshot) -> (Vec<Line>, Vec<String>) {
             let listing = snapshot
                 .listings
                 .get(&file.path)
-                .filter(|_| view.open.contains(&(section, file.path.clone())));
+                .filter(|_| view.is_open(snapshot, section, &file.path));
             if let Some(listing) = listing {
                 for path in &listing.files {
                     let listed = SectionFile {
@@ -461,6 +535,66 @@ fn layout(view: &StatusView, snapshot: &Snapshot) -> (Vec<Line>, Vec<String>) {
     (lines, texts)
 }
 
+/// The lines of the files of the commit selected in the history, once read.
+fn commit_layout(view: &StatusView) -> (Vec<Line>, Vec<String>) {
+    let Some(files) = view.history.files() else {
+        return (Vec::new(), Vec::new());
+    };
+    let mut lines = vec![Line::CommitFiles];
+    let mut texts = vec![format!("Files {}", files.len())];
+    for (index, file) in files.iter().enumerate() {
+        lines.push(Line::CommitFile(index));
+        texts.push(format!("{} {}", file.state.letter(), file.path.display()));
+    }
+    (lines, texts)
+}
+
+/// The changes' headings, files and stashes, each going to its line on a click; and for
+/// each line, the row it is under. None in the history, whose lines are the side.
+fn side_rows(view: &StatusView, snapshot: &Snapshot) -> (SideRows, Vec<Option<usize>>) {
+    // Each section's files read once, by path: one look-up per file keeps this linear.
+    let sections: HashMap<Section, Vec<SectionFile>> = Section::FILES
+        .into_iter()
+        .map(|section| (section, section_files(snapshot, section)))
+        .collect();
+    let (mut rows, mut actions) = (Vec::new(), Vec::new());
+    let mut under = Vec::with_capacity(view.lines.len());
+    for (index, line) in view.lines.iter().enumerate() {
+        let row = match line {
+            Line::File(section, path) => {
+                let files = &sections[section];
+                let file = match files.binary_search_by(|file| file.path.as_path().cmp(path)) {
+                    Ok(at) => &files[at],
+                    // Not in the section, it is one an unfolded untracked directory lists.
+                    Err(_) => &SectionFile {
+                        path: path.clone(),
+                        state: FileState::Untracked,
+                        lines: None,
+                        original: None,
+                    },
+                };
+                Some(file_row(view, snapshot, *section, file))
+            }
+            Line::Heading(_) | Line::Stash(_) => row(view, snapshot, line),
+            _ => None,
+        };
+        if let Some(row) = row {
+            rows.push(row);
+            let action: Action = Rc::new(move |editor| go_to_line(editor, index));
+            actions.push(Some(action));
+        }
+        under.push(rows.len().checked_sub(1));
+    }
+    ((rows.into(), actions.into()), under)
+}
+
+/// Puts point on `line`, at the top of the window.
+fn go_to_line(editor: &mut Editor, line: usize) -> CommandResult {
+    editor.set_point_at(line, 0);
+    editor.scroll(line as isize - editor.viewport.first_line as isize);
+    Ok(())
+}
+
 /// A file's line and, unfolded, its diff.
 fn push_file(
     lines: &mut Vec<Line>,
@@ -477,7 +611,7 @@ fn push_file(
         staged: section.is_staged(),
         path: path.clone(),
     };
-    let open = view.open.contains(&(section, path.clone()));
+    let open = view.is_open(snapshot, section, path);
     if let Some(diff) = snapshot.diffs.get(&key).filter(|_| open) {
         push_diff(
             lines,
@@ -574,6 +708,7 @@ pub fn outline(editor: &Editor, range: Range<usize>) -> Option<Outline> {
         None => Vec::new(),
     };
     let point_line = editor.window_buffer().point_line();
+    let changes = view.tab == Tab::Changes;
     let conflict = snapshot.and_then(|snapshot| {
         let (Section::Unmerged, path) = view.line(point_line)?.file()? else {
             return None;
@@ -588,16 +723,52 @@ pub fn outline(editor: &Editor, range: Range<usize>) -> Option<Outline> {
         activate: VISIT,
         hints: match snapshot.and_then(|snapshot| snapshot.operation.as_ref()) {
             _ if in_conflict => conflict_view::hints(snapshot),
+            _ if !changes => HISTORY_HINTS,
             Some(_) => conflict_view::OPERATION_HINTS,
             None => HINTS,
         },
         history: snapshot
-            .filter(|_| !in_conflict)
+            .filter(|_| !changes)
             .map(|snapshot| history_view::history(view, snapshot)),
         conflict,
         banner: snapshot.and_then(conflict_view::banner),
         toolbar: snapshot.map(toolbar).unwrap_or_default(),
+        tabs: tabs(view),
+        side: changes.then(|| TextSide {
+            facts: Vec::new(),
+            rows: view.side.0.clone(),
+            actions: view.side.1.clone(),
+            selected: view.side_of_line.get(point_line).copied().flatten(),
+        }),
     })
+}
+
+/// The changes, the history of every branch and that of the current one.
+fn tabs(view: &StatusView) -> Vec<Button> {
+    let all = view.history.all();
+    // The changes ignore `all`.
+    [
+        ("Changes", Tab::Changes, true),
+        ("History", Tab::History, true),
+        ("Current branch", Tab::History, false),
+    ]
+    .into_iter()
+    .map(|(label, tab, all_wanted)| Button {
+        label: label.into(),
+        selected: view.tab == tab && (tab == Tab::Changes || all == all_wanted),
+        action: Rc::new(move |editor| show_tab(editor, tab, all_wanted)),
+    })
+    .collect()
+}
+
+/// Shows `tab` of the window's status buffer, see [`StatusView::show_tab`].
+pub fn show_tab(editor: &mut Editor, tab: Tab, all: bool) -> CommandResult {
+    editor
+        .window_buffer_mut()
+        .local_mut::<StatusView>()
+        .ok_or(NOT_A_STATUS_BUFFER)?
+        .show_tab(tab, all);
+    Ok(())
 }
 
 /// Pull and Push, with the commits each would move; off while something is in progress
@@ -643,26 +814,19 @@ fn row(view: &StatusView, snapshot: &Snapshot, line: &Line) -> Option<OutlineRow
                 Tone::Plain
             },
         },
-        Line::File(section, path) => {
-            let file = section_file(snapshot, *section, path)?;
-            let is_directory = snapshot.untracked_directories.contains(path);
-            let name = path
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            OutlineRow::File {
-                state: file.state,
-                name: if is_directory {
-                    format!("{name}/")
-                } else {
-                    name
-                },
-                directory: directory_label(path),
-                lines: file.lines,
-                note: conflict_view::file_note(view, snapshot, *section, path),
-                open: view.open.contains(&(*section, path.clone())),
-            }
-        }
+        Line::File(section, path) => file_row(
+            view,
+            snapshot,
+            *section,
+            &section_file(snapshot, *section, path)?,
+        ),
+        Line::CommitFiles => OutlineRow::Heading {
+            title: "Files".into(),
+            count: view.history.files()?.len(),
+            open: true,
+            tone: Tone::Plain,
+        },
+        Line::CommitFile(index) => commit_file_row(view.history.files()?.get(*index)?),
         Line::Diff {
             section,
             path,
@@ -727,6 +891,50 @@ fn row(view: &StatusView, snapshot: &Snapshot, line: &Line) -> Option<OutlineRow
             }
         }
     })
+}
+
+fn file_row(
+    view: &StatusView,
+    snapshot: &Snapshot,
+    section: Section,
+    file: &SectionFile,
+) -> OutlineRow {
+    let path = &file.path;
+    let is_directory = snapshot.untracked_directories.contains(path);
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    OutlineRow::File {
+        state: file.state,
+        name: if is_directory {
+            format!("{name}/")
+        } else {
+            name
+        },
+        directory: directory_label(path),
+        lines: file.lines,
+        note: conflict_view::file_note(view, snapshot, section, path),
+        open: view.is_open(snapshot, section, path),
+    }
+}
+
+fn commit_file_row(file: &ChangedFile) -> OutlineRow {
+    OutlineRow::File {
+        state: file.state,
+        name: (file.path.file_name())
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        directory: directory_label(&file.path),
+        lines: file.lines,
+        note: (file.original.as_ref())
+            .filter(|_| {
+                file.lines
+                    .is_none_or(|lines| lines.added + lines.removed == 0)
+            })
+            .map(|original| (format!("from {}", original.display()), Tone::Faint)),
+        open: false,
+    }
 }
 
 /// A hunk's header, or one of its lines.

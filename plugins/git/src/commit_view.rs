@@ -777,12 +777,25 @@ fn move_to(
     wanted: fn(&CommitLine) -> bool,
     none: &'static str,
 ) -> CommandResult {
+    move_to_line(editor, commit_lines, forward, wanted, none)
+}
+
+fn commit_lines(buffer: &Buffer) -> Result<&[CommitLine], &'static str> {
+    let view = buffer.local::<CommitView>().ok_or(NOT_A_COMMIT_BUFFER)?;
+    Ok(&view.lines)
+}
+
+/// Like [`move_to`], of the window buffer's `lines_of`.
+pub fn move_to_line<L>(
+    editor: &mut Editor,
+    lines_of: fn(&Buffer) -> Result<&[L], &'static str>,
+    forward: bool,
+    wanted: fn(&L) -> bool,
+    none: &'static str,
+) -> CommandResult {
     let buffer = editor.window_buffer();
     let point_line = buffer.point_line();
-    let lines = &buffer
-        .local::<CommitView>()
-        .ok_or(NOT_A_COMMIT_BUFFER)?
-        .lines;
+    let lines = lines_of(buffer)?;
     let target = if forward {
         (lines.iter().skip(point_line + 1))
             .position(wanted)

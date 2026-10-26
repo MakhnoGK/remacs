@@ -120,6 +120,7 @@ fn bundle() -> Result<PathBuf> {
     .map_err(|error| format!("copying the binary: {error}"))?;
     fs::copy(&notices, resources.join(NOTICES))
         .map_err(|error| format!("copying the notices: {error}"))?;
+    copy(&sources.join("launcher.sh"), &resources.join("launcher"))?;
     let plist = read(&sources.join("Info.plist"))?;
     write(&contents.join("Info.plist"), &version.fill(&plist))?;
     icon(

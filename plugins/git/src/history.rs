@@ -1,14 +1,17 @@
 //! The commits of a repository, newest first, read with `git log` and laid out in lanes
 //! like `git log --graph`.
 
+use std::ffi::OsStr;
 use std::io;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use remacs_core::{GraphEdge, GraphNode, GraphRow};
+use remacs_core::{FileState, GraphEdge, GraphNode, GraphRow, LineCounts};
 
 use crate::command::{git, output};
-use crate::status::Snapshot;
+use crate::status::{Snapshot, parse_numstat};
+use crate::status_view::side_state;
 
 /// Commits read at first, and more each time the reader nears the last one read.
 pub const PAGE: usize = 200;
@@ -323,9 +326,113 @@ fn free_lane(lanes: &mut Vec<Option<Lane>>) -> usize {
     }
 }
 
+/// A file a commit changed, against its first parent.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChangedFile {
+    pub path: PathBuf,
+    pub state: FileState,
+    /// None for a binary file.
+    pub lines: Option<LineCounts>,
+    /// Where a renamed or copied file came from.
+    pub original: Option<PathBuf>,
+}
+
+/// The files commit `id` changed, without reading their diffs.
+pub fn read_files(root: &Path, id: &str) -> io::Result<Vec<ChangedFile>> {
+    let printed = output(
+        git(root)
+            .args(["show", "--format=", "--raw", "--numstat", "-z", "-M"])
+            .args(["--diff-merges=first-parent", "--no-color", id, "--"]),
+    )?;
+    Ok(parse_files(&printed))
+}
+
+/// Reads `git show --raw --numstat -z`: the raw records, `:<modes> <ids> <state>` and
+/// the path, or both paths for a rename or copy; then the line counts.
+fn parse_files(printed: &[u8]) -> Vec<ChangedFile> {
+    let mut rest = printed;
+    let mut files = Vec::new();
+    while rest.starts_with(b":") {
+        let raw = take_record(&mut rest);
+        let letter = raw.rsplit(|&byte| byte == b' ').next();
+        let letter = letter
+            .and_then(|state| state.first())
+            .copied()
+            .unwrap_or(b'M');
+        let first = path(take_record(&mut rest));
+        let (path, original) = match letter {
+            b'R' | b'C' => (path(take_record(&mut rest)), Some(first)),
+            _ => (first, None),
+        };
+        files.push(ChangedFile {
+            path,
+            state: side_state(letter),
+            lines: None,
+            original,
+        });
+    }
+    for (path, lines) in parse_numstat(rest) {
+        if let Some(file) = files.iter_mut().find(|file| file.path == path) {
+            file.lines = lines;
+        }
+    }
+    files
+}
+
+/// The record `rest` starts with, up to its NUL, which `rest` is moved past.
+fn take_record<'a>(rest: &mut &'a [u8]) -> &'a [u8] {
+    let (record, after) = rest.split_at(
+        rest.iter()
+            .position(|&byte| byte == 0)
+            .unwrap_or(rest.len()),
+    );
+    *rest = after.get(1..).unwrap_or_default();
+    record
+}
+
+fn path(bytes: &[u8]) -> PathBuf {
+    PathBuf::from(OsStr::from_bytes(bytes))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_commits_files_carry_their_states_renames_and_line_counts() {
+        let printed = b":000000 100644 0000000 d5d0b8b A\0bin\0\
+:100644 100644 7898192 7898192 R100\0a\0c\0\
+:100644 100644 1111111 2222222 M\0src/lib.rs\0\
+-\t-\tbin\0\
+0\t0\t\0a\0c\0\
+3\t1\tsrc/lib.rs\0";
+        let files = parse_files(printed);
+        let counts = |added, removed| Some(LineCounts { added, removed });
+        assert_eq!(
+            files,
+            [
+                ChangedFile {
+                    path: "bin".into(),
+                    state: FileState::Added,
+                    lines: None,
+                    original: None,
+                },
+                ChangedFile {
+                    path: "c".into(),
+                    state: FileState::Renamed,
+                    lines: counts(0, 0),
+                    original: Some("a".into()),
+                },
+                ChangedFile {
+                    path: "src/lib.rs".into(),
+                    state: FileState::Modified,
+                    lines: counts(3, 1),
+                    original: None,
+                },
+            ]
+        );
+        assert!(parse_files(b"").is_empty());
+    }
 
     fn commit(id: &str, parents: &[&str], is_head: bool) -> Commit {
         Commit {

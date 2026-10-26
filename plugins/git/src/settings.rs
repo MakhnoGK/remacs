@@ -11,6 +11,9 @@ pub struct GitSettings {
     pub untracked_max_files: usize,
     /// A commit's diffs kept at most; a file whose diff does not fit is summarized.
     pub commit_max_bytes: u64,
+    /// The status's staged diffs kept at most, its unstaged ones, and its untracked files';
+    /// as for a commit.
+    pub changes_max_bytes: u64,
     /// Characters of an author's name a blame buffer shows.
     pub blame_author_width: usize,
 }
@@ -21,6 +24,7 @@ impl Default for GitSettings {
             untracked_max_bytes: 1024 * 1024,
             untracked_max_files: 500,
             commit_max_bytes: 8 * 1024 * 1024,
+            changes_max_bytes: 8 * 1024 * 1024,
             blame_author_width: 12,
         }
     }

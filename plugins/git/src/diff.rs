@@ -1,7 +1,9 @@
 //! One file's `git diff`, and patches of single hunks for `git apply`.
 
+use std::ffi::OsStr;
 use std::io::{self, BufRead};
 use std::mem;
+use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
 
 use remacs_core::{FileState, LineCounts};
@@ -78,7 +80,7 @@ impl FileDiff {
     /// What is said in place of the hunks when there are none.
     pub fn summary(&self) -> String {
         match self.too_large {
-            Some(bytes) => format!("Large file, {}, not shown", size(bytes)),
+            Some(bytes) => format!("Diff of {} not shown, past git.toml's limits", size(bytes)),
             None if self.binary => "Binary file".into(),
             None if self.header.contains("\nnew file mode") => "Empty file".into(),
             None => "No changes to show".into(),
@@ -158,7 +160,11 @@ pub fn read_patch(
     loop {
         line.clear();
         let ended = printed.read_until(b'\n', &mut line)? == 0;
-        if ended || line.starts_with(b"diff --git ") {
+        // A diff of the work tree tells of files with conflicts its own way.
+        let starts_file = [&b"diff --git "[..], b"diff --cc ", b"* Unmerged path "]
+            .iter()
+            .any(|start| line.starts_with(start));
+        if ended || starts_file {
             files.extend(mem::take(&mut file).finish(&mut left));
             if ended {
                 return Ok(files);
@@ -211,20 +217,74 @@ impl PatchFile {
 }
 
 /// The path after `+++ b/`, or `--- a/` for a deleted file; else, for a binary file, the
-/// second half of `diff --git a/<path> b/<path>`.
+/// second of `diff --git a/<path> b/<path>`.
 fn patched_path(file: &str) -> Option<PathBuf> {
     let header = file.split("\n@@").next().unwrap_or(file);
-    let named = |prefix: &str| {
-        header
-            .lines()
-            .find_map(|line| line.strip_prefix(prefix))
-            .map(PathBuf::from)
+    let named = |marker: &str, side: &[u8]| {
+        let name = header.lines().find_map(|line| line.strip_prefix(marker))?;
+        // Git ends the name with a tab when it holds a space.
+        let name = unquote(name.strip_suffix('\t').unwrap_or(name));
+        name.strip_prefix(side).map(bytes_path)
     };
-    named("+++ b/").or_else(|| named("--- a/")).or_else(|| {
-        let paths = header.lines().next()?.strip_prefix("diff --git a/")?;
-        let path_length = paths.len().checked_sub(" b/".len())? / 2;
-        paths.get(path_length + " b/".len()..).map(PathBuf::from)
-    })
+    named("+++ ", b"b/")
+        .or_else(|| named("--- ", b"a/"))
+        .or_else(|| {
+            let names = header.lines().next()?.strip_prefix("diff --git ")?;
+            let second = match names.rfind(" \"b/") {
+                Some(at) => &names[at + 1..],
+                None => names.get(names.len().checked_sub(1)? / 2 + 1..)?,
+            };
+            unquote(second).strip_prefix(b"b/").map(bytes_path)
+        })
+}
+
+/// A name as Git prints it: in quotes with C's escapes when it holds a quote, a backslash
+/// or a control character, else as it is.
+fn unquote(name: &str) -> Vec<u8> {
+    let Some(quoted) = name
+        .strip_prefix('"')
+        .and_then(|name| name.strip_suffix('"'))
+    else {
+        return name.as_bytes().to_vec();
+    };
+    let (mut bytes, mut rest) = (Vec::new(), quoted.as_bytes());
+    while let Some((&byte, after)) = rest.split_first() {
+        rest = after;
+        if byte != b'\\' {
+            bytes.push(byte);
+            continue;
+        }
+        let Some((&escaped, after)) = rest.split_first() else {
+            break;
+        };
+        rest = after;
+        bytes.push(match escaped {
+            b'a' => 0x07,
+            b'b' => 0x08,
+            b't' => b'\t',
+            b'n' => b'\n',
+            b'v' => 0x0b,
+            b'f' => 0x0c,
+            b'r' => b'\r',
+            // A byte of a name not in UTF-8, as three octal digits.
+            b'0'..=b'7' => {
+                let more = (rest.iter().take(2))
+                    .take_while(|digit| matches!(digit, b'0'..=b'7'))
+                    .count();
+                let (digits, after) = rest.split_at(more);
+                rest = after;
+                (digits.iter()).fold(escaped - b'0', |value, digit| {
+                    value.wrapping_mul(8).wrapping_add(digit - b'0')
+                })
+            }
+            other => other,
+        });
+    }
+    bytes
+}
+
+fn bytes_path(bytes: &[u8]) -> PathBuf {
+    PathBuf::from(OsStr::from_bytes(bytes))
 }
 
 /// The `39` of `@@ -39,3 +39,6 @@`.
@@ -311,6 +371,58 @@ Binary files a/i m.png and b/i m.png differ\n"
         assert_eq!(files[1].1.hunks[0].lines, ["-x"]);
         assert!(files[2].1.binary);
         assert!(split_patch("").is_empty());
+    }
+
+    #[test]
+    fn a_work_tree_diff_splits_at_files_with_conflicts_and_names_with_spaces() {
+        let patch = "diff --git a/a b.rs b/a b.rs\n\
+--- a/a b.rs\t\n\
++++ b/a b.rs\t\n\
+@@ -1 +1 @@\n\
+-a\n\
++b\n\
+diff --cc both.rs\n\
+index 1111111,2222222..0000000\n\
+--- a/both.rs\n\
++++ b/both.rs\n\
+@@@ -1,1 -1,1 +1,5 @@@\n\
+++<<<<<<< HEAD\n\
+* Unmerged path gone.rs\n";
+        let files = split_patch(patch);
+        assert_eq!(files[0].0, PathBuf::from("a b.rs"));
+        assert_eq!(files[0].1.hunks[0].lines, ["-a", "+b"]);
+        assert_eq!(files[1].0, PathBuf::from("both.rs"));
+        assert_eq!(files.len(), 2);
+    }
+
+    #[test]
+    fn names_git_quotes_are_read_back() {
+        let patch = "diff --git \"a/a\\\"b.rs\" \"b/a\\\"b.rs\"\n\
+--- \"a/a\\\"b.rs\"\n\
++++ \"b/a\\\"b.rs\"\n\
+@@ -1 +1 @@\n\
+-x\n\
++y\n\
+diff --git \"a/q\\\\b\\tc.bin\" \"b/q\\\\b\\tc.bin\"\n\
+Binary files \"a/q\\\\b\\tc.bin\" and \"b/q\\\\b\\tc.bin\" differ\n\
+diff --git a/gone.rs b/gone.rs\n\
+deleted file mode 100644\n\
+--- \"a/\\303\\251.rs\"\n\
++++ /dev/null\n\
+@@ -1 +0,0 @@\n\
+-x\n";
+        let paths: Vec<PathBuf> = split_patch(patch)
+            .into_iter()
+            .map(|(path, _)| path)
+            .collect();
+        assert_eq!(
+            paths,
+            [
+                PathBuf::from("a\"b.rs"),
+                PathBuf::from("q\\b\tc.bin"),
+                PathBuf::from("é.rs"),
+            ]
+        );
     }
 
     #[test]

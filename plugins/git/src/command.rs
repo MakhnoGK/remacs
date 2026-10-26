@@ -9,6 +9,14 @@ pub fn git(root: &Path) -> Command {
     command
         .arg("-C")
         .arg(root)
+        // Diffs are read and applied by their `a/` and `b/`, whatever the user's config says.
+        .args([
+            "-c",
+            "diff.noprefix=false",
+            "-c",
+            "diff.mnemonicPrefix=false",
+        ])
+        .args(["-c", "diff.srcPrefix=a/", "-c", "diff.dstPrefix=b/"])
         .env("GIT_OPTIONAL_LOCKS", "0")
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_LITERAL_PATHSPECS", "1")
@@ -53,16 +61,6 @@ pub fn output_with_input(command: &mut Command, input: &[u8]) -> io::Result<Vec<
         .expect("stdin is piped")
         .write_all(input)?;
     finished(child.wait_with_output()?)
-}
-
-/// Like [`output`], for `git diff --no-index`, which exits with 1 when the files differ.
-pub fn diff_output(command: &mut Command) -> io::Result<Vec<u8>> {
-    let output = command.output()?;
-    // It exits with 1 on errors too, printing nothing.
-    if output.status.code() == Some(1) && !output.stdout.is_empty() {
-        return Ok(output.stdout);
-    }
-    finished(output)
 }
 
 fn finished(output: std::process::Output) -> io::Result<Vec<u8>> {

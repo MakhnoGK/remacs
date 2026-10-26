@@ -1,0 +1,97 @@
+name: macOS app
+
+# A release's Remacs.app, zipped with its provenance and added to the release, and the
+# bump of the tap's cask that installs it into /Applications. The release workflow calls
+# it for a new tag; by hand, it builds an existing tag's app again.
+on:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      version:
+        description: A released version, e.g. 0.1.0-alpha.2
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    runs-on: macos-15
+    timeout-minutes: 90
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    outputs:
+      sha256: ${{ steps.zip.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: v${{ inputs.version }}
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: 1.98.0
+      # gpui compiles its Metal shaders at build time; Xcode 26 and later ship the Metal
+      # toolchain as a separate download.
+      - name: Metal toolchain
+        run: xcrun -sdk macosx metal --version || xcodebuild -downloadComponent MetalToolchain
+      - run: cargo install cargo-about@0.9.2 --locked --features cli
+      # The notices read every crate in the lock file offline, other platforms' too.
+      - run: cargo fetch --locked
+      - id: zip
+        env:
+          REMACS_VERSION: ${{ inputs.version }}
+        run: |
+          app=$(REMACS_COMMIT=$(git rev-parse --short HEAD) cargo xtask bundle | tail -1)
+          zip="remacs-$REMACS_VERSION-arm64-macos.zip"
+          ditto -c -k --keepParent "$app" "$zip"
+          {
+            echo "path=$zip"
+            echo "sha256=$(shasum -a 256 "$zip" | cut -d' ' -f1)"
+          } >> "$GITHUB_OUTPUT"
+      - id: attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ steps.zip.outputs.path }}
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          ZIP: ${{ steps.zip.outputs.path }}
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          cp "$BUNDLE" "$ZIP.sigstore.json"
+          gh release upload --clobber "v$VERSION" "$ZIP" "$ZIP.sigstore.json"
+
+  cask:
+    needs: app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: MakhnoGK/homebrew-remacs
+          token: ${{ secrets.TAP_TOKEN }}
+      # Not `bump-remacs-`: the tap's auto-publish would `brew pr-pull` it for bottles.
+      - name: Open the cask's bump
+        env:
+          GH_TOKEN: ${{ secrets.TAP_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          SHA256: ${{ needs.app.outputs.sha256 }}
+        run: |
+          branch="cask-remacs-$VERSION"
+          sed -i -e "s|^  version \".*\"$|  version \"$VERSION\"|" \
+                 -e "s|^  sha256 \"[0-9a-f]*\"$|  sha256 \"$SHA256\"|" Casks/remacs.rb
+          git diff --exit-code --quiet && { echo "::error::the cask did not change"; exit 1; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git commit -am "remacs $VERSION (cask)"
+          git push origin "$branch"
+          gh pr create --base main --head "$branch" --title "remacs $VERSION (cask)" \
+            --body "Release https://github.com/$GITHUB_REPOSITORY/releases/tag/v$VERSION"

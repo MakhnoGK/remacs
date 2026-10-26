@@ -2,6 +2,20 @@
 
 What changed for people using remacs, release by release; written by `cargo xtask changelog` from the commit subjects.
 
+## 0.1.0-alpha.3 — 2026-10-26
+
+### Added
+
+- git status shows changes, history and branch history as tabs driven by keys
+- the release adds the macOS app as a zip and bumps the tap's cask
+
+### Fixed
+
+- git diffs keep their a/ and b/ whatever the user's config, say why a diff is cut, skip pipes
+- git status reads untracked files itself within a byte budget, and names Git quotes
+- git status lists thousands of files at once, reads paths with spaces, opens the selected commit
+- git status looks again at folders made repositories after they were opened
+
 ## 0.1.0-alpha.2 — 2026-10-26
 
 ### Added

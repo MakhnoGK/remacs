@@ -90,6 +90,7 @@ fn a_commit_with_a_50_mb_patch_opens_without_holding_the_ui_and_its_diff_capped(
     editor.viewport.set_height(20);
     editor.visit_file(&repository.0.join("lib.rs")).unwrap();
     editor.run_command("git-status");
+    editor.run_command("git-status-history");
     wait_until(&mut editor, "the history", |editor| {
         editor
             .outline(0..100)

@@ -1,7 +1,7 @@
 //! The history beside the status: the commits of all branches or of the current one,
 //! searched by message, read a page at a time as they are scrolled to.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -11,11 +11,11 @@ use remacs_core::{
     RefKind,
 };
 
-use crate::history::{Commit, HistoryWants, Log, PAGE};
+use crate::history::{self, ChangedFile, Commit, HistoryWants, Log, PAGE};
 use crate::repositories::{Repositories, working_tree};
 use crate::status::{Head, Snapshot};
-use crate::status_view::{NOT_A_STATUS_BUFFER, SHORT_ID, StatusView};
-use crate::{commands, commit_view};
+use crate::status_view::{Line, NOT_A_STATUS_BUFFER, SHORT_ID, StatusView, Tab};
+use crate::{commands, commit_view, reads};
 
 /// Commits given to the UI, more than any window fits.
 const SHOWN: usize = 80;
@@ -31,6 +31,11 @@ pub struct HistoryState {
     count: usize,
     /// The commit the keys act on, by its place in the log.
     selected: Option<usize>,
+    /// The files of a commit, once read, with its id: the selected one's, or the one
+    /// selected before while the selected one's are read.
+    files: Option<(String, Arc<[ChangedFile]>)>,
+    /// The commit whose files are being read.
+    reading: Option<String>,
 }
 
 impl Default for HistoryState {
@@ -42,11 +47,28 @@ impl Default for HistoryState {
             first: 0,
             count: PAGE,
             selected: None,
+            files: None,
+            reading: None,
         }
     }
 }
 
 impl HistoryState {
+    /// Of every branch, else of the current one.
+    pub fn all(&self) -> bool {
+        self.all
+    }
+
+    pub fn set_all(&mut self, all: bool) {
+        if all != self.all {
+            self.show(all, self.search.clone(), self.file.clone());
+        }
+    }
+
+    pub fn files(&self) -> Option<&[ChangedFile]> {
+        self.files.as_ref().map(|(_, files)| &files[..])
+    }
+
     pub fn wants(&self) -> HistoryWants {
         HistoryWants {
             all: self.all,
@@ -140,10 +162,6 @@ pub fn history(view: &StatusView, snapshot: &Snapshot) -> History {
         Some(_) => "No commits",
     };
     History {
-        scopes: vec![
-            scope_button("All branches", true, state.all),
-            scope_button("Current", false, !state.all),
-        ],
         search: state.search.clone(),
         file: state.file.as_ref().map(|file| Button {
             label: file.display().to_string(),
@@ -171,17 +189,72 @@ fn open_action(view: &StatusView, id: &str, index: usize) -> Action {
     })
 }
 
-fn scope_button(label: &str, all: bool, selected: bool) -> Button {
-    Button {
-        label: label.into(),
-        selected,
-        action: Rc::new(move |editor| {
-            let view = window_view(editor)?;
-            let (search, file) = (view.history.search.clone(), view.history.file.clone());
-            view.history.show(all, search, file);
-            Ok(())
-        }),
+/// Reads the files of the commit selected in the window's history, unless they are read
+/// or being read; the first commit shown is selected when none is.
+pub fn read_selected_files(editor: &mut Editor) {
+    let Some(log) = window_log(editor) else {
+        return;
+    };
+    let Ok(view) = window_view(editor) else {
+        return;
+    };
+    let state = &mut view.history;
+    let selected = *state.selected.get_or_insert(state.first);
+    let Some(commit) = log.commits.get(selected) else {
+        return;
+    };
+    let read = state.files.as_ref().is_some_and(|(id, _)| *id == commit.id);
+    if read || state.reading.as_ref() == Some(&commit.id) {
+        return;
     }
+    state.reading = Some(commit.id.clone());
+    let (root, id) = (view.root.clone(), commit.id.clone());
+    let read_root = root.clone();
+    reads::spawn_quietly(
+        editor,
+        move || {
+            history::read_files(&read_root, &id)
+                .map(|files| (id, files))
+                .map_err(|error| format!("git show: {error}"))
+        },
+        move |editor, (id, files)| {
+            show_files(editor, &root, id, files);
+            Ok(())
+        },
+    );
+}
+
+/// Shows the files of commit `id` beside the history of `root`'s status, unless another
+/// commit was selected since.
+fn show_files(editor: &mut Editor, root: &Path, id: String, files: Vec<ChangedFile>) {
+    let view = editor
+        .buffers_mut()
+        .iter_mut()
+        .filter_map(|buffer| buffer.local_mut::<StatusView>())
+        .find(|view| view.root == root);
+    if let Some(view) = view.filter(|view| view.history.reading.as_ref() == Some(&id)) {
+        view.history.reading = None;
+        view.history.files = Some((id, files.into()));
+        view.redraw_from_top();
+    }
+}
+
+/// Shows the commit whose files are listed, at the file at point if there is one; the
+/// selected one while its files are read.
+pub fn open_listed(editor: &mut Editor) -> CommandResult {
+    let point_line = editor.window_buffer().point_line();
+    let view = window_view(editor)?;
+    // While the selected commit's files are read, those listed are another's.
+    let listed = view.history.files.clone();
+    let Some((id, files)) = listed.filter(|_| view.history.reading.is_none()) else {
+        return open_commit(editor);
+    };
+    let file = match view.line(point_line) {
+        Some(Line::CommitFile(index)) => files.get(*index).map(|file| file.path.clone()),
+        _ => view.history.file.clone(),
+    };
+    let root = view.root.clone();
+    commit_view::open(editor, &root, &id, file.as_deref())
 }
 
 /// Branches and tags at `commit`: the one checked out, the base, other branches, remote
@@ -271,16 +344,6 @@ pub fn ago(seconds: i64) -> String {
     }
 }
 
-/// Shows the commits of all branches, or only those of the current one, like Emacs
-/// `magit-log-all` and `magit-log-current`.
-pub fn toggle_scope(editor: &mut Editor) -> CommandResult {
-    let view = window_view(editor)?;
-    let (search, file) = (view.history.search.clone(), view.history.file.clone());
-    let all = !view.history.all;
-    view.history.show(all, search, file);
-    Ok(())
-}
-
 /// Shows the status with only the commits that changed the visited file in its
 /// history, followed through renames, like Emacs `magit-log-buffer-file`.
 pub fn file_log(editor: &mut Editor) -> CommandResult {
@@ -298,7 +361,9 @@ pub fn file_log(editor: &mut Editor) -> CommandResult {
         .map_err(|_| "Not in a Git working tree")?
         .to_path_buf();
     commands::status(editor)?;
-    window_view(editor)?.history.show_file(relative);
+    let view = window_view(editor)?;
+    view.show_tab(Tab::History, view.history.all());
+    view.history.show_file(relative);
     Ok(())
 }
 
