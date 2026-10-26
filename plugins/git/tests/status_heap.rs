@@ -6,7 +6,7 @@ use std::process::Command;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use remacs_core::{Editor, OutlineRow, parse_sequence};
+use remacs_core::{Editor, OutlineRow};
 use remacs_dired::{DiredPlugin, list_directory};
 use remacs_editing::EditingPlugin;
 use remacs_files::FilesPlugin;
@@ -74,12 +74,12 @@ fn wait_until(editor: &mut Editor, what: &str, done: impl Fn(&Editor) -> bool) {
     }
 }
 
-/// The window buffer's last rows, where the untracked files are.
+/// The files listed at the left of their diffs.
 fn last_rows(editor: &Editor) -> Vec<OutlineRow> {
-    let lines = editor.window_buffer().text().line_count();
     editor
-        .outline(lines.saturating_sub(10)..lines)
-        .map_or_else(Vec::new, |outline| outline.rows)
+        .outline(0..1)
+        .and_then(|outline| outline.side)
+        .map_or_else(Vec::new, |side| side.rows.to_vec())
 }
 
 fn lists(rows: &[OutlineRow], name: &str) -> bool {
@@ -120,9 +120,6 @@ fn a_status_snapshot_with_every_diff_unfolded_is_drawn_once_and_only_when_shown(
     wait_until(&mut editor, "the status", |editor| {
         lists(&last_rows(editor), &format!("f{}.rs", FILES - 1))
     });
-    for key in parse_sequence("S-TAB").unwrap() {
-        editor.handle_key(key);
-    }
     wait_until(&mut editor, "every diff", |editor| {
         editor.window_buffer().text().line_count() > FILES * LINES * 2
     });

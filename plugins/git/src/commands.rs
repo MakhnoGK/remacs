@@ -7,11 +7,14 @@ use remacs_text::Text;
 use trash::TrashContext;
 
 use crate::command::{git, output, output_with_input};
+use crate::commit_view::move_to_line;
 use crate::monitor::Job;
 use crate::repositories::{Repositories, working_tree};
-use crate::stash;
 use crate::status::Snapshot;
-use crate::status_view::{GIT_MODE, Line, NOT_A_STATUS_BUFFER, Section, StatusView, section_files};
+use crate::status_view::{
+    self, GIT_MODE, Line, NOT_A_STATUS_BUFFER, Section, StatusView, Tab, section_files,
+};
+use crate::{history_view, stash};
 
 const BUFFER_NAME: &str = "Git";
 
@@ -68,6 +71,7 @@ pub fn toggle(editor: &mut Editor) -> CommandResult {
                 editor.set_point_at(file_line, 0);
             }
         }
+        Line::CommitFiles | Line::CommitFile(_) => return Err("Nothing to fold".into()),
         Line::Stash(index) => return toggle_stash(editor, *index),
         Line::StashFile { stash, .. } | Line::StashDiff { stash, .. } => {
             view.fold_stash(stash);
@@ -95,13 +99,96 @@ pub fn toggle_all(editor: &mut Editor) -> CommandResult {
 
 pub fn expand_all(editor: &mut Editor) -> CommandResult {
     let (_, snapshot) = shown_status(editor)?;
-    status_view(editor)?.open_all(&snapshot);
+    status_view(editor)?.open_all(&snapshot, true);
     Ok(())
 }
 
 pub fn collapse_all(editor: &mut Editor) -> CommandResult {
-    status_view(editor)?.close_all();
+    let (_, snapshot) = shown_status(editor)?;
+    status_view(editor)?.open_all(&snapshot, false);
     Ok(())
+}
+
+pub fn show_changes(editor: &mut Editor) -> CommandResult {
+    status_view::show_tab(editor, Tab::Changes, true)
+}
+
+pub fn show_history(editor: &mut Editor) -> CommandResult {
+    status_view::show_tab(editor, Tab::History, true)
+}
+
+pub fn show_branch_history(editor: &mut Editor) -> CommandResult {
+    status_view::show_tab(editor, Tab::History, false)
+}
+
+/// Shows the changes, then the history of every branch, then that of the current one.
+pub fn next_tab(editor: &mut Editor) -> CommandResult {
+    let view = status_view(editor)?;
+    match (view.tab, view.history.all()) {
+        (Tab::Changes, _) => show_history(editor),
+        (Tab::History, true) => show_branch_history(editor),
+        (Tab::History, false) => show_changes(editor),
+    }
+}
+
+/// Goes to the next hunk of the changes, or selects the next older commit.
+pub fn next(editor: &mut Editor) -> CommandResult {
+    match status_view(editor)?.tab {
+        Tab::Changes => move_to_line(editor, status_lines, true, is_hunk, "No next hunk"),
+        Tab::History => history_view::next_commit(editor),
+    }
+}
+
+pub fn previous(editor: &mut Editor) -> CommandResult {
+    match status_view(editor)?.tab {
+        Tab::Changes => move_to_line(editor, status_lines, false, is_hunk, "No previous hunk"),
+        Tab::History => history_view::previous_commit(editor),
+    }
+}
+
+/// Goes a line down the column at the right: the changes' diffs, or the history.
+pub fn next_line(editor: &mut Editor) -> CommandResult {
+    move_by_line(editor, 1)
+}
+
+pub fn previous_line(editor: &mut Editor) -> CommandResult {
+    move_by_line(editor, -1)
+}
+
+fn move_by_line(editor: &mut Editor, lines: isize) -> CommandResult {
+    let view = status_view(editor)?;
+    match view.tab {
+        Tab::History if lines > 0 => history_view::next_commit(editor),
+        Tab::History => history_view::previous_commit(editor),
+        Tab::Changes => {
+            let last = view.lines.len().saturating_sub(1);
+            let point_line = editor.window_buffer().point_line();
+            editor.set_point_at(point_line.saturating_add_signed(lines).min(last), 0);
+            Ok(())
+        }
+    }
+}
+
+/// Goes to the next changed file, or to the next file of the selected commit.
+pub fn next_file(editor: &mut Editor) -> CommandResult {
+    move_to_line(editor, status_lines, true, is_file, "No next file")
+}
+
+pub fn previous_file(editor: &mut Editor) -> CommandResult {
+    move_to_line(editor, status_lines, false, is_file, "No previous file")
+}
+
+fn status_lines(buffer: &Buffer) -> Result<&[Line], &'static str> {
+    let view = buffer.local::<StatusView>().ok_or(NOT_A_STATUS_BUFFER)?;
+    Ok(&view.lines)
+}
+
+fn is_hunk(line: &Line) -> bool {
+    matches!(line, Line::Diff { line: None, .. })
+}
+
+fn is_file(line: &Line) -> bool {
+    matches!(line, Line::File(..) | Line::CommitFile(_))
 }
 
 fn status_view(editor: &mut Editor) -> Result<&mut StatusView, &'static str> {
@@ -289,8 +376,12 @@ pub fn discard(editor: &mut Editor) -> CommandResult {
     )
 }
 
-/// Visits the file at point; on a diff line, at that line.
+/// Visits the file at point; on a diff line, at that line. In the history, shows the
+/// selected commit at the file at point.
 pub fn visit(editor: &mut Editor) -> CommandResult {
+    if status_view(editor)?.tab == Tab::History {
+        return history_view::open_listed(editor);
+    }
     let (root, snapshot, line) = at_point(editor)?;
     let (section, path) = match &line {
         Line::Heading(_) | Line::Stash(_) => return toggle(editor),
@@ -355,6 +446,9 @@ fn at_point(editor: &Editor) -> Result<(PathBuf, Arc<Snapshot>, Line), &'static 
         .window_buffer()
         .local::<StatusView>()
         .ok_or(NOT_A_STATUS_BUFFER)?;
+    if view.tab == Tab::History {
+        return Err("The changes are in their tab: 1 shows them");
+    }
     let line = view.line(point_line).cloned().ok_or("Nothing here")?;
     Ok((root, snapshot, line))
 }

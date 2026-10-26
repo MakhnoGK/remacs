@@ -146,6 +146,11 @@
 # "C-x +" = "balance-windows"          # equal room
 #
 # In the Git status (C-x g):
+# "1" = "git-status-changes"           # the tabs: changes, 2 history, 3 current branch's
+# "l" = "git-status-next-tab"          # each tab in turn
+# "C-n" = "git-status-next-line"       # also ↓: a line of the diffs, or the older commit; C-p, ↑ back
+# "n" = "git-status-next"              # next hunk, or in the history the older commit; p back
+# "M-n" = "git-status-next-file"       # next file, of the changes or the commit; M-p back
 # "S-TAB" = "git-toggle-all"           # ⇧⇥: every file's diff, shown or hidden
 #                                      # also git-expand-all, git-collapse-all
 #

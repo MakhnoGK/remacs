@@ -31,5 +31,9 @@ harness = false
 name = "blame"
 harness = false
 
+[[bench]]
+name = "status"
+harness = false
+
 [lints]
 workspace = true

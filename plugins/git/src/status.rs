@@ -254,7 +254,7 @@ fn parse_ahead_behind(value: &str) -> Option<(u64, u64)> {
 
 /// Paths and their added and removed lines, `None` for a binary file; a renamed file by
 /// its new path.
-fn parse_numstat(output: &[u8]) -> Vec<(PathBuf, Option<LineCounts>)> {
+pub fn parse_numstat(output: &[u8]) -> Vec<(PathBuf, Option<LineCounts>)> {
     let mut counts = Vec::new();
     let mut records = output.split(|&byte| byte == 0);
     while let Some(record) = records.next() {

@@ -26,8 +26,8 @@ use crate::bottom_row::{
 use crate::highlights::{Highlights, face_style};
 use crate::minibuffer_view::{is_problem_list, render_minibuffer, render_scrim};
 use crate::outline_view::{
-    COMMIT_HEIGHT, OutlineScrolled, fits_history, fitting_commits, fitting_rows, render_outline,
-    render_toolbar, row_height,
+    COMMIT_HEIGHT, OutlineScrolled, beside_height, fits_history, fitting_commits, fitting_rows,
+    fitting_rows_in, render_outline, render_toolbar, row_height,
 };
 use crate::pane_view::{PaneChrome, render_pane, screen_bounds};
 use crate::popup_view::{Placement, PopupView, render_popup};
@@ -256,16 +256,29 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) -> Option<(AnyElement, Hints, Option<AnyElement>)> {
         let history_shown = self.advance_history(window, cx);
-        let mut outline = self.editor.outline(
+        // Without room beside the pane, the rows stay in it and the side is left out.
+        let narrow = !fits_history(self.window_state.frame.size.width);
+        let narrowed = |mut outline: Outline| {
+            if narrow {
+                outline.history = None;
+                outline.conflict = None;
+                outline.side = None;
+            }
+            outline
+        };
+        let mut outline = narrowed(self.editor.outline(
             self.editor.viewport.first_line..self.editor.viewport.first_line + outline_lines,
-        )?;
+        )?);
         self.window_state.history_scroll = outline
             .history
             .as_ref()
             .map(|history| history.scroll.clone());
         let fit = |outline: &Outline| {
             let has_banner = outline.banner.is_some();
-            fitting_rows(&outline.rows, outline.facts.len(), has_banner, height)
+            match outline.side {
+                Some(_) => fitting_rows_in(&outline.rows, beside_height(height, has_banner)),
+                None => fitting_rows(&outline.rows, outline.facts.len(), has_banner, height),
+            }
         };
         let mut fitting = fit(&outline);
         let point_line = self.editor.window_buffer().point_line();
@@ -275,18 +288,20 @@ impl EditorView {
         self.editor.show_point();
         if self.editor.viewport.first_line != shown_from {
             let first_line = self.editor.viewport.first_line;
-            outline = self
-                .editor
-                .outline(first_line..first_line + outline_lines)?;
+            outline = narrowed(
+                self.editor
+                    .outline(first_line..first_line + outline_lines)?,
+            );
             fitting = fit(&outline);
         }
         self.editor.viewport.set_height(fitting);
         let top = self.advance_scroll(fitting, window);
         let first_line = top as usize;
         if first_line != self.editor.viewport.first_line {
-            outline = self
-                .editor
-                .outline(first_line..first_line + outline_lines)?;
+            outline = narrowed(
+                self.editor
+                    .outline(first_line..first_line + outline_lines)?,
+            );
             fitting = fit(&outline);
         }
         let mut scrolled = OutlineScrolled {
@@ -300,10 +315,6 @@ impl EditorView {
         };
         // One more for the row partly scrolled in at the bottom.
         outline.rows.truncate(fitting + 1);
-        if !fits_history(self.window_state.frame.size.width) {
-            outline.history = None;
-            outline.conflict = None;
-        }
         let has_banner = outline.banner.is_some();
         if let Some(history) = &mut outline.history {
             let fitting = fitting_commits(height, has_banner);
@@ -335,8 +346,10 @@ impl EditorView {
         let toolbar = std::mem::take(&mut outline.toolbar);
         let toolbar = (!toolbar.is_empty()).then(|| render_toolbar(toolbar, cx).into_any_element());
         let faces = |code: &Code| self.faces_of(code);
-        let body = render_outline(outline, first_line, point_line, scrolled, &faces, cx)
-            .into_any_element();
+        let body = render_outline(
+            outline, first_line, point_line, scrolled, height, &faces, cx,
+        )
+        .into_any_element();
         Some((body, hints, toolbar))
     }
 
