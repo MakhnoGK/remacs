@@ -204,7 +204,9 @@ completion = true
 # fade in and out: 0 to 250; 0 shows and hides them at once. Popups are those by the text
 # (completions, documentation, problems), the cards over the bottom row (the keys after
 # a prefix, the keys that do not fit, a message whole) and how a terminal's command went,
-# over its mark. Keys and clicks act at once all the same.
+# over its mark. Over a terminal that fills the window, the bottom row itself is one: it
+# shows with a message, after a prefix or with the mouse at the bottom, the terminal
+# keeping its size. Keys and clicks act at once all the same.
 pane-duration = 120
 prompt-duration = 110
 popup-duration = 100

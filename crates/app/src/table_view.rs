@@ -8,6 +8,7 @@ use remacs_core::{Action, Button, CellStyle, Column, Field, Mark, Notice, Row, R
 use remacs_theme::{color, font, glass};
 
 use crate::assets::CHEVRON_ICON;
+use crate::bottom_row;
 use crate::composition::Composition;
 use crate::display_line::DisplayLine;
 use crate::editor_view::EditorView;
@@ -122,6 +123,17 @@ pub fn render_table(
         .gap(px(PREVIEW_GAP))
         .child(list)
         .children(side)
+}
+
+/// Taken right of the rows by a preview or pending changes beside them, which the bottom
+/// row keeps clear of.
+pub const SIDE_ROOM: f32 = PREVIEW_GAP + PREVIEW_WIDTH;
+
+/// `side` beside the rows going down past the room they leave for the bottom row, as far
+/// as the row, which keeps clear of it; `rise` higher while the row, on its way as the
+/// pane comes or goes, stands over where the rows end, lower while under it.
+pub fn down_to_the_row(side: Div, rise: Pixels) -> Div {
+    side.mb(px(bottom_row::BOTTOM - LIST_BOTTOM) + rise)
 }
 
 /// Whether a window this wide has room for a preview beside the rows.

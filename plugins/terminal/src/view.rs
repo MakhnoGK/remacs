@@ -336,9 +336,11 @@ fn state(terminal: &Terminal) -> (String, Tone) {
     }
 }
 
-/// The shell, where it is and the screen's size, for the terminal with the keys.
+/// The shell, where it is and the screen's size, for the terminal in the window. The
+/// panel's header says as much, and the pill stays the text's whether or not the panel has
+/// the keys, so that it does not change as they move.
 pub fn status(editor: &Editor) -> Option<StatusSegment> {
-    let id = keyed(editor).or_else(|| in_window(editor))?;
+    let id = in_window(editor)?;
     let terminal = find(editor, id)?;
     let mut items = vec![StatusItem::new(None, terminal.shell())];
     items.push(StatusItem::new(None, abbreviate_home(&terminal.directory)));

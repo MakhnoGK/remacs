@@ -16,8 +16,8 @@ use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
     AnyElement, AnyWindowHandle, Bounds, Context, FocusHandle, MouseButton, MouseDownEvent, Pixels,
-    Point, Render, ScrollHandle, Subscription, Task, Window, div, point, prelude::*, px, rgb, rgba,
-    size,
+    Point, Render, ScrollHandle, Subscription, Task, Window, div, inert, point, prelude::*, px,
+    rgb, rgba, size,
 };
 
 use remacs_core::{
@@ -44,6 +44,7 @@ use crate::settings::{
     read_settings, report,
 };
 use crate::smooth_scroll::{Glide, SmoothScroll};
+use crate::table_view::SIDE_ROOM;
 use crate::text_zoom::TextZoom;
 use crate::transition::Retained;
 use crate::widgets::{Scrolled, code_font_features};
@@ -121,6 +122,17 @@ pub struct EditorView {
     screen_scroll: f32,
     /// The row of a screen whose command mark the mouse is over, and whether over its plate.
     hovered_mark: Option<(usize, bool)>,
+    /// The only window shows a screen and no pane is under it: the screen goes down to the
+    /// bottom, and the row shows over it only for a while.
+    screen_fills: bool,
+    /// The mouse is at the bottom of a window a screen fills, where the row shows.
+    row_hovered: bool,
+    /// The window at the bottom right drew its rows with a side at their right, a preview or
+    /// pending changes, going down to the bottom row, which keeps clear of it.
+    side_beside: bool,
+    /// Where a side beside rows was drawn going down to, as the bottom row stood before the
+    /// pane moved on this frame; none when no side goes down to it.
+    side_row_lift: Option<Pixels>,
     /// A screen was drawn this frame, so the tooltip over its marks moved on.
     screen_drawn: bool,
     bottom: BottomSettings,
@@ -204,6 +216,8 @@ struct Surfaces {
     prefix_keys: Retained<PrefixKeys>,
     /// How a terminal's command went, over its mark: its row, and whether over its plate.
     mark_tip: Retained<(usize, bool)>,
+    /// The bottom row over a screen that fills the window, while it shows.
+    row: Retained<()>,
 }
 
 impl Surfaces {
@@ -217,6 +231,7 @@ impl Surfaces {
             || self.keys.is_changing()
             || self.prefix_keys.is_changing()
             || self.mark_tip.is_changing()
+            || self.row.is_changing()
     }
 }
 
@@ -345,6 +360,10 @@ impl EditorView {
             screen_press: None,
             screen_scroll: 0.0,
             hovered_mark: None,
+            screen_fills: false,
+            row_hovered: false,
+            side_beside: false,
+            side_row_lift: None,
             screen_drawn: false,
             bottom,
             transitions: ui.transitions,
@@ -528,6 +547,12 @@ impl Render for EditorView {
         let windows = layout.windows();
         self.other_states.retain(|other, _| windows.contains(other));
         let split = windows.len() > 1;
+        // Of the layout, not of where the keys are, so that the screen keeps its size.
+        self.screen_fills = !split
+            && shown_pane.is_none()
+            && self.editor.is_screen(self.editor.window_buffer().name());
+        // Set as the window at the bottom right is drawn.
+        self.side_beside = false;
         // Windows share what the pane and the bottom row leave.
         let area = Bounds {
             origin: Point::default(),
@@ -696,13 +721,52 @@ impl Render for EditorView {
             window.request_animation_frame();
         }
         let (row, row_popups) = self.render_bottom_row(hints, window, cx);
+        let listing = prompt.as_ref().is_some_and(|prompt| prompt.problem_list);
+        let row = self.reveal_row(row, listing, cx);
+        // The row and what opens from it stand where the windows end: on the pane while one
+        // shows, else on the window's bottom; and keep clear of a side beside the rows of
+        // the window at the bottom right.
+        let right = if self.side_beside {
+            px(SIDE_ROOM)
+        } else {
+            px(0.0)
+        };
+        let row_layer =
+            move |lift: Pixels| div().absolute().top_0().left_0().right(right).bottom(lift);
+        let pane_look = self.pane_lift();
+        let lift = pane_look.map_or(px(0.0), |(lift, _)| lift);
+        let row = match pane_look {
+            // As the pane comes or goes, the row on it comes or goes with it, as it does,
+            // while the row at the bottom fades the other way: drawn twice meanwhile.
+            // Not over a screen filling the window, where the row shows only for a while.
+            Some((lift, look)) if look.opacity < 1.0 && !self.screen_fills => {
+                let (below, _) = self.render_bottom_row(hints, window, cx);
+                let on_pane = lift - px(look.offset);
+                div()
+                    .absolute()
+                    .inset_0()
+                    .child(inert(
+                        row_layer(px(0.0)).opacity(1.0 - look.opacity).child(below),
+                    ))
+                    .child(row_layer(on_pane).opacity(look.opacity).child(row))
+                    .into_any_element()
+            }
+            _ => row_layer(lift).child(row).into_any_element(),
+        };
+        let row_popups = row_layer(lift).children(row_popups);
         // The status pill stays lit above the scrim while the list it opened is shown.
-        let (row_below_scrim, row_above_scrim) = match &prompt {
-            Some(prompt) if prompt.problem_list => (None, Some(row)),
-            _ => (Some(row), None),
+        let (row_below_scrim, row_above_scrim) = if listing {
+            (None, Some(row))
+        } else {
+            (Some(row), None)
         };
         let (scrim, prompt) = prompt.map_or((None, None), |prompt| {
-            (Some(prompt.scrim), Some(prompt.surface))
+            let surface = if listing {
+                row_layer(lift).child(prompt.surface).into_any_element()
+            } else {
+                prompt.surface
+            };
+            (Some(prompt.scrim), Some(surface))
         });
         // A screen hidden midway through its tooltip's fade would otherwise ask for frames
         // forever, the fade moving on only as the screen is drawn.
@@ -711,7 +775,11 @@ impl Render for EditorView {
             let tip = &mut self.surfaces.mark_tip;
             tip.update(None, Instant::now(), Duration::ZERO);
         }
-        if self.surfaces.are_changing() {
+        // Windows are drawn before the pane moves on, so a side going down to the row lags
+        // a frame behind it: one more once the pane is all there or gone.
+        let side_behind =
+            std::mem::take(&mut self.side_row_lift).is_some_and(|drawn| drawn != self.row_lift());
+        if self.surfaces.are_changing() || side_behind {
             window.request_animation_frame();
         }
 
@@ -740,7 +808,7 @@ impl Render for EditorView {
             .children(scrim)
             .children(headers)
             .child(popups)
-            .children(row_popups)
+            .child(row_popups)
             .children(row_above_scrim)
             .children(prompt)
             .children(self.render_drag_listeners(cx))

@@ -15,8 +15,8 @@ use remacs_frame::TEXT_CONFIGURED;
 use remacs_theme::{color, font, glass};
 
 use super::{
-    CLOSE_KEY, COPY_MESSAGE_KEY, EditorView, Metrics, OpenMessage, PromptSurface, ROW_MARGIN,
-    TEXT_TOP, TITLE_BAR_HEIGHT,
+    CLOSE_KEY, COPY_MESSAGE_KEY, EditorView, FOOTER_FADE_HEIGHT, Metrics, OpenMessage,
+    PromptSurface, ROW_MARGIN, TEXT_TOP, TITLE_BAR_HEIGHT,
 };
 use crate::bottom_row::{
     CardKeys, FittedHints, Hints, PrefixKeys, echo_room, fit_hints, render_hints,
@@ -29,10 +29,10 @@ use crate::outline_view::{
     COMMIT_HEIGHT, OutlineScrolled, beside_height, fits_history, fitting_commits, fitting_rows,
     fitting_rows_in, render_outline, render_toolbar, row_height,
 };
-use crate::pane_view::{PaneChrome, render_pane, screen_bounds};
+use crate::pane_view::{PANE_BOTTOM, PANE_GAP, PaneChrome, render_pane, screen_bounds};
 use crate::popup_view::{Placement, PopupView, render_popup};
 use crate::preview_view::render_preview;
-use crate::transition::{Retained, Side};
+use crate::transition::{Look, Retained, Side};
 use crate::widgets::{Scrolled, icon, modified_dot, over, pill, pill_separator, tone_color};
 
 /// Per mode; one popup shows a handful.
@@ -396,6 +396,50 @@ impl EditorView {
             }))
     }
 
+    /// The bottom row as drawn. Over a screen that fills the window it shows only for a
+    /// while, rising and fading: with a message, keys typed after a prefix, what it opened
+    /// (the message whole, the keys, the problem list while `listing`), or the mouse at the
+    /// window's bottom. The screen keeps its size all the while.
+    pub(super) fn reveal_row(
+        &mut self,
+        row: AnyElement,
+        listing: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        if !self.screen_fills {
+            self.surfaces.row = Retained::default();
+            self.row_hovered = false;
+            return row;
+        }
+        let shown = self.row_hovered
+            || listing
+            || self.message_open
+            || self.hints_open
+            || self.editor.message().is_some()
+            || !self.editor.pending_keys().is_empty();
+        let transition = self.transitions.popup().coming_from(Side::Below);
+        let reveal = &mut self.surfaces.row;
+        reveal.update(shown.then_some(()), Instant::now(), transition.duration);
+        // Takes no click from the screen under it, only whether the mouse is there.
+        let zone = div()
+            .id("bottom-row-zone")
+            .absolute()
+            .left_0()
+            .right_0()
+            .bottom_0()
+            .h(px(FOOTER_FADE_HEIGHT))
+            .on_hover(cx.listener(|view, hovered: &bool, _, cx| {
+                view.row_hovered = *hovered;
+                cx.notify();
+            }));
+        div()
+            .absolute()
+            .inset_0()
+            .child(zone)
+            .children(reveal.look(transition).map(|look| look.apply(row)))
+            .into_any_element()
+    }
+
     /// The row along the bottom, and what opens from it over the view: the message whole,
     /// the keys that do not fit, the keys after a prefix.
     pub(super) fn render_bottom_row(
@@ -461,6 +505,21 @@ impl EditorView {
             row.into_any_element(),
             self.render_cards(message, keys, prefix_keys, window),
         )
+    }
+
+    /// Where the windows end over the window's bottom once the pane is all there, where the
+    /// bottom row stands, and how the pane is drawn as it comes, is, or goes; none once it
+    /// is gone.
+    pub(super) fn pane_lift(&self) -> Option<(Pixels, Look)> {
+        let shown = self.surfaces.pane.shown(self.transitions.pane())?;
+        let lift = px(shown.content.0.height + PANE_BOTTOM + PANE_GAP);
+        Some((lift, shown.look))
+    }
+
+    /// Where the bottom row stands over the window's bottom as the pane comes, is, or goes.
+    pub(super) fn row_lift(&self) -> Pixels {
+        self.pane_lift()
+            .map_or(px(0.0), |(lift, look)| lift * look.opacity)
     }
 
     /// Whether the keys listed are a shown pane's: always under text, under rows or a
