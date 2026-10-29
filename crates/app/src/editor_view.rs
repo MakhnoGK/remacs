@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::{Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use futures::StreamExt;
 use futures::channel::mpsc;
@@ -113,15 +113,14 @@ pub struct EditorView {
     code_faces: RefCell<HashMap<&'static str, HashMap<String, Highlights>>>,
     /// The refresh plugins asked for after a delay, and when it is due.
     refresh_timer: Option<(Instant, Task<()>)>,
-    /// Whether each screen was last drawn with room for marks, by buffer, so it is sized
-    /// for it before it is asked for.
-    screen_gutters: HashMap<String, bool>,
     /// The screen the mouse was pressed on and the button, while it is held.
     screen_press: Option<(ScreenArea, MouseButton)>,
     /// Rows a screen was scrolled by the wheel, short of a whole one.
     screen_scroll: f32,
-    /// The row of a screen whose command mark the mouse is over.
-    hovered_mark: Option<usize>,
+    /// The row of a screen whose command mark the mouse is over, and whether over its plate.
+    hovered_mark: Option<(usize, bool)>,
+    /// A screen was drawn this frame, so the tooltip over its marks moved on.
+    screen_drawn: bool,
     bottom: BottomSettings,
     transitions: TransitionsSettings,
     surfaces: Surfaces,
@@ -201,6 +200,8 @@ struct Surfaces {
     message: Retained<OpenMessage>,
     keys: Retained<(FittedHints, &'static str)>,
     prefix_keys: Retained<PrefixKeys>,
+    /// How a terminal's command went, over its mark: its row, and whether over its plate.
+    mark_tip: Retained<(usize, bool)>,
 }
 
 impl Surfaces {
@@ -213,6 +214,7 @@ impl Surfaces {
             || self.message.is_changing()
             || self.keys.is_changing()
             || self.prefix_keys.is_changing()
+            || self.mark_tip.is_changing()
     }
 }
 
@@ -337,10 +339,10 @@ impl EditorView {
             titled_buffer: String::new(),
             code_faces: RefCell::default(),
             refresh_timer: None,
-            screen_gutters: HashMap::new(),
             screen_press: None,
             screen_scroll: 0.0,
             hovered_mark: None,
+            screen_drawn: false,
             bottom,
             transitions: ui.transitions,
             surfaces: Surfaces::default(),
@@ -699,6 +701,13 @@ impl Render for EditorView {
         let (scrim, prompt) = prompt.map_or((None, None), |prompt| {
             (Some(prompt.scrim), Some(prompt.surface))
         });
+        // A screen hidden midway through its tooltip's fade would otherwise ask for frames
+        // forever, the fade moving on only as the screen is drawn.
+        if !std::mem::take(&mut self.screen_drawn) {
+            self.hovered_mark = None;
+            let tip = &mut self.surfaces.mark_tip;
+            tip.update(None, Instant::now(), Duration::ZERO);
+        }
         if self.surfaces.are_changing() {
             window.request_animation_frame();
         }

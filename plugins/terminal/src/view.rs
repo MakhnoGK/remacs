@@ -106,11 +106,10 @@ impl ScreenSource for TerminalScreens {
             commands: &terminal.commands,
             link: terminal.link.as_ref().map(|link| &link.cells),
         };
-        let (rows, cursor) = rows(&term, &overlay);
-        // Room for the marks only while one shows, so that the text is not pushed aside
-        // by an empty column.
-        let gutter = !program_has_screen(*term.mode(), &terminal.commands)
-            && rows.iter().any(|row| row.mark.is_some());
+        let (mut rows, cursor) = rows(&term, &overlay);
+        if program_has_screen(*term.mode(), &terminal.commands) {
+            rows.iter_mut().for_each(|row| row.mark = None);
+        }
         let banner = match terminal.phase {
             Phase::Exited(code) => Some(ScreenBanner {
                 text: format!("Process exited with code {code}"),
@@ -133,7 +132,6 @@ impl ScreenSource for TerminalScreens {
             search: copying
                 .and_then(|copy| copy.search.as_ref())
                 .map(copy::search_bar),
-            gutter,
             above: term.grid().history_size() > term.grid().display_offset(),
             flash: terminal.rang.is_some_and(|rang| rang.elapsed() < FLASH),
             pointing: terminal.link.is_some(),
