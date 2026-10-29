@@ -65,14 +65,21 @@ pub(super) fn screen_button(button: MouseButton) -> ScreenButton {
 }
 
 /// Where the window buffer's screen is drawn in a window laid out in `frame`, clear of the
-/// title bar, and of the pill or the pane under it.
-pub(super) fn full_screen_bounds(frame: Size<Pixels>, reserved: Pixels) -> Bounds<Pixels> {
+/// title bar, of the pane `reserved` under it and of the bottom row riding on the pane. One
+/// that `fills` the window goes down to the margin its sides have: the bottom row then
+/// shows over it only for a while.
+pub(super) fn full_screen_bounds(
+    frame: Size<Pixels>,
+    reserved: Pixels,
+    fills: bool,
+) -> Bounds<Pixels> {
     let origin = point(px(SCREEN_SIDE), px(TITLE_BAR_HEIGHT));
+    let bottom = if fills { SCREEN_SIDE } else { SCREEN_BOTTOM };
     Bounds {
         origin,
         size: size(
             frame.width - px(2.0 * SCREEN_SIDE),
-            frame.height - origin.y - px(SCREEN_BOTTOM).max(reserved),
+            frame.height - origin.y - px(bottom) - reserved,
         ),
     }
 }
@@ -288,10 +295,10 @@ mod tests {
     }
 
     #[test]
-    fn full_screen_clears_the_title_bar_and_the_larger_of_pill_and_pane() {
+    fn full_screen_clears_the_title_bar_the_pane_and_the_row_over_it() {
         let frame = size(px(800.0), px(600.0));
         assert_eq!(
-            full_screen_bounds(frame, px(0.0)),
+            full_screen_bounds(frame, px(0.0), false),
             bounds(
                 SCREEN_SIDE,
                 TITLE_BAR_HEIGHT,
@@ -300,8 +307,13 @@ mod tests {
             )
         );
         assert_eq!(
-            full_screen_bounds(frame, px(100.0)).size.height,
-            px(600.0 - TITLE_BAR_HEIGHT - 100.0)
+            full_screen_bounds(frame, px(100.0), false).size.height,
+            px(600.0 - TITLE_BAR_HEIGHT - 100.0 - SCREEN_BOTTOM)
+        );
+        assert_eq!(
+            full_screen_bounds(frame, px(0.0), true).size.height,
+            px(600.0 - TITLE_BAR_HEIGHT - SCREEN_SIDE),
+            "filling the window, under the bottom row"
         );
     }
 

@@ -159,6 +159,24 @@ fn a_screen_has_the_keys_in_the_focused_panel_or_the_window_but_not_under_a_prom
     assert!(editor.screen_has_keys(), "the window's terminal");
 }
 
+/// The status pill stays the text's while the panel has the keys, so it does not change as
+/// they move; a terminal in the window names its shell there.
+#[test]
+fn only_a_terminal_in_the_window_has_a_status_segment() {
+    let mut editor = editor(SH);
+    let names_shell = |editor: &Editor| {
+        editor
+            .status_segments()
+            .iter()
+            .any(|segment| segment.items.iter().any(|item| item.text == "sh"))
+    };
+    press(&mut editor, "C-`");
+    assert!(editor.pane_has_keys(PANE));
+    assert!(!names_shell(&editor), "the panel's header says it");
+    press(&mut editor, "s-RET");
+    assert!(names_shell(&editor));
+}
+
 #[test]
 fn a_terminal_moves_between_the_panel_and_the_window() {
     let mut editor = editor(SH);
