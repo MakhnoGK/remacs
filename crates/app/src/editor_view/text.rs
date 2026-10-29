@@ -243,7 +243,8 @@ impl EditorView {
                 let cell = display_line.cursor_cell(buffer.text().char_column(point));
                 let column = display_line.text[..cell.start].chars().count();
                 let left = metrics.char_width * column as f32;
-                let block = if selected {
+                // Hollow too while the pane has the keys, as the terminal's is while it has not.
+                let block = if selected && !self.editor.pane_focused() {
                     cursor_cells.push((cell.clone(), cursor_text_style()));
                     block_cursor()
                 } else {
