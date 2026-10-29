@@ -19,12 +19,15 @@ On macOS 14 or later on Apple Silicon, from Homebrew, into /Applications (Launch
 Spotlight find it) with `remacs` on the command line:
 
 ```sh
+brew trust makhnogk/remacs
 brew install --cask makhnogk/remacs/remacs
 ```
 
+Homebrew loads a third-party tap's casks and formulae only once it is trusted.
 `brew upgrade remacs` updates it to the next release. The app is not notarized, so the
 cask removes macOS's quarantine from it. `brew install --HEAD makhnogk/remacs/remacs`
-builds `dev` instead (needs Xcode); uninstall one before installing the other.
+builds `dev` instead (needs Xcode); uninstall one before installing the other
+(`brew uninstall --cask remacs` or `--formula`, as the cask and the formula share the name).
 
 ### From source
 

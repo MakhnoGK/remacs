@@ -3,10 +3,12 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use super::Editor;
+use crate::buffer::Buffer;
+use crate::buffer_look::BufferLook;
 use crate::decoration::{Span, split_by_line};
 use crate::gutter::{GutterMark, LineExtra, TextControls, TextLabel};
 use crate::outline::Outline;
-use crate::pane::Pane;
+use crate::pane::{Pane, PaneBody};
 use crate::popup::Popup;
 use crate::screen::{Screen, ScreenMouse, ScreenPadding, ScreenPointer, ScreenSize};
 use crate::status::StatusSegment;
@@ -134,6 +136,17 @@ impl Editor {
     /// a keymap of the window buffer's mode holds only while they do.
     pub fn buffer_has_keys(&self) -> bool {
         !self.pane_focused() && self.displayed.is_none()
+    }
+
+    /// Whether the keys go to a screen, like a terminal's: the pane's, or the window
+    /// buffer drawn as one.
+    pub fn screen_has_keys(&self) -> bool {
+        if self.pane_focused() {
+            return self
+                .pane()
+                .is_some_and(|pane| matches!(pane.body, PaneBody::Screen(_)));
+        }
+        self.minibuffer.is_none() && self.is_screen(self.window_buffer().name())
     }
 
     /// Whether the pane named `name` is shown and has the keys.
@@ -290,6 +303,20 @@ impl Editor {
             }
         }
         by_line
+    }
+
+    /// How the plugin that knows `buffer` shows it in place of its name, if one does.
+    pub fn buffer_look(&self, buffer: &Buffer) -> Option<BufferLook> {
+        self.registry
+            .buffer_looks
+            .iter()
+            .find_map(|describe| describe(self, buffer))
+    }
+
+    /// What `buffer` is called where it is named: its look's label, else its name.
+    pub fn shown_name(&self, buffer: &Buffer) -> String {
+        self.buffer_look(buffer)
+            .map_or_else(|| buffer.name().to_owned(), |look| look.label)
     }
 
     pub fn status_segments(&self) -> Vec<StatusSegment> {

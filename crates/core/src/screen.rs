@@ -21,8 +21,6 @@ pub struct Screen {
     pub mode: Option<ScreenMode>,
     /// An incremental search going on, in a bar over the bottom of the rows.
     pub search: Option<ScreenSearch>,
-    /// Room beside the rows for their marks, e.g. once a shell reports its commands.
-    pub gutter: bool,
     /// More is scrolled past above the top row.
     pub above: bool,
     /// The program just rang the bell.

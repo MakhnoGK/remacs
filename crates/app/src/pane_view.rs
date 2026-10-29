@@ -15,8 +15,8 @@ use crate::table_view::clickable;
 use crate::tabs_view::render_tabs;
 use crate::widgets::{kbd, key_caps, segment, segmented, tone_color};
 
-/// Where the pane's bottom is over the window's, clear of the status pill.
-pub const PANE_BOTTOM: f32 = 56.0;
+/// Where the pane's bottom is over the window's; the bottom row rides on its top.
+pub const PANE_BOTTOM: f32 = 14.0;
 /// Between the text and the pane.
 pub const PANE_GAP: f32 = 8.0;
 const PANE_SIDE: f32 = 16.0;

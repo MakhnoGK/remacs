@@ -55,8 +55,10 @@ weight = "regular"
 
 [zoom]
 # ⌘= or ⌘+ makes the text in buffers larger, ⌘- smaller, ⌘0 gives it [font] size back;
-# so does ⌘ with the wheel or the trackpad, up larger. Prompts, popups, the pane,
-# terminals and the bottom row keep [font] size. Keys are in keys.toml.
+# so does ⌘ with the wheel or the trackpad, up larger. While a terminal has the keys, or
+# for the wheel while over one, they size the text of terminals instead, apart from the
+# buffers'. Prompts, popups, the pane's other text and the bottom row keep [font] size.
+# Keys are in keys.toml.
 
 # Points each step changes the size by: 0.5 to 8.
 step = 1
@@ -200,16 +202,18 @@ completion = true
 [transitions]
 # Milliseconds the pane under the text (terminal, debugger), prompts and popups take to
 # fade in and out: 0 to 250; 0 shows and hides them at once. Popups are those by the text
-# (completions, documentation, problems) and the cards over the bottom row (the keys after
-# a prefix, the keys that do not fit, a message whole). Keys and clicks act at once all
-# the same.
+# (completions, documentation, problems), the cards over the bottom row (the keys after
+# a prefix, the keys that do not fit, a message whole) and how a terminal's command went,
+# over its mark. Over a terminal that fills the window, the bottom row itself is one: it
+# shows with a message, after a prefix or with the mouse at the bottom, the terminal
+# keeping its size. Keys and clicks act at once all the same.
 pane-duration = 120
 prompt-duration = 110
 popup-duration = 100
 
 # Pixels each slides by as it fades: 0 to 32; 0 only fades. The pane rises from below,
 # prompts and popups by the text come down from above, the problem list and the cards
-# rise from the bottom row.
+# rise from the bottom row, a command's tooltip comes out of its row.
 pane-slide = 16
 prompt-slide = 8
 popup-slide = 4

@@ -17,7 +17,7 @@ use crate::outline_view::{
     fits_beside, max_outline_lines, render_text_side, render_toolbar, text_side_end,
 };
 use crate::table_view::{
-    LIST_BOTTOM, ROW_PITCH, ROWS_TOP, TableCursor, fits_preview, render_table,
+    LIST_BOTTOM, ROW_PITCH, ROWS_TOP, TableCursor, down_to_the_row, fits_preview, render_table,
 };
 use crate::widgets::Scrolled;
 
@@ -86,10 +86,14 @@ impl EditorView {
         self.editor.displayed_window() == self.editor.selected_window()
     }
 
-    /// A click on a window not selected selects it, before what was clicked takes it.
+    /// A click on a window not selected selects it, before what was clicked takes it; a
+    /// click on any window takes the keys back from the pane.
     pub(super) fn select_clicked(&mut self, window: WindowId, cx: &mut Context<Self>) {
-        if window != self.editor.selected_window() {
-            self.editor.select_window(window);
+        let other = window != self.editor.selected_window();
+        if other || self.editor.pane_focused() {
+            if other {
+                self.editor.select_window(window);
+            }
             self.editor.focus_pane(false);
             self.follow_selection();
             cx.notify();
@@ -128,8 +132,9 @@ impl EditorView {
         self.window_state.showing_screen = self.editor.is_screen(&window_name);
         let frame_size = self.window_state.frame.size;
         let reserved = self.window_state.reserved;
-        // Tables and outlines are laid out in the window above the pane.
-        let rows_area_height = frame_size.height - (reserved - px(LIST_BOTTOM)).max(px(0.0));
+        // Tables and outlines are laid out in the window above the pane, leaving under them
+        // room for the bottom row, which rides on the pane.
+        let rows_area_height = frame_size.height - reserved;
         let first_line = self.editor.viewport.first_line;
         let table_rows = ((rows_area_height - px(ROWS_TOP) - px(LIST_BOTTOM)) / px(ROW_PITCH))
             .floor()
@@ -158,7 +163,7 @@ impl EditorView {
                 let controls = self.editor.text_controls().unwrap_or_default();
                 tabbed = controls.tabs.is_some();
                 toolbar = self.render_header_controls(controls.tabs, controls.buttons, cx);
-                let bounds = full_screen_bounds(frame_size, reserved);
+                let bounds = full_screen_bounds(frame_size, reserved, self.screen_fills);
                 let owner = screen_owners.get(&window_name).copied();
                 let body = if owner.is_some_and(|owner| owner != self.editor.displayed_window()) {
                     owner.map(|owner| render_shown_elsewhere(owner, cx))
@@ -208,6 +213,24 @@ impl EditorView {
                     (Some(changes), _) => Some(render_changes(changes, cx)),
                     (None, preview) => preview.map(|preview| self.render_preview(preview)),
                 };
+                // The bottom row keeps clear of a side in the window at the bottom right, which
+                // then goes down as far as the row, rising and falling with the pane as it comes
+                // and goes, while the rows above it take their room at once.
+                let viewport = window.viewport_size();
+                let clip = self.window_state.clip;
+                let cornered = clip.right() == viewport.width && clip.bottom() == viewport.height;
+                if cornered {
+                    self.side_beside = side.is_some();
+                }
+                let row_lift = self.row_lift();
+                self.side_row_lift = Some(row_lift);
+                let side = side.map(|side| {
+                    if cornered {
+                        down_to_the_row(side, row_lift - reserved)
+                    } else {
+                        side
+                    }
+                });
                 let buffer = self.editor.window_buffer();
                 let cursor = TableCursor {
                     line: buffer.point_line(),

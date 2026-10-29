@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use gpui::{
     AnyElement, Bounds, Context, Hsla, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, Point,
     ScrollWheelEvent, SharedString, Size, Window, div, point, prelude::*, px, size,
@@ -11,6 +13,7 @@ use crate::key_input::to_modifiers;
 use crate::pane_view::render_button;
 use crate::screen_view::{Cell as ScreenCell, cell_at, render_screen, screen_size};
 use crate::tabs_view::render_tabs;
+use crate::text_zoom::TextZoom;
 
 /// Around the window buffer's screen: its sides, and under it, over the hints and pill.
 const SCREEN_SIDE: f32 = 24.0;
@@ -28,7 +31,6 @@ pub(super) struct ScreenArea {
     pub(super) buffer: String,
     origin: Point<Pixels>,
     cell: ScreenCell,
-    gutter: bool,
     size: ScreenSize,
 }
 
@@ -44,7 +46,6 @@ impl ScreenArea {
             (position.x - self.origin.x).max(px(0.0)),
             (position.y - self.origin.y).max(px(0.0)),
             self.cell,
-            self.gutter,
         );
         ScreenPointer {
             row: row.min(self.size.rows.saturating_sub(1)),
@@ -64,14 +65,21 @@ pub(super) fn screen_button(button: MouseButton) -> ScreenButton {
 }
 
 /// Where the window buffer's screen is drawn in a window laid out in `frame`, clear of the
-/// title bar, and of the pill or the pane under it.
-pub(super) fn full_screen_bounds(frame: Size<Pixels>, reserved: Pixels) -> Bounds<Pixels> {
+/// title bar, of the pane `reserved` under it and of the bottom row riding on the pane. One
+/// that `fills` the window goes down to the margin its sides have: the bottom row then
+/// shows over it only for a while.
+pub(super) fn full_screen_bounds(
+    frame: Size<Pixels>,
+    reserved: Pixels,
+    fills: bool,
+) -> Bounds<Pixels> {
     let origin = point(px(SCREEN_SIDE), px(TITLE_BAR_HEIGHT));
+    let bottom = if fills { SCREEN_SIDE } else { SCREEN_BOTTOM };
     Bounds {
         origin,
         size: size(
             frame.width - px(2.0 * SCREEN_SIDE),
-            frame.height - origin.y - px(SCREEN_BOTTOM).max(reserved),
+            frame.height - origin.y - px(bottom) - reserved,
         ),
     }
 }
@@ -88,9 +96,10 @@ impl EditorView {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let code_font = font::code();
+        let code_font = self.screen_zoom.font(font::code());
         let metrics = cached_metrics(&mut self.screen_metrics, code_font.clone(), window);
         let cell = ScreenCell {
+            font_size: px(code_font.size),
             width: metrics.char_width,
             height: px(code_font.line_height),
             glyph: metrics.glyph_height,
@@ -101,32 +110,25 @@ impl EditorView {
             (bounds.size.width - inset.x * 2.0).max(px(0.0)),
             (bounds.size.height - inset.y * 2.0).max(px(0.0)),
         );
-        let mut gutter = self.screen_gutters.get(name).copied().unwrap_or(false);
-        let fit = |gutter| screen_size(room.width, room.height, cell, gutter);
-        let mut screen = self.editor.screen(name, fit(gutter))?;
-        if screen.gutter != gutter {
-            gutter = screen.gutter;
-            self.screen_gutters.insert(name.to_owned(), gutter);
-            screen = self.editor.screen(name, fit(gutter))?;
-        }
+        let size = screen_size(room.width, room.height, cell);
+        let screen = self.editor.screen(name, size)?;
+        self.screen_drawn = true;
+        let transition = self.transitions.popup();
+        let tip = &mut self.surfaces.mark_tip;
+        tip.update(self.hovered_mark, Instant::now(), transition.duration);
+        let tip = tip
+            .shown(transition)
+            .map(|shown| (*shown.content, shown.look));
         let area = ScreenArea {
             buffer: name.to_owned(),
             origin: offset + bounds.origin + inset,
             cell,
-            gutter,
-            size: fit(gutter),
+            size,
         };
         let mut element = div()
             .id(SharedString::from(format!("screen {name}")))
             .size_full()
-            .child(render_screen(
-                screen,
-                cell,
-                inset,
-                under,
-                self.hovered_mark,
-                cx,
-            ));
+            .child(render_screen(screen, cell, inset, under, tip, cx));
         for button in [MouseButton::Left, MouseButton::Middle, MouseButton::Right] {
             let area = area.clone();
             element = element.on_mouse_down(
@@ -192,6 +194,15 @@ impl EditorView {
         event: &ScrollWheelEvent,
         cx: &mut Context<Self>,
     ) {
+        if event.modifiers.platform {
+            if self
+                .screen_zoom
+                .scroll(event.delta, font::code().size, self.zoom)
+            {
+                cx.notify();
+            }
+            return;
+        }
         let row_height = area.cell.height;
         let delta = event.delta.pixel_delta(row_height);
         // macOS turns a mouse's wheel sideways while shift is held.
@@ -213,9 +224,18 @@ impl EditorView {
         cx.notify();
     }
 
-    pub fn hover_command_mark(&mut self, row: Option<usize>, cx: &mut Context<Self>) {
-        if row.is_some() || self.hovered_mark.is_some() {
-            self.hovered_mark = row;
+    /// The zoom ⌘= and ⌘- change: the screens' while one has the keys, else the text's.
+    pub(super) fn zoom_with_keys(&mut self) -> &mut TextZoom {
+        if self.editor.screen_has_keys() {
+            &mut self.screen_zoom
+        } else {
+            &mut self.text_zoom
+        }
+    }
+
+    pub fn hover_command_mark(&mut self, mark: Option<(usize, bool)>, cx: &mut Context<Self>) {
+        if mark.is_some() || self.hovered_mark.is_some() {
+            self.hovered_mark = mark;
             cx.notify();
         }
     }
@@ -275,10 +295,10 @@ mod tests {
     }
 
     #[test]
-    fn full_screen_clears_the_title_bar_and_the_larger_of_pill_and_pane() {
+    fn full_screen_clears_the_title_bar_the_pane_and_the_row_over_it() {
         let frame = size(px(800.0), px(600.0));
         assert_eq!(
-            full_screen_bounds(frame, px(0.0)),
+            full_screen_bounds(frame, px(0.0), false),
             bounds(
                 SCREEN_SIDE,
                 TITLE_BAR_HEIGHT,
@@ -287,8 +307,13 @@ mod tests {
             )
         );
         assert_eq!(
-            full_screen_bounds(frame, px(100.0)).size.height,
-            px(600.0 - TITLE_BAR_HEIGHT - 100.0)
+            full_screen_bounds(frame, px(100.0), false).size.height,
+            px(600.0 - TITLE_BAR_HEIGHT - 100.0 - SCREEN_BOTTOM)
+        );
+        assert_eq!(
+            full_screen_bounds(frame, px(0.0), true).size.height,
+            px(600.0 - TITLE_BAR_HEIGHT - SCREEN_SIDE),
+            "filling the window, under the bottom row"
         );
     }
 
@@ -298,11 +323,11 @@ mod tests {
             buffer: "screen".into(),
             origin: point(px(10.0), px(20.0)),
             cell: ScreenCell {
+                font_size: px(13.0),
                 width: px(8.0),
                 height: px(16.0),
                 glyph: px(12.0),
             },
-            gutter: false,
             size: ScreenSize {
                 columns: 10,
                 rows: 5,

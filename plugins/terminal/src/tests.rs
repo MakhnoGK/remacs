@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use std::{env, fs, thread};
 
 use remacs_core::{
-    Editor, Key, Screen, ScreenButton, ScreenMouse, ScreenPointer, ScreenSize, Settings,
+    Editor, Icon, Key, Screen, ScreenButton, ScreenMouse, ScreenPointer, ScreenSize, Settings,
     parse_sequence,
 };
 use remacs_editing::EditingPlugin;
@@ -138,6 +138,87 @@ fn a_terminal_in_the_panel_takes_the_keys_until_they_go_back_to_the_text() {
     assert_eq!(editor.shown_pane(), None);
 }
 
+/// What ⌘= and ⌘- zoom follows: a terminal's text while one has the keys.
+#[test]
+fn a_screen_has_the_keys_in_the_focused_panel_or_the_window_but_not_under_a_prompt() {
+    let mut editor = editor(SH);
+    assert!(!editor.screen_has_keys());
+    press(&mut editor, "C-`");
+    assert!(editor.screen_has_keys());
+    press(&mut editor, "C-x C-f");
+    assert!(!editor.screen_has_keys(), "the prompt has them");
+    press(&mut editor, "C-g");
+    assert!(editor.screen_has_keys());
+    press(&mut editor, "C-x o");
+    assert!(
+        !editor.screen_has_keys(),
+        "the text has them, the panel still shown"
+    );
+    press(&mut editor, "C-`");
+    press(&mut editor, "s-RET");
+    assert!(editor.screen_has_keys(), "the window's terminal");
+}
+
+/// The status pill stays the text's while the panel has the keys, so it does not change as
+/// they move; a terminal in the window names its shell there.
+#[test]
+fn only_a_terminal_in_the_window_names_its_shell_in_the_status() {
+    let mut editor = editor(SH);
+    let names_shell = |editor: &Editor| {
+        editor
+            .status_segments()
+            .iter()
+            .any(|segment| segment.items.iter().any(|item| item.text == "sh"))
+    };
+    press(&mut editor, "C-`");
+    assert!(editor.pane_has_keys(PANE));
+    assert!(!names_shell(&editor), "the panel's header says it");
+    press(&mut editor, "s-RET");
+    assert!(names_shell(&editor));
+}
+
+/// Switched between with C-x b, where they are listed after the other buffers by their
+/// labels; counted in the status pill; in the window, named without tabs.
+#[test]
+fn terminals_are_listed_apart_counted_and_named_without_tabs_in_the_window() {
+    let mut editor = editor(SH);
+    press(&mut editor, "C-`");
+    press(&mut editor, "s-t");
+    let counted = editor.status_segments().iter().find_map(|segment| {
+        let item = segment.items.first()?;
+        (item.icon == Some(Icon::Terminal)).then(|| item.text.clone())
+    });
+    assert_eq!(counted.as_deref(), Some("2"));
+
+    press(&mut editor, "C-x b");
+    let candidates = editor.minibuffer().unwrap().candidates();
+    let terminals: Vec<_> = candidates
+        .iter()
+        .filter(|candidate| candidate.group.as_deref() == Some("Terminals"))
+        .collect();
+    assert_eq!(terminals.len(), 2);
+    assert!(terminals.iter().all(|candidate| {
+        candidate.icon == Some(Icon::Terminal) && !candidate.label.starts_with("*term")
+    }));
+    // Both in the same directory, with no title: told apart as their names are.
+    assert_ne!(terminals[0].label, terminals[1].label);
+    assert_eq!(
+        candidates
+            .last()
+            .and_then(|candidate| candidate.group.as_deref()),
+        Some("Terminals"),
+        "after the other buffers"
+    );
+    press(&mut editor, "C-g");
+
+    press(&mut editor, "s-RET");
+    let controls = editor.text_controls().expect("buttons over the terminal");
+    assert!(controls.tabs.is_none());
+    let window = editor.window_buffer();
+    assert!(window.name().starts_with("*term: "));
+    assert!(!editor.shown_name(window).starts_with("*term"));
+}
+
 #[test]
 fn a_terminal_moves_between_the_panel_and_the_window() {
     let mut editor = editor(SH);
@@ -146,8 +227,8 @@ fn a_terminal_moves_between_the_panel_and_the_window() {
     press(&mut editor, "s-RET");
     assert!(editor.window_buffer().name().starts_with("*term: "));
     assert_eq!(editor.shown_pane(), None);
-    let controls = editor.text_controls().expect("chips over the terminal");
-    assert_eq!(controls.tabs.map(|tabs| tabs.tabs.len()), Some(1));
+    let controls = editor.text_controls().expect("buttons over the terminal");
+    assert!(controls.tabs.is_none(), "the title bar names it");
     wait_for(&mut editor, "the prompt", |screen| screen.notice.is_none());
     type_text(&mut editor, "echo in-window\n");
     wait_for_text(&mut editor, "\nin-window");
@@ -258,11 +339,10 @@ fn commands_the_shell_reports_are_marked_by_their_prompt() {
         .filter_map(|row| row.mark.as_ref().map(|mark| mark.exit))
         .collect();
     assert_eq!(marked, vec![Some(7)]);
-    assert!(screen.gutter, "room for the mark");
 }
 
 #[test]
-fn the_marks_take_room_only_while_one_shows_and_no_program_draws_its_own() {
+fn the_marks_hide_while_a_program_draws_its_own_screen() {
     // A finished command is marked; the next runs a program that takes the keys as
     // Claude Code does, drawing in place.
     let script = r"printf '\033]133;A\007P1> \033]133;C\007\nout\n\033]133;D;0\007\033]133;A\007P2> \033]133;C\007'; sleep 1; printf '\033[?2004h\033[>5utui'; sleep 1; printf '\033[?2004l\033[<u\033[2J\033[Hclear'; sleep 5";
@@ -270,15 +350,16 @@ fn the_marks_take_room_only_while_one_shows_and_no_program_draws_its_own() {
         "shell = \"/bin/sh\"\nargs = [\"-c\", {script:?}]\n"
     ));
     press(&mut editor, "C-`");
+    let marked = |screen: &Screen| screen.rows.iter().any(|row| row.mark.is_some());
     wait_for(&mut editor, "the mark", |screen| {
-        text(screen).contains("P2>") && screen.gutter
+        text(screen).contains("P2>") && marked(screen)
     });
     wait_for(&mut editor, "the program", |screen| {
-        text(screen).contains("tui") && !screen.gutter
+        text(screen).contains("tui") && !marked(screen)
     });
     // Left the keys, but cleared the screen: no mark shows.
     wait_for(&mut editor, "no mark", |screen| {
-        text(screen).contains("clear") && !screen.gutter
+        text(screen).contains("clear") && !marked(screen)
     });
 }
 

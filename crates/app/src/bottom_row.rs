@@ -17,7 +17,8 @@ use crate::widgets::{glass_surface, kbd, key_caps, pill, pill_separator};
 pub type Hints = &'static [(&'static str, &'static str)];
 
 const SIDE: f32 = 16.0;
-const BOTTOM: f32 = 14.0;
+/// Of the row over what is under it: the window's bottom, or the pane's top.
+pub const BOTTOM: f32 = 14.0;
 const GAP: f32 = 12.0;
 /// Where what opens from the row starts, clear of its pills.
 const ABOVE_ROW: f32 = 52.0;

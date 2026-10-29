@@ -1,5 +1,6 @@
 mod assets;
 mod bottom_row;
+mod cell_glyphs;
 mod changes_view;
 mod code_wrap;
 mod composition;

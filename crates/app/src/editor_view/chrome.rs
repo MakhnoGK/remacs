@@ -15,8 +15,8 @@ use remacs_frame::TEXT_CONFIGURED;
 use remacs_theme::{color, font, glass};
 
 use super::{
-    CLOSE_KEY, COPY_MESSAGE_KEY, EditorView, Metrics, OpenMessage, PromptSurface, ROW_MARGIN,
-    TEXT_TOP, TITLE_BAR_HEIGHT,
+    CLOSE_KEY, COPY_MESSAGE_KEY, EditorView, FOOTER_FADE_HEIGHT, Metrics, OpenMessage,
+    PromptSurface, ROW_MARGIN, TEXT_TOP, TITLE_BAR_HEIGHT,
 };
 use crate::bottom_row::{
     CardKeys, FittedHints, Hints, PrefixKeys, echo_room, fit_hints, render_hints,
@@ -29,10 +29,10 @@ use crate::outline_view::{
     COMMIT_HEIGHT, OutlineScrolled, beside_height, fits_history, fitting_commits, fitting_rows,
     fitting_rows_in, render_outline, render_toolbar, row_height,
 };
-use crate::pane_view::{PaneChrome, render_pane, screen_bounds};
+use crate::pane_view::{PANE_BOTTOM, PANE_GAP, PaneChrome, render_pane, screen_bounds};
 use crate::popup_view::{Placement, PopupView, render_popup};
 use crate::preview_view::render_preview;
-use crate::transition::{Retained, Side};
+use crate::transition::{Look, Retained, Side};
 use crate::widgets::{Scrolled, icon, modified_dot, over, pill, pill_separator, tone_color};
 
 /// Per mode; one popup shows a handful.
@@ -206,9 +206,10 @@ impl EditorView {
     }
 
     /// The window buffer's name in the middle of the title bar, unless chips name it; with
-    /// other windows, its own name, bright only in the selected one.
+    /// other windows, its own name, bright only in the selected one. Named as buffers are
+    /// listed: a terminal by the title its program sets.
     pub(super) fn render_header(&self, titled: bool, split: bool) -> Div {
-        let buffer = self.editor.window_buffer();
+        let name = self.editor.shown_name(self.editor.window_buffer());
         let header = div()
             .absolute()
             .top_0()
@@ -235,15 +236,11 @@ impl EditorView {
                     } else {
                         color::fg_dim()
                     }))
-                    .child(buffer.name().to_owned()),
+                    .child(name),
             );
         }
         header
-            .child(
-                div()
-                    .font_weight(gpui::FontWeight::MEDIUM)
-                    .child(buffer.name().to_owned()),
-            )
+            .child(div().font_weight(gpui::FontWeight::MEDIUM).child(name))
             .child(div().text_color(rgb(color::fg_dim())).child("— Remacs"))
     }
 
@@ -396,6 +393,50 @@ impl EditorView {
             }))
     }
 
+    /// The bottom row as drawn. Over a screen that fills the window it shows only for a
+    /// while, rising and fading: with a message, keys typed after a prefix, what it opened
+    /// (the message whole, the keys, the problem list while `listing`), or the mouse at the
+    /// window's bottom. The screen keeps its size all the while.
+    pub(super) fn reveal_row(
+        &mut self,
+        row: AnyElement,
+        listing: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        if !self.screen_fills {
+            self.surfaces.row = Retained::default();
+            self.row_hovered = false;
+            return row;
+        }
+        let shown = self.row_hovered
+            || listing
+            || self.message_open
+            || self.hints_open
+            || self.editor.message().is_some()
+            || !self.editor.pending_keys().is_empty();
+        let transition = self.transitions.popup().coming_from(Side::Below);
+        let reveal = &mut self.surfaces.row;
+        reveal.update(shown.then_some(()), Instant::now(), transition.duration);
+        // Takes no click from the screen under it, only whether the mouse is there.
+        let zone = div()
+            .id("bottom-row-zone")
+            .absolute()
+            .left_0()
+            .right_0()
+            .bottom_0()
+            .h(px(FOOTER_FADE_HEIGHT))
+            .on_hover(cx.listener(|view, hovered: &bool, _, cx| {
+                view.row_hovered = *hovered;
+                cx.notify();
+            }));
+        div()
+            .absolute()
+            .inset_0()
+            .child(zone)
+            .children(reveal.look(transition).map(|look| look.apply(row)))
+            .into_any_element()
+    }
+
     /// The row along the bottom, and what opens from it over the view: the message whole,
     /// the keys that do not fit, the keys after a prefix.
     pub(super) fn render_bottom_row(
@@ -463,6 +504,21 @@ impl EditorView {
         )
     }
 
+    /// Where the windows end over the window's bottom once the pane is all there, where the
+    /// bottom row stands, and how the pane is drawn as it comes, is, or goes; none once it
+    /// is gone.
+    pub(super) fn pane_lift(&self) -> Option<(Pixels, Look)> {
+        let shown = self.surfaces.pane.shown(self.transitions.pane())?;
+        let lift = px(shown.content.0.height + PANE_BOTTOM + PANE_GAP);
+        Some((lift, shown.look))
+    }
+
+    /// Where the bottom row stands over the window's bottom as the pane comes, is, or goes.
+    pub(super) fn row_lift(&self) -> Pixels {
+        self.pane_lift()
+            .map_or(px(0.0), |(lift, look)| lift * look.opacity)
+    }
+
     /// Whether the keys listed are a shown pane's: always under text, under rows or a
     /// screen only while it has them, since theirs are what those are for.
     pub(super) fn pane_keys_listed(&self) -> bool {
@@ -512,11 +568,16 @@ impl EditorView {
     fn render_status(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let buffer = self.editor.window_buffer();
         let position = format!("{}:{}", buffer.point_line() + 1, buffer.point_column() + 1);
-        // Only text zooms; a click gives it the configured size back.
-        let zoom = self
-            .text_zoom
-            .percent(font::code().size)
-            .filter(|_| !self.window_state.showing_rows && !self.window_state.showing_screen)
+        // The zoom the keys change: the screens' while one has them, else the text's, which
+        // rows and a screen in the window do not show. A click gives the configured size back.
+        let zoom = if self.editor.screen_has_keys() {
+            Some(&self.screen_zoom)
+        } else {
+            let state = &self.window_state;
+            (!state.showing_rows && !state.showing_screen).then_some(&self.text_zoom)
+        };
+        let zoom = zoom
+            .and_then(|zoom| zoom.percent(font::code().size))
             .map(|percent| StatusSegment {
                 items: vec![StatusItem::new(None, format!("{percent}%"))],
                 command: Some(TEXT_CONFIGURED),

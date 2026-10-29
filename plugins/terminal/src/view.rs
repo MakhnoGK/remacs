@@ -7,9 +7,9 @@ use std::time::Duration;
 use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::term::TermMode;
 use remacs_core::{
-    Buffer, CommandResult, Editor, Key, KeyCode, Pane, PaneBody, PaneButton, Screen, ScreenBanner,
-    ScreenMouse, ScreenNotice, ScreenPadding, ScreenPointer, ScreenSize, ScreenSource, StatusItem,
-    StatusSegment, Tab, Tabs, TextControls, Tone,
+    Buffer, BufferLook, CommandResult, Editor, Icon, Key, KeyCode, Pane, PaneBody, PaneButton,
+    Screen, ScreenBanner, ScreenMouse, ScreenNotice, ScreenPadding, ScreenPointer, ScreenSize,
+    ScreenSource, StatusItem, StatusSegment, Tab, Tabs, TextControls, Tone,
 };
 use remacs_files::abbreviate_home;
 use remacs_files::links::follow;
@@ -106,11 +106,10 @@ impl ScreenSource for TerminalScreens {
             commands: &terminal.commands,
             link: terminal.link.as_ref().map(|link| &link.cells),
         };
-        let (rows, cursor) = rows(&term, &overlay);
-        // Room for the marks only while one shows, so that the text is not pushed aside
-        // by an empty column.
-        let gutter = !program_has_screen(*term.mode(), &terminal.commands)
-            && rows.iter().any(|row| row.mark.is_some());
+        let (mut rows, cursor) = rows(&term, &overlay);
+        if program_has_screen(*term.mode(), &terminal.commands) {
+            rows.iter_mut().for_each(|row| row.mark = None);
+        }
         let banner = match terminal.phase {
             Phase::Exited(code) => Some(ScreenBanner {
                 text: format!("Process exited with code {code}"),
@@ -133,7 +132,6 @@ impl ScreenSource for TerminalScreens {
             search: copying
                 .and_then(|copy| copy.search.as_ref())
                 .map(copy::search_bar),
-            gutter,
             above: term.grid().history_size() > term.grid().display_offset(),
             flash: terminal.rang.is_some_and(|rang| rang.elapsed() < FLASH),
             pointing: terminal.link.is_some(),
@@ -277,9 +275,10 @@ pub fn controls(editor: &Editor) -> Option<TextControls> {
         (Phase::Failed(_), _) => FAILED_HINTS,
         _ => WINDOW_HINTS,
     };
+    // No tabs: the title bar names it as its program does, the others are a C-x b or ⌘{ ⌘}
+    // away, and the panel keeps them all.
     Some(TextControls {
         buttons: vec![button("Restore to panel", "⌘↩", MAXIMIZE)],
-        tabs: Some(tabs(editor, id)),
         hints,
         ..TextControls::default()
     })
@@ -338,9 +337,38 @@ fn state(terminal: &Terminal) -> (String, Tone) {
     }
 }
 
-/// The shell, where it is and the screen's size, for the terminal with the keys.
+/// How many terminals there are, ended ones too, whichever has the keys, so that it changes
+/// only as they come and go; a click chooses one.
+pub fn count(editor: &Editor) -> Option<StatusSegment> {
+    let count = all(editor).len();
+    (count > 0).then(|| StatusSegment {
+        items: vec![StatusItem::new(Some(Icon::Terminal), count.to_string())],
+        command: Some(LIST),
+        active: false,
+        code: true,
+    })
+}
+
+/// A terminal where buffers are listed: apart from the others, by its label in place of
+/// `*term: …*`, with where it is and whether it runs. The `<2>` a taken name was made
+/// unique with stays, so that two terminals labelled alike are told apart.
+pub fn look(_: &Editor, buffer: &Buffer) -> Option<BufferLook> {
+    let terminal = buffer.local::<Terminal>()?;
+    let number = buffer.name().strip_prefix(&terminal.buffer_name());
+    Some(BufferLook {
+        icon: Some(Icon::Terminal),
+        label: format!("{}{}", terminal.label(), number.unwrap_or_default()),
+        group: Some("Terminals"),
+        annotation: abbreviate_home(&terminal.directory),
+        detail: Some(state(terminal).0),
+    })
+}
+
+/// The shell, where it is and the screen's size, for the terminal in the window. The
+/// panel's header says as much, and the pill stays the text's whether or not the panel has
+/// the keys, so that it does not change as they move.
 pub fn status(editor: &Editor) -> Option<StatusSegment> {
-    let id = keyed(editor).or_else(|| in_window(editor))?;
+    let id = in_window(editor)?;
     let terminal = find(editor, id)?;
     let mut items = vec![StatusItem::new(None, terminal.shell())];
     items.push(StatusItem::new(None, abbreviate_home(&terminal.directory)));
