@@ -2,6 +2,7 @@
 //! the plugin registry.
 
 mod buffer;
+mod buffer_look;
 mod char_class;
 mod command;
 mod completion;
@@ -33,6 +34,7 @@ mod viewport;
 mod window;
 
 pub use buffer::{Buffer, BufferId, Cursor, FileEdits};
+pub use buffer_look::{BufferLook, BufferLookProvider};
 pub use char_class::CharClass;
 pub use command::{Command, CommandError, CommandResult, Commands};
 pub use completion::{

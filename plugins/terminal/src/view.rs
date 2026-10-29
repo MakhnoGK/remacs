@@ -7,9 +7,9 @@ use std::time::Duration;
 use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::term::TermMode;
 use remacs_core::{
-    Buffer, CommandResult, Editor, Key, KeyCode, Pane, PaneBody, PaneButton, Screen, ScreenBanner,
-    ScreenMouse, ScreenNotice, ScreenPadding, ScreenPointer, ScreenSize, ScreenSource, StatusItem,
-    StatusSegment, Tab, Tabs, TextControls, Tone,
+    Buffer, BufferLook, CommandResult, Editor, Icon, Key, KeyCode, Pane, PaneBody, PaneButton,
+    Screen, ScreenBanner, ScreenMouse, ScreenNotice, ScreenPadding, ScreenPointer, ScreenSize,
+    ScreenSource, StatusItem, StatusSegment, Tab, Tabs, TextControls, Tone,
 };
 use remacs_files::abbreviate_home;
 use remacs_files::links::follow;
@@ -275,9 +275,10 @@ pub fn controls(editor: &Editor) -> Option<TextControls> {
         (Phase::Failed(_), _) => FAILED_HINTS,
         _ => WINDOW_HINTS,
     };
+    // No tabs: the title bar names it as its program does, the others are a C-x b or ⌘{ ⌘}
+    // away, and the panel keeps them all.
     Some(TextControls {
         buttons: vec![button("Restore to panel", "⌘↩", MAXIMIZE)],
-        tabs: Some(tabs(editor, id)),
         hints,
         ..TextControls::default()
     })
@@ -334,6 +335,33 @@ fn state(terminal: &Terminal) -> (String, Tone) {
         Phase::Exited(code) => (format!("exited {code}"), Tone::Danger),
         Phase::Failed(_) => ("failed".to_owned(), Tone::Danger),
     }
+}
+
+/// How many terminals there are, ended ones too, whichever has the keys, so that it changes
+/// only as they come and go; a click chooses one.
+pub fn count(editor: &Editor) -> Option<StatusSegment> {
+    let count = all(editor).len();
+    (count > 0).then(|| StatusSegment {
+        items: vec![StatusItem::new(Some(Icon::Terminal), count.to_string())],
+        command: Some(LIST),
+        active: false,
+        code: true,
+    })
+}
+
+/// A terminal where buffers are listed: apart from the others, by its label in place of
+/// `*term: …*`, with where it is and whether it runs. The `<2>` a taken name was made
+/// unique with stays, so that two terminals labelled alike are told apart.
+pub fn look(_: &Editor, buffer: &Buffer) -> Option<BufferLook> {
+    let terminal = buffer.local::<Terminal>()?;
+    let number = buffer.name().strip_prefix(&terminal.buffer_name());
+    Some(BufferLook {
+        icon: Some(Icon::Terminal),
+        label: format!("{}{}", terminal.label(), number.unwrap_or_default()),
+        group: Some("Terminals"),
+        annotation: abbreviate_home(&terminal.directory),
+        detail: Some(state(terminal).0),
+    })
 }
 
 /// The shell, where it is and the screen's size, for the terminal in the window. The

@@ -4,13 +4,16 @@
 use std::rc::Rc;
 use std::time::Duration;
 
-use remacs_core::{Editor, Icon, StatusItem, StatusSegment, TextControls, Tone, ToolbarButton};
+use remacs_core::{
+    Buffer, BufferLook, Editor, Icon, StatusItem, StatusSegment, TextControls, Tone, ToolbarButton,
+};
 
 use crate::CHOOSE;
 use crate::commands::{run, stop_console};
 use crate::configuration::Store;
+use crate::console::Console;
 use crate::process::Exit;
-use crate::sessions::{self, Session, State, get, of_window};
+use crate::sessions::{self, Session, State, directory_name, get, of_window};
 use crate::window::window_root;
 
 const CONSOLE_HINTS: &[(&str, &str)] = &[
@@ -49,6 +52,23 @@ pub fn status(editor: &Editor) -> Option<StatusSegment> {
         command: Some(CHOOSE),
         active: false,
         code: true,
+    })
+}
+
+/// A console where buffers are listed: its configuration's icon and name, or that it
+/// compiles the project, and how its run goes.
+pub fn look(editor: &Editor, buffer: &Buffer) -> Option<BufferLook> {
+    let session = get(editor, buffer.local::<Console>()?.session)?;
+    let label = if session.compile {
+        format!("Compile {}", directory_name(&session.root))
+    } else {
+        session.configuration.name.clone()
+    };
+    Some(BufferLook {
+        icon: Some(session.configuration.kind.icon()),
+        label,
+        detail: Some(state_item(session).text),
+        ..BufferLook::default()
     })
 }
 

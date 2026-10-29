@@ -135,28 +135,43 @@ fn kill_confirming_changes(editor: &mut Editor, name: String) -> CommandResult {
     )
 }
 
-/// Buffers in recently-used order, as in Emacs `buffer-list`.
+/// Buffers in recently-used order, as in Emacs `buffer-list`; those a plugin shows apart,
+/// like terminals, after the others, each group in that order too.
 fn buffer_candidates(editor: &Editor, input: &str) -> Completions {
     let root = project_root(&default_directory(editor));
     let current = editor.window_buffer().name();
-    let candidates = editor
+    let (open, apart): (Vec<_>, Vec<_>) = editor
         .buffers()
         .iter()
-        .map(|buffer| Candidate {
-            annotation: buffer
-                .path()
-                .and_then(Path::parent)
-                .map(|directory| relative_directory(&root, directory))
-                .unwrap_or_default(),
-            tag: (buffer.name() == current).then_some("current"),
-            detail: Some(buffer.mode().into()),
-            group: Some("Open".into()),
-            modified: buffer.path().is_some() && buffer.is_modified(),
-            dim: buffer.name().starts_with('*'),
-            ..Candidate::new(buffer.name())
+        .map(|buffer| {
+            let candidate = Candidate {
+                annotation: buffer
+                    .path()
+                    .and_then(Path::parent)
+                    .map(|directory| relative_directory(&root, directory))
+                    .unwrap_or_default(),
+                tag: (buffer.name() == current).then_some("current"),
+                detail: Some(buffer.mode().into()),
+                group: Some("Open".into()),
+                modified: buffer.path().is_some() && buffer.is_modified(),
+                dim: buffer.name().starts_with('*'),
+                ..Candidate::new(buffer.name())
+            };
+            let Some(look) = editor.buffer_look(buffer) else {
+                return candidate;
+            };
+            Candidate {
+                label: look.label,
+                icon: look.icon,
+                annotation: look.annotation,
+                detail: look.detail.map(Into::into).or(candidate.detail),
+                group: look.group.map(Into::into).or(candidate.group),
+                dim: false,
+                ..candidate
+            }
         })
-        .collect();
-    filter_candidates(input, candidates, false)
+        .partition(|candidate| candidate.group.as_deref() == Some("Open"));
+    filter_candidates(input, open.into_iter().chain(apart).collect(), false)
 }
 
 pub fn has_unsaved_changes(editor: &Editor, name: &str) -> bool {

@@ -143,6 +143,8 @@ impl Plugin for TerminalPlugin {
         });
         registry.text_controls.push(Rc::new(view::controls));
         registry.status_providers.push(Rc::new(view::status));
+        registry.status_providers.push(Rc::new(view::count));
+        registry.buffer_looks.push(Rc::new(view::look));
         registry.settings_hooks.push(Rc::new(read_settings));
         registry.post_command_hooks.push(Rc::new(update));
         registry.quit_queries.push(terminals::running);

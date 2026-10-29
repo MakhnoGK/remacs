@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use std::{env, fs, thread};
 
 use remacs_core::{
-    Editor, Key, Screen, ScreenButton, ScreenMouse, ScreenPointer, ScreenSize, Settings,
+    Editor, Icon, Key, Screen, ScreenButton, ScreenMouse, ScreenPointer, ScreenSize, Settings,
     parse_sequence,
 };
 use remacs_editing::EditingPlugin;
@@ -162,7 +162,7 @@ fn a_screen_has_the_keys_in_the_focused_panel_or_the_window_but_not_under_a_prom
 /// The status pill stays the text's while the panel has the keys, so it does not change as
 /// they move; a terminal in the window names its shell there.
 #[test]
-fn only_a_terminal_in_the_window_has_a_status_segment() {
+fn only_a_terminal_in_the_window_names_its_shell_in_the_status() {
     let mut editor = editor(SH);
     let names_shell = |editor: &Editor| {
         editor
@@ -177,6 +177,48 @@ fn only_a_terminal_in_the_window_has_a_status_segment() {
     assert!(names_shell(&editor));
 }
 
+/// Switched between with C-x b, where they are listed after the other buffers by their
+/// labels; counted in the status pill; in the window, named without tabs.
+#[test]
+fn terminals_are_listed_apart_counted_and_named_without_tabs_in_the_window() {
+    let mut editor = editor(SH);
+    press(&mut editor, "C-`");
+    press(&mut editor, "s-t");
+    let counted = editor.status_segments().iter().find_map(|segment| {
+        let item = segment.items.first()?;
+        (item.icon == Some(Icon::Terminal)).then(|| item.text.clone())
+    });
+    assert_eq!(counted.as_deref(), Some("2"));
+
+    press(&mut editor, "C-x b");
+    let candidates = editor.minibuffer().unwrap().candidates();
+    let terminals: Vec<_> = candidates
+        .iter()
+        .filter(|candidate| candidate.group.as_deref() == Some("Terminals"))
+        .collect();
+    assert_eq!(terminals.len(), 2);
+    assert!(terminals.iter().all(|candidate| {
+        candidate.icon == Some(Icon::Terminal) && !candidate.label.starts_with("*term")
+    }));
+    // Both in the same directory, with no title: told apart as their names are.
+    assert_ne!(terminals[0].label, terminals[1].label);
+    assert_eq!(
+        candidates
+            .last()
+            .and_then(|candidate| candidate.group.as_deref()),
+        Some("Terminals"),
+        "after the other buffers"
+    );
+    press(&mut editor, "C-g");
+
+    press(&mut editor, "s-RET");
+    let controls = editor.text_controls().expect("buttons over the terminal");
+    assert!(controls.tabs.is_none());
+    let window = editor.window_buffer();
+    assert!(window.name().starts_with("*term: "));
+    assert!(!editor.shown_name(window).starts_with("*term"));
+}
+
 #[test]
 fn a_terminal_moves_between_the_panel_and_the_window() {
     let mut editor = editor(SH);
@@ -185,8 +227,8 @@ fn a_terminal_moves_between_the_panel_and_the_window() {
     press(&mut editor, "s-RET");
     assert!(editor.window_buffer().name().starts_with("*term: "));
     assert_eq!(editor.shown_pane(), None);
-    let controls = editor.text_controls().expect("chips over the terminal");
-    assert_eq!(controls.tabs.map(|tabs| tabs.tabs.len()), Some(1));
+    let controls = editor.text_controls().expect("buttons over the terminal");
+    assert!(controls.tabs.is_none(), "the title bar names it");
     wait_for(&mut editor, "the prompt", |screen| screen.notice.is_none());
     type_text(&mut editor, "echo in-window\n");
     wait_for_text(&mut editor, "\nin-window");
