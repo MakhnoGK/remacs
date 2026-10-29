@@ -16,7 +16,8 @@ open-in = "panel"
 panel-height = 320
 
 # Pixels between the text and the terminal's left and right edges, and its top and
-# bottom ones: 0 to 64. The marks of commands take room of their own on the left.
+# bottom ones: 0 to 64. The marks of commands are drawn in the left one; at 0 they
+# cover the first column.
 padding-x = 10
 padding-y = 6
 

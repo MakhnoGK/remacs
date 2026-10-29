@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use gpui::{
     AnyElement, Bounds, Context, Hsla, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, Point,
     ScrollWheelEvent, SharedString, Size, Window, div, point, prelude::*, px, size,
@@ -28,7 +30,6 @@ pub(super) struct ScreenArea {
     pub(super) buffer: String,
     origin: Point<Pixels>,
     cell: ScreenCell,
-    gutter: bool,
     size: ScreenSize,
 }
 
@@ -44,7 +45,6 @@ impl ScreenArea {
             (position.x - self.origin.x).max(px(0.0)),
             (position.y - self.origin.y).max(px(0.0)),
             self.cell,
-            self.gutter,
         );
         ScreenPointer {
             row: row.min(self.size.rows.saturating_sub(1)),
@@ -101,32 +101,25 @@ impl EditorView {
             (bounds.size.width - inset.x * 2.0).max(px(0.0)),
             (bounds.size.height - inset.y * 2.0).max(px(0.0)),
         );
-        let mut gutter = self.screen_gutters.get(name).copied().unwrap_or(false);
-        let fit = |gutter| screen_size(room.width, room.height, cell, gutter);
-        let mut screen = self.editor.screen(name, fit(gutter))?;
-        if screen.gutter != gutter {
-            gutter = screen.gutter;
-            self.screen_gutters.insert(name.to_owned(), gutter);
-            screen = self.editor.screen(name, fit(gutter))?;
-        }
+        let size = screen_size(room.width, room.height, cell);
+        let screen = self.editor.screen(name, size)?;
+        self.screen_drawn = true;
+        let transition = self.transitions.popup();
+        let tip = &mut self.surfaces.mark_tip;
+        tip.update(self.hovered_mark, Instant::now(), transition.duration);
+        let tip = tip
+            .shown(transition)
+            .map(|shown| (*shown.content, shown.look));
         let area = ScreenArea {
             buffer: name.to_owned(),
             origin: offset + bounds.origin + inset,
             cell,
-            gutter,
-            size: fit(gutter),
+            size,
         };
         let mut element = div()
             .id(SharedString::from(format!("screen {name}")))
             .size_full()
-            .child(render_screen(
-                screen,
-                cell,
-                inset,
-                under,
-                self.hovered_mark,
-                cx,
-            ));
+            .child(render_screen(screen, cell, inset, under, tip, cx));
         for button in [MouseButton::Left, MouseButton::Middle, MouseButton::Right] {
             let area = area.clone();
             element = element.on_mouse_down(
@@ -213,9 +206,9 @@ impl EditorView {
         cx.notify();
     }
 
-    pub fn hover_command_mark(&mut self, row: Option<usize>, cx: &mut Context<Self>) {
-        if row.is_some() || self.hovered_mark.is_some() {
-            self.hovered_mark = row;
+    pub fn hover_command_mark(&mut self, mark: Option<(usize, bool)>, cx: &mut Context<Self>) {
+        if mark.is_some() || self.hovered_mark.is_some() {
+            self.hovered_mark = mark;
             cx.notify();
         }
     }
@@ -302,7 +295,6 @@ mod tests {
                 height: px(16.0),
                 glyph: px(12.0),
             },
-            gutter: false,
             size: ScreenSize {
                 columns: 10,
                 rows: 5,
