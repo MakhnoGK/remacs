@@ -86,10 +86,14 @@ impl EditorView {
         self.editor.displayed_window() == self.editor.selected_window()
     }
 
-    /// A click on a window not selected selects it, before what was clicked takes it.
+    /// A click on a window not selected selects it, before what was clicked takes it; a
+    /// click on any window takes the keys back from the pane.
     pub(super) fn select_clicked(&mut self, window: WindowId, cx: &mut Context<Self>) {
-        if window != self.editor.selected_window() {
-            self.editor.select_window(window);
+        let other = window != self.editor.selected_window();
+        if other || self.editor.pane_focused() {
+            if other {
+                self.editor.select_window(window);
+            }
             self.editor.focus_pane(false);
             self.follow_selection();
             cx.notify();
