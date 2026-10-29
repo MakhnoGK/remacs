@@ -2,6 +2,22 @@
 
 What changed for people using remacs, release by release; written by `cargo xtask changelog` from the commit subjects.
 
+## 0.1.0-alpha.4 — 2026-10-29
+
+### Added
+
+- name terminals by their titles, grouped in C-x b and counted in the status pill, without tabs in the window
+- stand the bottom row on the pane and show it over a full-window terminal only on demand
+- zoom terminals' text apart from the editor's, following the keys
+- mark failed and running commands in the padding instead of a gutter
+
+### Fixed
+
+- upgrade the vendored gpui's taffy to 0.14, dropping grid 0.18
+- pin the graphics canvas to its run instead of below the text
+- a click on the editor takes the keys from the panel, whose focus the cursor shows
+- draw box drawing, blocks and braille to fill their cell
+
 ## 0.1.0-alpha.3 — 2026-10-26
 
 ### Added
