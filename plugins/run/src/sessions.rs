@@ -246,7 +246,7 @@ fn run_in(
     run_session(editor, id)
 }
 
-fn directory_name(root: &Path) -> String {
+pub(crate) fn directory_name(root: &Path) -> String {
     root.file_name().map_or_else(
         || root.display().to_string(),
         |name| name.to_string_lossy().into_owned(),

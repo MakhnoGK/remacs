@@ -206,9 +206,10 @@ impl EditorView {
     }
 
     /// The window buffer's name in the middle of the title bar, unless chips name it; with
-    /// other windows, its own name, bright only in the selected one.
+    /// other windows, its own name, bright only in the selected one. Named as buffers are
+    /// listed: a terminal by the title its program sets.
     pub(super) fn render_header(&self, titled: bool, split: bool) -> Div {
-        let buffer = self.editor.window_buffer();
+        let name = self.editor.shown_name(self.editor.window_buffer());
         let header = div()
             .absolute()
             .top_0()
@@ -235,15 +236,11 @@ impl EditorView {
                     } else {
                         color::fg_dim()
                     }))
-                    .child(buffer.name().to_owned()),
+                    .child(name),
             );
         }
         header
-            .child(
-                div()
-                    .font_weight(gpui::FontWeight::MEDIUM)
-                    .child(buffer.name().to_owned()),
-            )
+            .child(div().font_weight(gpui::FontWeight::MEDIUM).child(name))
             .child(div().text_color(rgb(color::fg_dim())).child("— Remacs"))
     }
 

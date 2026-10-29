@@ -109,8 +109,8 @@ pub struct EditorView {
     swatches: SwatchesSettings,
     /// How far the minibuffer input is scrolled sideways.
     input_scroll: ScrollHandle,
-    /// The buffer the window title names.
-    titled_buffer: String,
+    /// What the window title names, the window buffer as buffers are listed.
+    window_title: String,
     /// Faces of code shown in popups and side panels, by mode and text, parsed when first
     /// drawn.
     code_faces: RefCell<HashMap<&'static str, HashMap<String, Highlights>>>,
@@ -354,7 +354,7 @@ impl EditorView {
             prompts: ui.prompts,
             swatches: ui.swatches,
             input_scroll: ScrollHandle::new(),
-            titled_buffer: String::new(),
+            window_title: String::new(),
             code_faces: RefCell::default(),
             refresh_timer: None,
             screen_press: None,
@@ -522,10 +522,12 @@ impl EditorView {
 
 impl Render for EditorView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // Setting it also updates the Window menu and lays out the title bar again.
-        if self.titled_buffer != self.editor.window_buffer().name() {
-            self.titled_buffer = self.editor.window_buffer().name().to_owned();
-            window.set_window_title(&format!("{} — Remacs", self.titled_buffer));
+        // Setting it also updates the Window menu and lays out the title bar again. As
+        // buffers are listed: a terminal by the title its program sets.
+        let title = self.editor.shown_name(self.editor.window_buffer());
+        if self.window_title != title {
+            window.set_window_title(&format!("{title} — Remacs"));
+            self.window_title = title;
         }
         if self.applied_glass != Some(self.glass) {
             window.set_background_appearance(self.glass.window_background());

@@ -1,5 +1,6 @@
 use std::rc::Rc;
 
+use crate::buffer_look::BufferLookProvider;
 use crate::command::{CommandResult, Commands};
 use crate::decoration::Decorator;
 use crate::editor::Editor;
@@ -73,6 +74,8 @@ pub struct Registry {
     pub block_probes: Vec<BlockProbe>,
     /// Segments of the status pill, before the position and the mode.
     pub status_providers: Vec<StatusProvider>,
+    /// How plugins' buffers are shown where buffers are listed or named.
+    pub buffer_looks: Vec<BufferLookProvider>,
     pub popup_providers: Vec<PopupProvider>,
     /// Highlight code that is not in a buffer, e.g. in documentation; the first that
     /// knows the mode does.

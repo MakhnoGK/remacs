@@ -181,6 +181,7 @@ impl Plugin for RunPlugin {
         registry.gutters.push(Rc::new(window::gutter_marks));
         registry.popup_providers.push(Rc::new(menu::popup));
         registry.status_providers.push(Rc::new(status::status));
+        registry.buffer_looks.push(Rc::new(status::look));
         registry.text_controls.push(Rc::new(status::controls));
     }
 }

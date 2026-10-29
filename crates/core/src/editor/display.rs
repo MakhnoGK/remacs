@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use super::Editor;
+use crate::buffer::Buffer;
+use crate::buffer_look::BufferLook;
 use crate::decoration::{Span, split_by_line};
 use crate::gutter::{GutterMark, LineExtra, TextControls, TextLabel};
 use crate::outline::Outline;
@@ -301,6 +303,20 @@ impl Editor {
             }
         }
         by_line
+    }
+
+    /// How the plugin that knows `buffer` shows it in place of its name, if one does.
+    pub fn buffer_look(&self, buffer: &Buffer) -> Option<BufferLook> {
+        self.registry
+            .buffer_looks
+            .iter()
+            .find_map(|describe| describe(self, buffer))
+    }
+
+    /// What `buffer` is called where it is named: its look's label, else its name.
+    pub fn shown_name(&self, buffer: &Buffer) -> String {
+        self.buffer_look(buffer)
+            .map_or_else(|| buffer.name().to_owned(), |look| look.label)
     }
 
     pub fn status_segments(&self) -> Vec<StatusSegment> {
