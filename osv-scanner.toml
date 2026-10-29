@@ -42,9 +42,3 @@ reason = "zvariant is unmaintained, no vulnerability; D-Bus for gpui's Linux key
 [[IgnoredVulns]]
 id = "RUSTSEC-2026-0372"
 reason = "zvariant_derive is unmaintained, no vulnerability; D-Bus for gpui's Linux keyring (oo7), not built on macOS"
-
-# A vulnerability in code remacs never reaches.
-
-[[IgnoredVulns]]
-id = "GHSA-38c5-483c-4qqp"
-reason = "grid 0.18 Grid::expand_rows overflow (CVE-2026-42199); taffy 0.9, its only user here, never calls expand_rows (it rebuilds the grid in CellOccupancyMatrix::expand_to_fit_range). Goes with the taffy upgrade, #116"
