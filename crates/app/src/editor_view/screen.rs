@@ -13,6 +13,7 @@ use crate::key_input::to_modifiers;
 use crate::pane_view::render_button;
 use crate::screen_view::{Cell as ScreenCell, cell_at, render_screen, screen_size};
 use crate::tabs_view::render_tabs;
+use crate::text_zoom::TextZoom;
 
 /// Around the window buffer's screen: its sides, and under it, over the hints and pill.
 const SCREEN_SIDE: f32 = 24.0;
@@ -88,9 +89,10 @@ impl EditorView {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let code_font = font::code();
+        let code_font = self.screen_zoom.font(font::code());
         let metrics = cached_metrics(&mut self.screen_metrics, code_font.clone(), window);
         let cell = ScreenCell {
+            font_size: px(code_font.size),
             width: metrics.char_width,
             height: px(code_font.line_height),
             glyph: metrics.glyph_height,
@@ -185,6 +187,15 @@ impl EditorView {
         event: &ScrollWheelEvent,
         cx: &mut Context<Self>,
     ) {
+        if event.modifiers.platform {
+            if self
+                .screen_zoom
+                .scroll(event.delta, font::code().size, self.zoom)
+            {
+                cx.notify();
+            }
+            return;
+        }
         let row_height = area.cell.height;
         let delta = event.delta.pixel_delta(row_height);
         // macOS turns a mouse's wheel sideways while shift is held.
@@ -204,6 +215,15 @@ impl EditorView {
             self.editor.screen_mouse(&area.buffer, pointer);
         }
         cx.notify();
+    }
+
+    /// The zoom ⌘= and ⌘- change: the screens' while one has the keys, else the text's.
+    pub(super) fn zoom_with_keys(&mut self) -> &mut TextZoom {
+        if self.editor.screen_has_keys() {
+            &mut self.screen_zoom
+        } else {
+            &mut self.text_zoom
+        }
     }
 
     pub fn hover_command_mark(&mut self, mark: Option<(usize, bool)>, cx: &mut Context<Self>) {
@@ -291,6 +311,7 @@ mod tests {
             buffer: "screen".into(),
             origin: point(px(10.0), px(20.0)),
             cell: ScreenCell {
+                font_size: px(13.0),
                 width: px(8.0),
                 height: px(16.0),
                 glyph: px(12.0),

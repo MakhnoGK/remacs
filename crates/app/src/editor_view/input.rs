@@ -273,7 +273,9 @@ impl EditorView {
         let requests = self.editor.take_frame_requests();
         for request in &requests {
             if let FrameRequest::TextSize(change) = *request {
-                self.text_zoom.change(change, font::code().size, self.zoom);
+                let settings = self.zoom;
+                self.zoom_with_keys()
+                    .change(change, font::code().size, settings);
             }
         }
         frame::act(requests, self.window_handle, cx);

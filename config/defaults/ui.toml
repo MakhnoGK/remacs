@@ -55,8 +55,10 @@ weight = "regular"
 
 [zoom]
 # ⌘= or ⌘+ makes the text in buffers larger, ⌘- smaller, ⌘0 gives it [font] size back;
-# so does ⌘ with the wheel or the trackpad, up larger. Prompts, popups, the pane,
-# terminals and the bottom row keep [font] size. Keys are in keys.toml.
+# so does ⌘ with the wheel or the trackpad, up larger. While a terminal has the keys, or
+# for the wheel while over one, they size the text of terminals instead, apart from the
+# buffers'. Prompts, popups, the pane's other text and the bottom row keep [font] size.
+# Keys are in keys.toml.
 
 # Points each step changes the size by: 0.5 to 8.
 step = 1

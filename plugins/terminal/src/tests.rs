@@ -138,6 +138,27 @@ fn a_terminal_in_the_panel_takes_the_keys_until_they_go_back_to_the_text() {
     assert_eq!(editor.shown_pane(), None);
 }
 
+/// What ⌘= and ⌘- zoom follows: a terminal's text while one has the keys.
+#[test]
+fn a_screen_has_the_keys_in_the_focused_panel_or_the_window_but_not_under_a_prompt() {
+    let mut editor = editor(SH);
+    assert!(!editor.screen_has_keys());
+    press(&mut editor, "C-`");
+    assert!(editor.screen_has_keys());
+    press(&mut editor, "C-x C-f");
+    assert!(!editor.screen_has_keys(), "the prompt has them");
+    press(&mut editor, "C-g");
+    assert!(editor.screen_has_keys());
+    press(&mut editor, "C-x o");
+    assert!(
+        !editor.screen_has_keys(),
+        "the text has them, the panel still shown"
+    );
+    press(&mut editor, "C-`");
+    press(&mut editor, "s-RET");
+    assert!(editor.screen_has_keys(), "the window's terminal");
+}
+
 #[test]
 fn a_terminal_moves_between_the_panel_and_the_window() {
     let mut editor = editor(SH);

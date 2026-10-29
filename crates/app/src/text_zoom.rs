@@ -1,5 +1,6 @@
-//! The size of the window buffer's text, changed by ⌘= and ⌘- or ⌘ with the wheel over
-//! the configured one; prompts, popups, panes and terminals keep the configured size.
+//! The size of the window buffer's text, or of terminals' apart from it, changed by ⌘=
+//! and ⌘- or ⌘ with the wheel over the configured one; prompts, popups and the rest of
+//! panes keep the configured size.
 
 use gpui::{ScrollDelta, px};
 use remacs_core::TextSize;

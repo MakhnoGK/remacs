@@ -77,10 +77,12 @@ pub struct EditorView {
     divider_drag: Option<Divider>,
     /// Of the window buffer's text, and the fonts they were measured from.
     metrics: Option<(MeasuredFonts, Metrics)>,
-    /// Of screens, at the configured size, and the fonts they were measured from.
+    /// Of screens, at their zoomed size, and the fonts they were measured from.
     screen_metrics: Option<(MeasuredFonts, Metrics)>,
     zoom: ZoomSettings,
     text_zoom: TextZoom,
+    /// Of every screen alike, apart from the text's.
+    screen_zoom: TextZoom,
     scroll: ScrollSettings,
     /// The window's glass, and the glass it last had; the window server is told only of a
     /// change.
@@ -320,6 +322,7 @@ impl EditorView {
             screen_metrics: None,
             zoom: ui.zoom,
             text_zoom: TextZoom::default(),
+            screen_zoom: TextZoom::default(),
             scroll: ui.scroll,
             glass: ui.glass,
             applied_glass: None,

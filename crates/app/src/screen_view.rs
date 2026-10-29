@@ -30,6 +30,8 @@ const SEARCH_BAR_HEIGHT: f32 = 44.0;
 /// Measured from the code font.
 #[derive(Clone, Copy)]
 pub struct Cell {
+    /// Of the code font, as zoomed for screens.
+    pub font_size: Pixels,
     pub width: Pixels,
     pub height: Pixels,
     /// Ascent and descent, what a block cursor covers.
@@ -92,7 +94,7 @@ pub fn render_screen(
         .absolute()
         .inset_0()
         .font_family(font::mono())
-        .text_size(px(font::code().size))
+        .text_size(cell.font_size)
         .line_height(cell.height)
         .text_color(rgb(color::fg_body()))
         .children(
@@ -420,7 +422,7 @@ fn render_mark(
                     .bg(rgba(color::error() << 8 | 0x2e))
                     .font_family(font::mono())
                     .font_weight(FontWeight::BOLD)
-                    .text_size(px(font::code().size - 2.0))
+                    .text_size(cell.font_size - px(2.0))
                     .text_color(rgb(color::error()))
                     .child(plate)
                     .on_hover(cx.listener(hover(true))),
