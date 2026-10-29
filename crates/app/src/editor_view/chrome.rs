@@ -512,11 +512,16 @@ impl EditorView {
     fn render_status(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let buffer = self.editor.window_buffer();
         let position = format!("{}:{}", buffer.point_line() + 1, buffer.point_column() + 1);
-        // Only text zooms; a click gives it the configured size back.
-        let zoom = self
-            .text_zoom
-            .percent(font::code().size)
-            .filter(|_| !self.window_state.showing_rows && !self.window_state.showing_screen)
+        // The zoom the keys change: the screens' while one has them, else the text's, which
+        // rows and a screen in the window do not show. A click gives the configured size back.
+        let zoom = if self.editor.screen_has_keys() {
+            Some(&self.screen_zoom)
+        } else {
+            let state = &self.window_state;
+            (!state.showing_rows && !state.showing_screen).then_some(&self.text_zoom)
+        };
+        let zoom = zoom
+            .and_then(|zoom| zoom.percent(font::code().size))
             .map(|percent| StatusSegment {
                 items: vec![StatusItem::new(None, format!("{percent}%"))],
                 command: Some(TEXT_CONFIGURED),

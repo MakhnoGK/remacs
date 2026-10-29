@@ -48,9 +48,9 @@ const COMMANDS: &[Command] = &[
     Command::new(MINIMIZE, "Minimize the window into the Dock", |editor| request(editor, FrameRequest::Minimize)),
     Command::new(ZOOM, "Fill the screen with the window, or give it its size back", |editor| request(editor, FrameRequest::Zoom)),
     Command::new(FULL_SCREEN, "Show the window full screen, or leave full screen", |editor| request(editor, FrameRequest::ToggleFullScreen)),
-    Command::new(TEXT_LARGER, "Make the editor's text larger", |editor| request(editor, FrameRequest::TextSize(TextSize::Larger))),
-    Command::new(TEXT_SMALLER, "Make the editor's text smaller", |editor| request(editor, FrameRequest::TextSize(TextSize::Smaller))),
-    Command::new(TEXT_CONFIGURED, "Give the editor's text the size ui.toml sets", |editor| request(editor, FrameRequest::TextSize(TextSize::Configured))),
+    Command::new(TEXT_LARGER, "Make the editor's text larger, or terminals' while one has the keys", |editor| request(editor, FrameRequest::TextSize(TextSize::Larger))),
+    Command::new(TEXT_SMALLER, "Make the editor's text smaller, or terminals' while one has the keys", |editor| request(editor, FrameRequest::TextSize(TextSize::Smaller))),
+    Command::new(TEXT_CONFIGURED, "Give the editor's text the size ui.toml sets, or terminals' while one has the keys", |editor| request(editor, FrameRequest::TextSize(TextSize::Configured))),
 ];
 
 const BINDINGS: &[(&str, &str)] = &[
