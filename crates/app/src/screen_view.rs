@@ -166,8 +166,9 @@ fn render_run(run: &CellRun, left: Pixels, top: Pixels, cell: Cell) -> Div {
                     |_, _, _| {},
                     move |bounds, _, window, _| paint_pieces(&pieces, bounds.origin, text, window),
                 )
+                // Without insets it would sit below the text, at its place in the flow.
                 .absolute()
-                .size_full(),
+                .inset_0(),
             )
         })
 }
