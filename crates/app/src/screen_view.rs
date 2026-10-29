@@ -2,8 +2,9 @@
 //! font, the cursor, the marks of commands in a gutter, and what is over the rows.
 
 use gpui::{
-    Context, Div, FontWeight, Hsla, ParentElement, Pixels, Point, Styled, div, prelude::*, px, rgb,
-    rgba,
+    BorderStyle, Bounds, Context, Corner, Corners, Div, Edges, FontWeight, Hsla, ParentElement,
+    PathBuilder, Pixels, Point, Styled, Window, canvas, div, fill, prelude::*, px, quad, rgb, rgba,
+    transparent_black,
 };
 use remacs_core::{
     CellFace, CellHighlight, CellRun, CursorShape, RowMark, Screen, ScreenBanner, ScreenCursor,
@@ -11,6 +12,7 @@ use remacs_core::{
 };
 use remacs_theme::{color, cursor, font, glass};
 
+use crate::cell_glyphs::{self, Piece};
 use crate::editor_view::EditorView;
 use crate::highlights::console_color;
 use crate::widgets::{Edge, block_cursor, edge_fade, glass_surface, hsla, key_caps, tone_color};
@@ -144,6 +146,8 @@ fn render_row(row: usize, line: &ScreenRow, cell: Cell) -> Vec<Div> {
 fn render_run(run: &CellRun, left: Pixels, top: Pixels, cell: Cell) -> Div {
     let (text, background) = colors(&run.face);
     let face = run.face;
+    let (shown, pieces) = cell_glyphs::split(&run.text, run.cells, cell.width, cell.height)
+        .unwrap_or_else(|| (run.text.clone(), Vec::new()));
     div()
         .absolute()
         .left(left)
@@ -159,7 +163,82 @@ fn render_run(run: &CellRun, left: Pixels, top: Pixels, cell: Cell) -> Div {
             run.text_decoration_1().text_decoration_color(text)
         })
         .when(face.strikeout, |run| run.line_through())
-        .child(run.text.clone())
+        .child(shown)
+        .when(!pieces.is_empty(), |run| {
+            run.child(
+                canvas(
+                    |_, _, _| {},
+                    move |bounds, _, window, _| paint_pieces(&pieces, bounds.origin, text, window),
+                )
+                .absolute()
+                .size_full(),
+            )
+        })
+}
+
+fn paint_pieces(pieces: &[Piece], origin: Point<Pixels>, color: Hsla, window: &mut Window) {
+    let at = |bounds: Bounds<Pixels>| Bounds::new(origin + bounds.origin, bounds.size);
+    for &piece in pieces {
+        match piece {
+            Piece::Fill { bounds, alpha } => window.paint_quad(fill(
+                at(bounds),
+                Hsla {
+                    a: color.a * alpha,
+                    ..color
+                },
+            )),
+            Piece::Dot(bounds) => {
+                window.paint_quad(fill(at(bounds), color).corner_radii(bounds.size.width * 0.5))
+            }
+            Piece::Arc {
+                bounds,
+                corner,
+                thickness,
+            } => {
+                let radius = bounds.size.width.min(bounds.size.height);
+                let mut radii = Corners::all(px(0.0));
+                let mut edges = Edges::all(px(0.0));
+                let (round, first, second) = match corner {
+                    Corner::TopLeft => (&mut radii.top_left, &mut edges.top, &mut edges.left),
+                    Corner::TopRight => (&mut radii.top_right, &mut edges.top, &mut edges.right),
+                    Corner::BottomRight => {
+                        (&mut radii.bottom_right, &mut edges.bottom, &mut edges.right)
+                    }
+                    Corner::BottomLeft => {
+                        (&mut radii.bottom_left, &mut edges.bottom, &mut edges.left)
+                    }
+                };
+                (*round, *first, *second) = (radius, thickness, thickness);
+                window.paint_quad(quad(
+                    at(bounds),
+                    radii,
+                    transparent_black(),
+                    edges,
+                    color,
+                    BorderStyle::Solid,
+                ));
+            }
+            Piece::Line {
+                from,
+                to,
+                thickness,
+            } => {
+                let mut path = PathBuilder::stroke(thickness);
+                path.move_to(origin + from);
+                path.line_to(origin + to);
+                if let Ok(path) = path.build() {
+                    window.paint_path(path, color);
+                }
+            }
+            Piece::Triangle(points) => {
+                let mut path = PathBuilder::fill();
+                path.add_polygon(&points.map(|point| origin + point), true);
+                if let Ok(path) = path.build() {
+                    window.paint_path(path, color);
+                }
+            }
+        }
+    }
 }
 
 /// The text's color and the background's, the highlight over the cell's own.

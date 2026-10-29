@@ -56,8 +56,13 @@ objc2.workspace = true
 gpui = { workspace = true, features = ["wayland", "x11"] }
 
 [dev-dependencies]
+divan.workspace = true
 remacs-text.workspace = true
 toml.workspace = true
+
+[[bench]]
+name = "cell_glyphs"
+harness = false
 
 [lints]
 workspace = true

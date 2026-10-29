@@ -4944,6 +4944,7 @@ dependencies = [
 name = "remacs-app"
 version = "0.1.0"
 dependencies = [
+ "divan",
  "futures",
  "gpui",
  "libc",
