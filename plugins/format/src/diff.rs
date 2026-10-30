@@ -22,10 +22,7 @@ pub fn edits(old: &str, new: &str) -> Vec<(Range<usize>, String)> {
         }
         let refined = char_edits(&old[old_range.clone()], &new[new_range]);
         edits.extend(refined.into_iter().map(|(range, text)| {
-            (
-                old_range.start + range.start..old_range.start + range.end,
-                text,
-            )
+            (old_range.start + range.start..old_range.start + range.end, text)
         }));
     }
     edits

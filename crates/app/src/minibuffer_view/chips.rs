@@ -34,11 +34,7 @@ pub(super) fn render_switches(minibuffer: &Minibuffer, cx: &mut Context<EditorVi
             .child(kbd(&format!("M-{}", option.key), false))
     });
     let subject = plain_text(minibuffer.subject(), font::ui_size(), color::fg_body());
-    div()
-        .row(12.0)
-        .pad(2.0, 2.0, 10.0)
-        .children(switches)
-        .child(subject.min_w_0().truncate())
+    div().row(12.0).pad(2.0, 2.0, 10.0).children(switches).child(subject.min_w_0().truncate())
 }
 
 /// Choices, then settings that are on or off, under the lists; then the completions'
@@ -144,9 +140,7 @@ pub(super) fn render_outcome((summary, chain): (String, CommitChain)) -> impl In
     let colors = std::iter::repeat_n(incoming_color, chain.incoming)
         .chain(std::iter::repeat_n(tip_color, chain.commits));
     for dot_color in colors {
-        chain_row = chain_row
-            .child(line(previous, dot_color))
-            .child(dot(dot_color));
+        chain_row = chain_row.child(line(previous, dot_color)).child(dot(dot_color));
         previous = dot_color;
     }
     let summary = Some(summary).filter(|summary| !summary.is_empty());

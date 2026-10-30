@@ -40,13 +40,8 @@ const HINTS: &[(&str, &str)] = &[
     ("s", "Stage"),
     ("u", "Unstage"),
 ];
-const HISTORY_HINTS: &[(&str, &str)] = &[
-    ("n/p", "Commit"),
-    ("M-n/M-p", "File"),
-    ("↵", "Open"),
-    ("/", "Search"),
-    ("l", "Tab"),
-];
+const HISTORY_HINTS: &[(&str, &str)] =
+    &[("n/p", "Commit"), ("M-n/M-p", "File"), ("↵", "Open"), ("/", "Search"), ("l", "Tab")];
 /// Diff lines shown of one file at most, so a huge change does not swamp the buffer.
 pub const MAX_DIFF_LINES: usize = 2000;
 pub const SHORT_ID: usize = 7;
@@ -86,10 +81,7 @@ impl Section {
 
     /// Whether its files have a diff to unfold: an untracked file's is all added lines.
     pub fn has_diffs(self) -> bool {
-        matches!(
-            self,
-            Section::Resolved | Section::Staged | Section::Unstaged | Section::Untracked
-        )
+        matches!(self, Section::Resolved | Section::Staged | Section::Unstaged | Section::Untracked)
     }
 
     /// Its files' changes are in the index.
@@ -269,10 +261,7 @@ impl StatusView {
     /// `open` false hides them all.
     pub fn open_all(&mut self, snapshot: &Snapshot, open: bool) {
         self.toggled.clear();
-        for section in Section::FILES
-            .into_iter()
-            .filter(|section| section.has_diffs())
-        {
+        for section in Section::FILES.into_iter().filter(|section| section.has_diffs()) {
             if open {
                 self.folded.remove(&section);
             }
@@ -331,17 +320,12 @@ pub fn section_files(snapshot: &Snapshot, section: Section) -> Vec<SectionFile> 
         })
         .collect();
     if section == Section::Untracked {
-        files.extend(
-            snapshot
-                .untracked_directories
-                .iter()
-                .map(|directory| SectionFile {
-                    path: directory.clone(),
-                    state: FileState::Untracked,
-                    lines: None,
-                    original: None,
-                }),
-        );
+        files.extend(snapshot.untracked_directories.iter().map(|directory| SectionFile {
+            path: directory.clone(),
+            state: FileState::Untracked,
+            lines: None,
+            original: None,
+        }));
     }
     files.sort_by(|a, b| a.path.cmp(&b.path));
     files
@@ -349,23 +333,16 @@ pub fn section_files(snapshot: &Snapshot, section: Section) -> Vec<SectionFile> 
 
 /// A file of `section`, or one an unfolded untracked directory lists.
 fn section_file(snapshot: &Snapshot, section: Section, path: &Path) -> Option<SectionFile> {
-    let listed = || {
-        snapshot
-            .listings
-            .values()
-            .any(|listing| listing.files.iter().any(|file| file == path))
-    };
-    section_files(snapshot, section)
-        .into_iter()
-        .find(|file| file.path == path)
-        .or_else(|| {
-            (section == Section::Untracked && listed()).then(|| SectionFile {
-                path: path.to_path_buf(),
-                state: FileState::Untracked,
-                lines: None,
-                original: None,
-            })
+    let listed =
+        || snapshot.listings.values().any(|listing| listing.files.iter().any(|file| file == path));
+    section_files(snapshot, section).into_iter().find(|file| file.path == path).or_else(|| {
+        (section == Section::Untracked && listed()).then(|| SectionFile {
+            path: path.to_path_buf(),
+            state: FileState::Untracked,
+            lines: None,
+            original: None,
         })
+    })
 }
 
 /// A letter of `git status --short` as a state.
@@ -381,15 +358,8 @@ pub fn side_state(letter: u8) -> FileState {
 /// What the status buffers want read of each working tree.
 pub fn wants(editor: &Editor) -> HashMap<PathBuf, Wants> {
     let mut wants: HashMap<PathBuf, Wants> = HashMap::new();
-    let settings = editor
-        .find_plugin_state::<GitSettings>()
-        .cloned()
-        .unwrap_or_default();
-    for view in editor
-        .buffers()
-        .iter()
-        .filter_map(|buffer| buffer.local::<StatusView>())
-    {
+    let settings = editor.find_plugin_state::<GitSettings>().cloned().unwrap_or_default();
+    for view in editor.buffers().iter().filter_map(|buffer| buffer.local::<StatusView>()) {
         let wanted = wants.entry(view.root.clone()).or_default();
         wanted.details = true;
         wanted.settings = settings.clone();
@@ -403,10 +373,7 @@ pub fn wants(editor: &Editor) -> HashMap<PathBuf, Wants> {
             .toggled
             .iter()
             .filter(|(section, _)| !view.folded.contains(section))
-            .map(|(section, path)| DiffKey {
-                staged: section.is_staged(),
-                path: path.clone(),
-            })
+            .map(|(section, path)| DiffKey { staged: section.is_staged(), path: path.clone() })
             .collect();
         diffs.sort_by(|a, b| (&a.path, a.staged).cmp(&(&b.path, b.staged)));
         wanted.diffs.extend(diffs);
@@ -457,9 +424,7 @@ fn draw(buffer: &mut Buffer, snapshot: &Snapshot, generation: u64) {
         }
         Some(current) => lines.iter().position(|line| line == current).or_else(|| {
             let (section, path) = current.file()?;
-            lines
-                .iter()
-                .position(|line| *line == Line::File(section, path.to_path_buf()))
+            lines.iter().position(|line| *line == Line::File(section, path.to_path_buf()))
         }),
         None => None,
     }
@@ -468,8 +433,7 @@ fn draw(buffer: &mut Buffer, snapshot: &Snapshot, generation: u64) {
     view.drawn = Some(generation);
     (view.side, view.side_of_line) = side_rows(view, snapshot);
     if let Some(details) = &snapshot.details {
-        view.open_stashes
-            .retain(|id, _| details.stashes.iter().any(|stash| stash.id == *id));
+        view.open_stashes.retain(|id, _| details.stashes.iter().any(|stash| stash.id == *id));
     }
     if snapshot.operation.is_none() {
         view.conflicts = ConflictState::default();
@@ -518,10 +482,7 @@ fn layout(view: &StatusView, snapshot: &Snapshot) -> (Vec<Line>, Vec<String>) {
     if snapshot.stashes > 0 {
         lines.push(Line::Heading(Section::Stashes));
         texts.push(format!("Stashes {}", snapshot.stashes));
-        let stashes = snapshot
-            .details
-            .as_ref()
-            .map_or(&[][..], |details| &details.stashes);
+        let stashes = snapshot.details.as_ref().map_or(&[][..], |details| &details.stashes);
         if !view.folded.contains(&Section::Stashes) {
             for (index, stash) in stashes.iter().enumerate() {
                 lines.push(Line::Stash(index));
@@ -607,24 +568,12 @@ fn push_file(
     let path = &file.path;
     lines.push(Line::File(section, path.clone()));
     texts.push(format!("{} {}", file.state.letter(), path.display()));
-    let key = DiffKey {
-        staged: section.is_staged(),
-        path: path.clone(),
-    };
+    let key = DiffKey { staged: section.is_staged(), path: path.clone() };
     let open = view.is_open(snapshot, section, path);
     if let Some(diff) = snapshot.diffs.get(&key).filter(|_| open) {
-        push_diff(
-            lines,
-            texts,
-            Some(diff),
-            Line::NoDiff(section, path.clone()),
-            |hunk, line| Line::Diff {
-                section,
-                path: path.clone(),
-                hunk,
-                line,
-            },
-        );
+        push_diff(lines, texts, Some(diff), Line::NoDiff(section, path.clone()), |hunk, line| {
+            Line::Diff { section, path: path.clone(), hunk, line }
+        });
     }
 }
 
@@ -637,10 +586,7 @@ fn push_stash(
 ) {
     for file in &contents.files {
         let path = &file.path;
-        lines.push(Line::StashFile {
-            stash: stash.to_owned(),
-            path: path.clone(),
-        });
+        lines.push(Line::StashFile { stash: stash.to_owned(), path: path.clone() });
         texts.push(format!("{} {}", file.state.letter(), path.display()));
         let diff_line = |hunk, line| Line::StashDiff {
             stash: stash.to_owned(),
@@ -648,13 +594,7 @@ fn push_stash(
             hunk,
             line,
         };
-        push_diff(
-            lines,
-            texts,
-            contents.diffs.get(path),
-            diff_line(0, None),
-            diff_line,
-        );
+        push_diff(lines, texts, contents.diffs.get(path), diff_line(0, None), diff_line);
     }
 }
 
@@ -775,11 +715,8 @@ pub fn show_tab(editor: &mut Editor, tab: Tab, all: bool) -> CommandResult {
 /// or off a branch.
 fn toolbar(snapshot: &Snapshot) -> Vec<ToolbarButton> {
     let ready = snapshot.operation.is_none() && matches!(snapshot.head, Head::Branch(_));
-    let (ahead, behind) = snapshot
-        .upstream
-        .as_ref()
-        .and_then(|upstream| upstream.ahead_behind)
-        .unwrap_or_default();
+    let (ahead, behind) =
+        snapshot.upstream.as_ref().and_then(|upstream| upstream.ahead_behind).unwrap_or_default();
     let count = |count: u64| (count > 0).then_some(count as usize);
     vec![
         ToolbarButton {
@@ -808,18 +745,11 @@ fn row(view: &StatusView, snapshot: &Snapshot, line: &Line) -> Option<OutlineRow
                 _ => section_files(snapshot, *section).len(),
             },
             open: !view.folded.contains(section),
-            tone: if *section == Section::Unmerged {
-                Tone::Danger
-            } else {
-                Tone::Plain
-            },
+            tone: if *section == Section::Unmerged { Tone::Danger } else { Tone::Plain },
         },
-        Line::File(section, path) => file_row(
-            view,
-            snapshot,
-            *section,
-            &section_file(snapshot, *section, path)?,
-        ),
+        Line::File(section, path) => {
+            file_row(view, snapshot, *section, &section_file(snapshot, *section, path)?)
+        }
         Line::CommitFiles => OutlineRow::Heading {
             title: "Files".into(),
             count: view.history.files()?.len(),
@@ -827,26 +757,13 @@ fn row(view: &StatusView, snapshot: &Snapshot, line: &Line) -> Option<OutlineRow
             tone: Tone::Plain,
         },
         Line::CommitFile(index) => commit_file_row(view.history.files()?.get(*index)?),
-        Line::Diff {
-            section,
-            path,
-            hunk,
-            line,
-        } => {
-            let key = DiffKey {
-                staged: section.is_staged(),
-                path: path.clone(),
-            };
+        Line::Diff { section, path, hunk, line } => {
+            let key = DiffKey { staged: section.is_staged(), path: path.clone() };
             hunk_row(snapshot.diffs.get(&key)?, *hunk, *line)?
         }
         Line::NoDiff(section, path) => {
-            let key = DiffKey {
-                staged: section.is_staged(),
-                path: path.clone(),
-            };
-            OutlineRow::Diff(DiffRow::Context(no_diff_text(Some(
-                snapshot.diffs.get(&key)?,
-            ))))
+            let key = DiffKey { staged: section.is_staged(), path: path.clone() };
+            OutlineRow::Diff(DiffRow::Context(no_diff_text(Some(snapshot.diffs.get(&key)?))))
         }
         Line::MoreFiles(directory) => OutlineRow::Item {
             name: "…".into(),
@@ -854,18 +771,11 @@ fn row(view: &StatusView, snapshot: &Snapshot, line: &Line) -> Option<OutlineRow
         },
         Line::Stash(index) => {
             let stash = snapshot.details.as_ref()?.stashes.get(*index)?;
-            OutlineRow::Item {
-                name: stash.name.clone(),
-                description: stash.message.clone(),
-            }
+            OutlineRow::Item { name: stash.name.clone(), description: stash.message.clone() }
         }
         Line::StashFile { stash, path } => {
-            let file = view
-                .open_stashes
-                .get(stash)?
-                .files
-                .iter()
-                .find(|file| file.path == *path)?;
+            let file =
+                view.open_stashes.get(stash)?.files.iter().find(|file| file.path == *path)?;
             OutlineRow::File {
                 state: file.state,
                 name: path
@@ -878,12 +788,7 @@ fn row(view: &StatusView, snapshot: &Snapshot, line: &Line) -> Option<OutlineRow
                 open: true,
             }
         }
-        Line::StashDiff {
-            stash,
-            path,
-            hunk,
-            line,
-        } => {
+        Line::StashDiff { stash, path, hunk, line } => {
             let diff = view.open_stashes.get(stash)?.diffs.get(path);
             match diff.filter(|diff| !diff.hunks.is_empty()) {
                 Some(diff) => hunk_row(diff, *hunk, *line)?,
@@ -901,17 +806,10 @@ fn file_row(
 ) -> OutlineRow {
     let path = &file.path;
     let is_directory = snapshot.untracked_directories.contains(path);
-    let name = path
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
+    let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
     OutlineRow::File {
         state: file.state,
-        name: if is_directory {
-            format!("{name}/")
-        } else {
-            name
-        },
+        name: if is_directory { format!("{name}/") } else { name },
         directory: directory_label(path),
         lines: file.lines,
         note: conflict_view::file_note(view, snapshot, section, path),
@@ -928,10 +826,7 @@ fn commit_file_row(file: &ChangedFile) -> OutlineRow {
         directory: directory_label(&file.path),
         lines: file.lines,
         note: (file.original.as_ref())
-            .filter(|_| {
-                file.lines
-                    .is_none_or(|lines| lines.added + lines.removed == 0)
-            })
+            .filter(|_| file.lines.is_none_or(|lines| lines.added + lines.removed == 0))
             .map(|original| (format!("from {}", original.display()), Tone::Faint)),
         open: false,
     }
@@ -977,10 +872,7 @@ fn facts(snapshot: &Snapshot) -> Vec<Fact> {
     };
     let mut facts = vec![Fact {
         label: "Head",
-        value: FactValue::Ref(RefChip {
-            name: head,
-            kind: RefKind::Head,
-        }),
+        value: FactValue::Ref(RefChip { name: head, kind: RefKind::Head }),
         note: match &snapshot.head {
             Head::Unborn(_) => "No commits yet".into(),
             _ => subject.unwrap_or_default(),
@@ -1006,10 +898,7 @@ fn facts(snapshot: &Snapshot) -> Vec<Fact> {
     if let Some(base) = details.and_then(|details| details.base.as_ref()) {
         facts.push(Fact {
             label: "Base",
-            value: FactValue::Ref(RefChip {
-                name: base.name.clone(),
-                kind: RefKind::Main,
-            }),
+            value: FactValue::Ref(RefChip { name: base.name.clone(), kind: RefKind::Main }),
             note: match base.new_commits {
                 0 => "Up to date".into(),
                 count => format!("{count} new {}", plural(count, "commit")),
@@ -1038,11 +927,7 @@ fn commits(count: u64) -> String {
 }
 
 fn plural(count: u64, noun: &str) -> String {
-    if count == 1 {
-        noun.into()
-    } else {
-        format!("{noun}s")
-    }
+    if count == 1 { noun.into() } else { format!("{noun}s") }
 }
 
 /// The branch checked out, for the pill of a status buffer.
@@ -1050,10 +935,7 @@ pub fn branch_status(editor: &Editor) -> Option<StatusSegment> {
     let snapshot = window_snapshot(editor)?;
     if let Some(operation) = &snapshot.operation {
         return Some(StatusSegment {
-            items: vec![StatusItem::toned(
-                conflict_view::progress(operation),
-                Tone::Warning,
-            )],
+            items: vec![StatusItem::toned(conflict_view::progress(operation), Tone::Warning)],
             command: None,
             active: false,
             code: false,
@@ -1089,10 +971,7 @@ pub fn sync_status(editor: &Editor) -> Option<StatusSegment> {
     }
     let (ahead, behind) = snapshot.upstream.as_ref()?.ahead_behind?;
     Some(StatusSegment {
-        items: vec![StatusItem::toned(
-            format!("↑{ahead} ↓{behind}"),
-            Tone::Faint,
-        )],
+        items: vec![StatusItem::toned(format!("↑{ahead} ↓{behind}"), Tone::Faint)],
         command: None,
         active: false,
         code: true,
@@ -1101,9 +980,5 @@ pub fn sync_status(editor: &Editor) -> Option<StatusSegment> {
 
 fn window_snapshot(editor: &Editor) -> Option<&Snapshot> {
     let view = editor.window_buffer().local::<StatusView>()?;
-    editor
-        .find_plugin_state::<Repositories>()?
-        .get(&view.root)?
-        .snapshot
-        .as_deref()
+    editor.find_plugin_state::<Repositories>()?.get(&view.root)?.snapshot.as_deref()
 }

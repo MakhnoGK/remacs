@@ -68,11 +68,7 @@ impl Parser {
                     }
                 }
                 State::OscEscape => {
-                    self.state = if byte == b'\\' {
-                        State::Ground
-                    } else {
-                        State::Osc
-                    }
+                    self.state = if byte == b'\\' { State::Ground } else { State::Osc }
                 }
             }
         }
@@ -119,10 +115,8 @@ impl Parser {
     }
 
     fn select_graphics(&mut self, parameters: &str) {
-        let codes: Vec<u32> = parameters
-            .split([';', ':'])
-            .map(|code| code.parse().unwrap_or(0))
-            .collect();
+        let codes: Vec<u32> =
+            parameters.split([';', ':']).map(|code| code.parse().unwrap_or(0)).collect();
         let mut codes = codes.iter().copied();
         while let Some(code) = codes.next() {
             let style = &mut self.style;
@@ -155,14 +149,9 @@ fn extended_color(codes: &mut impl Iterator<Item = u32>) -> Option<ConsoleColor>
     match codes.next()? {
         5 => byte(codes.next()).map(ConsoleColor::Indexed),
         2 => {
-            let (red, green, blue) = (
-                byte(codes.next())?,
-                byte(codes.next())?,
-                byte(codes.next())?,
-            );
-            Some(ConsoleColor::Rgb(
-                u32::from(red) << 16 | u32::from(green) << 8 | u32::from(blue),
-            ))
+            let (red, green, blue) =
+                (byte(codes.next())?, byte(codes.next())?, byte(codes.next())?);
+            Some(ConsoleColor::Rgb(u32::from(red) << 16 | u32::from(green) << 8 | u32::from(blue)))
         }
         _ => None,
     }

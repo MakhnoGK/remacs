@@ -342,13 +342,11 @@ const MENU_ITEMS: &[MenuItem] = &[
 impl Plugin for EditingPlugin {
     fn register(&self, registry: &mut Registry) {
         for &command in COMMANDS {
-            registry
-                .commands
-                .add(if EACH_CURSOR.contains(&command.name) {
-                    command.each_cursor()
-                } else {
-                    command
-                });
+            registry.commands.add(if EACH_CURSOR.contains(&command.name) {
+                command.each_cursor()
+            } else {
+                command
+            });
         }
         for &(keys, command) in BINDINGS {
             registry.keymap.bind(keys, command);
@@ -372,10 +370,7 @@ fn has_mark(editor: &Editor) -> bool {
 }
 
 fn after_yank(editor: &Editor) -> bool {
-    matches!(
-        editor.last_command(),
-        Some(killing::YANK | killing::YANK_POP)
-    )
+    matches!(editor.last_command(), Some(killing::YANK | killing::YANK_POP))
 }
 
 #[cfg(test)]

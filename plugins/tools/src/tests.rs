@@ -31,9 +31,7 @@ struct Releases {
 
 impl Releases {
     fn new(dir: &Path) -> Self {
-        Self {
-            dir: dir.join("api"),
-        }
+        Self { dir: dir.join("api") }
     }
 
     fn api(&self) -> String {
@@ -91,10 +89,8 @@ fn sha256(file: &Path) -> String {
 
 fn editor(home: &Path, releases: &Releases, tools_toml: &str) -> Editor {
     let mut editor = Editor::new(&[&EditingPlugin, &MinibufferPlugin, &ToolsPlugin]);
-    editor.set_settings(Settings::from_files([(
-        PathBuf::from("tools.toml"),
-        tools_toml.to_owned(),
-    )]));
+    editor
+        .set_settings(Settings::from_files([(PathBuf::from("tools.toml"), tools_toml.to_owned())]));
     state::tools(&mut editor).api = releases.api();
     keep_tools_in(&mut editor, home);
     editor
@@ -135,15 +131,9 @@ fn wait_for(editor: &mut Editor, got: &Got) -> Result<PathBuf, String> {
 /// The Tools panel's row of codelldb: what is installed and how it goes.
 fn codelldb_row(editor: &Editor) -> (String, String) {
     let minibuffer = editor.minibuffer().expect("the Tools panel is open");
-    let row = minibuffer
-        .candidates()
-        .iter()
-        .find(|candidate| candidate.value == "codelldb")
-        .unwrap();
-    (
-        row.annotation.clone(),
-        row.detail.clone().unwrap_or_default().into_owned(),
-    )
+    let row =
+        minibuffer.candidates().iter().find(|candidate| candidate.value == "codelldb").unwrap();
+    (row.annotation.clone(), row.detail.clone().unwrap_or_default().into_owned())
 }
 
 #[test]
@@ -164,11 +154,7 @@ fn a_tool_is_downloaded_checked_and_unpacked_the_first_time_it_is_needed() {
         .unwrap()
         .map(|entry| entry.unwrap().file_name())
         .collect();
-    assert_eq!(
-        left,
-        ["1.12.3"],
-        "no download or half-unpacked copy is left"
-    );
+    assert_eq!(left, ["1.12.3"], "no download or half-unpacked copy is left");
 
     // Installed, it is there at once, with no download.
     fs::remove_dir_all(releases.dir.join("repos")).unwrap();
@@ -219,10 +205,7 @@ fn tools_toml_pins_a_version_or_names_a_program_of_ones_own() {
     releases.publish("1.10.0", false, None);
     releases.publish("1.12.3", true, None);
     let mut editor = self::editor(&home, &releases, "");
-    let bound: &'static Tool = Box::leak(Box::new(Tool {
-        version: Some("1.10.0"),
-        ..CODELLDB
-    }));
+    let bound: &'static Tool = Box::leak(Box::new(Tool { version: Some("1.10.0"), ..CODELLDB }));
     provide(&mut editor, ToolKind::DebugAdapter, &[bound]);
     let got = ensure_codelldb(&mut editor);
     let program = wait_for(&mut editor, &got).unwrap();
@@ -231,27 +214,18 @@ fn tools_toml_pins_a_version_or_names_a_program_of_ones_own() {
     let own = "[tools.codelldb]\npath = \"/opt/llvm/codelldb\"\n";
     let mut editor = self::editor(&home, &releases, own);
     let got = ensure_codelldb(&mut editor);
-    assert_eq!(
-        got.borrow_mut().take(),
-        Some(Ok(PathBuf::from("/opt/llvm/codelldb")))
-    );
+    assert_eq!(got.borrow_mut().take(), Some(Ok(PathBuf::from("/opt/llvm/codelldb"))));
     editor.run_command(crate::panel::OPEN);
     assert_eq!(
         codelldb_row(&editor),
-        (
-            "/opt/llvm/codelldb".to_owned(),
-            "Set in tools.toml".to_owned()
-        )
+        ("/opt/llvm/codelldb".to_owned(), "Set in tools.toml".to_owned())
     );
 
     // Known once the plugins provided their tools.
     let unknown = "[tools.gdb]\npath = \"gdb\"\n";
     let mut editor = self::editor(&home, &releases, unknown);
     provide(&mut editor, ToolKind::LanguageServer, &[]);
-    assert_eq!(
-        editor.echo().as_deref(),
-        Some("tools.toml: no tool is called gdb")
-    );
+    assert_eq!(editor.echo().as_deref(), Some("tools.toml: no tool is called gdb"));
 }
 
 #[test]
@@ -265,9 +239,7 @@ fn the_tools_panel_finds_a_newer_release_and_updates_to_it() {
 
     releases.publish("1.12.3", true, None);
     editor.run_command(crate::panel::OPEN);
-    wait_until(&mut editor, |editor| {
-        codelldb_row(editor).1 == "Update available · 1.12.3"
-    });
+    wait_until(&mut editor, |editor| codelldb_row(editor).1 == "Update available · 1.12.3");
     assert_eq!(codelldb_row(&editor).0, "1.10.0 · GitHub releases");
 
     press(&mut editor, "u");
@@ -304,11 +276,7 @@ fn fake_installer(home: &Path) -> String {
         log = log.display()
     );
     fs::write(&manager, script).unwrap();
-    Process::new("chmod")
-        .arg("+x")
-        .arg(&manager)
-        .status()
-        .unwrap();
+    Process::new("chmod").arg("+x").arg(&manager).status().unwrap();
     let manager = manager.display();
     format!(
         "[installers.fake]\n\
@@ -337,15 +305,8 @@ fn installers_install_packages_once_for_all_their_tools() {
     let one = server("one", both);
     let two = server("two", both);
     let absent = server("absent", "from = \"absent\"\npackage = \"x\"");
-    let github = server(
-        "gh",
-        "from = \"github\"\npackage = \"o/r\"\nasset = \"gh.zip\"",
-    );
-    provide(
-        &mut editor,
-        ToolKind::LanguageServer,
-        &[one, two, absent, github],
-    );
+    let github = server("gh", "from = \"github\"\npackage = \"o/r\"\nasset = \"gh.zip\"");
+    provide(&mut editor, ToolKind::LanguageServer, &[one, two, absent, github]);
     assert!(can_install(&editor, one));
     assert!(!can_install(&editor, absent), "its manager is not on PATH");
     assert!(can_install(&editor, github));
@@ -397,19 +358,12 @@ fn versions_are_ordered_by_their_numbers() {
     assert_eq!(CODELLDB.version_of("v1.12.3"), "1.12.3");
     let oxlint = "from = \"github\"\npackage = \"oxc-project/oxc\"\ntag-prefix = \"oxlint_v\"\n\
                   asset = \"oxlint-{target}.tar.gz\"";
-    assert_eq!(
-        server("oxlint", oxlint).version_of("oxlint_v1.88.0"),
-        "1.88.0"
-    );
+    assert_eq!(server("oxlint", oxlint).version_of("oxlint_v1.88.0"), "1.88.0");
     let rust_analyzer = "from = \"github\"\npackage = \"rust-lang/rust-analyzer\"\n\
                          asset = \"rust-analyzer-{target}.gz\"";
     let arm = cfg!(target_arch = "aarch64");
     let cpu = if arm { "aarch64" } else { "x86_64" };
-    let os = if cfg!(target_os = "macos") {
-        "apple-darwin"
-    } else {
-        "unknown-linux-gnu"
-    };
+    let os = if cfg!(target_os = "macos") { "apple-darwin" } else { "unknown-linux-gnu" };
     assert_eq!(
         server("ra", rust_analyzer).asset_name("2026-10-12"),
         format!("rust-analyzer-{cpu}-{os}.gz")
@@ -424,11 +378,7 @@ fn versions_are_ordered_by_their_numbers() {
     assert!(server("ra", rust_analyzer).builds_here());
     assert_eq!(Archive::of("x.tar.xz"), Archive::TarXz);
     assert_eq!(Archive::of("marksman-macos"), Archive::Program);
-    assert!(
-        JS_DEBUG
-            .asset_name("v1.140.0")
-            .ends_with("js-debug-dap-v1.140.0.tar.gz")
-    );
+    assert!(JS_DEBUG.asset_name("v1.140.0").ends_with("js-debug-dap-v1.140.0.tar.gz"));
 }
 
 #[test]

@@ -19,31 +19,11 @@ use crate::wdired::{self, Editing};
 pub const DIRED_MODE: &str = "Dired";
 
 const COLUMNS: &[Column] = &[
-    Column {
-        title: "Name",
-        width: None,
-        style: CellStyle::Primary,
-    },
-    Column {
-        title: "",
-        width: Some(14.0),
-        style: CellStyle::State,
-    },
-    Column {
-        title: "Size",
-        width: Some(72.0),
-        style: CellStyle::Figure,
-    },
-    Column {
-        title: "Modified",
-        width: Some(104.0),
-        style: CellStyle::Label,
-    },
-    Column {
-        title: "Permissions",
-        width: Some(92.0),
-        style: CellStyle::Faint,
-    },
+    Column { title: "Name", width: None, style: CellStyle::Primary },
+    Column { title: "", width: Some(14.0), style: CellStyle::State },
+    Column { title: "Size", width: Some(72.0), style: CellStyle::Figure },
+    Column { title: "Modified", width: Some(104.0), style: CellStyle::Label },
+    Column { title: "Permissions", width: Some(92.0), style: CellStyle::Faint },
 ];
 
 const HINTS: &[(&str, &str)] = &[
@@ -92,9 +72,8 @@ pub fn new_listing(directory: PathBuf, select: Option<String>, notifier: Notifie
     );
     let preview = PreviewState::new(notifier.clone());
     let reader = DirectoryReader::start(directory.clone(), notifier);
-    let mut buffer = Buffer::new(name, Text::default(), DIRED_MODE)
-        .with_directory(directory)
-        .read_only();
+    let mut buffer =
+        Buffer::new(name, Text::default(), DIRED_MODE).with_directory(directory).read_only();
     buffer.set_local(Listing {
         entries: Vec::new(),
         sort: SortKey::default(),
@@ -117,9 +96,7 @@ pub fn entry_at_point(buffer: &Buffer) -> Option<&Entry> {
 pub fn pick_up_listings(editor: &mut Editor) {
     let mut failure = None;
     for buffer in editor.buffers_mut() {
-        let Some(listing) = buffer
-            .local::<Listing>()
-            .and_then(|listing| listing.reader.latest())
+        let Some(listing) = buffer.local::<Listing>().and_then(|listing| listing.reader.latest())
         else {
             continue;
         };
@@ -136,23 +113,17 @@ pub fn pick_up_listings(editor: &mut Editor) {
 /// Shows `entries`, keeping point on the entry it was on.
 pub fn set_entries(buffer: &mut Buffer, mut entries: Vec<Entry>) {
     let current = entry_at_point(buffer).map(|entry| entry.name.clone());
-    let Some(listing) = buffer
-        .local_mut::<Listing>()
-        .filter(|listing| !listing.is_frozen())
-    else {
+    let Some(listing) = buffer.local_mut::<Listing>().filter(|listing| !listing.is_frozen()) else {
         return;
     };
     sort(&mut entries, listing.sort);
     // Marks of files that are gone go with them.
     let names: HashSet<&str> = entries.iter().map(|entry| entry.name.as_str()).collect();
-    listing
-        .marks
-        .retain(|name, _| names.contains(name.as_str()));
+    listing.marks.retain(|name, _| names.contains(name.as_str()));
     listing.entries = entries;
     // Kept until a listing has it: a read from before it was made may arrive first.
-    let selected = listing
-        .select
-        .take_if(|name| listing.entries.iter().any(|entry| entry.name == *name));
+    let selected =
+        listing.select.take_if(|name| listing.entries.iter().any(|entry| entry.name == *name));
     let target = selected.or(current);
     let first_load = !std::mem::replace(&mut listing.loaded, true);
     redisplay(buffer, target, first_load);
@@ -160,10 +131,7 @@ pub fn set_entries(buffer: &mut Buffer, mut entries: Vec<Entry>) {
 
 pub fn set_sort(buffer: &mut Buffer, key: SortKey) {
     let current = entry_at_point(buffer).map(|entry| entry.name.clone());
-    let Some(listing) = buffer
-        .local_mut::<Listing>()
-        .filter(|listing| !listing.is_frozen())
-    else {
+    let Some(listing) = buffer.local_mut::<Listing>().filter(|listing| !listing.is_frozen()) else {
         return;
     };
     listing.sort = key;
@@ -191,21 +159,12 @@ pub fn redraw(buffer: &mut Buffer) {
 /// Rewrites the buffer from the entries, unless their lines are being edited; point goes
 /// to `target`, else stays on its line, or on the first real entry the first time.
 fn redisplay(buffer: &mut Buffer, target: Option<String>, first_load: bool) {
-    let Some(listing) = buffer
-        .local::<Listing>()
-        .filter(|listing| !listing.is_frozen())
-    else {
+    let Some(listing) = buffer.local::<Listing>().filter(|listing| !listing.is_frozen()) else {
         return;
     };
-    let names: Vec<String> = listing
-        .entries
-        .iter()
-        .map(|entry| entry.name.replace('\n', "?"))
-        .collect();
-    let has_parent = listing
-        .entries
-        .first()
-        .is_some_and(|entry| entry.name == PARENT);
+    let names: Vec<String> =
+        listing.entries.iter().map(|entry| entry.name.replace('\n', "?")).collect();
+    let has_parent = listing.entries.first().is_some_and(|entry| entry.name == PARENT);
     let target_line =
         target.and_then(|name| listing.entries.iter().position(|entry| entry.name == name));
     let line = target_line.unwrap_or(if first_load {
@@ -215,10 +174,7 @@ fn redisplay(buffer: &mut Buffer, target: Option<String>, first_load: bool) {
     });
     buffer.replace_text(Text::from(names.join("\n").as_str()));
     let last_line = buffer.text().line_count().saturating_sub(1);
-    let offset = buffer
-        .text()
-        .line_start(line.min(last_line))
-        .unwrap_or_default();
+    let offset = buffer.text().line_start(line.min(last_line)).unwrap_or_default();
     buffer.set_point(offset);
 }
 
@@ -232,19 +188,12 @@ pub fn table(editor: &Editor, lines: Range<usize>) -> Option<Table> {
         .iter()
         .zip(shown)
         .map(|(entry, line)| {
-            let edited = editing
-                .filter(|_| entry.name != PARENT)
-                .map(|_| line_text(buffer, line));
+            let edited = editing.filter(|_| entry.name != PARENT).map(|_| line_text(buffer, line));
             let state = (entry.name != PARENT)
                 .then(|| editor.file_status(&directory.join(&entry.name)))
                 .flatten()
                 .map(|status| status.state);
-            row(
-                entry,
-                listing.marks.get(&entry.name).copied(),
-                edited,
-                state,
-            )
+            row(entry, listing.marks.get(&entry.name).copied(), edited, state)
         })
         .collect();
     let frozen = listing.is_frozen();
@@ -266,11 +215,7 @@ pub fn table(editor: &Editor, lines: Range<usize>) -> Option<Table> {
                 .and_then(|entry| preview::describe(editor, listing, directory, entry))
         })
         .flatten();
-    let hints = if editing.is_some() {
-        wdired::HINTS
-    } else {
-        HINTS
-    };
+    let hints = if editing.is_some() { wdired::HINTS } else { HINTS };
     Some(Table {
         crumbs: crumbs(directory),
         sort,
@@ -279,10 +224,7 @@ pub fn table(editor: &Editor, lines: Range<usize>) -> Option<Table> {
         activate: FIND_FILE,
         hints,
         preview,
-        notice: editing.map(|_| Notice {
-            label: "Editing names",
-            keys: wdired::NOTICE_KEYS,
-        }),
+        notice: editing.map(|_| Notice { label: "Editing names", keys: wdired::NOTICE_KEYS }),
         changes: editing.map(|editing| wdired::changes(editor, editing)),
     })
 }
@@ -295,10 +237,7 @@ fn line_text(buffer: &Buffer, line: usize) -> String {
 pub fn status(editor: &Editor) -> Option<StatusSegment> {
     let listing = editor.window_buffer().local::<Listing>()?;
     let label = if listing.loaded {
-        let has_parent = listing
-            .entries
-            .first()
-            .is_some_and(|entry| entry.name == PARENT);
+        let has_parent = listing.entries.first().is_some_and(|entry| entry.name == PARENT);
         let listed = listing.entries.len() - usize::from(has_parent);
         items_label(listed as u64)
     } else {
@@ -317,14 +256,11 @@ pub fn marks_status(editor: &Editor) -> Option<StatusSegment> {
     let listing = editor.window_buffer().local::<Listing>()?;
     let count = |mark| listing.marks.values().filter(|&&each| each == mark).count();
     let (marked, flagged) = (count(Mark::Marked), count(Mark::Flagged));
-    let items: Vec<_> = [
-        (marked, "marked", Tone::Accent),
-        (flagged, "flagged", Tone::Danger),
-    ]
-    .into_iter()
-    .filter(|&(count, ..)| count > 0)
-    .map(|(count, label, tone)| StatusItem::toned(format!("{count} {label}"), tone))
-    .collect();
+    let items: Vec<_> = [(marked, "marked", Tone::Accent), (flagged, "flagged", Tone::Danger)]
+        .into_iter()
+        .filter(|&(count, ..)| count > 0)
+        .map(|(count, label, tone)| StatusItem::toned(format!("{count} {label}"), tone))
+        .collect();
     (!items.is_empty()).then_some(StatusSegment {
         items,
         command: None,
@@ -335,9 +271,9 @@ pub fn marks_status(editor: &Editor) -> Option<StatusSegment> {
 
 /// With `edited`, the name as it is being edited, in a field.
 fn row(entry: &Entry, mark: Option<Mark>, edited: Option<String>, state: Option<FileState>) -> Row {
-    let field = edited.as_ref().map(|name| Field {
-        original: (*name != entry.name).then(|| entry.name.clone()),
-    });
+    let field = edited
+        .as_ref()
+        .map(|name| Field { original: (*name != entry.name).then(|| entry.name.clone()) });
     Row {
         mark,
         icon: Some(file_icon(entry.is_directory)),
@@ -355,11 +291,7 @@ fn row(entry: &Entry, mark: Option<Mark>, edited: Option<String>, state: Option<
 }
 
 pub fn file_icon(is_directory: bool) -> Icon {
-    if is_directory {
-        Icon::Directory
-    } else {
-        Icon::File
-    }
+    if is_directory { Icon::Directory } else { Icon::File }
 }
 
 pub fn file_face(name: &str, is_directory: bool) -> RowFace {
@@ -377,9 +309,7 @@ pub fn file_face(name: &str, is_directory: bool) -> RowFace {
 fn crumbs(directory: &Path) -> Vec<Button> {
     let mut ancestors: Vec<&Path> = directory.ancestors().collect();
     ancestors.reverse();
-    let home = ancestors
-        .iter()
-        .position(|ancestor| abbreviate_home(ancestor) == "~");
+    let home = ancestors.iter().position(|ancestor| abbreviate_home(ancestor) == "~");
     let shown = &ancestors[home.unwrap_or(0)..];
     shown
         .iter()

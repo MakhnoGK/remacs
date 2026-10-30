@@ -89,9 +89,7 @@ const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
     &DiredPlugin,
     &GitPlugin,
     &LanguagesPlugin,
-    &SyntaxPlugin::new(GRAMMARS, INJECTIONS)
-        .with_indents(INDENTS)
-        .with_locals(LOCALS),
+    &SyntaxPlugin::new(GRAMMARS, INJECTIONS).with_indents(INDENTS).with_locals(LOCALS),
     &DiagnosticsPlugin,
     // Before the run plugin, which then shows in the same pass what the debugger did.
     &DebugPlugin,
@@ -118,11 +116,7 @@ fn main() -> ExitCode {
         println!("remacs {VERSION} ({COMMIT})");
         return ExitCode::SUCCESS;
     }
-    let ReadSettings {
-        settings,
-        ui,
-        mut errors,
-    } = read_settings(frame::system_appearance());
+    let ReadSettings { settings, ui, mut errors } = read_settings(frame::system_appearance());
     let logs: LogSettings = section(&settings, &mut errors);
     // First, so that what goes wrong from here on is kept.
     let crashed = home().and_then(|home| logs::start(&state_dir(&home), &logs));
@@ -191,8 +185,7 @@ fn main() -> ExitCode {
                 let view = cx.new(|cx| EditorView::new(editor, &ui, window, cx));
                 let gate = view.downgrade();
                 window.on_window_should_close(cx, move |_, cx| {
-                    gate.update(cx, |view, cx| view.may_quit(cx))
-                        .unwrap_or(true)
+                    gate.update(cx, |view, cx| view.may_quit(cx)).unwrap_or(true)
                 });
                 window.focus(view.read(cx).focus_handle());
                 watch_settings(view.downgrade(), cx);
@@ -201,9 +194,7 @@ fn main() -> ExitCode {
             .expect("failed to open window");
         // `cx.quit()` comes here too, once the gate has agreed.
         cx.on_should_quit(move |cx| {
-            window
-                .update(cx, |view, _, cx| view.may_quit(cx))
-                .unwrap_or(true)
+            window.update(cx, |view, _, cx| view.may_quit(cx)).unwrap_or(true)
         });
         forward(window, to_open, EditorView::open_paths, cx);
         let texts = reports.map(|report| logs::reported(&report));
@@ -222,10 +213,7 @@ fn forward<T: 'static>(
 ) {
     cx.spawn(async move |cx| {
         while let Some(item) = items.next().await {
-            if window
-                .update(cx, |view, _, cx| hand(view, item, cx))
-                .is_err()
-            {
+            if window.update(cx, |view, _, cx| hand(view, item, cx)).is_err() {
                 break;
             }
         }

@@ -407,9 +407,5 @@ impl TransitionsSettings {
 }
 
 fn transition(duration: u64, slide: f32, from: Side) -> Transition {
-    Transition {
-        duration: Duration::from_millis(duration),
-        slide,
-        from,
-    }
+    Transition { duration: Duration::from_millis(duration), slide, from }
 }

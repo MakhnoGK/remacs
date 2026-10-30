@@ -81,15 +81,8 @@ impl Editor {
     /// `set-visited-file-name`; saving is up to the caller.
     pub fn set_visited_file(&mut self, path: &Path) -> io::Result<()> {
         let path = path.canonicalize().or_else(|_| std::path::absolute(path))?;
-        if let Some(other) = self.buffers[1..]
-            .iter()
-            .find(|buffer| buffer.path() == Some(&path))
-        {
-            let message = format!(
-                "Buffer {} is already visiting {}",
-                other.name(),
-                path.display()
-            );
+        if let Some(other) = self.buffers[1..].iter().find(|buffer| buffer.path() == Some(&path)) {
+            let message = format!("Buffer {} is already visiting {}", other.name(), path.display());
             return Err(io::Error::new(io::ErrorKind::AlreadyExists, message));
         }
         self.set_buffer_file(0, path);
@@ -116,20 +109,14 @@ impl Editor {
     /// Makes buffers visiting `from`, or files under it, visit them at `to`, renamed
     /// after them, as Emacs does after `dired-rename-file`.
     pub fn file_moved(&mut self, from: &Path, to: &Path) {
-        self.moved_files
-            .push((from.to_path_buf(), to.to_path_buf()));
+        self.moved_files.push((from.to_path_buf(), to.to_path_buf()));
         for index in 0..self.buffers.len() {
-            let Some(rest) = self.buffers[index]
-                .path()
-                .and_then(|path| path.strip_prefix(from).ok())
+            let Some(rest) =
+                self.buffers[index].path().and_then(|path| path.strip_prefix(from).ok())
             else {
                 continue;
             };
-            let path = if rest.as_os_str().is_empty() {
-                to.to_path_buf()
-            } else {
-                to.join(rest)
-            };
+            let path = if rest.as_os_str().is_empty() { to.to_path_buf() } else { to.join(rest) };
             self.set_buffer_file(index, path);
         }
     }
@@ -148,9 +135,7 @@ impl Editor {
     }
 
     pub fn switch_to_buffer(&mut self, name: &str) -> bool {
-        self.buffer_index(name)
-            .inspect(|&index| self.select_buffer(index))
-            .is_some()
+        self.buffer_index(name).inspect(|&index| self.select_buffer(index)).is_some()
     }
 
     /// Removes a buffer; the window falls back to the next most recent one, or `*scratch*`.
@@ -161,8 +146,7 @@ impl Editor {
         let killed = self.buffers.remove(index).id();
         if self.buffers.is_empty() {
             let mode = self.mode_for(None);
-            self.buffers
-                .push(Buffer::new(SCRATCH_BUFFER, Text::default(), mode));
+            self.buffers.push(Buffer::new(SCRATCH_BUFFER, Text::default(), mode));
         }
         if index == 0 {
             self.viewport.first_line = self.buffers[0].window_start;
@@ -185,11 +169,7 @@ impl Editor {
     /// Index of the buffer visiting `path`, opened as the least recent one if needed.
     pub(super) fn find_file(&mut self, path: &Path) -> io::Result<usize> {
         let path = path.canonicalize().or_else(|_| std::path::absolute(path))?;
-        if let Some(index) = self
-            .buffers
-            .iter()
-            .position(|buffer| buffer.path() == Some(&path))
-        {
+        if let Some(index) = self.buffers.iter().position(|buffer| buffer.path() == Some(&path)) {
             self.sync_with_disk(index);
             return Ok(index);
         }
@@ -292,10 +272,8 @@ impl Editor {
 }
 
 fn file_buffer_name(path: &Path) -> String {
-    path.file_name().map_or_else(
-        || path.display().to_string(),
-        |name| name.to_string_lossy().into_owned(),
-    )
+    path.file_name()
+        .map_or_else(|| path.display().to_string(), |name| name.to_string_lossy().into_owned())
 }
 
 #[cfg(test)]
@@ -378,11 +356,7 @@ mod tests {
             .collect();
         assert_eq!(
             visited,
-            [
-                ("x<3>", "/ab/three.rs"),
-                ("two.rs", "/c/b/two.rs"),
-                ("renamed.rs", "/c/renamed.rs")
-            ]
+            [("x<3>", "/ab/three.rs"), ("two.rs", "/c/b/two.rs"), ("renamed.rs", "/c/renamed.rs")]
         );
     }
 

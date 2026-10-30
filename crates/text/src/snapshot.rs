@@ -42,9 +42,7 @@ impl Snapshot {
     /// Byte range of `line` without its trailing newline.
     pub fn line_range(&self, line: usize) -> Option<Range<usize>> {
         let start = self.line_start(line)?;
-        let end = self
-            .line_start(line + 1)
-            .map_or(self.len(), |next_start| next_start - 1);
+        let end = self.line_start(line + 1).map_or(self.len(), |next_start| next_start - 1);
         Some(start..end)
     }
 
@@ -65,9 +63,7 @@ impl Snapshot {
 
     /// The whole text's chunks, last first.
     pub(crate) fn chunks_rev(&self) -> impl Iterator<Item = &[u8]> {
-        self.pieces
-            .pieces_rev()
-            .map(|piece| self.sources.bytes(piece))
+        self.pieces.pieces_rev().map(|piece| self.sources.bytes(piece))
     }
 
     /// Whether both are the same revision, which implies equal contents; O(1).
@@ -105,19 +101,13 @@ impl Snapshot {
     }
 
     pub fn previous_char_boundary(&self, offset: usize) -> usize {
-        (1..offset)
-            .rev()
-            .find(|&candidate| self.is_char_boundary(candidate))
-            .unwrap_or(0)
+        (1..offset).rev().find(|&candidate| self.is_char_boundary(candidate)).unwrap_or(0)
     }
 
     /// Characters between the start of `offset`'s line and `offset`.
     pub fn char_column(&self, offset: usize) -> usize {
         let line_start = self.line_start(self.line_of(offset)).unwrap_or(0);
-        self.chunks(line_start..offset)
-            .flatten()
-            .filter(|&&byte| !is_continuation(byte))
-            .count()
+        self.chunks(line_start..offset).flatten().filter(|&&byte| !is_continuation(byte)).count()
     }
 
     /// Offset of the `column`-th character of `line`, clamped to the line's end.

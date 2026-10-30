@@ -104,12 +104,7 @@ impl Connection {
         incoming: Receiver<Incoming>,
         adapter: Option<Child>,
     ) -> Self {
-        Self {
-            outgoing,
-            incoming,
-            next_seq: Cell::new(1),
-            adapter,
-        }
+        Self { outgoing, incoming, next_seq: Cell::new(1), adapter }
     }
 
     /// Sends a request; its response carries the returned `seq` as `request_seq`.
@@ -180,9 +175,7 @@ fn connect(port: u16) -> Result<TcpStream, String> {
 
 /// A port no one listens on now, for an adapter to listen on.
 pub fn free_port() -> io::Result<u16> {
-    Ok(std::net::TcpListener::bind(("127.0.0.1", 0))?
-        .local_addr()?
-        .port())
+    Ok(std::net::TcpListener::bind(("127.0.0.1", 0))?.local_addr()?.port())
 }
 
 pub fn encode(message: &Value) -> Vec<u8> {
@@ -259,11 +252,7 @@ fn spawn_writer(stream: impl Write + Send + 'static) -> Sender<Vec<u8>> {
 
 fn write_all(mut stream: impl Write, queued: &Receiver<Vec<u8>>) {
     for bytes in queued {
-        if stream
-            .write_all(&bytes)
-            .and_then(|()| stream.flush())
-            .is_err()
-        {
+        if stream.write_all(&bytes).and_then(|()| stream.flush()).is_err() {
             return;
         }
     }

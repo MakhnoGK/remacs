@@ -197,20 +197,14 @@ fn run_steps(
     };
     let mut main = Command::new(&launch.program);
     main.args(&launch.args);
-    let steps = launch
-        .before
-        .iter()
-        .map(shell)
-        .chain([(launch.command_line(), main)]);
+    let steps = launch.before.iter().map(shell).chain([(launch.command_line(), main)]);
     let mut exit = Exit::Code(0);
     for (command_line, mut command) in steps {
         if control.stopping.load(Ordering::Relaxed) {
             break;
         }
         let _ = send.send(Event::Started(command_line));
-        command
-            .current_dir(&launch.cwd)
-            .envs(launch.env.iter().map(|(name, value)| (name, value)));
+        command.current_dir(&launch.cwd).envs(launch.env.iter().map(|(name, value)| (name, value)));
         exit = match run_step(command, control, send, notifier) {
             Ok(exit) => exit,
             Err(error) => {
@@ -233,11 +227,7 @@ fn run_step(
     notifier: &Notifier,
 ) -> io::Result<Exit> {
     let (mut output, writer) = io::pipe()?;
-    command
-        .stdin(Stdio::piped())
-        .stdout(writer.try_clone()?)
-        .stderr(writer)
-        .process_group(0);
+    command.stdin(Stdio::piped()).stdout(writer.try_clone()?).stderr(writer).process_group(0);
     let mut child = command.spawn()?;
     // The command holds the pipe's writing ends; the output ends only once they close.
     drop(command);
@@ -283,12 +273,9 @@ fn write_in_background(
     thread::Builder::new()
         .name("run-input".into())
         .spawn(move || {
-            let failed = typed.iter().any(|input| {
-                stdin
-                    .write_all(&input)
-                    .and_then(|()| stdin.flush())
-                    .is_err()
-            });
+            let failed = typed
+                .iter()
+                .any(|input| stdin.write_all(&input).and_then(|()| stdin.flush()).is_err());
             // Hung up first, so that input typed after the message is refused.
             drop(typed);
             if failed {

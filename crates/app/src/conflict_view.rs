@@ -33,11 +33,7 @@ pub fn render_conflict(
     let mut body = Vec::new();
     for region in view.regions {
         match region {
-            ConflictRegion::Text {
-                first,
-                lines,
-                resolved,
-            } => {
+            ConflictRegion::Text { first, lines, resolved } => {
                 let faces = code_faces(&Code::new(lines.join("\n"), mode));
                 let rows = numbered(first, &lines, &faces, resolved.is_some()).enumerate();
                 body.extend(rows.map(|(index, row)| {
@@ -81,12 +77,7 @@ fn control(radius: f32) -> Div {
 fn render_header(view: &ConflictView, cx: &mut Context<EditorView>) -> Div {
     let step = |icon: &'static str, action: Action, cx: &mut Context<EditorView>| {
         let icon = svg().path(icon).size(px(12.0)).fg(color::fg_body());
-        let button = control(7.0)
-            .flex()
-            .items_center()
-            .justify_center()
-            .size(px(28.0))
-            .child(icon);
+        let button = control(7.0).flex().items_center().justify_center().size(px(28.0)).child(icon);
         clickable(button, action, cx)
     };
     let name = div()
@@ -121,11 +112,7 @@ fn numbered<'a>(
     faces: &'a Highlights,
     resolved: bool,
 ) -> impl Iterator<Item = Div> + 'a {
-    let number_color = if resolved {
-        color::vc_added()
-    } else {
-        color::fg_line_number()
-    };
+    let number_color = if resolved { color::vc_added() } else { color::fg_line_number() };
     let mut start = 0;
     lines.iter().enumerate().map(move |(index, line)| {
         let range = start..start + line.len();
@@ -183,11 +170,8 @@ fn render_block(
     };
     let keep_ours = key_button("Keep this", key("o"), block.keep_ours, cx);
     let keep_theirs = key_button("Keep this", key("t"), block.keep_theirs, cx);
-    let border = if current {
-        color::accent() << 8 | CURRENT_BORDER_ALPHA
-    } else {
-        glass::card_border()
-    };
+    let border =
+        if current { color::accent() << 8 | CURRENT_BORDER_ALPHA } else { glass::card_border() };
     let footer = div()
         .row(8.0)
         .py(px(8.0))
@@ -227,12 +211,7 @@ fn render_side(
         RefKind::Main => color::fg_ref_main(),
         _ => color::fg_ref_branch(),
     };
-    let id = side.id.map(|id| {
-        div()
-            .font_family(font::mono())
-            .fg(color::fg_faint())
-            .child(id)
-    });
+    let id = side.id.map(|id| div().font_family(font::mono()).fg(color::fg_faint()).child(id));
     let header = div()
         .row(10.0)
         .h(px(34.0))
@@ -249,11 +228,8 @@ fn render_side(
         .child(div().flex_1())
         .child(button);
     let faces = code_faces(&Code::new(side.lines.join("\n"), mode));
-    let lines = numbered(side.first, &side.lines, &faces, false).map(|row| {
-        row.mx_0()
-            .rounded_none()
-            .bg(rgba(tint << 8 | SIDE_LINE_ALPHA))
-    });
+    let lines = numbered(side.first, &side.lines, &faces, false)
+        .map(|row| row.mx_0().rounded_none().bg(rgba(tint << 8 | SIDE_LINE_ALPHA)));
     std::iter::once(header).chain(lines).collect()
 }
 
@@ -264,11 +240,7 @@ fn key_button(
     action: Action,
     cx: &mut Context<EditorView>,
 ) -> Div {
-    let key_cap = key.map(|key| {
-        kbd(key, false)
-            .h(px(18.0))
-            .bg(rgba(glass::key_on_control()))
-    });
+    let key_cap = key.map(|key| kbd(key, false).h(px(18.0)).bg(rgba(glass::key_on_control())));
     let button = control(6.0)
         .row(8.0)
         .flex_none()

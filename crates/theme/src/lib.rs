@@ -218,16 +218,8 @@ pub mod color {
     /// Lines of the commit graph: the checked out branch's, its base's, then the others'
     /// in turn.
     pub fn graph(index: usize) -> u32 {
-        let colors = [
-            accent(),
-            keyword(),
-            type_name(),
-            function(),
-            warning(),
-            info(),
-            builtin(),
-            string(),
-        ];
+        let colors =
+            [accent(), keyword(), type_name(), function(), warning(), info(), builtin(), string()];
         match index {
             0 | 1 => colors[index],
             _ => colors[2 + (index - 2) % (colors.len() - 2)],
@@ -297,11 +289,7 @@ pub mod syntax {
 
         fn read(bits: u32) -> Style {
             let bit = |index: u32| bits >> index & 1 != 0;
-            Style {
-                bold: bit(0),
-                italic: bit(1),
-                underline: bit(2),
-            }
+            Style { bold: bit(0), italic: bit(1), underline: bit(2) }
         }
     }
 

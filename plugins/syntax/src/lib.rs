@@ -55,9 +55,7 @@ impl Default for SyntaxSettings {
             local_variables: true,
             highlight_level: 4,
             download_grammars: true,
-            todo_keywords: ["TODO", "FIXME", "XXX", "HACK", "BUG", "NOTE"]
-                .map(String::from)
-                .into(),
+            todo_keywords: ["TODO", "FIXME", "XXX", "HACK", "BUG", "NOTE"].map(String::from).into(),
         }
     }
 }
@@ -82,10 +80,7 @@ pub enum Source {
     /// Built to WebAssembly by remacs's CI and downloaded once a file wants it (ADR 0087):
     /// `tree-sitter-<name>.wasm` of the `grammars-<release>` release, whose node types
     /// remacs's queries are written for.
-    Downloaded {
-        name: &'static str,
-        release: &'static str,
-    },
+    Downloaded { name: &'static str, release: &'static str },
 }
 
 impl Grammar {
@@ -135,18 +130,11 @@ pub struct Indents {
 
 impl Indents {
     pub const fn new(mode: &'static str, queries: &'static [&'static str]) -> Self {
-        Self {
-            mode,
-            queries,
-            only_blank_lines: false,
-        }
+        Self { mode, queries, only_blank_lines: false }
     }
 
     pub const fn only_blank_lines(self) -> Self {
-        Self {
-            only_blank_lines: true,
-            ..self
-        }
+        Self { only_blank_lines: true, ..self }
     }
 }
 
@@ -166,12 +154,7 @@ pub struct SyntaxPlugin {
 
 impl SyntaxPlugin {
     pub const fn new(grammars: &'static [Grammar], injections: &'static [Injections]) -> Self {
-        Self {
-            grammars,
-            injections,
-            indents: &[],
-            locals: &[],
-        }
+        Self { grammars, injections, indents: &[], locals: &[] }
     }
 
     pub const fn with_indents(self, indents: &'static [Indents]) -> Self {
@@ -261,11 +244,8 @@ impl Plugin for SyntaxPlugin {
             let settings = Rc::clone(&settings);
             move |editor| {
                 downloads::want(editor, grammars, settings.borrow().download_grammars);
-                let injections = if settings.borrow().embedded_languages {
-                    injections
-                } else {
-                    &[]
-                };
+                let injections =
+                    if settings.borrow().embedded_languages { injections } else { &[] };
                 buffer_syntax::sync(editor, grammars, injections)
             }
         });
@@ -280,9 +260,7 @@ impl Plugin for SyntaxPlugin {
                 let mut spans =
                     buffer_syntax::highlight(buffer, range.clone(), settings.highlight_level);
                 if settings.local_variables {
-                    spans = locals_queries
-                        .borrow_mut()
-                        .paint(locals, buffer, range, spans);
+                    spans = locals_queries.borrow_mut().paint(locals, buffer, range, spans);
                 }
                 todo::mark(buffer, spans, &settings.todo_keywords)
             }
@@ -297,12 +275,8 @@ impl Plugin for SyntaxPlugin {
                 }
             }
         }));
-        registry
-            .syntax_probes
-            .push(Rc::new(buffer_syntax::context_at));
-        registry
-            .embedded_probes
-            .push(Rc::new(buffer_syntax::embedded));
+        registry.syntax_probes.push(Rc::new(buffer_syntax::context_at));
+        registry.embedded_probes.push(Rc::new(buffer_syntax::embedded));
         let indents = self.indents;
         let indenter = Rc::new(RefCell::new(indent::Indenter::new()));
         registry.indent_probes.push(Rc::new({
@@ -314,9 +288,7 @@ impl Plugin for SyntaxPlugin {
             move |buffer, lines| indenter.borrow_mut().blocks(indents, buffer, lines)
         }));
         // A tree parsed for one command's lines is not kept past it, nor its text.
-        registry
-            .post_command_hooks
-            .push(Rc::new(move |_| indenter.borrow_mut().forget_parse()));
+        registry.post_command_hooks.push(Rc::new(move |_| indenter.borrow_mut().forget_parse()));
         let snippets = RefCell::new(snippet::SnippetHighlighter::new(grammars));
         registry.code_highlighters.push(Rc::new(move |mode, code| {
             let level = settings.borrow().highlight_level;

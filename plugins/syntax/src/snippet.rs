@@ -19,11 +19,7 @@ pub(crate) struct SnippetHighlighter {
 
 impl SnippetHighlighter {
     pub fn new(grammars: &'static [Grammar]) -> Self {
-        Self {
-            grammars,
-            parser: Parser::new(),
-            highlighters: HashMap::new(),
-        }
+        Self { grammars, parser: Parser::new(), highlighters: HashMap::new() }
     }
 
     pub fn highlight(&mut self, mode: &'static str, code: &str, level: u8) -> Option<Vec<Span>> {

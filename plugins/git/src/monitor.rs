@@ -75,11 +75,7 @@ impl Monitor {
         thread::Builder::new()
             .name("git-monitor".into())
             .spawn(move || {
-                let worker = Worker {
-                    root,
-                    updates: send_update,
-                    notifier,
-                };
+                let worker = Worker { root, updates: send_update, notifier };
                 worker.run(events, &received, wants);
             })
             .expect("spawning the git monitor thread");
@@ -139,9 +135,8 @@ impl Worker {
         })
         .and_then(|mut watcher| {
             watcher.watch(&self.root, RecursiveMode::Recursive)?;
-            for directory in git_directories
-                .iter()
-                .filter(|directory| !directory.starts_with(&self.root))
+            for directory in
+                git_directories.iter().filter(|directory| !directory.starts_with(&self.root))
             {
                 watcher.watch(directory, RecursiveMode::Recursive)?;
             }
@@ -253,17 +248,12 @@ impl EventFilter<'_> {
             return false;
         }
         // Every path is looked at, so that each changed ignore file is forgotten.
-        event
-            .paths
-            .iter()
-            .fold(false, |matters, path| self.path_matters(path) | matters)
+        event.paths.iter().fold(false, |matters, path| self.path_matters(path) | matters)
     }
 
     fn path_matters(&mut self, path: &Path) -> bool {
-        if let Some(inside) = self
-            .git_directories
-            .iter()
-            .find_map(|directory| path.strip_prefix(directory).ok())
+        if let Some(inside) =
+            self.git_directories.iter().find_map(|directory| path.strip_prefix(directory).ok())
         {
             let quiet = inside.components().next().is_some_and(|first| {
                 QUIET_GIT_PATHS.contains(&&*first.as_os_str().to_string_lossy())
@@ -291,10 +281,8 @@ fn git_directories(root: &Path) -> io::Result<Vec<PathBuf>> {
         "--git-dir",
         "--git-common-dir",
     ]))?;
-    let mut directories: Vec<PathBuf> = String::from_utf8_lossy(&printed)
-        .lines()
-        .map(PathBuf::from)
-        .collect();
+    let mut directories: Vec<PathBuf> =
+        String::from_utf8_lossy(&printed).lines().map(PathBuf::from).collect();
     directories.dedup();
     if directories.is_empty() {
         return Err(io::Error::other("no repository"));
@@ -317,11 +305,7 @@ fn read(
     ]))?);
     if !snapshot.files.is_empty() {
         // Without a commit, what is staged is all there is to count.
-        let since = if snapshot.is_unborn() {
-            "--cached"
-        } else {
-            "HEAD"
-        };
+        let since = if snapshot.is_unborn() { "--cached" } else { "HEAD" };
         snapshot.add_line_counts(&numstat(root, Some(since))?, Counted::SinceCommit);
         if wants.details {
             snapshot.add_line_counts(&numstat(root, Some("--cached"))?, Counted::Staged);
@@ -337,9 +321,7 @@ fn read(
                 .filter(|metadata| metadata.len() <= MAX_CONFLICT_FILE)
                 .and_then(|_| fs::read_to_string(root.join(path)).ok());
             if let Some(text) = text {
-                snapshot
-                    .conflicts
-                    .insert(path.clone(), conflict::parse(&text));
+                snapshot.conflicts.insert(path.clone(), conflict::parse(&text));
             }
         }
     }
@@ -395,10 +377,8 @@ fn read_changes(root: &Path, snapshot: &mut Snapshot, settings: &GitSettings) ->
             false => entry.staged != b'?' && entry.unstaged != b'.',
         })
     };
-    let sides: Vec<bool> = [true, false]
-        .into_iter()
-        .filter(|&staged| has_changes(staged))
-        .collect();
+    let sides: Vec<bool> =
+        [true, false].into_iter().filter(|&staged| has_changes(staged)).collect();
     for staged in sides {
         let mut command = git(root);
         command.args(["-c", "core.quotePath=false", "diff", "-M"]);
@@ -410,11 +390,7 @@ fn read_changes(root: &Path, snapshot: &mut Snapshot, settings: &GitSettings) ->
             read_patch(printed, settings.changes_max_bytes)
         })??;
         for (path, diff) in files {
-            if snapshot
-                .files
-                .get(&path)
-                .is_some_and(|entry| !entry.conflicted)
-            {
+            if snapshot.files.get(&path).is_some_and(|entry| !entry.conflicted) {
                 snapshot.diffs.insert(DiffKey { staged, path }, diff);
             }
         }
@@ -432,13 +408,7 @@ fn read_changes(root: &Path, snapshot: &mut Snapshot, settings: &GitSettings) ->
         if let Ok(diff) = untracked::diff(root, &path, max_bytes) {
             let kept = diff.hunks.iter().flat_map(|hunk| &hunk.lines);
             left = left.saturating_sub(kept.map(|line| line.len() as u64).sum());
-            snapshot.diffs.insert(
-                DiffKey {
-                    staged: false,
-                    path,
-                },
-                diff,
-            );
+            snapshot.diffs.insert(DiffKey { staged: false, path }, diff);
         }
     }
     Ok(())

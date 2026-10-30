@@ -297,12 +297,7 @@ struct Divider {
 /// An element drawn over `bounds` of its parent.
 fn placed(bounds: Bounds<Pixels>) -> gpui::Div {
     let Bounds { origin, size } = bounds;
-    div()
-        .absolute()
-        .left(origin.x)
-        .top(origin.y)
-        .w(size.width)
-        .h(size.height)
+    div().absolute().left(origin.x).top(origin.y).w(size.width).h(size.height)
 }
 
 impl EditorView {
@@ -403,9 +398,7 @@ impl EditorView {
         };
         let weak_view = cx.weak_entity();
         cx.on_validate_menu_action(move |action, cx| {
-            weak_view
-                .upgrade()
-                .is_some_and(|view| menu_bar::enabled(&view.read(cx).editor, action))
+            weak_view.upgrade().is_some_and(|view| menu_bar::enabled(&view.read(cx).editor, action))
         });
         menu_bar::set_menus(&view.editor, cx);
         view.receive_clipboard(cx);
@@ -435,9 +428,7 @@ impl EditorView {
         self.swatches = read.ui.swatches;
         self.bottom = read.ui.bottom();
         self.transitions = read.ui.transitions;
-        self.editor
-            .message_log_mut()
-            .set_limit(self.bottom.echo.history);
+        self.editor.message_log_mut().set_limit(self.bottom.echo.history);
         self.editor.set_settings(read.settings);
         // Their styles hold the colors of the theme they were drawn with.
         self.code_faces.get_mut().clear();
@@ -540,9 +531,8 @@ impl Render for EditorView {
         }
         self.follow_selection();
         let shown_pane = self.editor.pane();
-        let reserved = px(shown_pane
-            .as_ref()
-            .map_or(0.0, |pane| pane.height + PANE_BOTTOM + PANE_GAP));
+        let reserved =
+            px(shown_pane.as_ref().map_or(0.0, |pane| pane.height + PANE_BOTTOM + PANE_GAP));
         let frame_size = window.viewport_size();
         let layout = self.editor.layout().clone();
         let windows = layout.windows();
@@ -559,11 +549,8 @@ impl Render for EditorView {
         let area = Bounds::new(Point::default(), size(frame_size.width, bottom));
         let (mut areas, mut dividers) = (Vec::new(), Vec::new());
         lay_out(&layout, area, &mut areas, &mut dividers);
-        let settings = self
-            .editor
-            .find_plugin_state::<WindowsSettings>()
-            .cloned()
-            .unwrap_or_default();
+        let settings =
+            self.editor.find_plugin_state::<WindowsSettings>().cloned().unwrap_or_default();
         let header_height = settings.header_height;
         // The limits are of text: a window also has its title and line numbers.
         let min_height =
@@ -603,11 +590,9 @@ impl Render for EditorView {
             let hidden_top = px(TITLE_BAR_HEIGHT) - title_height;
             let (clip_bottom, frame_bottom, reserved) = match at_bottom {
                 true => (frame_size.height, frame_size.height, reserved),
-                false => (
-                    window_area.bottom(),
-                    window_area.bottom() + px(FOOTER_FADE_HEIGHT),
-                    px(0.0),
-                ),
+                false => {
+                    (window_area.bottom(), window_area.bottom() + px(FOOTER_FADE_HEIGHT), px(0.0))
+                }
             };
             state.clip =
                 Bounds::from_corners(window_area.origin, point(window_area.right(), clip_bottom));
@@ -624,13 +609,9 @@ impl Render for EditorView {
             }
             let state = &self.window_state;
             let (clip, frame) = (state.clip, state.frame);
-            let header_parts = self
-                .render_header(!parts.tabbed, split)
-                .children(parts.toolbar);
+            let header_parts = self.render_header(!parts.tabbed, split).children(parts.toolbar);
             let body = placed(Bounds::new(point(px(0.0), -hidden_top), frame.size))
-                .when(id != selected, |body| {
-                    body.opacity(settings.inactive_opacity)
-                });
+                .when(id != selected, |body| body.opacity(settings.inactive_opacity));
             bodies.push(
                 placed(clip)
                     .overflow_hidden()
@@ -649,11 +630,7 @@ impl Render for EditorView {
             let header_size = size(clip.size.width, px(TITLE_BAR_HEIGHT));
             let header = placed(Bounds::new(point(px(0.0), -hidden_top / 2.0), header_size));
             let strip = Bounds::new(clip.origin, size(clip.size.width, title_height));
-            headers.push(
-                placed(strip)
-                    .overflow_hidden()
-                    .child(header.child(header_parts)),
-            );
+            headers.push(placed(strip).overflow_hidden().child(header.child(header_parts)));
             if id == selected {
                 let popups = div().absolute().inset_0().children(parts.popups);
                 selected_parts = Some((parts.hints, parts.text_shown, popups));
@@ -711,9 +688,7 @@ impl Render for EditorView {
                 div()
                     .absolute()
                     .inset_0()
-                    .child(inert(
-                        row_layer(px(0.0)).opacity(1.0 - look.opacity).child(below),
-                    ))
+                    .child(inert(row_layer(px(0.0)).opacity(1.0 - look.opacity).child(below)))
                     .child(row_layer(on_pane).opacity(look.opacity).child(row))
                     .into_any_element()
             }

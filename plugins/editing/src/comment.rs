@@ -17,9 +17,7 @@ pub fn comment_line(editor: &mut Editor) -> CommandResult {
     };
     let first_character = first_range.start + blanks(first_line) + 1;
     let mode = editor.mode_at(first_character - 1).copied();
-    let code_syntax = mode
-        .and_then(|mode| mode.comment)
-        .ok_or("No comment syntax in this mode")?;
+    let code_syntax = mode.and_then(|mode| mode.comment).ok_or("No comment syntax in this mode")?;
     let markup_syntax = mode.and_then(|mode| mode.markup_comment);
     let in_markup = editor.syntax_at(first_character) == SyntaxContext::Markup;
 
@@ -28,21 +26,11 @@ pub fn comment_line(editor: &mut Editor) -> CommandResult {
         .flatten()
         .find(|&syntax| lines.iter().all(|(_, line)| is_commented(line, syntax)));
     let edits = if let Some(syntax) = commented_with {
-        lines
-            .iter()
-            .flat_map(|(range, line)| uncomment(range.start, line, syntax))
-            .collect()
+        lines.iter().flat_map(|(range, line)| uncomment(range.start, line, syntax)).collect()
     } else {
         let syntax = markup_syntax.filter(|_| in_markup).unwrap_or(code_syntax);
-        let column = lines
-            .iter()
-            .map(|(_, line)| blanks(line))
-            .min()
-            .unwrap_or(0);
-        lines
-            .iter()
-            .flat_map(|(range, line)| comment(range.start, line, column, syntax))
-            .collect()
+        let column = lines.iter().map(|(_, line)| blanks(line)).min().unwrap_or(0);
+        lines.iter().flat_map(|(range, line)| comment(range.start, line, column, syntax)).collect()
     };
     let buffer = writable_buffer(editor)?;
     buffer.apply_edits(edits);

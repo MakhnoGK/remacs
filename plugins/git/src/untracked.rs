@@ -28,10 +28,7 @@ pub fn diff(root: &Path, relative: &Path, max_bytes: u64) -> io::Result<FileDiff
     let path = root.join(relative);
     let metadata = fs::symlink_metadata(&path)?;
     if metadata.len() > max_bytes {
-        return Ok(FileDiff {
-            too_large: Some(metadata.len()),
-            ..FileDiff::default()
-        });
+        return Ok(FileDiff { too_large: Some(metadata.len()), ..FileDiff::default() });
     }
     // A link's contents, to Git, are its target; a pipe made since Git listed it would
     // never end.
@@ -59,21 +56,14 @@ pub fn diff(root: &Path, relative: &Path, max_bytes: u64) -> io::Result<FileDiff
     if !text.ends_with('\n') {
         lines.push("\\ No newline at end of file".into());
     }
-    diff.hunks.push(Hunk {
-        header,
-        lines,
-        old_start: 0,
-        new_start: 1,
-    });
+    diff.hunks.push(Hunk { header, lines, old_start: 0, new_start: 1 });
     Ok(diff)
 }
 
 /// The files Git would list as untracked under `directory`, the first `max_files` of them.
 pub fn list(root: &Path, directory: &Path, max_files: usize) -> io::Result<Listing> {
     let printed = output(
-        git(root)
-            .args(["ls-files", "-z", "--others", "--exclude-standard", "--"])
-            .arg(directory),
+        git(root).args(["ls-files", "-z", "--others", "--exclude-standard", "--"]).arg(directory),
     )?;
     let mut files: Vec<PathBuf> = printed
         .split(|&byte| byte == 0)
@@ -103,10 +93,7 @@ mod tests {
 
         let two = read("two.rs");
         assert_eq!(two.hunks[0].header, "@@ -0,0 +1,2 @@");
-        assert_eq!(
-            two.hunks[0].lines,
-            ["+a", "+b", "\\ No newline at end of file"]
-        );
+        assert_eq!(two.hunks[0].lines, ["+a", "+b", "\\ No newline at end of file"]);
         assert_eq!(read("one.rs").hunks[0].header, "@@ -0,0 +1 @@");
         assert_eq!(read("empty.rs").summary(), "Empty file");
         assert_eq!(read("data.bin").summary(), "Binary file");

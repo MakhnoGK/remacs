@@ -47,10 +47,9 @@ pub fn face_style(face: Face) -> HighlightStyle {
         Face::Added => background(color::fg_added() << 8 | 0x40),
         Face::Removed => background(color::fg_removed() << 8 | 0x40),
         Face::Console(style) => console_style(style),
-        Face::Link => HighlightStyle {
-            color: Some(hsla(color::link())),
-            ..underline(color::link())
-        },
+        Face::Link => {
+            HighlightStyle { color: Some(hsla(color::link())), ..underline(color::link()) }
+        }
         Face::Swatch(color) => swatch_style(color, UNDERLINE_THICKNESS),
     }
 }
@@ -119,19 +118,13 @@ pub fn console_color(color: ConsoleColor) -> u32 {
 }
 
 pub fn region_style() -> HighlightStyle {
-    HighlightStyle {
-        background_color: Some(rgba(glass::region()).into()),
-        ..Default::default()
-    }
+    HighlightStyle { background_color: Some(rgba(glass::region()).into()), ..Default::default() }
 }
 
 /// Merges layers into one list; later layers draw over earlier ones.
 pub fn combine(layers: &[Highlights]) -> Highlights {
-    let mut bounds: Vec<usize> = layers
-        .iter()
-        .flatten()
-        .flat_map(|(range, _)| [range.start, range.end])
-        .collect();
+    let mut bounds: Vec<usize> =
+        layers.iter().flatten().flat_map(|(range, _)| [range.start, range.end]).collect();
     bounds.sort_unstable();
     bounds.dedup();
     let mut next_in_layer = vec![0; layers.len()];
@@ -140,10 +133,7 @@ pub fn combine(layers: &[Highlights]) -> Highlights {
         let (start, end) = (segment[0], segment[1]);
         let mut style: Option<HighlightStyle> = None;
         for (layer, next) in layers.iter().zip(&mut next_in_layer) {
-            while layer
-                .get(*next)
-                .is_some_and(|(range, _)| range.end <= start)
-            {
+            while layer.get(*next).is_some_and(|(range, _)| range.end <= start) {
                 *next += 1;
             }
             if let Some((range, layer_style)) = layer.get(*next)
@@ -187,13 +177,7 @@ mod tests {
         let both = keyword.highlight(region);
         assert_eq!(
             combined,
-            [
-                (0..1, keyword),
-                (1..2, both),
-                (2..4, region),
-                (4..5, both),
-                (5..6, keyword)
-            ]
+            [(0..1, keyword), (1..2, both), (2..4, region), (4..5, both), (5..6, keyword)]
         );
     }
 

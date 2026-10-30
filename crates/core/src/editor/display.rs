@@ -24,18 +24,12 @@ const MAX_UNSHOWN_DECORATED_BYTES: usize = 16 * 1024;
 impl Editor {
     /// `lines` of the window buffer as a table, if a plugin draws it as one.
     pub fn table(&self, lines: Range<usize>) -> Option<Table> {
-        self.registry
-            .tables
-            .iter()
-            .find_map(|describe| describe(self, lines.clone()))
+        self.registry.tables.iter().find_map(|describe| describe(self, lines.clone()))
     }
 
     /// `lines` of the window buffer as an outline, if a plugin draws it as one.
     pub fn outline(&self, lines: Range<usize>) -> Option<Outline> {
-        self.registry
-            .outlines
-            .iter()
-            .find_map(|describe| describe(self, lines.clone()))
+        self.registry.outlines.iter().find_map(|describe| describe(self, lines.clone()))
     }
 
     /// Marks beside `lines` of the window buffer, sorted by line; none when no plugin has
@@ -50,19 +44,11 @@ impl Editor {
     }
 
     pub fn line_extras(&self, lines: Range<usize>) -> Vec<LineExtra> {
-        self.registry
-            .line_extras
-            .iter()
-            .flat_map(|provide| provide(self, lines.clone()))
-            .collect()
+        self.registry.line_extras.iter().flat_map(|provide| provide(self, lines.clone())).collect()
     }
 
     pub fn text_labels(&self, lines: Range<usize>) -> Vec<TextLabel> {
-        self.registry
-            .text_labels
-            .iter()
-            .flat_map(|provide| provide(self, lines.clone()))
-            .collect()
+        self.registry.text_labels.iter().flat_map(|provide| provide(self, lines.clone())).collect()
     }
 
     /// The pane shown under the window buffer: the one last selected while it has
@@ -94,10 +80,7 @@ impl Editor {
             return Vec::new();
         }
         let count = |source: &PaneSource| (source.describe)(self).and_then(|pane| pane.count);
-        shown
-            .into_iter()
-            .map(|source| (source.name, count(source)))
-            .collect()
+        shown.into_iter().map(|source| (source.name, count(source))).collect()
     }
 
     fn shown_panes(&self) -> impl Iterator<Item = &PaneSource> {
@@ -130,9 +113,7 @@ impl Editor {
     /// buffer drawn as one.
     pub fn screen_has_keys(&self) -> bool {
         if self.pane_focused() {
-            return self
-                .pane()
-                .is_some_and(|pane| matches!(pane.body, PaneBody::Screen(_)));
+            return self.pane().is_some_and(|pane| matches!(pane.body, PaneBody::Screen(_)));
         }
         self.minibuffer.is_none() && self.is_screen(self.window_buffer().name())
     }
@@ -145,10 +126,7 @@ impl Editor {
     /// The buffer named `name` as a screen of `size`, if a plugin draws it as one.
     pub fn screen(&self, name: &str, size: ScreenSize) -> Option<Screen> {
         let buffer = self.buffer_named(name)?;
-        self.registry
-            .screens
-            .iter()
-            .find_map(|source| source.screen(self, buffer, size))
+        self.registry.screens.iter().find_map(|source| source.screen(self, buffer, size))
     }
 
     /// Whether the buffer named `name` is drawn as a screen.
@@ -159,18 +137,13 @@ impl Editor {
     /// Room around the cells of the buffer named `name`, drawn as a screen.
     pub fn screen_padding(&self, name: &str) -> ScreenPadding {
         let source = self.screen_source(name);
-        source
-            .map(|source| source.padding(self))
-            .unwrap_or_default()
+        source.map(|source| source.padding(self)).unwrap_or_default()
     }
 
     /// The plugin that draws the buffer named `name` as a screen.
     fn screen_source(&self, name: &str) -> Option<&ScreenProvider> {
         let buffer = self.buffer_named(name)?;
-        self.registry
-            .screens
-            .iter()
-            .find(|source| source.draws(buffer))
+        self.registry.screens.iter().find(|source| source.draws(buffer))
     }
 
     /// Passes the mouse over a screen's cell to the plugins that draw screens; true when
@@ -197,19 +170,12 @@ impl Editor {
 
     /// Controls of the window buffer, if a plugin has any for it.
     pub fn text_controls(&self) -> Option<TextControls> {
-        self.registry
-            .text_controls
-            .iter()
-            .find_map(|describe| describe(self))
+        self.registry.text_controls.iter().find_map(|describe| describe(self))
     }
 
     /// The version control keeping `path`, if any.
     pub fn version_control(&self, path: &Path) -> Option<Rc<dyn VersionControl>> {
-        self.registry
-            .version_controls
-            .iter()
-            .find(|control| control.controls(self, path))
-            .cloned()
+        self.registry.version_controls.iter().find(|control| control.controls(self, path)).cloned()
     }
 
     /// How `path` differs from the last commit, if version control knows.
@@ -234,8 +200,7 @@ impl Editor {
             let kept: Vec<_> = moves
                 .iter()
                 .filter(|(from, _)| {
-                    self.version_control(from)
-                        .is_some_and(|keeper| Rc::ptr_eq(&keeper, &control))
+                    self.version_control(from).is_some_and(|keeper| Rc::ptr_eq(&keeper, &control))
                 })
                 .cloned()
                 .collect();
@@ -291,24 +256,16 @@ impl Editor {
 
     /// How the plugin that knows `buffer` shows it in place of its name, if one does.
     pub fn buffer_look(&self, buffer: &Buffer) -> Option<BufferLook> {
-        self.registry
-            .buffer_looks
-            .iter()
-            .find_map(|describe| describe(self, buffer))
+        self.registry.buffer_looks.iter().find_map(|describe| describe(self, buffer))
     }
 
     /// What `buffer` is called where it is named: its look's label, else its name.
     pub fn shown_name(&self, buffer: &Buffer) -> String {
-        self.buffer_look(buffer)
-            .map_or_else(|| buffer.name().to_owned(), |look| look.label)
+        self.buffer_look(buffer).map_or_else(|| buffer.name().to_owned(), |look| look.label)
     }
 
     pub fn status_segments(&self) -> Vec<StatusSegment> {
-        self.registry
-            .status_providers
-            .iter()
-            .filter_map(|describe| describe(self))
-            .collect()
+        self.registry.status_providers.iter().filter_map(|describe| describe(self)).collect()
     }
 
     pub fn popups(&self) -> Vec<Popup> {
@@ -318,10 +275,7 @@ impl Editor {
     /// Each plugin's popup, if it has one open, in the same place every time, so a popup
     /// is known as the same one from one frame to the next.
     pub fn popup_slots(&self) -> impl Iterator<Item = Option<Popup>> + '_ {
-        self.registry
-            .popup_providers
-            .iter()
-            .map(|describe| describe(self))
+        self.registry.popup_providers.iter().map(|describe| describe(self))
     }
 }
 
@@ -353,10 +307,7 @@ mod tests {
                 .collect();
             (by_line, ASKED.take())
         };
-        assert_eq!(
-            decorate(&[0..10, 11..21]),
-            (vec![vec![0..10], vec![11..21]], vec![0..21])
-        );
+        assert_eq!(decorate(&[0..10, 11..21]), (vec![vec![0..10], vec![11..21]], vec![0..21]));
         let far = 100_000..100_010;
         assert_eq!(
             decorate(&[0..10, far.clone()]),
@@ -384,11 +335,7 @@ mod tests {
             let b = |editor: &Editor| is_shown(editor, 1);
             for (name, shown) in [("A", a as fn(&Editor) -> bool), ("B", b)] {
                 let describe = Rc::new(|_: &Editor| None);
-                registry.panes.push(PaneSource {
-                    name,
-                    shown,
-                    describe,
-                });
+                registry.panes.push(PaneSource { name, shown, describe });
             }
         });
         let show = |editor: &mut Editor, a, b| *editor.plugin_state::<Shown>() = Shown([a, b]);

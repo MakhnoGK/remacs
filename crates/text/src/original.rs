@@ -134,38 +134,27 @@ impl Original {
         let with = |crlf| Format { crlf, ..format };
         if file_len < MAP_THRESHOLD {
             let mut text = Vec::with_capacity(file_len);
-            return Ok(decode(input, format, &mut text)?.map(|crlf| Self {
-                format: with(crlf),
-                ..Self::from(text)
-            }));
+            return Ok(decode(input, format, &mut text)?
+                .map(|crlf| Self { format: with(crlf), ..Self::from(text) }));
         }
         let mut output = BufWriter::with_capacity(1 << 20, temporary_file()?);
         let crlf = match decode(input, format, &mut output)? {
             Ok(crlf) => crlf,
             Err(stop) => return Ok(Err(stop)),
         };
-        let text_file = output
-            .into_inner()
-            .map_err(io::IntoInnerError::into_error)?;
+        let text_file = output.into_inner().map_err(io::IntoInnerError::into_error)?;
         let text_len = text_file.metadata()?.len() as usize;
         // SAFETY: nothing else can change the file: its name was removed when it was made.
         let mapping = unsafe { Mmap::map(&text_file)? };
         let (index, _) = LineIndex::from_file(&text_file, text_len)?;
-        Ok(Ok(Self {
-            storage: Storage::Mapped(mapping),
-            index,
-            format: with(crlf),
-        }))
+        Ok(Ok(Self { storage: Storage::Mapped(mapping), index, format: with(crlf) }))
     }
 
     /// A notice in place of the file's bytes, which aren't read.
     fn binary(file_len: usize) -> Self {
         let notice = format!("Binary file of {file_len} bytes: not shown.\n");
         Self {
-            format: Format {
-                binary: true,
-                ..Format::default()
-            },
+            format: Format { binary: true, ..Format::default() },
             ..Self::from(notice.into_bytes())
         }
     }
@@ -181,17 +170,12 @@ impl Original {
 
     pub fn nth_newline_in(&self, range: Range<usize>, rank: usize) -> Option<usize> {
         let rank_in_file = self.index.newlines_before(&self.storage, range.start) + rank;
-        self.index
-            .nth_newline(&self.storage, rank_in_file)
-            .filter(|&offset| offset < range.end)
+        self.index.nth_newline(&self.storage, rank_in_file).filter(|&offset| offset < range.end)
     }
 }
 
 fn not_in(encoding: &'static Encoding) -> io::Error {
-    io::Error::new(
-        io::ErrorKind::InvalidData,
-        format!("The file isn't in {}", encoding.name()),
-    )
+    io::Error::new(io::ErrorKind::InvalidData, format!("The file isn't in {}", encoding.name()))
 }
 
 /// A file without a name, to hold a decoded text: its pages can leave memory for the disk,
@@ -205,11 +189,7 @@ fn temporary_file() -> io::Result<File> {
         process::id(),
         MADE.fetch_add(1, Ordering::Relaxed)
     ));
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create_new(true)
-        .open(&path)?;
+    let file = OpenOptions::new().read(true).write(true).create_new(true).open(&path)?;
     fs::remove_file(&path)?;
     Ok(file)
 }
@@ -217,10 +197,6 @@ fn temporary_file() -> io::Result<File> {
 impl From<Vec<u8>> for Original {
     fn from(bytes: Vec<u8>) -> Self {
         let index = LineIndex::from_bytes(&bytes);
-        Self {
-            storage: Storage::Owned(bytes),
-            index,
-            format: Format::default(),
-        }
+        Self { storage: Storage::Owned(bytes), index, format: Format::default() }
     }
 }

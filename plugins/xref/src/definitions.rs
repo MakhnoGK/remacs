@@ -52,10 +52,7 @@ fn state(editor: &mut Editor) -> &mut State {
 pub(crate) fn update(editor: &mut Editor) {
     let count = editor.command_count();
     if mem::replace(&mut state(editor).seen_commands, count) != count
-        && !matches!(
-            editor.last_command(),
-            Some(FIND_DEFINITIONS | FIND_REFERENCES)
-        )
+        && !matches!(editor.last_command(), Some(FIND_DEFINITIONS | FIND_REFERENCES))
     {
         state(editor).awaited = None;
     }
@@ -77,21 +74,14 @@ fn look_up(editor: &mut Editor, lookup: Lookup) -> CommandResult {
     let offset = editor.window_buffer().point();
     let state = state(editor);
     state.next_id += 1;
-    let request = Request {
-        id: state.next_id,
-        offset,
-        lookup,
-    };
+    let request = Request { id: state.next_id, offset, lookup };
     state.awaited = Some(request);
     state.requests.push(request);
     Ok(())
 }
 
 pub(crate) fn go_back(editor: &mut Editor) -> CommandResult {
-    let location = state(editor)
-        .history
-        .pop()
-        .ok_or("At start of xref history")?;
+    let location = state(editor).history.pop().ok_or("At start of xref history")?;
     go_to(editor, &location)
 }
 
@@ -122,10 +112,8 @@ pub fn deliver(editor: &mut Editor, id: u64, mut locations: Vec<Location>) {
 /// Goes to `location`, remembering where from for `xref-go-back`.
 pub(crate) fn jump(editor: &mut Editor, location: &Location) -> CommandResult {
     let buffer = editor.window_buffer();
-    let from = buffer.path().map(|path| Location {
-        path: path.to_path_buf(),
-        offset: buffer.point(),
-    });
+    let from =
+        buffer.path().map(|path| Location { path: path.to_path_buf(), offset: buffer.point() });
     go_to(editor, location)?;
     let history = &mut state(editor).history;
     history.extend(from);
@@ -165,10 +153,7 @@ fn choose(editor: &mut Editor, lookup: Lookup, locations: Vec<Location>) -> Comm
         })
         .collect();
     let (label, hints): (_, &[_]) = match lookup {
-        Lookup::Definitions => (
-            "Definitions",
-            &[("↵", "Go to definition"), ("C-g", "Close")],
-        ),
+        Lookup::Definitions => ("Definitions", &[("↵", "Go to definition"), ("C-g", "Close")]),
         Lookup::References => ("References", &[("↵", "Go to reference"), ("C-g", "Close")]),
     };
     let prompt = Prompt {
@@ -219,11 +204,7 @@ fn preview(text: &Snapshot, offset: usize) -> (String, usize) {
     let line = text.line_of(offset.min(text.len()));
     let range = text.line_range(line).unwrap_or_default();
     let bytes = text.bytes_in(range);
-    let preview = String::from_utf8_lossy(&bytes)
-        .trim()
-        .chars()
-        .take(MAX_PREVIEW_CHARS)
-        .collect();
+    let preview = String::from_utf8_lossy(&bytes).trim().chars().take(MAX_PREVIEW_CHARS).collect();
     (preview, line)
 }
 

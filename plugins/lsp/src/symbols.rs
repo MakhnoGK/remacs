@@ -105,43 +105,27 @@ fn ask(editor: &mut Editor, servers: &'static [LanguageServer], request: SymbolR
         return remacs_xref::deliver_symbols(editor, request.id, Err(missing));
     }
     for client in &clients {
-        client.send(Outgoing::Symbols {
-            id: request.id,
-            query: request.query.clone(),
-        });
+        client.send(Outgoing::Symbols { id: request.id, query: request.query.clone() });
     }
     let parts = clients
         .into_iter()
-        .map(|client| Part {
-            client,
-            symbols: None,
-            ask_again: false,
-        })
+        .map(|client| Part { client, symbols: None, ask_again: false })
         .collect();
-    editor.plugin_state::<Asked>().question = Some(Question {
-        id: request.id,
-        query: request.query,
-        parts,
-    });
+    editor.plugin_state::<Asked>().question =
+        Some(Question { id: request.id, query: request.query, parts });
 }
 
 /// Delivers once every server asked has answered, in the servers' order, and again
 /// whenever one that was loading answers anew.
 fn collect_answers(editor: &mut Editor) {
-    let clients: Vec<Rc<Client>> = editor
-        .plugin_state::<Clients>()
-        .running()
-        .map(|(_, client)| Rc::clone(client))
-        .collect();
+    let clients: Vec<Rc<Client>> =
+        editor.plugin_state::<Clients>().running().map(|(_, client)| Rc::clone(client)).collect();
     for client in clients {
         for found in client.take_found() {
             let asked = editor.plugin_state::<Asked>();
             let is_asked = asked.question.as_ref().is_some_and(|question| {
                 question.id == found.id
-                    && question
-                        .parts
-                        .iter()
-                        .any(|part| Rc::ptr_eq(&part.client, &client))
+                    && question.parts.iter().any(|part| Rc::ptr_eq(&part.client, &client))
             });
             if !is_asked {
                 continue;
@@ -150,19 +134,14 @@ fn collect_answers(editor: &mut Editor) {
             let Some(question) = editor.plugin_state::<Asked>().question.as_mut() else {
                 continue;
             };
-            if let Some(part) = question
-                .parts
-                .iter_mut()
-                .find(|part| Rc::ptr_eq(&part.client, &client))
+            if let Some(part) =
+                question.parts.iter_mut().find(|part| Rc::ptr_eq(&part.client, &client))
             {
                 part.symbols = Some(symbols);
                 part.ask_again = !found.settled;
             }
-            let all: Option<Vec<&Vec<Symbol>>> = question
-                .parts
-                .iter()
-                .map(|part| part.symbols.as_ref())
-                .collect();
+            let all: Option<Vec<&Vec<Symbol>>> =
+                question.parts.iter().map(|part| part.symbols.as_ref()).collect();
             let Some(all) = all else {
                 continue;
             };
@@ -180,10 +159,7 @@ fn ask_settled_servers_again(editor: &mut Editor) {
     for part in &mut question.parts {
         if part.ask_again && part.client.is_settled() {
             part.ask_again = false;
-            part.client.send(Outgoing::Symbols {
-                id: question.id,
-                query: question.query.clone(),
-            });
+            part.client.send(Outgoing::Symbols { id: question.id, query: question.query.clone() });
         }
     }
 }
@@ -204,10 +180,7 @@ pub(crate) fn place(editor: &Editor, found: Vec<FoundSymbol>, encoding: Encoding
                 kind: symbol.kind,
                 container: symbol.container,
                 line: symbol.position.line as usize,
-                location: Location {
-                    path: symbol.path,
-                    offset,
-                },
+                location: Location { path: symbol.path, offset },
             })
         })
         .collect()
@@ -243,14 +216,7 @@ mod tests {
     ) -> Vec<(String, Option<SymbolKind>, Option<String>, u32)> {
         found(serde_json::from_value(response).ok())
             .into_iter()
-            .map(|symbol| {
-                (
-                    symbol.name,
-                    symbol.kind,
-                    symbol.container,
-                    symbol.position.line,
-                )
-            })
+            .map(|symbol| (symbol.name, symbol.kind, symbol.container, symbol.position.line))
             .collect()
     }
 
@@ -265,22 +231,14 @@ mod tests {
             reported(flat),
             [
                 ("Buffer".into(), Some(SymbolKind::Type), None, 4),
-                (
-                    "point".into(),
-                    Some(SymbolKind::Method),
-                    Some("Buffer".into()),
-                    4
-                ),
+                ("point".into(), Some(SymbolKind::Method), Some("Buffer".into()), 4),
             ]
         );
         let nested = json!([
             { "name": "main", "kind": 12, "containerName": "", "location": { "uri": "file:///p/main.rs", "range": range } },
             { "name": "lazy", "kind": 13, "location": { "uri": "file:///p/lazy.rs" } },
         ]);
-        assert_eq!(
-            reported(nested),
-            [("main".into(), Some(SymbolKind::Function), None, 4)]
-        );
+        assert_eq!(reported(nested), [("main".into(), Some(SymbolKind::Function), None, 4)]);
         assert!(reported(json!(null)).is_empty());
     }
 }

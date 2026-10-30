@@ -126,10 +126,7 @@ fn cargo_tests_are_built_without_running_and_debugged_with_their_filter() {
     let (_, tests) = plan(&configuration, &launch).unwrap();
     assert_eq!(
         tests.cargo_build,
-        Some(CargoBuild {
-            tests: true,
-            args: vec!["-p".into(), "api".into(), "--lib".into()],
-        })
+        Some(CargoBuild { tests: true, args: vec!["-p".into(), "api".into(), "--lib".into()] })
     );
     assert_eq!(tests.target.args, ["store::tests::reads", "--exact"]);
 
@@ -140,10 +137,7 @@ fn cargo_tests_are_built_without_running_and_debugged_with_their_filter() {
 
     let bench = Configuration::new(
         "bench",
-        Kind::Cargo(Cargo {
-            command: "bench".into(),
-            ..Cargo::default()
-        }),
+        Kind::Cargo(Cargo { command: "bench".into(), ..Cargo::default() }),
     );
     assert!(plan(&bench, &launch).is_err());
 }
@@ -162,10 +156,7 @@ fn breakpoints_toggle_and_are_sent_with_their_conditions() {
     );
     breakpoints.verify(
         file,
-        &[
-            json!({ "verified": true }),
-            json!({ "verified": false, "message": "no code" }),
-        ],
+        &[json!({ "verified": true }), json!({ "verified": false, "message": "no code" })],
     );
     assert_eq!(breakpoints.of(file)[1].message.as_deref(), Some("no code"));
     assert!(!breakpoints.toggle(file, 4));
@@ -236,16 +227,9 @@ fn a_breakpoint_gets_a_condition_and_the_list_disables_and_deletes_breakpoints()
     let breakpoints = &debugger(&mut editor).breakpoints;
     assert_eq!(breakpoints.of(&file)[1].condition.as_deref(), Some("a > 0"));
     let icon = |editor: &Editor, line: usize| {
-        editor
-            .gutter_marks(line..line + 1)
-            .unwrap()
-            .first()
-            .map(|mark| mark.icon)
+        editor.gutter_marks(line..line + 1).unwrap().first().map(|mark| mark.icon)
     };
-    assert_eq!(
-        icon(&editor, 2),
-        Some(GutterIcon::Breakpoint(BreakpointIcon::Conditional))
-    );
+    assert_eq!(icon(&editor, 2), Some(GutterIcon::Breakpoint(BreakpointIcon::Conditional)));
 
     // Without a breakpoint on the line, the key lists them all.
     editor.set_point_at(0, 0);
@@ -268,24 +252,13 @@ fn a_breakpoint_gets_a_condition_and_the_list_disables_and_deletes_breakpoints()
     assert_eq!(
         rows(&editor),
         [
-            (
-                "main.rs:2".to_owned(),
-                "let a = 1;".to_owned(),
-                String::new()
-            ),
-            (
-                "main.rs:3".to_owned(),
-                "let b = 2;".to_owned(),
-                "if a > 0".to_owned()
-            ),
+            ("main.rs:2".to_owned(), "let a = 1;".to_owned(), String::new()),
+            ("main.rs:3".to_owned(), "let b = 2;".to_owned(), "if a > 0".to_owned()),
         ]
     );
     press(&mut editor, "SPC");
     assert_eq!(rows(&editor)[0].2, "disabled");
-    assert_eq!(
-        icon(&editor, 1),
-        Some(GutterIcon::Breakpoint(BreakpointIcon::Disabled))
-    );
+    assert_eq!(icon(&editor, 1), Some(GutterIcon::Breakpoint(BreakpointIcon::Disabled)));
     press(&mut editor, "d");
     assert_eq!(rows(&editor).len(), 1);
     press(&mut editor, "RET");
@@ -300,11 +273,7 @@ struct ModesPlugin;
 impl Plugin for ModesPlugin {
     fn register(&self, registry: &mut Registry) {
         for (name, extensions) in [("JavaScript", &["js", "mjs"][..]), ("Rust", &["rs"][..])] {
-            registry.modes.add(Mode {
-                name,
-                extensions,
-                ..Mode::default()
-            });
+            registry.modes.add(Mode { name, extensions, ..Mode::default() });
         }
     }
 }
@@ -316,11 +285,7 @@ fn press(editor: &mut Editor, keys: &str) {
 }
 
 fn contents(editor: &Editor, name: &str) -> String {
-    let buffer = editor
-        .buffers()
-        .iter()
-        .find(|buffer| buffer.name() == name)
-        .unwrap();
+    let buffer = editor.buffers().iter().find(|buffer| buffer.name() == name).unwrap();
     buffer.contents(0..buffer.text().len())
 }
 
@@ -345,11 +310,7 @@ fn status(editor: &Editor) -> String {
 
 /// The rows of the pane's `column`, as `name = value`, or the name alone.
 fn pane_rows(editor: &Editor, column: usize) -> Vec<String> {
-    let Some(Pane {
-        body: PaneBody::Columns(columns),
-        ..
-    }) = editor.pane()
-    else {
+    let Some(Pane { body: PaneBody::Columns(columns), .. }) = editor.pane() else {
         return Vec::new();
     };
     columns[column]
@@ -418,9 +379,7 @@ fn a_cargo_program_stops_at_a_breakpoint_steps_and_runs_to_its_end() {
     press(&mut editor, "s-<f8>");
     editor.set_point_at(11, 0);
     wait_until(&mut editor, "the entry point", |editor| {
-        editor
-            .gutter_marks(11..12)
-            .is_some_and(|marks| !marks.is_empty())
+        editor.gutter_marks(11..12).is_some_and(|marks| !marks.is_empty())
     });
     press(&mut editor, "C-S-<f9>");
     assert_eq!(editor.window_buffer().name(), "*run: demo*");
@@ -440,30 +399,17 @@ fn a_cargo_program_stops_at_a_breakpoint_steps_and_runs_to_its_end() {
 
     // The pane shows the frames and variables; the lines above, the values they declare.
     wait_until(&mut editor, "the variables", |editor| {
-        pane_rows(editor, 1)
-            .iter()
-            .any(|row| row.starts_with("discount = 15"))
+        pane_rows(editor, 1).iter().any(|row| row.starts_with("discount = 15"))
     });
-    assert!(
-        pane_rows(&editor, 0)
-            .iter()
-            .any(|row| row.contains("total"))
-    );
+    assert!(pane_rows(&editor, 0).iter().any(|row| row.contains("total")));
     assert!(pane_rows(&editor, 1).contains(&"subtotal = 3280".to_owned()));
     let extras = editor.line_extras(0..20);
     let note = |line: usize| {
-        extras
-            .iter()
-            .find(|extra| extra.line == line)
-            .and_then(|extra| extra.note.clone())
+        extras.iter().find(|extra| extra.line == line).and_then(|extra| extra.note.clone())
     };
     assert_eq!(note(6).as_deref(), Some("subtotal = 3280"));
     assert_eq!(note(7).as_deref(), Some("discount = 15"));
-    assert!(
-        extras
-            .iter()
-            .any(|extra| extra.line == 8 && extra.band.is_some())
-    );
+    assert!(extras.iter().any(|extra| extra.line == 8 && extra.band.is_some()));
     // A watch, added from its column.
     press(&mut editor, "C-x C-a w");
     press(&mut editor, "RET");
@@ -499,10 +445,7 @@ fn a_cargo_program_stops_at_a_breakpoint_steps_and_runs_to_its_end() {
             .is_some_and(|debugger| debugger.sessions.is_empty())
     });
     let console = contents(&editor, "*run: demo*");
-    assert!(
-        console.contains("cargo build -p demo --bin demo"),
-        "{console}"
-    );
+    assert!(console.contains("cargo build -p demo --bin demo"), "{console}");
     assert!(console.contains("total 2788\n"), "{console}");
     assert!(console.contains("Process exited with code 0"), "{console}");
     fs::remove_dir_all(home).unwrap();
@@ -546,9 +489,7 @@ fn a_node_script_stops_at_a_breakpoint_in_the_session_js_debug_starts() {
     editor.set_point_at(3, 0);
     press(&mut editor, "s-<f8>");
     wait_until(&mut editor, "the entry point", |editor| {
-        editor
-            .gutter_marks(0..1)
-            .is_some_and(|marks| !marks.is_empty())
+        editor.gutter_marks(0..1).is_some_and(|marks| !marks.is_empty())
     });
     press(&mut editor, "C-S-<f9>");
 
@@ -557,9 +498,7 @@ fn a_node_script_stops_at_a_breakpoint_in_the_session_js_debug_starts() {
     });
     assert!(status(&editor).contains("paused"), "{}", status(&editor));
     press(&mut editor, "<f9>");
-    wait_until(&mut editor, "the second pass", |editor| {
-        status(editor).contains("paused")
-    });
+    wait_until(&mut editor, "the second pass", |editor| status(editor).contains("paused"));
     press(&mut editor, "s-<f8>");
     press(&mut editor, "<f9>");
     wait_until(&mut editor, "the end", |editor| {

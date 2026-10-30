@@ -40,34 +40,26 @@ fn evaluate(editor: &mut Editor) -> CommandResult {
         move |editor, expression| {
             let arguments =
                 json!({ "expression": expression, "frameId": frame, "context": "repl" });
-            request(
-                editor,
-                address,
-                "evaluate",
-                arguments,
-                move |editor, address, result| {
-                    let shown = match &result {
-                        Ok(body) => body["result"].as_str().unwrap_or_default().to_owned(),
-                        Err(error) => error.clone(),
-                    };
-                    let Some(session) = debugger(editor)
-                        .sessions
-                        .iter()
-                        .find(|session| session.id == address.session)
-                    else {
-                        return;
-                    };
-                    session.note(&format!("› {expression}"));
-                    let color = if result.is_ok() { "" } else { "\x1b[31m" };
-                    session.print(&format!("{color}{}\x1b[0m\n", shown.trim_end()));
-                    let first = shown.lines().next().unwrap_or_default().to_owned();
-                    if result.is_ok() {
-                        editor.set_message(first);
-                    } else {
-                        editor.set_error(first);
-                    }
-                },
-            );
+            request(editor, address, "evaluate", arguments, move |editor, address, result| {
+                let shown = match &result {
+                    Ok(body) => body["result"].as_str().unwrap_or_default().to_owned(),
+                    Err(error) => error.clone(),
+                };
+                let Some(session) =
+                    debugger(editor).sessions.iter().find(|session| session.id == address.session)
+                else {
+                    return;
+                };
+                session.note(&format!("› {expression}"));
+                let color = if result.is_ok() { "" } else { "\x1b[31m" };
+                session.print(&format!("{color}{}\x1b[0m\n", shown.trim_end()));
+                let first = shown.lines().next().unwrap_or_default().to_owned();
+                if result.is_ok() {
+                    editor.set_message(first);
+                } else {
+                    editor.set_error(first);
+                }
+            });
             Ok(())
         },
     )

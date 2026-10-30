@@ -222,13 +222,7 @@ fn content_id(name: &'static str, contents: impl IntoIterator<Item = impl Hash>)
 
 /// A column that scrolls, giving way first when its panel is short of room.
 fn scrolling_column(id: ElementId) -> Stateful<Div> {
-    div()
-        .id(id)
-        .flex()
-        .flex_col()
-        .flex_shrink()
-        .min_h_0()
-        .overflow_y_scroll()
+    div().id(id).flex().flex_col().flex_shrink().min_h_0().overflow_y_scroll()
 }
 
 /// Above the line, their messages in line with the anchor, or below when they fit there
@@ -291,15 +285,11 @@ struct ChipColors {
     text: fn() -> u32,
 }
 
-const NOTE_CHIP: ChipColors = ChipColors {
-    background: glass::note_code,
-    text: color::fg_note_code,
-};
+const NOTE_CHIP: ChipColors =
+    ChipColors { background: glass::note_code, text: color::fg_note_code };
 
-const DOCUMENTATION_CHIP: ChipColors = ChipColors {
-    background: || glass::ink(0x12),
-    text: color::fg_alt,
-};
+const DOCUMENTATION_CHIP: ChipColors =
+    ChipColors { background: || glass::ink(0x12), text: color::fg_alt };
 
 /// Wraps between words, and inside a word wider than the line; quoted code is a chip in
 /// the code font, which text highlights cannot give, that wraps between its words like
@@ -339,11 +329,8 @@ fn notes_height(notes: &[Note], text_width: Pixels, code_chars: usize, view: &Po
     };
     let note_height = |note: &Note| {
         let lines: usize = note.message.lines().map(line_count).sum();
-        let source = if note.source.is_empty() {
-            0.0
-        } else {
-            NOTE_LINE_GAP + NOTE_SOURCE_LINE_HEIGHT
-        };
+        let source =
+            if note.source.is_empty() { 0.0 } else { NOTE_LINE_GAP + NOTE_SOURCE_LINE_HEIGHT };
         let gaps = lines.saturating_sub(1) as f32 * NOTE_LINE_GAP;
         1.0 + 2.0 * NOTE_PADDING_Y + lines as f32 * NOTE_LINE_HEIGHT + gaps + source
     };
@@ -373,11 +360,7 @@ enum Piece<'a> {
     Word(&'a str),
     /// A word of quoted code with the spaces after it, or `code_chars` of a longer one;
     /// `first` and `last` of the quote.
-    Code {
-        text: &'a str,
-        first: bool,
-        last: bool,
-    },
+    Code { text: &'a str, first: bool, last: bool },
 }
 
 impl Piece<'_> {
@@ -406,11 +389,8 @@ fn line_pieces(line: &str, code_chars: usize) -> Vec<Piece<'_>> {
             let words = part.split_inclusive(' ');
             let texts: Vec<&str> = words.flat_map(|word| chunks(word, code_chars)).collect();
             let count = texts.len();
-            let piece = |(index, text)| Piece::Code {
-                text,
-                first: index == 0,
-                last: index + 1 == count,
-            };
+            let piece =
+                |(index, text)| Piece::Code { text, first: index == 0, last: index + 1 == count };
             texts.into_iter().enumerate().map(piece).collect()
         })
         .collect()
@@ -420,10 +400,7 @@ fn line_pieces(line: &str, code_chars: usize) -> Vec<Piece<'_>> {
 fn chunks(text: &str, chars: usize) -> Vec<&str> {
     let starts = text.char_indices().map(|(start, _)| start);
     let starts: Vec<usize> = starts.step_by(chars.max(1)).chain([text.len()]).collect();
-    starts
-        .windows(2)
-        .map(|pair| &text[pair[0]..pair[1]])
-        .collect()
+    starts.windows(2).map(|pair| &text[pair[0]..pair[1]]).collect()
 }
 
 /// Below the symbol, its text in line with the symbol's, or above when there is more room;
@@ -651,10 +628,7 @@ fn fit(
         let offset = |at| wrapped_offset(&code.text, &text, at);
         let emphasis = code.emphasis.as_ref();
         let emphasis = emphasis.map(|range| offset(range.start)..offset(range.end));
-        Code {
-            emphasis,
-            ..Code::new(text, code.mode)
-        }
+        Code { emphasis, ..Code::new(text, code.mode) }
     };
     let signature = documentation.signature.as_ref();
     let signature = signature.map(|code| fit_code(code, insets.signature, view.mono_width));
@@ -691,10 +665,7 @@ fn code_box(name: &'static str, index: usize, code: &Code, view: &PopupView) -> 
     // So a vertical wheel over code scrolls the documentation, not the code sideways.
     code_box.style().restrict_scroll_to_axis = Some(true);
     let code = div().flex_none().child(render_code(code, view));
-    code_box
-        .whitespace_nowrap()
-        .font_family(font::mono())
-        .child(code)
+    code_box.whitespace_nowrap().font_family(font::mono()).child(code)
 }
 
 /// The signature and the blocks; gives way first when the panel is short of room, so the
@@ -731,10 +702,8 @@ fn render_body(
 fn render_code(code: &Code, view: &PopupView) -> StyledText {
     let mut faces = (view.code_faces)(code);
     if let Some(emphasis) = &code.emphasis {
-        let emphasized = HighlightStyle {
-            font_weight: Some(FontWeight::BOLD),
-            ..face_style(Face::Highlight)
-        };
+        let emphasized =
+            HighlightStyle { font_weight: Some(FontWeight::BOLD), ..face_style(Face::Highlight) };
         faces = combine(&[faces, vec![(emphasis.clone(), emphasized)]]);
     }
     StyledText::new(code.text.clone()).with_highlights(faces)
@@ -797,9 +766,8 @@ fn code_spans(text: &str) -> (String, Vec<(Range<usize>, HighlightStyle)>) {
 }
 
 fn render_hints(hints: &'static [(&'static str, &'static str)]) -> Div {
-    let hints = hints
-        .iter()
-        .map(|&(keys, action)| div().row(6.0).children(key_caps(keys)).child(action));
+    let hints =
+        hints.iter().map(|&(keys, action)| div().row(6.0).children(key_caps(keys)).child(action));
     div()
         .flex()
         .flex_none()

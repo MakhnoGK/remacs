@@ -64,9 +64,7 @@ pub fn render_tabs(tabs: Tabs, width: f32, cx: &mut Context<EditorView>) -> Div 
         .row(GAP)
         .flex_none()
         .children(chips)
-        .when(hidden > 0, |row| {
-            row.child(render_overflow(hidden, list, cx))
-        })
+        .when(hidden > 0, |row| row.child(render_overflow(hidden, list, cx)))
         .child(clickable(add_button, command_action(add), cx))
 }
 
@@ -86,30 +84,16 @@ fn chip(gap: f32, background: u32, border: u32) -> Div {
 }
 
 fn render_tab(tab: Tab, cx: &mut Context<EditorView>) -> Div {
-    let Tab {
-        label,
-        selected,
-        state,
-        activity,
-        bell,
-        editing,
-        action,
-    } = tab;
+    let Tab { label, selected, state, activity, bell, editing, action } = tab;
     let (background, border, text) = match state {
         _ if selected => (glass::selection(), glass::ink(0x24), color::fg_main()),
-        TabState::Exited(code) if code != 0 => (
-            color::error() << 8 | 0x1a,
-            color::error() << 8 | 0x66,
-            color::fg_flagged(),
-        ),
+        TabState::Exited(code) if code != 0 => {
+            (color::error() << 8 | 0x1a, color::error() << 8 | 0x66, color::fg_flagged())
+        }
         TabState::Exited(_) => (glass::ink(0x0d), glass::ink(0x17), color::fg_faint()),
         _ => (glass::ink(0x0d), glass::ink(0x17), color::fg_body()),
     };
-    let dot = if bell {
-        color::warning()
-    } else {
-        color::accent()
-    };
+    let dot = if bell { color::warning() } else { color::accent() };
     let chip = chip(7.0, background, border)
         .relative()
         .whitespace_nowrap()

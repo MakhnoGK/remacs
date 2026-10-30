@@ -25,12 +25,7 @@ const GRAMMARS: &[Grammar] = &[
 ];
 const MACRO_INJECTIONS: &str = include_str!("../../languages/queries/rust/injections.scm");
 const INJECTIONS: &[Injections] = &[
-    Injections {
-        host: "Rust",
-        query: MACRO_INJECTIONS,
-        documents: false,
-        servers: false,
-    },
+    Injections { host: "Rust", query: MACRO_INJECTIONS, documents: false, servers: false },
     Injections {
         host: "rust_macro_arguments",
         query: MACRO_INJECTIONS,

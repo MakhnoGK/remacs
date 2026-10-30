@@ -134,11 +134,7 @@ pub struct EntryAction {
 impl Candidate {
     pub fn new(value: impl Into<String>) -> Self {
         let value = value.into();
-        Self {
-            label: value.clone(),
-            value,
-            ..Self::default()
-        }
+        Self { label: value.clone(), value, ..Self::default() }
     }
 }
 
@@ -195,11 +191,7 @@ impl<K> CompletionMemo<K> {
 
 impl From<Vec<Candidate>> for Completions {
     fn from(candidates: Vec<Candidate>) -> Self {
-        Self {
-            total: candidates.len(),
-            candidates,
-            ..Self::default()
-        }
+        Self { total: candidates.len(), candidates, ..Self::default() }
     }
 }
 
@@ -261,10 +253,7 @@ impl FuzzyQuery {
     }
 
     fn with_config(query: &str, config: Config) -> Self {
-        Self {
-            pattern: Pattern::parse(query, CaseMatching::Smart, Normalization::Smart),
-            config,
-        }
+        Self { pattern: Pattern::parse(query, CaseMatching::Smart, Normalization::Smart), config }
     }
 
     /// Everything matches an empty query, with the same score.
@@ -282,22 +271,14 @@ impl FuzzyQuery {
 
     /// The score, and the byte ranges of `text` that matched.
     pub fn score_and_ranges(&self, text: &str) -> Option<(u32, Vec<Range<usize>>)> {
-        SCRATCH.with_borrow_mut(
-            |Scratch {
-                 matcher,
-                 chars,
-                 indices,
-             }| {
-                matcher.config.clone_from(&self.config);
-                indices.clear();
-                let score = self
-                    .pattern
-                    .indices(Utf32Str::new(text, chars), matcher, indices)?;
-                indices.sort_unstable();
-                indices.dedup();
-                Some((score, byte_ranges(text, indices)))
-            },
-        )
+        SCRATCH.with_borrow_mut(|Scratch { matcher, chars, indices }| {
+            matcher.config.clone_from(&self.config);
+            indices.clear();
+            let score = self.pattern.indices(Utf32Str::new(text, chars), matcher, indices)?;
+            indices.sort_unstable();
+            indices.dedup();
+            Some((score, byte_ranges(text, indices)))
+        })
     }
 }
 
@@ -308,9 +289,7 @@ fn byte_ranges(text: &str, char_indices: &[u32]) -> Vec<Range<usize>> {
         .char_indices()
         .zip(0u32..)
         .filter_map(|((start, character), index)| {
-            wanted
-                .next_if_eq(&&index)
-                .map(|_| start..start + character.len_utf8())
+            wanted.next_if_eq(&&index).map(|_| start..start + character.len_utf8())
         })
         .collect();
     merge(ranges)
@@ -336,11 +315,7 @@ pub fn filter<T>(
             let text = label(&item);
             let (score, ranges) = query.score_and_ranges(text)?;
             let length = if query.is_empty() { 0 } else { text.len() };
-            Some(Match {
-                ranges,
-                item,
-                rank: (Reverse(score), length),
-            })
+            Some(Match { ranges, item, rank: (Reverse(score), length) })
         })
         .collect()
 }
@@ -360,10 +335,7 @@ pub fn filter_map_parallel<T: Sync, R: Send>(
     matched: impl Fn(usize, &T) -> Option<R> + Sync,
 ) -> Vec<R> {
     let matched_from = |first: usize, items: &[T]| -> Vec<R> {
-        (first..)
-            .zip(items)
-            .filter_map(|(index, item)| matched(index, item))
-            .collect()
+        (first..).zip(items).filter_map(|(index, item)| matched(index, item)).collect()
     };
     let threads = thread::available_parallelism().map_or(1, NonZero::get);
     if items.len() < PARALLEL_MIN_ITEMS || threads == 1 {
@@ -391,10 +363,7 @@ pub fn filter_candidates(query: &str, candidates: Vec<Candidate>, ranked: bool) 
     }
     matches
         .into_iter()
-        .map(|matched| Candidate {
-            matches: matched.ranges,
-            ..matched.item
-        })
+        .map(|matched| Candidate { matches: matched.ranges, ..matched.item })
         .collect::<Vec<_>>()
         .into()
 }
@@ -434,9 +403,7 @@ pub fn flex_rank(query: &str, text: &str) -> Option<bool> {
         return Some(true);
     }
     let (same, mut rest) = (same_char(query), text.chars());
-    let found = query
-        .chars()
-        .all(|wanted| rest.any(|character| same(character, wanted)));
+    let found = query.chars().all(|wanted| rest.any(|character| same(character, wanted)));
     found.then_some(false)
 }
 
@@ -445,11 +412,7 @@ pub fn flex_rank(query: &str, text: &str) -> Option<bool> {
 fn same_char(query: &str) -> impl Fn(char, char) -> bool {
     let case_sensitive = query.chars().any(char::is_uppercase);
     move |a, b| {
-        if case_sensitive {
-            a == b
-        } else {
-            a.eq_ignore_ascii_case(&b)
-        }
+        if case_sensitive { a == b } else { a.eq_ignore_ascii_case(&b) }
     }
 }
 
@@ -481,24 +444,11 @@ mod tests {
 
     #[test]
     fn matches_all_terms_with_smart_case_and_ranks_word_starts_first() {
-        let names = [
-            "desktop-save",
-            "save-some-buffers",
-            "Save-Place",
-            "save-buffer",
-        ];
+        let names = ["desktop-save", "save-some-buffers", "Save-Place", "save-buffer"];
         let mut matches = filter("save", names, |name| name);
         rank(&mut matches);
         let ranked: Vec<_> = matches.iter().map(|matched| matched.item).collect();
-        assert_eq!(
-            ranked,
-            [
-                "Save-Place",
-                "save-buffer",
-                "save-some-buffers",
-                "desktop-save"
-            ]
-        );
+        assert_eq!(ranked, ["Save-Place", "save-buffer", "save-some-buffers", "desktop-save"]);
         assert_eq!(matches[3].ranges.first(), Some(&(8..12)));
 
         let matches = filter("buf save", names, |name| name);
@@ -516,24 +466,15 @@ mod tests {
         ];
         let paths = |query: &str| {
             let query = FuzzyQuery::for_paths(query);
-            files
-                .iter()
-                .filter(|file| query.score(file).is_some())
-                .copied()
-                .collect::<Vec<_>>()
+            files.iter().filter(|file| query.score(file).is_some()).copied().collect::<Vec<_>>()
         };
         assert_eq!(paths("plufifi"), ["plugins/files/src/find_file.rs"]);
         assert_eq!(paths("find !core"), ["plugins/files/src/find_file.rs"]);
         assert_eq!(paths("^crates"), ["crates/core/src/find.rs"]);
         assert_eq!(paths("lib.rs$"), ["plugins/files/src/lib.rs"]);
-        assert_eq!(
-            paths("'src/f"),
-            ["plugins/files/src/find_file.rs", "crates/core/src/find.rs"]
-        );
+        assert_eq!(paths("'src/f"), ["plugins/files/src/find_file.rs", "crates/core/src/find.rs"]);
 
-        let (_, ranges) = FuzzyQuery::new("fifi")
-            .score_and_ranges("find_file")
-            .unwrap();
+        let (_, ranges) = FuzzyQuery::new("fifi").score_and_ranges("find_file").unwrap();
         assert_eq!(ranges, [0..2, 5..7]);
         let (_, ranges) = FuzzyQuery::new("жx").score_and_ranges("ажbx").unwrap();
         assert_eq!(ranges, [2..4, 5..6]);
@@ -551,16 +492,7 @@ mod tests {
 
     #[test]
     fn flex_rank_agrees_with_flex_match() {
-        let texts = [
-            "last()",
-            "size_hint()",
-            "is_sorted",
-            "start",
-            "Start",
-            "ажbx",
-            "s",
-            "",
-        ];
+        let texts = ["last()", "size_hint()", "is_sorted", "start", "Start", "ажbx", "s", ""];
         for query in ["st", "sT", "St", "s", "жx", "", "start"] {
             for text in texts {
                 let ranked = flex_match(query, text)

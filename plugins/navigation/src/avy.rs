@@ -26,10 +26,7 @@ enum Avy {
         done_at: Option<Instant>,
     },
     /// Reading the label of a place, `typed` its start so far.
-    Choosing {
-        places: Vec<(usize, String)>,
-        typed: String,
-    },
+    Choosing { places: Vec<(usize, String)>, typed: String },
 }
 
 pub(crate) fn avy_goto_char_timer(editor: &mut Editor) -> CommandResult {
@@ -45,28 +42,18 @@ pub(crate) fn avy_goto_word(editor: &mut Editor) -> CommandResult {
 pub(crate) fn avy_goto_line(editor: &mut Editor) -> CommandResult {
     let buffer = editor.window_buffer();
     let text = buffer.text();
-    let starts = shown_lines(editor)
-        .filter_map(|line| text.line_start(line))
-        .collect();
+    let starts = shown_lines(editor).filter_map(|line| text.line_start(line)).collect();
     choose(editor, starts);
     Ok(())
 }
 
 fn start_reading(editor: &mut Editor, words: bool) {
-    *editor.plugin_state::<Avy>() = Avy::Reading {
-        words,
-        typed: String::new(),
-        done_at: None,
-    };
+    *editor.plugin_state::<Avy>() = Avy::Reading { words, typed: String::new(), done_at: None };
     editor.set_message(prompt(words, ""));
 }
 
 fn prompt(words: bool, typed: &str) -> String {
-    let what = if words {
-        "Word starting with"
-    } else {
-        "Jump to"
-    };
+    let what = if words { "Word starting with" } else { "Jump to" };
     format!("{what}: {typed}")
 }
 
@@ -80,30 +67,16 @@ pub(crate) fn take_key(editor: &mut Editor, key: Key) -> bool {
     match (state, describe_sequence(&[key]).as_str()) {
         (_, "C-g" | "ESC") => editor.set_message("Quit"),
         (Avy::Reading { words, typed, .. }, "RET") => finish_reading(editor, words, &typed),
-        (
-            Avy::Reading {
-                words, mut typed, ..
-            },
-            "DEL",
-        ) => {
+        (Avy::Reading { words, mut typed, .. }, "DEL") => {
             typed.pop();
             editor.set_message(prompt(words, &typed));
-            *editor.plugin_state() = Avy::Reading {
-                words,
-                typed,
-                done_at: None,
-            };
+            *editor.plugin_state() = Avy::Reading { words, typed, done_at: None };
         }
         (Avy::Choosing { places, mut typed }, "DEL") => {
             typed.pop();
             *editor.plugin_state() = Avy::Choosing { places, typed };
         }
-        (
-            Avy::Reading {
-                words, mut typed, ..
-            },
-            _,
-        ) if typed_char.is_some() => {
+        (Avy::Reading { words, mut typed, .. }, _) if typed_char.is_some() => {
             typed.extend(typed_char);
             if words {
                 finish_reading(editor, true, &typed);
@@ -112,11 +85,8 @@ pub(crate) fn take_key(editor: &mut Editor, key: Key) -> bool {
             let wait =
                 Duration::from_millis(editor.plugin_state::<NavigationSettings>().avy_timeout);
             editor.set_message(prompt(false, &typed));
-            *editor.plugin_state() = Avy::Reading {
-                words,
-                typed,
-                done_at: Some(Instant::now() + wait),
-            };
+            *editor.plugin_state() =
+                Avy::Reading { words, typed, done_at: Some(Instant::now() + wait) };
             editor.refresh_after(wait);
         }
         (Avy::Choosing { places, mut typed }, _) if typed_char.is_some() => {
@@ -136,18 +106,13 @@ pub(crate) fn take_key(editor: &mut Editor, key: Key) -> bool {
 /// Labels what was typed once typing has paused; run after every command and refresh.
 /// Another command, as one from the menu, ends the reading.
 pub(crate) fn update(editor: &mut Editor) {
-    let other_command = editor
-        .last_command()
-        .is_none_or(|command| !AVY_COMMANDS.contains(&command));
+    let other_command =
+        editor.last_command().is_none_or(|command| !AVY_COMMANDS.contains(&command));
     if other_command {
         *editor.plugin_state() = Avy::Idle;
         return;
     }
-    let Avy::Reading {
-        words: false,
-        typed,
-        done_at: Some(done_at),
-    } = editor.plugin_state::<Avy>()
+    let Avy::Reading { words: false, typed, done_at: Some(done_at) } = editor.plugin_state::<Avy>()
     else {
         return;
     };
@@ -167,9 +132,8 @@ fn finish_reading(editor: &mut Editor, words: bool, typed: &str) {
         return editor.set_message("Quit");
     }
     let buffer = editor.window_buffer();
-    let places: Vec<usize> = shown_parts(editor)
-        .flat_map(|range| matches(buffer, range, typed, words))
-        .collect();
+    let places: Vec<usize> =
+        shown_parts(editor).flat_map(|range| matches(buffer, range, typed, words)).collect();
     if places.is_empty() {
         return editor.set_error(format!("No {typed} on screen"));
     }
@@ -180,19 +144,11 @@ fn matches(buffer: &Buffer, range: Range<usize>, typed: &str, words: bool) -> Ve
     let shown = buffer.contents(range.clone());
     let exact = typed.chars().any(char::is_uppercase);
     let fold = |text: &str| {
-        if exact {
-            text.to_owned()
-        } else {
-            text.to_lowercase()
-        }
+        if exact { text.to_owned() } else { text.to_lowercase() }
     };
     let (haystack, needle) = (fold(&shown), fold(typed));
     // Lowercasing may change lengths; such texts are matched as typed.
-    let haystack = if haystack.len() == shown.len() {
-        haystack
-    } else {
-        shown.clone()
-    };
+    let haystack = if haystack.len() == shown.len() { haystack } else { shown.clone() };
     haystack
         .match_indices(&needle)
         .map(|(index, _)| index)
@@ -218,16 +174,10 @@ fn choose(editor: &mut Editor, mut places: Vec<usize>) {
     }
     let point = editor.window_buffer().point();
     places.sort_by_key(|offset| offset.abs_diff(point));
-    let keys: Vec<char> = editor
-        .plugin_state::<NavigationSettings>()
-        .avy_keys
-        .chars()
-        .collect();
+    let keys: Vec<char> = editor.plugin_state::<NavigationSettings>().avy_keys.chars().collect();
     let labels = labels(&keys, places.len());
-    *editor.plugin_state() = Avy::Choosing {
-        places: places.into_iter().zip(labels).collect(),
-        typed: String::new(),
-    };
+    *editor.plugin_state() =
+        Avy::Choosing { places: places.into_iter().zip(labels).collect(), typed: String::new() };
     editor.set_message("Label:");
 }
 
@@ -276,11 +226,7 @@ fn shown_parts(editor: &Editor) -> impl Iterator<Item = Range<usize>> + '_ {
     // shortcut: character columns stand for display columns, which tabs and wide
     // characters make larger; scrolled sideways, such a line is searched a little off.
     // 0 until the window is first laid out.
-    let width = if viewport.width == 0 {
-        usize::MAX
-    } else {
-        viewport.width
-    };
+    let width = if viewport.width == 0 { usize::MAX } else { viewport.width };
     let columns = viewport.first_column..viewport.first_column.saturating_add(width);
     shown_lines(editor).map(move |line| {
         text.offset_at_char_column(line, columns.start)
@@ -299,9 +245,6 @@ pub(crate) fn text_labels(editor: &Editor, lines: Range<usize>) -> Vec<TextLabel
         .filter(|(offset, label)| {
             label.starts_with(typed.as_str()) && lines.contains(&text.line_of(*offset))
         })
-        .map(|(offset, label)| TextLabel {
-            offset: *offset,
-            text: label[typed.len()..].to_owned(),
-        })
+        .map(|(offset, label)| TextLabel { offset: *offset, text: label[typed.len()..].to_owned() })
         .collect()
 }

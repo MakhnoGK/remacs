@@ -65,11 +65,7 @@ pub const GRAMMARS: &[Grammar] = &[
         language: Built(tree_sitter_rust::LANGUAGE),
         highlights: &[query!("rust"), query!("rust", "text")],
     },
-    Grammar {
-        mode: C,
-        language: Built(tree_sitter_c::LANGUAGE),
-        highlights: &[query!("c")],
-    },
+    Grammar { mode: C, language: Built(tree_sitter_c::LANGUAGE), highlights: &[query!("c")] },
     Grammar {
         mode: CPP,
         language: Built(tree_sitter_cpp::LANGUAGE),
@@ -101,11 +97,7 @@ pub const GRAMMARS: &[Grammar] = &[
         language: Built(tree_sitter_html::LANGUAGE),
         highlights: &[query!("html")],
     },
-    Grammar {
-        mode: CSS,
-        language: Built(tree_sitter_css::LANGUAGE),
-        highlights: &[query!("css")],
-    },
+    Grammar { mode: CSS, language: Built(tree_sitter_css::LANGUAGE), highlights: &[query!("css")] },
     Grammar {
         mode: JSON,
         language: Built(tree_sitter_json::LANGUAGE),
@@ -162,11 +154,7 @@ pub const GRAMMARS: &[Grammar] = &[
         language: Built(tree_sitter_python::LANGUAGE),
         highlights: &[query!("python")],
     },
-    Grammar {
-        mode: GO,
-        language: Built(tree_sitter_go::LANGUAGE),
-        highlights: &[query!("go")],
-    },
+    Grammar { mode: GO, language: Built(tree_sitter_go::LANGUAGE), highlights: &[query!("go")] },
     Grammar {
         mode: JAVA,
         language: Built(tree_sitter_java::LANGUAGE),
@@ -208,16 +196,8 @@ pub const GRAMMARS: &[Grammar] = &[
         language: Built(tree_sitter_ruby::LANGUAGE),
         highlights: &[query!("ruby")],
     },
-    Grammar {
-        mode: LUA,
-        language: Built(tree_sitter_lua::LANGUAGE),
-        highlights: &[query!("lua")],
-    },
-    Grammar {
-        mode: ZIG,
-        language: Built(tree_sitter_zig::LANGUAGE),
-        highlights: &[query!("zig")],
-    },
+    Grammar { mode: LUA, language: Built(tree_sitter_lua::LANGUAGE), highlights: &[query!("lua")] },
+    Grammar { mode: ZIG, language: Built(tree_sitter_zig::LANGUAGE), highlights: &[query!("zig")] },
     Grammar {
         mode: HASKELL,
         language: Built(tree_sitter_haskell::LANGUAGE),
@@ -228,21 +208,13 @@ pub const GRAMMARS: &[Grammar] = &[
         language: Built(tree_sitter_elixir::LANGUAGE),
         highlights: &[query!("elixir")],
     },
-    Grammar {
-        mode: NIX,
-        language: Built(tree_sitter_nix::LANGUAGE),
-        highlights: &[query!("nix")],
-    },
+    Grammar { mode: NIX, language: Built(tree_sitter_nix::LANGUAGE), highlights: &[query!("nix")] },
     Grammar {
         mode: KOTLIN,
         language: Built(tree_sitter_kotlin_ng::LANGUAGE),
         highlights: &[query!("kotlin")],
     },
-    Grammar {
-        mode: HCL,
-        language: Built(tree_sitter_hcl::LANGUAGE),
-        highlights: &[query!("hcl")],
-    },
+    Grammar { mode: HCL, language: Built(tree_sitter_hcl::LANGUAGE), highlights: &[query!("hcl")] },
     Grammar {
         mode: GRAPHQL,
         language: Built(tree_sitter_graphql::LANGUAGE),
@@ -253,11 +225,7 @@ pub const GRAMMARS: &[Grammar] = &[
         language: Built(tree_sitter_proto::LANGUAGE),
         highlights: &[query!("proto")],
     },
-    Grammar {
-        mode: SCSS,
-        language: Built(SCSS_LANGUAGE),
-        highlights: &[query!("scss")],
-    },
+    Grammar { mode: SCSS, language: Built(SCSS_LANGUAGE), highlights: &[query!("scss")] },
     Grammar {
         mode: VUE,
         language: Built(tree_sitter_vue_next::LANGUAGE),
@@ -289,11 +257,7 @@ pub const GRAMMARS: &[Grammar] = &[
         language: downloaded("dockerfile"),
         highlights: &[query!("dockerfile")],
     },
-    Grammar {
-        mode: FISH,
-        language: downloaded("fish"),
-        highlights: &[query!("fish")],
-    },
+    Grammar { mode: FISH, language: downloaded("fish"), highlights: &[query!("fish")] },
     // Languages only within others, painted over them: no mode of their own.
     Grammar {
         mode: MARKDOWN_INLINE,
@@ -330,10 +294,7 @@ const JSDOC: &str = "jsdoc";
 const GRAMMARS_RELEASE: &str = "1";
 
 const fn downloaded(name: &'static str) -> Source {
-    Source::Downloaded {
-        name,
-        release: GRAMMARS_RELEASE,
-    }
+    Source::Downloaded { name, release: GRAMMARS_RELEASE }
 }
 
 // tree-sitter-scss 1.0 gives only a `Language` of the tree-sitter it was built against;

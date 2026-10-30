@@ -60,11 +60,7 @@ pub fn max_outline_lines(window_height: Pixels) -> usize {
 
 /// Where the panes start: under the banner if there is one.
 fn pane_top(has_banner: bool) -> f32 {
-    if has_banner {
-        BANNER_TOP + BANNER_HEIGHT + BANNER_GAP
-    } else {
-        PANE_TOP
-    }
+    if has_banner { BANNER_TOP + BANNER_HEIGHT + BANNER_GAP } else { PANE_TOP }
 }
 
 /// How many of `rows`, from the first, fit under `fact_count` facts in a window this tall.
@@ -224,20 +220,13 @@ pub fn render_outline(
 /// Children in a row, centered across it, that keeps its size: `height` tall, padded
 /// `padding_x` at the sides and rounded by `radius`.
 pub(crate) fn chip_frame(height: f32, padding_x: f32, radius: f32) -> Div {
-    div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .h(px(height))
-        .px(px(padding_x))
-        .rounded(px(radius))
+    div().flex().flex_none().items_center().h(px(height)).px(px(padding_x)).rounded(px(radius))
 }
 
 /// `row` with the selection's background, lifted, while it is selected.
 pub(crate) fn lift_selected(row: Div, selected: bool) -> Div {
     row.when(selected, |row| {
-        row.bg(rgba(glass::selection()))
-            .shadow(vec![shadow(glass::shadow(0x73), 1.0, 3.0, 0.0)])
+        row.bg(rgba(glass::selection())).shadow(vec![shadow(glass::shadow(0x73), 1.0, 3.0, 0.0)])
     })
 }
 
@@ -304,10 +293,7 @@ fn side_pane(
     let (rows, actions, fact_count) = (side.rows, side.actions, side.facts.len());
     let first = first_shown(&rows, fact_count, has_banner, height, side.selected);
     let shown = fitting_rows(&rows[first..], fact_count, has_banner, height);
-    let scrolled = Scrolled {
-        above: first > 0,
-        below: first + shown < rows.len(),
-    };
+    let scrolled = Scrolled { above: first > 0, below: first + shown < rows.len() };
     let facts = render_facts(side.facts, cx);
     let shown_rows = (first..).zip(rows[first..first + shown].iter().cloned());
     let rows = render_rows(shown_rows, side.selected, |row, index, _| {

@@ -35,13 +35,9 @@ pub fn hs_toggle_hiding(editor: &mut Editor) -> CommandResult {
 pub fn hs_hide_all(editor: &mut Editor) -> CommandResult {
     let buffer = editor.window_buffer();
     let line_count = buffer.text().line_count();
-    let blocks = editor
-        .blocks(buffer, 0..line_count)
-        .ok_or("Nothing here can be hidden")?;
+    let blocks = editor.blocks(buffer, 0..line_count).ok_or("Nothing here can be hidden")?;
     let line = buffer.point_line();
-    editor
-        .window_buffer_mut()
-        .fold(blocks.into_iter().map(|block| block.hidden));
+    editor.window_buffer_mut().fold(blocks.into_iter().map(|block| block.hidden));
     move_out_of_folds(editor, line);
     Ok(())
 }

@@ -26,9 +26,7 @@ pub fn set_menus(editor: &Editor, cx: &mut App) {
                     items.push(MenuItem::separator());
                 }
                 for item in group {
-                    let action = RunCommand {
-                        name: item.command.into(),
-                    };
+                    let action = RunCommand { name: item.command.into() };
                     if let Some(keystroke) = item.key_equivalent {
                         bindings.push(KeyBinding::new(
                             &keystroke,
@@ -39,10 +37,7 @@ pub fn set_menus(editor: &Editor, cx: &mut App) {
                     items.push(MenuItem::action(item.title, action));
                 }
             }
-            Menu {
-                name: menu.title.into(),
-                items,
-            }
+            Menu { name: menu.title.into(), items }
         })
         .collect();
     cx.clear_key_bindings();
@@ -86,11 +81,7 @@ fn shown_item(editor: &Editor, item: &remacs_core::MenuItem) -> ShownItem {
         Some(Shown::InTitle(keys)) => (format!("{title} ({keys})"), None),
         None => (title.to_owned(), None),
     };
-    ShownItem {
-        title,
-        command: item.command,
-        key_equivalent,
-    }
+    ShownItem { title, command: item.command, key_equivalent }
 }
 
 /// Whether a menu item may be chosen: its command can run now.
@@ -138,11 +129,7 @@ fn to_keystroke(key: Key) -> Option<String> {
         KeyCode::Function(number) => format!("f{number}"),
         // macOS menus have no key equivalent for them, nor for `-` and whitespace but space.
         KeyCode::Return | KeyCode::Tab => return None,
-        code => NAMED_KEYS
-            .iter()
-            .find(|&&(_, named)| named == code)?
-            .0
-            .to_owned(),
+        code => NAMED_KEYS.iter().find(|&&(_, named)| named == code)?.0.to_owned(),
     };
     let chord = modifiers.control || modifiers.meta || modifiers.super_key;
     if !chord && !matches!(key.code, KeyCode::Function(_)) {
@@ -154,10 +141,8 @@ fn to_keystroke(key: Key) -> Option<String> {
         (modifiers.shift, "shift-"),
         (modifiers.super_key, "cmd-"),
     ];
-    let mut keystroke: String = prefixes
-        .into_iter()
-        .filter_map(|(held, prefix)| held.then_some(prefix))
-        .collect();
+    let mut keystroke: String =
+        prefixes.into_iter().filter_map(|(held, prefix)| held.then_some(prefix)).collect();
     keystroke.push_str(&name);
     Some(keystroke)
 }
@@ -189,14 +174,10 @@ mod tests {
         let titles: Vec<&str> = menus.iter().map(|menu| menu.title).collect();
         assert_eq!(
             titles,
-            [
-                "Remacs", "File", "Edit", "View", "Go", "Git", "Run", "Window", "Help"
-            ]
+            ["Remacs", "File", "Edit", "View", "Go", "Git", "Run", "Window", "Help"]
         );
-        let items: Vec<&ShownItem> = menus
-            .iter()
-            .flat_map(|menu| menu.groups.iter().flatten())
-            .collect();
+        let items: Vec<&ShownItem> =
+            menus.iter().flat_map(|menu| menu.groups.iter().flatten()).collect();
         for item in &items {
             assert!(
                 editor.commands().get(item.command).is_some(),

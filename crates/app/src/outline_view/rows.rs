@@ -92,16 +92,8 @@ fn render_heading(title: &str, count: usize, open: bool, tone: Tone, selected: b
         Tone::Faint => color::fg_line_number(),
         tone => tone_color(tone, color::fg_line_number()),
     };
-    let chevron = if open {
-        CHEVRON_DOWN_ICON
-    } else {
-        CHEVRON_ICON
-    };
-    let chevron = svg()
-        .path(chevron)
-        .flex_none()
-        .size(px(10.0))
-        .text_color(rgb(color::fg_faint()));
+    let chevron = if open { CHEVRON_DOWN_ICON } else { CHEVRON_ICON };
+    let chevron = svg().path(chevron).flex_none().size(px(10.0)).text_color(rgb(color::fg_faint()));
     let title = title.to_uppercase();
     chip_frame(HEADING_HEIGHT, 10.0, 8.0)
         .gap(px(8.0))
@@ -113,9 +105,7 @@ fn render_heading(title: &str, count: usize, open: bool, tone: Tone, selected: b
 }
 
 fn row_frame(selected: bool) -> Div {
-    lift_selected(chip_frame(ROW_HEIGHT, 10.0, 8.0), selected)
-        .gap(px(10.0))
-        .whitespace_nowrap()
+    lift_selected(chip_frame(ROW_HEIGHT, 10.0, 8.0), selected).gap(px(10.0)).whitespace_nowrap()
 }
 
 /// A run of diff lines in their frame, if there are any.
@@ -146,20 +136,10 @@ fn diff_frame(lines: Vec<Div>) -> Option<AnyElement> {
 fn row_body(row: OutlineRow, selected: bool) -> Div {
     match row {
         OutlineRow::Diff(diff) => diff_line(diff, selected),
-        OutlineRow::Heading {
-            title,
-            count,
-            open,
-            tone,
-        } => render_heading(&title, count, open, tone, selected),
-        OutlineRow::File {
-            state,
-            name,
-            directory,
-            lines,
-            note,
-            ..
-        } => {
+        OutlineRow::Heading { title, count, open, tone } => {
+            render_heading(&title, count, open, tone, selected)
+        }
+        OutlineRow::File { state, name, directory, lines, note, .. } => {
             let faint = lit(selected, color::fg_faint());
             let end = match note {
                 Some((note, tone)) => {

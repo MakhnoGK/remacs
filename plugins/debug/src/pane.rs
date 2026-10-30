@@ -63,12 +63,8 @@ pub const FOCUSED_BINDINGS: &[(&str, &str)] = &[
     ("ESC", LEAVE),
 ];
 
-const PAUSED_HINTS: &[(&str, &str)] = &[
-    ("F8", "Step over"),
-    ("F7", "Step into"),
-    ("F9", "Resume"),
-    ("C-x o", "Pane"),
-];
+const PAUSED_HINTS: &[(&str, &str)] =
+    &[("F8", "Step over"), ("F7", "Step into"), ("F9", "Resume"), ("C-x o", "Pane")];
 const RUNNING_HINTS: &[(&str, &str)] =
     &[("⌥F9", "Pause"), ("⌘F8", "Breakpoint"), ("C-x o", "Pane")];
 const FRAMES_HINTS: &[(&str, &str)] = &[("↵", "Show")];
@@ -80,17 +76,8 @@ const WATCHES_HINTS: &[(&str, &str)] = &[("a", "Add"), ("e", "Edit"), ("d", "Del
 enum Target {
     Nothing,
     Frame(usize),
-    Opens {
-        path: String,
-        reference: i64,
-    },
-    Variable {
-        path: String,
-        reference: i64,
-        container: i64,
-        name: String,
-        value: String,
-    },
+    Opens { path: String, reference: i64 },
+    Variable { path: String, reference: i64, container: i64, name: String, value: String },
     Watch(usize),
     AddWatch,
 }
@@ -99,25 +86,15 @@ enum Target {
 pub fn shown(editor: &Editor) -> Option<(&Session, Address)> {
     let debugger = editor.find_plugin_state::<Debugger>()?;
     let debugging = |id: u64| {
-        debugger
-            .sessions
-            .iter()
-            .find(|session| session.id == id && session.is_debugging())
+        debugger.sessions.iter().find(|session| session.id == id && session.is_debugging())
     };
     if let Some(address) = debugger.current
         && let Some(session) = debugging(address.session)
     {
         return Some((session, address));
     }
-    let session = debugger
-        .sessions
-        .iter()
-        .rev()
-        .find(|session| session.is_debugging())?;
-    let address = Address {
-        session: session.id,
-        link: session.links.len() - 1,
-    };
+    let session = debugger.sessions.iter().rev().find(|session| session.is_debugging())?;
+    let address = Address { session: session.id, link: session.links.len() - 1 };
     Some((session, address))
 }
 
@@ -264,11 +241,7 @@ fn frame_rows(link: &Link) -> Vec<(PaneRow, Target)> {
                     depth: 1,
                     name: frame.name.clone(),
                     detail,
-                    tone: if frame.subtle {
-                        Tone::Faint
-                    } else {
-                        Tone::Plain
-                    },
+                    tone: if frame.subtle { Tone::Faint } else { Tone::Plain },
                     current: index == link.frame,
                     ..PaneRow::default()
                 },
@@ -294,12 +267,7 @@ fn entry_rows(entries: Vec<Entry>, view: &View) -> Vec<(PaneRow, Target)> {
     entries
         .into_iter()
         .map(|entry| match entry {
-            Entry::Scope {
-                name,
-                path,
-                open,
-                reference,
-            } => (
+            Entry::Scope { name, path, open, reference } => (
                 PaneRow {
                     open: Some(open),
                     name: name.to_owned(),
@@ -308,13 +276,7 @@ fn entry_rows(entries: Vec<Entry>, view: &View) -> Vec<(PaneRow, Target)> {
                 },
                 Target::Opens { path, reference },
             ),
-            Entry::Variable {
-                variable,
-                path,
-                depth,
-                open,
-                container,
-            } => (
+            Entry::Variable { variable, path, depth, open, container } => (
                 PaneRow {
                     depth,
                     open: (variable.reference > 0).then_some(open),
@@ -355,28 +317,17 @@ fn watch_rows(link: &Link, view: &View) -> Vec<(PaneRow, Target)> {
                 kind,
                 tag: changed_tag(view, &path, &value),
                 value: Some(value),
-                tone: if result.is_some() {
-                    Tone::Plain
-                } else {
-                    Tone::Faint
-                },
+                tone: if result.is_some() { Tone::Plain } else { Tone::Faint },
                 ..PaneRow::default()
             },
             Target::Watch(index),
         ));
         if open {
-            rows.extend(entry_rows(
-                inspected.entries_under(reference, &path, 1, &view.open),
-                view,
-            ));
+            rows.extend(entry_rows(inspected.entries_under(reference, &path, 1, &view.open), view));
         }
     }
     rows.push((
-        PaneRow {
-            name: "+ Add expression…".to_owned(),
-            tone: Tone::Faint,
-            ..PaneRow::default()
-        },
+        PaneRow { name: "+ Add expression…".to_owned(), tone: Tone::Faint, ..PaneRow::default() },
         Target::AddWatch,
     ));
     rows
@@ -433,10 +384,7 @@ pub fn has_keys(editor: &Editor) -> bool {
 
 fn step(editor: &mut Editor, forward: bool) -> CommandResult {
     let (_, link, _) = shown_link(editor).ok_or("Nothing is being debugged")?;
-    let view = &editor
-        .find_plugin_state::<Debugger>()
-        .ok_or("No pane")?
-        .view;
+    let view = &editor.find_plugin_state::<Debugger>().ok_or("No pane")?.view;
     let column = view.focus;
     let count = rows(column, link, view).len();
     let selected = &mut debugger(editor).view.selected[column.index()];
@@ -459,10 +407,9 @@ fn previous(editor: &mut Editor) -> CommandResult {
 fn toggle(editor: &mut Editor) -> CommandResult {
     let (_, target, address) = selected_target(editor).ok_or("Nothing selected")?;
     match target {
-        Target::Opens { path, reference }
-        | Target::Variable {
-            path, reference, ..
-        } if reference > 0 => {
+        Target::Opens { path, reference } | Target::Variable { path, reference, .. }
+            if reference > 0 =>
+        {
             toggle_open(editor, address, path, reference);
         }
         Target::Watch(index) => {
@@ -500,12 +447,7 @@ fn activate(editor: &mut Editor) -> CommandResult {
 fn edit(editor: &mut Editor) -> CommandResult {
     let (_, target, address) = selected_target(editor).ok_or("Nothing selected")?;
     match target {
-        Target::Variable {
-            container,
-            name,
-            value,
-            ..
-        } => {
+        Target::Variable { container, name, value, .. } => {
             let prompt = Prompt {
                 label: format!("Set {}", quote(&name)),
                 initial_input: value,
@@ -587,17 +529,10 @@ pub fn line_extras(editor: &Editor, lines: Range<usize>) -> Vec<LineExtra> {
         return Vec::new();
     }
     let paused = frame.line.saturating_sub(1);
-    let settings = &editor
-        .find_plugin_state::<Debugger>()
-        .expect("shown")
-        .settings;
+    let settings = &editor.find_plugin_state::<Debugger>().expect("shown").settings;
     let mut extras: Vec<LineExtra> = Vec::new();
     if lines.contains(&paused) {
-        extras.push(LineExtra {
-            line: paused,
-            band: Some(Tone::Warning),
-            ..LineExtra::default()
-        });
+        extras.push(LineExtra { line: paused, band: Some(Tone::Warning), ..LineExtra::default() });
     }
     let first = paused.saturating_sub(settings.inline_value_lines);
     if settings.inline_value_lines == 0 || first > lines.end || paused < lines.start {
@@ -626,11 +561,7 @@ pub fn line_extras(editor: &Editor, lines: Range<usize>) -> Vec<LineExtra> {
         let note = Some(shown.join(", "));
         match extras.iter_mut().find(|extra| extra.line == line) {
             Some(extra) => extra.note = note,
-            None => extras.push(LineExtra {
-                line,
-                note,
-                ..LineExtra::default()
-            }),
+            None => extras.push(LineExtra { line, note, ..LineExtra::default() }),
         }
     }
     extras
@@ -650,27 +581,17 @@ fn declares(line: &str, name: &str) -> bool {
     };
     let before = &words[..position];
     let binder = ["let", "const", "var", "for", "mut"];
-    let signature = words
-        .iter()
-        .any(|word| *word == "fn" || *word == "function")
-        || line.contains("=>");
+    let signature =
+        words.iter().any(|word| *word == "fn" || *word == "function") || line.contains("=>");
     signature || before.last().is_some_and(|word| binder.contains(word))
 }
 
 /// The line of an evaluation's error that says what went wrong, e.g. LLDB's `error:` one
 /// after its notes.
 fn first_error(message: &str) -> String {
-    let lines = || {
-        message
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-    };
+    let lines = || message.lines().map(str::trim).filter(|line| !line.is_empty());
     lines()
-        .find_map(|line| {
-            line.split_once("error: ")
-                .map(|(_, error)| error.to_owned())
-        })
+        .find_map(|line| line.split_once("error: ").map(|(_, error)| error.to_owned()))
         .or_else(|| lines().next().map(str::to_owned))
         .unwrap_or_default()
 }

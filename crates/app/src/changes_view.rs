@@ -16,10 +16,8 @@ const DIFF_PREFIX_WIDTH: f32 = 16.0;
 /// Edits to a table's rows waiting to be applied, what they also change in other files and
 /// how they are applied; as tall as its contents.
 pub fn render_changes(changes: Changes, cx: &mut Context<EditorView>) -> Div {
-    let title = div()
-        .flex_1()
-        .text(font::ui_size(), color::fg_main())
-        .font_weight(FontWeight::SEMIBOLD);
+    let title =
+        div().flex_1().text(font::ui_size(), color::fg_main()).font_weight(FontWeight::SEMIBOLD);
     let header = div()
         .row(10.0)
         .flex_none()
@@ -28,10 +26,7 @@ pub fn render_changes(changes: Changes, cx: &mut Context<EditorView>) -> Div {
         .font_family(font::ui())
         .child(title.child("Pending changes"))
         .child(div().status_text(color::fg_faint()).child(changes.summary));
-    let edits = changes
-        .edits
-        .into_iter()
-        .map(|(before, after)| render_edit(before, after));
+    let edits = changes.edits.into_iter().map(|(before, after)| render_edit(before, after));
     let options: Vec<_> = changes
         .options
         .into_iter()
@@ -121,12 +116,6 @@ fn diff_line(prefix: &'static str, text: String, text_color: u32, background: u3
         .flex_none()
         .bg(rgba(background))
         .fg(text_color)
-        .child(
-            div()
-                .flex_none()
-                .w(px(DIFF_PREFIX_WIDTH))
-                .text_center()
-                .child(prefix),
-        )
+        .child(div().flex_none().w(px(DIFF_PREFIX_WIDTH)).text_center().child(prefix))
         .child(text)
 }

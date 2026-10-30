@@ -87,10 +87,9 @@ impl Plugin for SearchPlugin {
             registry.keymap.bind(keys, command);
         }
         registry.menu_items.extend_from_slice(MENU_ITEMS);
-        registry.minor_keymaps.push(MinorKeymap {
-            active: project::is_open,
-            keymap: keymap(SEARCH_PROMPT_BINDINGS),
-        });
+        registry
+            .minor_keymaps
+            .push(MinorKeymap { active: project::is_open, keymap: keymap(SEARCH_PROMPT_BINDINGS) });
         registry.minor_keymaps.push(MinorKeymap {
             active: |editor| editor.buffer_has_keys() && edit_results::is_editing(editor),
             keymap: keymap(EDIT_RESULTS_BINDINGS),
@@ -100,9 +99,7 @@ impl Plugin for SearchPlugin {
         registry.post_command_hooks.push(Rc::new(preview::sync));
         registry.post_command_hooks.push(Rc::new(replace::sync));
         registry.post_command_hooks.push(Rc::new(project::update));
-        registry
-            .post_command_hooks
-            .push(Rc::new(project_replace::update));
+        registry.post_command_hooks.push(Rc::new(project_replace::update));
     }
 }
 

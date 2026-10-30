@@ -37,11 +37,7 @@ pub struct Breakpoint {
 
 impl Breakpoint {
     pub fn at(line: usize) -> Self {
-        Self {
-            line,
-            enabled: true,
-            ..Self::default()
-        }
+        Self { line, enabled: true, ..Self::default() }
     }
 }
 
@@ -113,16 +109,11 @@ impl Breakpoints {
     }
 
     pub fn at(&self, file: &Path, line: usize) -> Option<&Breakpoint> {
-        self.of(file)
-            .iter()
-            .find(|breakpoint| breakpoint.line == line)
+        self.of(file).iter().find(|breakpoint| breakpoint.line == line)
     }
 
     pub fn at_mut(&mut self, file: &Path, line: usize) -> Option<&mut Breakpoint> {
-        self.files
-            .get_mut(file)?
-            .iter_mut()
-            .find(|breakpoint| breakpoint.line == line)
+        self.files.get_mut(file)?.iter_mut().find(|breakpoint| breakpoint.line == line)
     }
 
     /// The `setBreakpoints` request's arguments for `file`: its enabled breakpoints.
@@ -157,9 +148,7 @@ impl Breakpoints {
         let Some(breakpoints) = self.files.get_mut(file) else {
             return;
         };
-        let enabled = breakpoints
-            .iter_mut()
-            .filter(|breakpoint| breakpoint.enabled);
+        let enabled = breakpoints.iter_mut().filter(|breakpoint| breakpoint.enabled);
         for (breakpoint, answer) in enabled.zip(answers) {
             take_answer(breakpoint, answer);
         }
@@ -170,11 +159,8 @@ impl Breakpoints {
         let Some(id) = answer["id"].as_i64() else {
             return;
         };
-        let breakpoint = self
-            .files
-            .values_mut()
-            .flatten()
-            .find(|breakpoint| breakpoint.id == Some(id));
+        let breakpoint =
+            self.files.values_mut().flatten().find(|breakpoint| breakpoint.id == Some(id));
         if let Some(breakpoint) = breakpoint {
             take_answer(breakpoint, answer);
         }
@@ -224,11 +210,8 @@ fn follow_line(line: usize, old: &Snapshot, new: &Snapshot, edit: Edit) -> usize
     let Some(range) = old.line_range(line) else {
         return line;
     };
-    let indent = old
-        .bytes_in(range.clone())
-        .iter()
-        .take_while(|byte| byte.is_ascii_whitespace())
-        .count();
+    let indent =
+        old.bytes_in(range.clone()).iter().take_while(|byte| byte.is_ascii_whitespace()).count();
     if range.start + indent >= edit.old_end {
         shifted
     } else {

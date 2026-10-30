@@ -86,24 +86,16 @@ pub fn newline(editor: &mut Editor) -> CommandResult {
     reindent(editor, left..left + 1, unit);
     let buffer = editor.buffer_mut();
     let point = buffer.point();
-    let line = buffer
-        .text()
-        .line_range(buffer.point_line())
-        .unwrap_or(point..point);
-    let before = buffer
-        .text()
-        .bytes_in(line.start.max(point.saturating_sub(MAX_SCAN))..point);
-    let after = buffer
-        .text()
-        .bytes_in(point..line.end.min(point + MAX_SCAN));
+    let line = buffer.text().line_range(buffer.point_line()).unwrap_or(point..point);
+    let before = buffer.text().bytes_in(line.start.max(point.saturating_sub(MAX_SCAN))..point);
+    let after = buffer.text().bytes_in(point..line.end.min(point + MAX_SCAN));
     let blanks = point - trailing_blanks(&before)..point + leading_blanks(&after);
     let opens_block = has_unclosed_opener(&before);
     let ends_with_opener = before[..before.len() - (point - blanks.start)]
         .last()
         .is_some_and(|byte| OPENERS.contains(byte));
-    let before_closer = after[blanks.end - point..]
-        .first()
-        .is_some_and(|byte| CLOSERS.contains(byte));
+    let before_closer =
+        after[blanks.end - point..].first().is_some_and(|byte| CLOSERS.contains(byte));
 
     let indentation = line_indentation(buffer, point);
     let deeper = || format!("{indentation}{}", unit.text());
@@ -173,11 +165,7 @@ fn reindent(editor: &mut Editor, lines: Range<usize>, unit: IndentUnit) -> bool 
                 Some(anchor) => indentation_of_line(buffer, anchor),
                 None => String::new(),
             };
-            let deeper = if told.deeper {
-                unit.text()
-            } else {
-                String::new()
-            };
+            let deeper = if told.deeper { unit.text() } else { String::new() };
             base + &deeper + &" ".repeat(told.align)
         });
         indented.push(indentation);
@@ -224,10 +212,8 @@ fn indentation_of_line(buffer: &Buffer, line: usize) -> String {
 /// Starts an indented line below the current one, leaving the current one whole.
 pub fn open_line_below(editor: &mut Editor) -> CommandResult {
     let buffer = writable_buffer(editor)?;
-    let line_end = buffer
-        .text()
-        .line_range(buffer.point_line())
-        .map_or(buffer.point(), |line| line.end);
+    let line_end =
+        buffer.text().line_range(buffer.point_line()).map_or(buffer.point(), |line| line.end);
     buffer.set_point(line_end);
     newline(editor)
 }
@@ -236,14 +222,10 @@ pub fn open_line_below(editor: &mut Editor) -> CommandResult {
 pub fn open_line_above(editor: &mut Editor) -> CommandResult {
     let buffer = writable_buffer(editor)?;
     let unit = indent_unit(buffer);
-    let line = buffer
-        .text()
-        .line_range(buffer.point_line())
-        .unwrap_or(0..0);
+    let line = buffer.text().line_range(buffer.point_line()).unwrap_or(0..0);
     let mut indentation = line_indentation(buffer, line.start);
-    let first = buffer
-        .text()
-        .bytes_in(line.start + indentation.len()..line.end.min(line.start + MAX_SCAN));
+    let first =
+        buffer.text().bytes_in(line.start + indentation.len()..line.end.min(line.start + MAX_SCAN));
     if first.first().is_some_and(|byte| CLOSERS.contains(byte)) {
         indentation.push_str(&unit.text());
     }
@@ -288,9 +270,7 @@ pub fn tab_to_tab_stop(editor: &mut Editor) -> CommandResult {
 /// The blanks starting the line that holds `offset`.
 fn line_indentation(buffer: &Buffer, offset: usize) -> String {
     let text = buffer.text();
-    let line = text
-        .line_range(text.line_of(offset))
-        .unwrap_or(offset..offset);
+    let line = text.line_range(text.line_of(offset)).unwrap_or(offset..offset);
     let head = text.bytes_in(line.start..line.end.min(line.start + MAX_SCAN));
     String::from_utf8_lossy(&head[..leading_blanks(&head)]).into_owned()
 }
@@ -349,10 +329,7 @@ mod tests {
         let tabs = b"int main() {\n\tif (x) {\n\t\ty();\n\t}\n}\n";
         assert_eq!(IndentUnit::detect(tabs), Some(IndentUnit::Tabs));
         let doc_comments = b"/**\n * Docs\n */\nfn f() {\n    g();\n}\n";
-        assert_eq!(
-            IndentUnit::detect(doc_comments),
-            Some(IndentUnit::Spaces(4))
-        );
+        assert_eq!(IndentUnit::detect(doc_comments), Some(IndentUnit::Spaces(4)));
         assert_eq!(IndentUnit::detect(b"flat\ntext\n"), None);
     }
 }

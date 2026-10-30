@@ -108,17 +108,11 @@ pub fn append_note(buffer: &mut Buffer, note: &str, style: ConsoleStyle) {
 }
 
 pub fn dim() -> ConsoleStyle {
-    ConsoleStyle {
-        dim: true,
-        ..ConsoleStyle::default()
-    }
+    ConsoleStyle { dim: true, ..ConsoleStyle::default() }
 }
 
 pub fn colored(index: u8) -> ConsoleStyle {
-    ConsoleStyle {
-        color: Some(ConsoleColor::Indexed(index)),
-        ..ConsoleStyle::default()
-    }
+    ConsoleStyle { color: Some(ConsoleColor::Indexed(index)), ..ConsoleStyle::default() }
 }
 
 fn set_redraw(buffer: &mut Buffer, redraw: bool) {
@@ -128,9 +122,7 @@ fn set_redraw(buffer: &mut Buffer, redraw: bool) {
 }
 
 fn take_redraw(buffer: &mut Buffer) -> bool {
-    buffer
-        .local_mut::<Console>()
-        .is_some_and(|console| std::mem::take(&mut console.redraw_line))
+    buffer.local_mut::<Console>().is_some_and(|console| std::mem::take(&mut console.redraw_line))
 }
 
 fn insert(buffer: &mut Buffer, text: &str, style: ConsoleStyle) {
@@ -176,9 +168,7 @@ fn trim(buffer: &mut Buffer, max_lines: usize) -> bool {
 /// lines redrawn in place, which trimming by lines never sees.
 fn compact(buffer: &mut Buffer) {
     let len = buffer.text().len();
-    let appended = buffer
-        .local::<Console>()
-        .map_or(0, |console| console.appended);
+    let appended = buffer.local::<Console>().map_or(0, |console| console.appended);
     if appended > COMPACT_MIN_APPENDED.max(2 * len) {
         rebuild(buffer, 0);
     }
@@ -197,9 +187,7 @@ fn rebuild(buffer: &mut Buffer, cut: usize) {
             range.start < range.end
         });
         console.appended = 0;
-        console.location = console
-            .location
-            .and_then(|location| location.checked_sub(cut));
+        console.location = console.location.and_then(|location| location.checked_sub(cut));
     }
 }
 
@@ -208,9 +196,7 @@ pub fn style_spans(buffer: &Buffer, range: Range<usize>) -> Vec<Span> {
     let Some(console) = buffer.local::<Console>() else {
         return Vec::new();
     };
-    let first = console
-        .styles
-        .partition_point(|(styled, _)| styled.end <= range.start);
+    let first = console.styles.partition_point(|(styled, _)| styled.end <= range.start);
     console.styles[first..]
         .iter()
         .take_while(|(styled, _)| styled.start < range.end)
@@ -245,12 +231,9 @@ fn line_links(buffer: &Buffer, line: usize) -> Vec<(Range<usize>, Target)> {
     };
     links_in(&buffer.contents(range.clone()))
         .into_iter()
-        .map(
-            |Link {
-                 range: link,
-                 target,
-             }| { (range.start + link.start..range.start + link.end, target) },
-        )
+        .map(|Link { range: link, target }| {
+            (range.start + link.start..range.start + link.end, target)
+        })
         .collect()
 }
 
@@ -294,19 +277,10 @@ pub fn next_location(
 pub fn next_link(buffer: &Buffer, offset: usize, forward: bool) -> Option<usize> {
     let text = buffer.text();
     let line = text.line_of(offset);
-    let starts = |line: usize| {
-        line_links(buffer, line)
-            .into_iter()
-            .map(|(range, _)| range.start)
-    };
+    let starts = |line: usize| line_links(buffer, line).into_iter().map(|(range, _)| range.start);
     if forward {
-        (line..text.line_count())
-            .flat_map(starts)
-            .find(|&start| start > offset)
+        (line..text.line_count()).flat_map(starts).find(|&start| start > offset)
     } else {
-        (0..=line)
-            .rev()
-            .flat_map(|line| starts(line).rev())
-            .find(|&start| start < offset)
+        (0..=line).rev().flat_map(|line| starts(line).rev()).find(|&start| start < offset)
     }
 }

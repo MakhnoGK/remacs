@@ -45,11 +45,8 @@ struct Asked(HashSet<&'static str>);
 /// `download`; highlighting follows once it is loaded.
 pub(crate) fn want(editor: &mut Editor, grammars: &'static [Grammar], download: bool) {
     let mode = editor.window_buffer().mode();
-    let Some(&Grammar {
-        language: Source::Downloaded { name, .. },
-        mode,
-        ..
-    }) = grammars.iter().find(|grammar| grammar.mode == mode)
+    let Some(&Grammar { language: Source::Downloaded { name, .. }, mode, .. }) =
+        grammars.iter().find(|grammar| grammar.mode == mode)
     else {
         return;
     };

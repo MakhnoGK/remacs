@@ -43,28 +43,15 @@ impl MenuItem {
         title: &'static str,
         command: &'static str,
     ) -> Self {
-        Self {
-            menu,
-            group,
-            title,
-            command,
-            enabled: None,
-            titled: None,
-        }
+        Self { menu, group, title, command, enabled: None, titled: None }
     }
 
     pub const fn enabled_when(self, enabled: fn(&Editor) -> bool) -> Self {
-        Self {
-            enabled: Some(enabled),
-            ..self
-        }
+        Self { enabled: Some(enabled), ..self }
     }
 
     pub const fn titled_by(self, titled: fn(&Editor) -> &'static str) -> Self {
-        Self {
-            titled: Some(titled),
-            ..self
-        }
+        Self { titled: Some(titled), ..self }
     }
 
     pub fn title_in(&self, editor: &Editor) -> &'static str {
@@ -81,10 +68,7 @@ pub fn visiting_file(editor: &Editor) -> bool {
 /// their first items were added, before the trailing ones.
 pub fn layout<'a>(menus: &[Menu], items: &'a [MenuItem]) -> Vec<MenuLayout<'a>> {
     let declared = |trailing: bool| {
-        menus
-            .iter()
-            .filter(move |menu| menu.trailing == trailing)
-            .map(|menu| menu.title)
+        menus.iter().filter(move |menu| menu.trailing == trailing).map(|menu| menu.title)
     };
     let undeclared = (items.iter().map(|item| item.menu))
         .filter(|&title| !declared(true).any(|trailing| trailing == title));
@@ -94,10 +78,8 @@ pub fn layout<'a>(menus: &[Menu], items: &'a [MenuItem]) -> Vec<MenuLayout<'a>> 
     titles
         .into_iter()
         .filter_map(|title| {
-            let declared = menus
-                .iter()
-                .find(|menu| menu.title == title)
-                .map_or(&[][..], |menu| menu.groups);
+            let declared =
+                menus.iter().find(|menu| menu.title == title).map_or(&[][..], |menu| menu.groups);
             let menu_items = items.iter().filter(|item| item.menu == title);
             let mut order = declared.to_vec();
             push_new(&mut order, menu_items.clone().map(|item| item.group));
@@ -158,11 +140,7 @@ mod tests {
             ("Edit", &["undo"], false),
             ("Help", &[], true),
         ]
-        .map(|(title, groups, trailing)| Menu {
-            title,
-            groups,
-            trailing,
-        });
+        .map(|(title, groups, trailing)| Menu { title, groups, trailing });
         let items = [
             MenuItem::new("Help", "help", "Messages", "view-echo-area-messages"),
             MenuItem::new("Run", "run", "Run", "run"),
@@ -177,11 +155,7 @@ mod tests {
             [
                 (
                     "File",
-                    vec![
-                        vec!["Open…", "Open Directory…"],
-                        vec!["Save", "Save As…"],
-                        vec!["Close"],
-                    ]
+                    vec![vec!["Open…", "Open Directory…"], vec!["Save", "Save As…"], vec!["Close"],]
                 ),
                 ("Run", vec![vec!["Run"]]),
                 ("Help", vec![vec!["Messages"]]),

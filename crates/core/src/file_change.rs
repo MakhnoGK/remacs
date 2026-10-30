@@ -37,9 +37,7 @@ impl Editor {
         let result = (changes.into_iter())
             .try_for_each(|change| self.change_file(change, &mut edited, &mut changed.moved));
         for path in edited {
-            let buffer = self
-                .find_file_noselect(&path)
-                .map_err(|error| failed(&path, error))?;
+            let buffer = self.find_file_noselect(&path).map_err(|error| failed(&path, error))?;
             buffer.save().map_err(|error| failed(&path, error))?;
             changed.edited.push(buffer.name().to_owned());
         }
@@ -58,9 +56,7 @@ impl Editor {
         match change {
             FileChange::Edit(edits) => {
                 let path = edits.path.clone();
-                let buffer = self
-                    .edit_file(edits)
-                    .map_err(|error| failed(&path, error))?;
+                let buffer = self.edit_file(edits).map_err(|error| failed(&path, error))?;
                 let path = buffer.path().map_or(path, Path::to_path_buf);
                 if !edited.contains(&path) {
                     edited.push(path);
@@ -75,11 +71,8 @@ impl Editor {
                 self.file_moved(&from, &to);
                 for path in edited.iter_mut() {
                     if let Ok(rest) = path.strip_prefix(&from) {
-                        *path = if rest.as_os_str().is_empty() {
-                            to.clone()
-                        } else {
-                            to.join(rest)
-                        };
+                        *path =
+                            if rest.as_os_str().is_empty() { to.clone() } else { to.join(rest) };
                     }
                 }
                 moved.push((from, to));
@@ -121,10 +114,7 @@ mod tests {
     use super::*;
 
     fn edit(path: &Path, range: Range<usize>, text: &str) -> FileChange {
-        FileChange::Edit(FileEdits {
-            path: path.to_owned(),
-            edits: vec![(range, text.into())],
-        })
+        FileChange::Edit(FileEdits { path: path.to_owned(), edits: vec![(range, text.into())] })
     }
 
     fn project(name: &str) -> PathBuf {
@@ -147,10 +137,7 @@ mod tests {
         let changed = editor
             .change_files(vec![
                 edit(&lib, 4..5, "c"),
-                FileChange::Rename {
-                    from: old.clone(),
-                    to: new.clone(),
-                },
+                FileChange::Rename { from: old.clone(), to: new.clone() },
                 edit(&new, 11..12, "c"),
                 FileChange::Create(root.join("d.rs")),
             ])
@@ -178,10 +165,7 @@ mod tests {
         let error = editor
             .change_files(vec![
                 edit(&lib, 4..5, "b"),
-                FileChange::Rename {
-                    from: root.join("a.rs"),
-                    to: taken,
-                },
+                FileChange::Rename { from: root.join("a.rs"), to: taken },
             ])
             .unwrap_err();
 

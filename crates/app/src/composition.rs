@@ -21,16 +21,12 @@ impl Composition {
     /// Inside the cursor taking typed text: records where it is drawn.
     pub fn track_caret(&self) -> impl IntoElement {
         let caret = self.caret.clone();
-        canvas(move |bounds, _, _| caret.set(bounds), |_, _, _, _| {})
-            .absolute()
-            .size_full()
+        canvas(move |bounds, _, _| caret.set(bounds), |_, _, _, _| {}).absolute().size_full()
     }
 
     /// The cursor's bounds, or `fallback` before one was drawn.
     pub fn caret_or(&self, fallback: Bounds<Pixels>) -> Bounds<Pixels> {
-        Some(self.caret.get())
-            .filter(|caret| caret.size.width > Pixels::ZERO)
-            .unwrap_or(fallback)
+        Some(self.caret.get()).filter(|caret| caret.size.width > Pixels::ZERO).unwrap_or(fallback)
     }
 
     /// The marked text underlined, as macOS draws it; none while nothing is composed.

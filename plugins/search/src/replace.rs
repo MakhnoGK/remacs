@@ -92,20 +92,14 @@ pub fn replacement_check(query: &Query) -> AnswerCheck {
 }
 
 pub fn replacement_placeholder(regex: bool) -> &'static str {
-    if regex {
-        "text, $1 for a group"
-    } else {
-        "text"
-    }
+    if regex { "text, $1 for a group" } else { "text" }
 }
 
 pub fn replace_match(editor: &mut Editor) -> CommandResult {
     let buffer = editor.window_buffer_mut();
     let replacing = replacing(buffer)?;
     let current = replacing.current.clone();
-    let to = replacing
-        .query
-        .replacement(buffer.text(), current.clone(), &replacing.to);
+    let to = replacing.query.replacement(buffer.text(), current.clone(), &replacing.to);
     if let Some(replacing) = buffer.local_mut::<Replacing>() {
         replacing.replaced += 1;
     }
@@ -124,11 +118,8 @@ pub fn skip_match(editor: &mut Editor) -> CommandResult {
 pub fn replace_all(editor: &mut Editor) -> CommandResult {
     let buffer = editor.window_buffer_mut();
     let replacing = replacing(buffer)?;
-    let (query, from, to) = (
-        replacing.query.clone(),
-        replacing.current.start,
-        replacing.to.clone(),
-    );
+    let (query, from, to) =
+        (replacing.query.clone(), replacing.current.start, replacing.to.clone());
     let count = replace_from(buffer, &query, from, &to);
     if let Some(replacing) = buffer.local_mut::<Replacing>() {
         replacing.replaced += count;
@@ -159,12 +150,7 @@ fn ask(editor: &mut Editor, query: Query, from: String, to: String) -> CommandRe
         .ok_or_else(|| format!("No “{from}” after point"))?;
     // Every replacement then undoes at once.
     buffer.add_undo_boundary();
-    buffer.set_local(Replacing {
-        query,
-        to: to.clone(),
-        current,
-        replaced: 0,
-    });
+    buffer.set_local(Replacing { query, to: to.clone(), current, replaced: 0 });
     show_current(editor);
     let mut keymap = Keymap::default();
     for (keys, command) in [
@@ -180,17 +166,9 @@ fn ask(editor: &mut Editor, query: Query, from: String, to: String) -> CommandRe
     let prompt = Prompt {
         category: QUERY_CATEGORY,
         read_only: true,
-        title: Some((
-            format!("Replace “{}” with “{}”", quote(&from), quote(&to)),
-            String::new(),
-        )),
+        title: Some((format!("Replace “{}” with “{}”", quote(&from), quote(&to)), String::new())),
         keymap: Some(keymap),
-        hints: &[
-            ("y", "Replace"),
-            ("n", "Skip"),
-            ("!", "Replace all"),
-            ("q", "Done"),
-        ],
+        hints: &[("y", "Replace"), ("n", "Skip"), ("!", "Replace all"), ("q", "Done")],
         ..Prompt::default()
     };
     editor.read(
@@ -224,10 +202,7 @@ fn show_current(editor: &mut Editor) {
         return;
     };
     let (query, offset) = (replacing.query.clone(), replacing.current.start);
-    buffer.set_local(Lit {
-        query,
-        current: Some(offset),
-    });
+    buffer.set_local(Lit { query, current: Some(offset) });
     preview::show(editor, offset);
 }
 
@@ -238,20 +213,13 @@ fn stop(editor: &mut Editor) {
 
 fn finish(editor: &mut Editor) {
     let buffer = editor.window_buffer_mut();
-    let Some(replaced) = buffer
-        .local::<Replacing>()
-        .map(|replacing| replacing.replaced)
-    else {
+    let Some(replaced) = buffer.local::<Replacing>().map(|replacing| replacing.replaced) else {
         return;
     };
     buffer.remove_local::<Replacing>();
     buffer.remove_local::<Lit>();
     buffer.add_undo_boundary();
-    let noun = if replaced == 1 {
-        "occurrence"
-    } else {
-        "occurrences"
-    };
+    let noun = if replaced == 1 { "occurrence" } else { "occurrences" };
     editor.set_done(format!("Replaced {replaced} {noun}"));
 }
 

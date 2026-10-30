@@ -41,38 +41,22 @@ impl Words {
 
     /// The whole input as one word, spaces included, as text to replace is taken.
     pub fn phrase(input: &str) -> Option<Self> {
-        Self::of(
-            input,
-            (!input.is_empty()).then_some(input).into_iter().collect(),
-        )
+        Self::of(input, (!input.is_empty()).then_some(input).into_iter().collect())
     }
 
     fn of(input: &str, words: Vec<&str>) -> Option<Self> {
         let ignore_case = !input.chars().any(char::is_uppercase);
         let mut words: Vec<String> = words
             .into_iter()
-            .map(|word| {
-                if ignore_case {
-                    word.to_ascii_lowercase()
-                } else {
-                    word.to_owned()
-                }
-            })
+            .map(|word| if ignore_case { word.to_ascii_lowercase() } else { word.to_owned() })
             .collect();
         if words.is_empty() {
             return None;
         }
         words.sort_by_key(|word| std::cmp::Reverse(word.len()));
         words.dedup();
-        let finders = words
-            .iter()
-            .map(|word| Finder::new(word.as_bytes()).into_owned())
-            .collect();
-        Some(Self {
-            finders,
-            ignore_case,
-            regex: None,
-        })
+        let finders = words.iter().map(|word| Finder::new(word.as_bytes()).into_owned()).collect();
+        Some(Self { finders, ignore_case, regex: None })
     }
 
     /// Calls `each` with the range of every line of `bytes` that has all the words, its
@@ -129,19 +113,13 @@ impl Words {
                 .filter(|range| !range.is_empty())
                 .collect();
         }
-        let haystack = if self.ignore_case {
-            line.to_ascii_lowercase()
-        } else {
-            line.to_owned()
-        };
+        let haystack = if self.ignore_case { line.to_ascii_lowercase() } else { line.to_owned() };
         let mut ranges: Vec<Range<usize>> = self
             .finders
             .iter()
             .flat_map(|finder| {
                 let len = finder.needle().len();
-                finder
-                    .find_iter(haystack.as_bytes())
-                    .map(move |start| start..start + len)
+                finder.find_iter(haystack.as_bytes()).map(move |start| start..start + len)
             })
             .collect();
         ranges.sort_by_key(|range| range.start);
@@ -193,11 +171,7 @@ mod tests {
         let text = "fn open_file() {}\nlet file = open();\nFile::open(path)\nopen\n";
         assert_eq!(
             lines("file open", text),
-            [
-                "fn open_file() {}",
-                "let file = open();",
-                "File::open(path)"
-            ]
+            ["fn open_file() {}", "let file = open();", "File::open(path)"]
         );
         assert_eq!(lines("File open", text), ["File::open(path)"]);
         assert!(Words::new(" \t").is_none());
@@ -220,10 +194,7 @@ mod tests {
     fn lines_across_chunks_are_found_whole() {
         let filler = "x".repeat(CHUNK - 3);
         let text = format!("{filler}\nneedle at the edge\nlast needle");
-        assert_eq!(
-            lines("needle", &text),
-            ["needle at the edge", "last needle"]
-        );
+        assert_eq!(lines("needle", &text), ["needle at the edge", "last needle"]);
     }
 
     #[test]

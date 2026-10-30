@@ -84,9 +84,7 @@ pub fn project_query_replace(editor: &mut Editor) -> CommandResult {
             true => Words::regex(&from)?,
             false => Words::phrase(&from),
         };
-        let (query, words) = Query::new(&from, regex)?
-            .zip(words)
-            .ok_or("Nothing to replace")?;
+        let (query, words) = Query::new(&from, regex)?.zip(words).ok_or("Nothing to replace")?;
         let prompt = Prompt {
             label: format!("Replace{} “{}” with", regexp_word(regex), quote(&from)),
             category: TO_CATEGORY,
@@ -123,9 +121,7 @@ pub fn project_query_replace(editor: &mut Editor) -> CommandResult {
 
 pub fn replace_match(editor: &mut Editor) -> CommandResult {
     let (range, to) = current(editor)?;
-    editor
-        .window_buffer_mut()
-        .apply_edits(vec![(range.clone(), to.clone())]);
+    editor.window_buffer_mut().apply_edits(vec![(range.clone(), to.clone())]);
     if let Some(state) = active(editor) {
         state.replaced_in_file += 1;
     }
@@ -170,9 +166,8 @@ pub fn update(editor: &mut Editor) {
     let Some(waiting) = active(editor).map(|state| state.current.is_none()) else {
         return;
     };
-    let asking = editor
-        .minibuffer()
-        .is_some_and(|minibuffer| minibuffer.prompt().category == ASK_CATEGORY);
+    let asking =
+        editor.minibuffer().is_some_and(|minibuffer| minibuffer.prompt().category == ASK_CATEGORY);
     if !asking {
         finish(editor);
     } else if waiting {
@@ -197,10 +192,7 @@ fn ask(editor: &mut Editor, replacing: Replacing, from: &str, to: &str) -> Comma
     let prompt = Prompt {
         category: ASK_CATEGORY,
         read_only: true,
-        title: Some((
-            format!("Replace “{}” with “{}”", quote(from), quote(to)),
-            String::new(),
-        )),
+        title: Some((format!("Replace “{}” with “{}”", quote(from), quote(to)), String::new())),
         keymap: Some(keymap),
         hints: &[
             ("y", "Replace"),
@@ -221,17 +213,13 @@ fn ask(editor: &mut Editor, replacing: Replacing, from: &str, to: &str) -> Comma
 
 /// The file shown, or that the search goes on.
 fn status(editor: &Editor, _: &str) -> Completions {
-    let state = editor
-        .find_plugin_state::<ProjectReplace>()
-        .and_then(|state| state.replacing.as_ref());
+    let state =
+        editor.find_plugin_state::<ProjectReplace>().and_then(|state| state.replacing.as_ref());
     let note = state.map(|state| match &state.current {
         Some((path, _)) => relative(path, &state.root),
         None => "Searching…".to_owned(),
     });
-    Completions {
-        note,
-        ..Completions::default()
-    }
+    Completions { note, ..Completions::default() }
 }
 
 /// Asks at the next match from `offset` in the file shown, else in the next file that has
@@ -359,10 +347,7 @@ fn show(editor: &mut Editor, range: Range<usize>) {
     if let Some((_, current)) = &mut state.current {
         *current = range.clone();
     }
-    editor.window_buffer_mut().set_local(Lit {
-        query,
-        current: Some(range.start),
-    });
+    editor.window_buffer_mut().set_local(Lit { query, current: Some(range.start) });
     preview::show(editor, range.start);
 }
 
@@ -389,18 +374,17 @@ fn finish_file(editor: &mut Editor) {
     };
     let replaced = mem::take(&mut state.replaced_in_file);
     let mut preview = mem::take(&mut state.preview);
-    let saved = editor
-        .buffers_mut()
-        .iter_mut()
-        .find(|buffer| buffer.path() == Some(path.as_path()))
-        .map(|buffer| {
-            buffer.remove_local::<Lit>();
-            if replaced == 0 {
-                return Ok(false);
-            }
-            buffer.add_undo_boundary();
-            buffer.save().map(|()| true)
-        });
+    let saved =
+        editor.buffers_mut().iter_mut().find(|buffer| buffer.path() == Some(path.as_path())).map(
+            |buffer| {
+                buffer.remove_local::<Lit>();
+                if replaced == 0 {
+                    return Ok(false);
+                }
+                buffer.add_undo_boundary();
+                buffer.save().map(|()| true)
+            },
+        );
     preview.close(editor, &path);
     let Some(state) = active(editor) else {
         return;
@@ -451,10 +435,7 @@ fn current(editor: &mut Editor) -> Result<(Range<usize>, String), &'static str> 
 }
 
 fn relative(path: &Path, root: &Path) -> String {
-    path.strip_prefix(root)
-        .unwrap_or(path)
-        .display()
-        .to_string()
+    path.strip_prefix(root).unwrap_or(path).display().to_string()
 }
 
 pub fn plural(count: usize, noun: &str) -> String {

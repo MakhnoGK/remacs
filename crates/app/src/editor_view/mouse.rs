@@ -23,10 +23,7 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) {
         if event.modifiers.platform {
-            if self
-                .text_zoom
-                .scroll(event.delta, font::code().size, self.zoom)
-            {
+            if self.text_zoom.scroll(event.delta, font::code().size, self.zoom) {
                 cx.notify();
             }
             return;
@@ -66,9 +63,7 @@ impl EditorView {
             (self.window_state.vertical.target(first_row) + rows).clamp(0.0, last_start as f32);
         self.editor.scroll(position as isize - first_row as isize);
         let first_row = shown.row_of(self.editor.viewport.first_line);
-        self.window_state
-            .vertical
-            .rest_at(first_row, position - first_row as f32, at_once);
+        self.window_state.vertical.rest_at(first_row, position - first_row as f32, at_once);
     }
 
     /// Scrolls the text sideways by `delta`, no further right than the drawn lines go,
@@ -90,9 +85,7 @@ impl EditorView {
         let position =
             (self.window_state.sideways.target(viewport.first_column) + columns).max(0.0);
         viewport.first_column = position as usize;
-        self.window_state
-            .sideways
-            .rest_at(viewport.first_column, position.fract(), at_once);
+        self.window_state.sideways.rest_at(viewport.first_column, position.fract(), at_once);
         self.window_state.scrolled_sideways = true;
         cx.notify();
     }
@@ -128,9 +121,7 @@ impl EditorView {
         let max_distance = fitting_commits(self.window_state.frame.size.height, false) as f32;
         let target = self.window_state.history_target;
         let shown =
-            self.window_state
-                .history
-                .advance(target, Instant::now(), duration, max_distance);
+            self.window_state.history.advance(target, Instant::now(), duration, max_distance);
         if self.window_state.history.is_animating() {
             window.request_animation_frame();
         }
@@ -192,8 +183,7 @@ impl EditorView {
                 Axis::Rows => (event.position.y - origin.y, size.height),
                 Axis::Columns => (event.position.x - origin.x, size.width),
             };
-            self.editor
-                .set_split_ratio(divider.split, offset / length, divider.min / length);
+            self.editor.set_split_ratio(divider.split, offset / length, divider.min / length);
             cx.notify();
             return;
         }
@@ -203,9 +193,7 @@ impl EditorView {
             } else {
                 // Let go outside the window.
                 self.screen_press = None;
-                ScreenMouse::Release {
-                    button: screen_button(button),
-                }
+                ScreenMouse::Release { button: screen_button(button) }
             };
             let pointer = area.pointer(event.position, &event.modifiers, mouse);
             self.editor.screen_mouse(&area.buffer, pointer);
@@ -239,9 +227,7 @@ impl EditorView {
         }
         match self.screen_press.take() {
             Some((area, button)) if button == event.button => {
-                let mouse = ScreenMouse::Release {
-                    button: screen_button(button),
-                };
+                let mouse = ScreenMouse::Release { button: screen_button(button) };
                 let pointer = area.pointer(event.position, &event.modifiers, mouse);
                 self.editor.screen_mouse(&area.buffer, pointer);
             }
@@ -307,11 +293,7 @@ impl EditorView {
         let row = (rows >= 0.0).then(|| (self.window_state.vertical.shown() + rows) as usize)?;
         let buffer = self.editor.window_buffer();
         let shown = buffer.shown_lines();
-        Some(if row < shown.rows() {
-            shown.line_at(row)
-        } else {
-            buffer.text().line_count()
-        })
+        Some(if row < shown.rows() { shown.line_at(row) } else { buffer.text().line_count() })
     }
 
     /// The offset in the window buffer nearest to `x` on `line`; past the last line, the

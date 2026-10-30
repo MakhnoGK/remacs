@@ -18,16 +18,8 @@ pub fn revert_buffer(editor: &mut Editor) -> CommandResult {
     if !buffer.is_modified() {
         return revert(editor);
     }
-    let question = format!(
-        "Discard edits and read {} again?",
-        quote(&abbreviate_home(path))
-    );
-    editor.ask_y_or_n(
-        question,
-        |editor, yes| {
-            if yes { revert(editor) } else { Ok(()) }
-        },
-    )
+    let question = format!("Discard edits and read {} again?", quote(&abbreviate_home(path)));
+    editor.ask_y_or_n(question, |editor, yes| if yes { revert(editor) } else { Ok(()) })
 }
 
 fn revert(editor: &mut Editor) -> CommandResult {
@@ -46,10 +38,7 @@ pub struct AutoRevert {
 
 impl Default for AutoRevert {
     fn default() -> Self {
-        Self {
-            enabled: true,
-            watch: None,
-        }
+        Self { enabled: true, watch: None }
     }
 }
 
@@ -94,22 +83,11 @@ impl Watch {
                 notifier();
             }
         })?;
-        Ok(Self {
-            watcher,
-            shared,
-            files: Vec::new(),
-            directories: HashSet::new(),
-        })
+        Ok(Self { watcher, shared, files: Vec::new(), directories: HashSet::new() })
     }
 
     fn take_changed(&self) -> HashSet<PathBuf> {
-        mem::take(
-            &mut self
-                .shared
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .changed,
-        )
+        mem::take(&mut self.shared.lock().unwrap_or_else(PoisonError::into_inner).changed)
     }
 
     /// Watches the files `buffers` visit now, if they changed since the last call.
@@ -120,11 +98,8 @@ impl Watch {
             return;
         }
         self.files = paths().map(PathBuf::from).collect();
-        let directories: HashSet<PathBuf> = self
-            .files
-            .iter()
-            .filter_map(|file| file.parent().map(Path::to_path_buf))
-            .collect();
+        let directories: HashSet<PathBuf> =
+            self.files.iter().filter_map(|file| file.parent().map(Path::to_path_buf)).collect();
         // Restarting the stream is what costs; switching buffers only reorders them.
         if directories != self.directories {
             let mut watched = self.watcher.paths_mut();
@@ -138,10 +113,8 @@ impl Watch {
             let _ = watched.commit();
             self.directories = directories;
         }
-        self.shared
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .files = self.files.iter().cloned().collect();
+        self.shared.lock().unwrap_or_else(PoisonError::into_inner).files =
+            self.files.iter().cloned().collect();
     }
 }
 

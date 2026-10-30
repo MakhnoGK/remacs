@@ -248,14 +248,7 @@ impl EditorView {
                 (body.into_any_element(), controls.hints, popups)
             }
         };
-        WindowParts {
-            body,
-            toolbar,
-            tabbed,
-            hints,
-            popups,
-            text_shown,
-        }
+        WindowParts { body, toolbar, tabbed, hints, popups, text_shown }
     }
 }
 
@@ -277,12 +270,7 @@ pub(super) fn lay_out(
 ) {
     match layout {
         Layout::Window(window) => areas.push((*window, bounds)),
-        Layout::Split {
-            axis,
-            ratio,
-            first,
-            second,
-        } => {
+        Layout::Split { axis, ratio, first, second } => {
             let (Bounds { origin, size }, direction) = (bounds, along(*axis));
             let length = (size.along(direction) * *ratio).round();
             let first_bounds = Bounds::new(origin, size.apply_along(direction, |_| length));
@@ -334,12 +322,8 @@ pub(super) fn render_dividers(
                 size.apply_along(direction, |_| grab),
             ));
             let strip = match divider.axis {
-                Axis::Rows => strip
-                    .cursor_row_resize()
-                    .child(line(div().w_full().h(px(1.0)))),
-                Axis::Columns => strip
-                    .cursor_col_resize()
-                    .child(line(div().h_full().w(px(1.0)))),
+                Axis::Rows => strip.cursor_row_resize().child(line(div().w_full().h(px(1.0)))),
+                Axis::Columns => strip.cursor_col_resize().child(line(div().h_full().w(px(1.0)))),
             };
             let strip = (strip.flex().items_center().justify_center().occlude()).on_press(
                 cx,
@@ -369,14 +353,7 @@ fn render_shown_elsewhere(owner: WindowId, cx: &mut Context<EditorView>) -> AnyE
 
 /// Rows laid out in the top `height` of the window, clear of the pane under them.
 fn above_pane(rows: impl IntoElement, height: Pixels) -> AnyElement {
-    div()
-        .absolute()
-        .top_0()
-        .left_0()
-        .right_0()
-        .h(height)
-        .child(rows)
-        .into_any_element()
+    div().absolute().top_0().left_0().right_0().h(height).child(rows).into_any_element()
 }
 
 #[cfg(test)]
@@ -396,12 +373,7 @@ mod tests {
         editor.split_window(Axis::Columns);
         editor.split_window(Axis::Rows);
         let (mut areas, mut dividers) = (Vec::new(), Vec::new());
-        lay_out(
-            editor.layout(),
-            bounds(0.0, 0.0, 101.0, 50.0),
-            &mut areas,
-            &mut dividers,
-        );
+        lay_out(editor.layout(), bounds(0.0, 0.0, 101.0, 50.0), &mut areas, &mut dividers);
         assert_eq!(areas[0].0, editor.selected_window());
         let areas: Vec<_> = areas.into_iter().map(|(_, area)| area).collect();
         assert_eq!(

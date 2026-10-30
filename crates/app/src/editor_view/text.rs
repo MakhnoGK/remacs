@@ -75,10 +75,7 @@ impl EditorView {
             .len()
             .max(self.window_state.number_width.unwrap_or(0));
         // Some plugin may mark lines of the window buffer, so the gutter makes room for it.
-        let marks = self
-            .editor
-            .gutter_marks(0..0)
-            .map_or(px(0.0), |_| px(MARKS_WIDTH));
+        let marks = self.editor.gutter_marks(0..0).map_or(px(0.0), |_| px(MARKS_WIDTH));
         marks
             + metrics.digit_width * digits.max(MIN_GUTTER_DIGITS) as f32
             + gutter_padding(metrics.digit_width)
@@ -120,10 +117,7 @@ impl EditorView {
     fn point_display_column(&self) -> usize {
         let buffer = self.editor.window_buffer();
         let text = buffer.text();
-        let line_start = text
-            .line_range(buffer.point_line())
-            .unwrap_or_default()
-            .start;
+        let line_start = text.line_range(buffer.point_line()).unwrap_or_default().start;
         display_width(text.chunks(line_start..buffer.point()).flatten().copied())
     }
 
@@ -178,13 +172,7 @@ impl EditorView {
         labels: Vec<TextLabel>,
         rectangle: Option<&(RangeInclusive<usize>, Range<usize>)>,
     ) -> (AnyElement, bool) {
-        let LineExtra {
-            band,
-            fill,
-            number,
-            note,
-            ..
-        } = extra.unwrap_or_default();
+        let LineExtra { band, fill, number, note, .. } = extra.unwrap_or_default();
         let fill_alpha = u32::from(self.diff.band_opacity) * 0xff / 100;
         let fill = fill.map(|tone| (tone_color(tone, color::fg_main()) << 8) | fill_alpha);
         let code_font = self.text_font();
@@ -279,10 +267,7 @@ impl EditorView {
         let content = StyledText::new(display_line.text).with_highlights(combine(&layers));
         // The text fades into what the row is drawn on.
         let (number_color, under) = match is_current {
-            true => (
-                color::fg_main(),
-                over(glass::line_highlight(), glass::window_tint()),
-            ),
+            true => (color::fg_main(), over(glass::line_highlight(), glass::window_tint())),
             false => (color::fg_line_number(), rgba(glass::window_tint()).into()),
         };
         // Over the text after point, which it does not move, with the cursor after it.
@@ -310,8 +295,7 @@ impl EditorView {
             })
             .when_some(band, |row, tone| {
                 let band = tone_color(tone, color::fg_main());
-                row.bg(rgba((band << 8) | 0x26))
-                    .bordered((band << 8) | 0x4d)
+                row.bg(rgba((band << 8) | 0x26)).bordered((band << 8) | 0x4d)
             })
             .whitespace_nowrap()
             .line_height(row_height)
@@ -397,9 +381,8 @@ impl EditorView {
                     .children(shown.map(|mark| gutter_glyph(mark.icon)))
                     .children(execution)
                     .when_some(command, |slot, command| {
-                        slot.cursor_pointer().on_press(cx, move |view, cx| {
-                            view.click_gutter_mark(line, command, cx)
-                        })
+                        slot.cursor_pointer()
+                            .on_press(cx, move |view, cx| view.click_gutter_mark(line, command, cx))
                     });
                 (line, slot)
             })
@@ -446,33 +429,24 @@ impl EditorView {
             let always = hidden.is_some()
                 || self.folds.toggles == FoldToggles::Always
                 || point_line == Some(line);
-            let chevron = if hidden.is_some() {
-                CHEVRON_ICON
-            } else {
-                CHEVRON_DOWN_ICON
-            };
+            let chevron = if hidden.is_some() { CHEVRON_ICON } else { CHEVRON_DOWN_ICON };
             let origin = point(
                 text_left - digit_width * (TEXT_GAP + CHANGE_COLUMN + FOLD_COLUMN),
                 row_height * row as f32,
             );
-            let toggle = placed(Bounds::new(
-                origin,
-                size(digit_width * FOLD_COLUMN, row_height),
-            ))
-            .flex()
-            .items_center()
-            .justify_center()
-            .child(
-                svg()
-                    .path(chevron)
-                    .size(digit_width * FOLD_COLUMN)
-                    .text_color(rgb(color::fg_line_number())),
-            )
-            .when(!always, |toggle| {
-                toggle
-                    .opacity(0.0)
-                    .group_hover(GUTTER_GROUP, |style| style.opacity(1.0))
-            });
+            let toggle = placed(Bounds::new(origin, size(digit_width * FOLD_COLUMN, row_height)))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    svg()
+                        .path(chevron)
+                        .size(digit_width * FOLD_COLUMN)
+                        .text_color(rgb(color::fg_line_number())),
+                )
+                .when(!always, |toggle| {
+                    toggle.opacity(0.0).group_hover(GUTTER_GROUP, |style| style.opacity(1.0))
+                });
             toggles.push(clickable(toggle, cx));
             if let Some(hidden) = hidden {
                 let folded = div()
@@ -499,9 +473,8 @@ impl EditorView {
         // Point stays above the footer fade; lines under it are drawn but not counted.
         let line_height = px(self.text_font().line_height);
         let text_height = frame.height - px(TEXT_TOP) - reserved;
-        let clear_rows = ((text_height - px(FOOTER_FADE_HEIGHT)) / line_height)
-            .floor()
-            .max(1.0) as usize;
+        let clear_rows =
+            ((text_height - px(FOOTER_FADE_HEIGHT)) / line_height).floor().max(1.0) as usize;
         let drawn_rows = (text_height / line_height).ceil() as usize;
         self.editor.viewport.set_height(clear_rows);
         // Only the top fade is over lines point can be on.
@@ -547,10 +520,7 @@ impl EditorView {
         let mut labels: HashMap<usize, Vec<TextLabel>> = HashMap::new();
         let text = self.editor.window_buffer().text();
         for label in self.editor.text_labels(first_line..last_line) {
-            labels
-                .entry(text.line_of(label.offset))
-                .or_default()
-                .push(label);
+            labels.entry(text.line_of(label.offset)).or_default().push(label);
         }
         let shown: Vec<_> = drawn.iter().map(|&line| self.display_line(line)).collect();
         let visible: Vec<_> = shown.iter().map(|(_, visible)| visible.clone()).collect();
@@ -579,18 +549,10 @@ impl EditorView {
             })
             .unzip();
         self.window_state.more_on_right = continued.contains(&true);
-        let changes = self
-            .editor
-            .line_changes(first_line..last_line)
-            .into_iter()
-            .filter_map(|changed| {
+        let changes =
+            self.editor.line_changes(first_line..last_line).into_iter().filter_map(|changed| {
                 let shown = (first_line..last_line, &shown_lines, first_row);
-                render_line_change(
-                    changed,
-                    shown,
-                    (text_left, metrics.digit_width),
-                    line_height,
-                )
+                render_line_change(changed, shown, (text_left, metrics.digit_width), line_height)
             });
         let glass = rgba(glass::window_tint()).into();
         let lines = div()
@@ -642,10 +604,7 @@ impl EditorView {
         }
         let now = Instant::now();
         let duration = self.scroll.animation_duration();
-        let top = self
-            .window_state
-            .vertical
-            .advance(first_row, now, duration, screen_rows as f32);
+        let top = self.window_state.vertical.advance(first_row, now, duration, screen_rows as f32);
         self.window_state.sideways.advance(
             viewport.first_column,
             now,
@@ -689,11 +648,7 @@ pub(super) fn cached_metrics(
         small_mono_width: advance(font::status_size(), 'm'),
         // 'n' is about as wide as a letter of text on average, spaces counted.
         ui_char_width: text_system
-            .advance(
-                text_system.resolve_font(&font(fonts.1.clone())),
-                px(fonts.2),
-                'n',
-            )
+            .advance(text_system.resolve_font(&font(fonts.1.clone())), px(fonts.2), 'n')
             .map_or(px(fonts.2 * 0.55), |advance| advance.width),
     };
     *cache = Some((fonts, metrics));
@@ -762,10 +717,9 @@ fn gutter_glyph(mark: GutterIcon) -> AnyElement {
             .size(px(12.0))
             .text_color(rgb(color::error()))
             .into_any_element(),
-        GutterIcon::Breakpoint(BreakpointIcon::Disabled) => dot()
-            .border(px(1.5))
-            .border_color(rgb(color::fg_dim()))
-            .into_any_element(),
+        GutterIcon::Breakpoint(BreakpointIcon::Disabled) => {
+            dot().border(px(1.5)).border_color(rgb(color::fg_dim())).into_any_element()
+        }
         GutterIcon::Breakpoint(BreakpointIcon::Unverified) => dot()
             .border(px(1.5))
             .border_dashed()
@@ -811,12 +765,7 @@ fn render_line_change(
         LineChange::Modified => glass::vc_modified_mark(),
         LineChange::Removed => glass::vc_removed_mark(),
     };
-    Some(
-        mark.absolute()
-            .rounded(px(2.0))
-            .bg(rgba(color))
-            .into_any_element(),
-    )
+    Some(mark.absolute().rounded(px(2.0)).bg(rgba(color)).into_any_element())
 }
 
 #[cfg(test)]
@@ -842,14 +791,8 @@ mod tests {
     fn rectangle_columns_stop_at_short_lines() {
         let buffer = buffer("abcdef\nab\n");
         let rectangle = (0..=1, 1..4);
-        assert_eq!(
-            rectangle_columns(&buffer, &rectangle, 0, &(0..6)),
-            Some(1..4)
-        );
-        assert_eq!(
-            rectangle_columns(&buffer, &rectangle, 1, &(7..9)),
-            Some(1..2)
-        );
+        assert_eq!(rectangle_columns(&buffer, &rectangle, 0, &(0..6)), Some(1..4));
+        assert_eq!(rectangle_columns(&buffer, &rectangle, 1, &(7..9)), Some(1..2));
         assert_eq!(rectangle_columns(&buffer, &rectangle, 2, &(10..10)), None);
         assert_eq!(rectangle_columns(&buffer, &(0..=1, 3..5), 1, &(7..9)), None);
     }
@@ -860,21 +803,12 @@ mod tests {
         let line = DisplayLine::new("cdef");
         let decorations = || {
             vec![vec![
-                Span {
-                    range: 0..3,
-                    face: Face::Keyword,
-                },
-                Span {
-                    range: 4..9,
-                    face: Face::Swatch(0xff0000),
-                },
+                Span { range: 0..3, face: Face::Keyword },
+                Span { range: 4..9, face: Face::Swatch(0xff0000) },
             ]]
         };
         let ranges = |inline| -> Vec<Vec<Range<usize>>> {
-            let swatches = SwatchesSettings {
-                inline,
-                ..Default::default()
-            };
+            let swatches = SwatchesSettings { inline, ..Default::default() };
             EditorView::face_layers(&(2..6), decorations(), &line, swatches)
                 .into_iter()
                 .map(|layer| layer.into_iter().map(|(range, _)| range).collect())

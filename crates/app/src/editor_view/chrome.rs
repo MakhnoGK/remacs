@@ -126,9 +126,7 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let transition = self.transitions.pane();
-        self.surfaces
-            .pane
-            .update(current, Instant::now(), transition.duration);
+        self.surfaces.pane.update(current, Instant::now(), transition.duration);
         let (pane, _) = self.surfaces.pane.shown(transition)?.content;
         // A screen is sized to one place a frame: a window's, if one shows it too.
         let screen = match &pane.body {
@@ -226,8 +224,7 @@ impl EditorView {
         if split {
             let name = div().text_color(rgb(color::fg_dim())).child(name);
             return header.child(name.when(self.drawing_selected(), |name| {
-                name.font_weight(gpui::FontWeight::MEDIUM)
-                    .text_color(rgb(color::fg_main()))
+                name.font_weight(gpui::FontWeight::MEDIUM).text_color(rgb(color::fg_main()))
             }));
         }
         header
@@ -279,10 +276,7 @@ impl EditorView {
             (outline, fitting) = fitted(&self.editor, first_line)?;
         }
         let mut scrolled = OutlineScrolled {
-            rows: Scrolled {
-                above: top > 0.0,
-                below: outline.rows.len() > fitting,
-            },
+            rows: Scrolled { above: top > 0.0, below: outline.rows.len() > fitting },
             rows_shift: row_height(&outline.rows, 0) * top.fract(),
             history: Scrolled::default(),
             history_shift: 0.0,
@@ -292,10 +286,8 @@ impl EditorView {
         let has_banner = outline.banner.is_some();
         if let Some(history) = &mut outline.history {
             let fitting = fitting_commits(height, has_banner);
-            self.window_state.history_scrolled = Scrolled {
-                above: history.scrolled,
-                below: history.commits.len() > fitting,
-            };
+            self.window_state.history_scrolled =
+                Scrolled { above: history.scrolled, below: history.commits.len() > fitting };
             // With the oldest commit in view, part of one scrolled past glides back.
             if !self.window_state.history_scrolled.below {
                 self.window_state.history_target = self.window_state.history_target.min(0.0);
@@ -307,9 +299,8 @@ impl EditorView {
             scrolled.history_shift = COMMIT_HEIGHT * history_shown;
             history.commits.truncate(fitting + 1);
             // The selected commit is scrolled into sight for the next frame.
-            if let Some(selected) = history
-                .selected
-                .filter(|&selected| fitting > 0 && selected >= fitting)
+            if let Some(selected) =
+                history.selected.filter(|&selected| fitting > 0 && selected >= fitting)
             {
                 let (scroll, rows) = (history.scroll.clone(), (selected + 1 - fitting) as isize);
                 let action: Action = Rc::new(move |editor| scroll(editor, rows));
@@ -320,10 +311,8 @@ impl EditorView {
         let toolbar = std::mem::take(&mut outline.toolbar);
         let toolbar = (!toolbar.is_empty()).then(|| render_toolbar(toolbar, cx).into_any_element());
         let faces = |code: &Code| self.faces_of(code);
-        let body = render_outline(
-            outline, first_line, point_line, scrolled, height, &faces, cx,
-        )
-        .into_any_element();
+        let body = render_outline(outline, first_line, point_line, scrolled, height, &faces, cx)
+            .into_any_element();
         Some((body, hints, toolbar))
     }
 
@@ -341,11 +330,7 @@ impl EditorView {
             .px(px(8.0))
             .rounded(px(6.0))
             .when(segment.active, |button| button.bg(rgba(glass::selection())))
-            .font_family(if segment.code {
-                font::mono()
-            } else {
-                font::ui()
-            })
+            .font_family(if segment.code { font::mono() } else { font::ui() })
             .text_color(rgb(text_color))
             .when_some(segment.command, |button, command| {
                 button.on_press(cx, move |view, cx| view.run_command(command, cx))
@@ -452,10 +437,7 @@ impl EditorView {
             .editor
             .message()
             .filter(|_| self.message_open)
-            .map(|message| OpenMessage {
-                message: message.clone(),
-                all_messages: whole_key,
-            });
+            .map(|message| OpenMessage { message: message.clone(), all_messages: whole_key });
         let keys = (listed && !fitted.listed().is_empty()).then(|| {
             let title = match self.editor.shown_pane() {
                 Some(pane) if self.pane_keys_listed() => pane,
@@ -465,10 +447,7 @@ impl EditorView {
         });
         let prefix_keys = (self.prefix_keys_due() && !pending.is_empty())
             .then(|| PrefixKeys::new(pending, self.editor.prefix_continuations()));
-        (
-            row.into_any_element(),
-            self.render_cards(message, keys, prefix_keys, window),
-        )
+        (row.into_any_element(), self.render_cards(message, keys, prefix_keys, window))
     }
 
     /// Where the windows end over the window's bottom once the pane is all there, where the
@@ -482,8 +461,7 @@ impl EditorView {
 
     /// Where the bottom row stands over the window's bottom as the pane comes, is, or goes.
     pub(super) fn row_lift(&self) -> Pixels {
-        self.pane_lift()
-            .map_or(px(0.0), |(lift, look)| lift * look.opacity)
+        self.pane_lift().map_or(px(0.0), |(lift, look)| lift * look.opacity)
     }
 
     /// Whether the keys listed are a shown pane's: always under text, under rows or a
@@ -516,9 +494,7 @@ impl EditorView {
                 close: CLOSE_KEY,
             };
             let lines = settings.echo.lines;
-            shown
-                .look
-                .apply(render_message_card(&card.message, lines, keys, window))
+            shown.look.apply(render_message_card(&card.message, lines, keys, window))
         });
         let keys = surfaces.keys.shown(transition).and_then(|shown| {
             let (fitted, title) = shown.content;
@@ -543,9 +519,8 @@ impl EditorView {
             let state = &self.window_state;
             (!state.showing_rows && !state.showing_screen).then_some(&self.text_zoom)
         };
-        let zoom = zoom
-            .and_then(|zoom| zoom.percent(font::code().size))
-            .map(|percent| StatusSegment {
+        let zoom =
+            zoom.and_then(|zoom| zoom.percent(font::code().size)).map(|percent| StatusSegment {
                 items: vec![StatusItem::new(None, format!("{percent}%"))],
                 command: Some(TEXT_CONFIGURED),
                 active: false,
@@ -572,43 +547,27 @@ impl EditorView {
             .flex_none()
             .children(segments)
             // The selected row is the position; a screen has none.
-            .when(
-                !self.window_state.showing_rows && !self.window_state.showing_screen,
-                |status| {
-                    status
-                        .child(
-                            div()
-                                .row(6.0)
-                                .px(px(8.0))
-                                .font_family(font::mono())
-                                .when(buffer.is_modified(), |position| {
-                                    position.child(modified_dot())
-                                })
-                                .child(position),
-                        )
-                        .child(pill_separator())
-                },
-            )
+            .when(!self.window_state.showing_rows && !self.window_state.showing_screen, |status| {
+                status
+                    .child(
+                        div()
+                            .row(6.0)
+                            .px(px(8.0))
+                            .font_family(font::mono())
+                            .when(buffer.is_modified(), |position| position.child(modified_dot()))
+                            .child(position),
+                    )
+                    .child(pill_separator())
+            })
             .when(!self.window_state.showing_screen, |status| {
-                status.child(
-                    div()
-                        .pl(px(8.0))
-                        .pr(px(10.0))
-                        .font_family(font::ui())
-                        .child(mode_label(
-                            buffer.mode(),
-                            self.editor.language_at(buffer, buffer.point()),
-                        )),
-                )
+                status.child(div().pl(px(8.0)).pr(px(10.0)).font_family(font::ui()).child(
+                    mode_label(buffer.mode(), self.editor.language_at(buffer, buffer.point())),
+                ))
             })
     }
 }
 
 /// The buffer's mode, and the language at point when it is another, like `HTML › CSS`.
 fn mode_label(mode: &'static str, language: &'static str) -> SharedString {
-    if language == mode {
-        mode.into()
-    } else {
-        format!("{mode} › {language}").into()
-    }
+    if language == mode { mode.into() } else { format!("{mode} › {language}").into() }
 }

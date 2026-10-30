@@ -105,11 +105,7 @@ impl Modes {
     pub fn name_for_file(&self, path: &Path, text: &Text) -> &'static str {
         let lines = head_and_tail(text);
         let first = lines.first().map_or("", String::as_str);
-        let cookie_line = if first.starts_with("#!") {
-            lines.get(1)
-        } else {
-            lines.first()
-        };
+        let cookie_line = if first.starts_with("#!") { lines.get(1) } else { lines.first() };
         let declared = cookie_line
             .and_then(|line| emacs_mode(line))
             .or_else(|| lines.iter().find_map(|line| vim_filetype(line)))
@@ -123,16 +119,11 @@ impl Modes {
 
     fn named(&self, path: Option<&Path>) -> Option<&'static str> {
         let file_name = path?.file_name()?.to_str()?;
-        let chosen = self
-            .files
-            .iter()
-            .find(|(pattern, _)| match pattern.strip_prefix('*') {
-                Some(end) => file_name.ends_with(end),
-                None => file_name == pattern,
-            });
-        let extension = Path::new(file_name)
-            .extension()
-            .and_then(|extension| extension.to_str());
+        let chosen = self.files.iter().find(|(pattern, _)| match pattern.strip_prefix('*') {
+            Some(end) => file_name.ends_with(end),
+            None => file_name == pattern,
+        });
+        let extension = Path::new(file_name).extension().and_then(|extension| extension.to_str());
         let extended =
             |mode: &&Mode| extension.is_some_and(|extension| mode.extensions.contains(&extension));
         (chosen.map(|&(_, name)| name))
@@ -156,9 +147,7 @@ impl Modes {
     fn begun(&self, first: &str) -> Option<&'static str> {
         let first = first.trim_start_matches('\u{feff}').trim_start();
         let begins = |start: &&str| {
-            first
-                .get(..start.len())
-                .is_some_and(|head| head.eq_ignore_ascii_case(start))
+            first.get(..start.len()).is_some_and(|head| head.eq_ignore_ascii_case(start))
         };
         self.find(|mode| mode.first_lines.iter().any(begins))
     }
@@ -167,9 +156,7 @@ impl Modes {
 /// The first and last lines a modeline may be on, each cut short.
 fn head_and_tail(text: &Text) -> Vec<String> {
     let count = text.line_count();
-    let tail = count
-        .saturating_sub(MODELINE_LINES)
-        .max(MODELINE_LINES.min(count));
+    let tail = count.saturating_sub(MODELINE_LINES).max(MODELINE_LINES.min(count));
     (0..MODELINE_LINES.min(count))
         .chain(tail..count)
         .filter_map(|line| {
@@ -206,11 +193,7 @@ fn vim_filetype(line: &str) -> Option<&str> {
     })?;
     line[start..]
         .split([' ', '\t', ':'])
-        .find_map(|option| {
-            option
-                .strip_prefix("ft=")
-                .or_else(|| option.strip_prefix("filetype="))
-        })
+        .find_map(|option| option.strip_prefix("ft=").or_else(|| option.strip_prefix("filetype=")))
         .filter(|name| !name.is_empty())
 }
 
@@ -239,10 +222,7 @@ mod tests {
         let none: &[&str] = &[];
         for (name, [extensions, interpreters, aliases, first_lines]) in [
             ("Python", [&["py"][..], &["python"], none, none]),
-            (
-                "Bash",
-                [&["sh"], &["bash", "sh"], &["sh", "shell-script"], none],
-            ),
+            ("Bash", [&["sh"], &["bash", "sh"], &["sh", "shell-script"], none]),
             ("C++", [&["cpp", "h"], none, &["cpp"], none]),
             ("XML", [none, none, none, &["<?xml"]]),
         ] {
@@ -289,11 +269,7 @@ mod tests {
     fn modes_toml_comes_before_the_modes_own_files_and_interpreters() {
         let mut modes = modes();
         let settings = ModesSettings {
-            files: [
-                ("*.h".into(), "Bash".into()),
-                ("Jenkinsfile".into(), "Python".into()),
-            ]
-            .into(),
+            files: [("*.h".into(), "Bash".into()), ("Jenkinsfile".into(), "Python".into())].into(),
             interpreters: [("deno".into(), "Bash".into()), ("x".into(), "Cobol".into())].into(),
         };
         assert_eq!(modes.set_settings(&settings), ["modes.toml: no mode Cobol"]);

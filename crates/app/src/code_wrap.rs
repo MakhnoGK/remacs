@@ -15,10 +15,7 @@ const OPERATORS: &[&str] = &["= ", "| ", "& ", "+ "];
 /// `code` with each line longer than `columns` broken into lines that fit; a part with
 /// nowhere to break stays longer.
 pub fn wrap_code(code: &str, columns: usize) -> String {
-    code.lines()
-        .map(|line| wrap_line(line, columns))
-        .collect::<Vec<_>>()
-        .join("\n")
+    code.lines().map(|line| wrap_line(line, columns)).collect::<Vec<_>>().join("\n")
 }
 
 /// The line ends at `end` and the next starts at `next`, `depth` brackets in.
@@ -102,9 +99,8 @@ pub fn wrapped_offset(code: &str, wrapped: &str, offset: usize) -> usize {
         let rest = &wrapped[position..];
         if rest.starts_with(character) || character != ' ' {
             // Past the line end and indent a break put before it.
-            position += rest
-                .find(character)
-                .map_or(rest.len(), |skipped| skipped + character.len_utf8());
+            position +=
+                rest.find(character).map_or(rest.len(), |skipped| skipped + character.len_utf8());
         }
     }
     match code[offset..].chars().next() {

@@ -20,21 +20,9 @@ use crate::settings::settings_sections;
 /// told apart from it.
 const MARKER: &str = "__remacs_environment__";
 /// Set by the shell itself, or by a terminal, not part of what the user set up.
-const SKIPPED: &[&str] = &[
-    "_",
-    "SHLVL",
-    "PWD",
-    "OLDPWD",
-    "TERM",
-    "TERM_PROGRAM",
-    "COLUMNS",
-    "LINES",
-];
-const FALLBACK_SHELL: &str = if cfg!(target_os = "macos") {
-    "/bin/zsh"
-} else {
-    "/bin/sh"
-};
+const SKIPPED: &[&str] =
+    &["_", "SHLVL", "PWD", "OLDPWD", "TERM", "TERM_PROGRAM", "COLUMNS", "LINES"];
+const FALLBACK_SHELL: &str = if cfg!(target_os = "macos") { "/bin/zsh" } else { "/bin/sh" };
 
 settings_sections! {
     /// `environment.toml`.
@@ -116,9 +104,7 @@ pub fn import(settings: &EnvironmentSettings) -> Result<(), String> {
 fn run_shell(shell: &str, timeout: Duration) -> Result<String, String> {
     let mut child = Command::new(shell)
         .args(["-l", "-i", "-c"])
-        .arg(format!(
-            "printf '%s' {MARKER}; /usr/bin/env -0; printf '%s' {MARKER}"
-        ))
+        .arg(format!("printf '%s' {MARKER}; /usr/bin/env -0; printf '%s' {MARKER}"))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -144,10 +130,9 @@ fn run_shell(shell: &str, timeout: Duration) -> Result<String, String> {
     let _ = child.kill();
     let _ = child.wait();
     variables.map_err(|error| match error {
-        RecvTimeoutError::Timeout => format!(
-            "{shell} took longer than {} ms to start",
-            timeout.as_millis()
-        ),
+        RecvTimeoutError::Timeout => {
+            format!("{shell} took longer than {} ms to start", timeout.as_millis())
+        }
         RecvTimeoutError::Disconnected => format!("{shell} printed no environment"),
     })
 }

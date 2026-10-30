@@ -65,9 +65,7 @@ const DESCRIPTION_LINE_HEIGHT: f32 = 22.0;
 pub fn render_scrim(modal: bool) -> impl IntoElement {
     let scrim = div().absolute().inset_0();
     if modal {
-        scrim
-            .bg(rgba(glass::modal_scrim()))
-            .glass_blur(glass::MODAL_SCRIM_BLUR, 1.0)
+        scrim.bg(rgba(glass::modal_scrim())).glass_blur(glass::MODAL_SCRIM_BLUR, 1.0)
     } else {
         scrim.bg(rgba(glass::scrim()))
     }
@@ -89,11 +87,7 @@ pub fn modal(width: f32) -> Div {
 }
 
 fn panel_on(surface: Div, width: f32) -> Div {
-    surface
-        .w(px(width))
-        .p(px(8.0))
-        .font_family(font::ui())
-        .fg(color::fg_main())
+    surface.w(px(width)).p(px(8.0)).font_family(font::ui()).fg(color::fg_main())
 }
 
 /// A title as dialogs and titled prompts set it.
@@ -151,22 +145,15 @@ pub fn render_minibuffer(
             .then(|| render_directory(&prompt.directory, position))
     };
     let chips = render_chips(minibuffer, !has_switch, cx);
-    let (chips_first, chips_last) = if prompt.chips_first {
-        (chips, None)
-    } else {
-        (None, chips)
-    };
+    let (chips_first, chips_last) = if prompt.chips_first { (chips, None) } else { (None, chips) };
     let popover = popover(width)
-        .when(
-            has_switch || (!has_chip && !minibuffer.subject().is_empty()),
-            |popover| popover.child(render_switches(minibuffer, cx)),
-        )
+        .when(has_switch || (!has_chip && !minibuffer.subject().is_empty()), |popover| {
+            popover.child(render_switches(minibuffer, cx))
+        })
         .children(directory(DirectoryPosition::Above))
         .child(field)
         .children(directory(DirectoryPosition::Below))
-        .when(!prompt.summary.is_empty(), |popover| {
-            popover.child(render_summary(&prompt.summary))
-        })
+        .when(!prompt.summary.is_empty(), |popover| popover.child(render_summary(&prompt.summary)))
         .children(chips_first)
         .children(render_segmented_choices(minibuffer, cx))
         .children(render_description(minibuffer, composition))
@@ -177,20 +164,14 @@ pub fn render_minibuffer(
         .when(!prompt.items.is_empty(), |popover| {
             let summary = Some(prompt.items_summary.clone());
             let items = list_items(prompt.items.clone(), MAX_LISTED_ITEMS, 30.0);
-            popover
-                .child(render_group_title(prompt.items_title, summary, false))
-                .children(items)
+            popover.child(render_group_title(prompt.items_title, summary, false)).children(items)
         })
         .children(chips_last)
         .child(render_hints(minibuffer.hints()));
     let corner = if is_problem_list(minibuffer) {
-        div()
-            .right(px(STATUS_POPOVER_RIGHT))
-            .bottom(px(STATUS_POPOVER_BOTTOM))
+        div().right(px(STATUS_POPOVER_RIGHT)).bottom(px(STATUS_POPOVER_BOTTOM))
     } else if prompt.from_toolbar {
-        div()
-            .top(px(TOOLBAR_POPOVER_TOP))
-            .right(px(TOOLBAR_POPOVER_RIGHT))
+        div().top(px(TOOLBAR_POPOVER_TOP)).right(px(TOOLBAR_POPOVER_RIGHT))
     } else {
         return centered(popover);
     };
@@ -275,11 +256,7 @@ fn centered(popover: impl IntoElement) -> AnyElement {
 
 /// Upper case, unless it is a name; `summary` goes on the right.
 fn render_group_title(title: &str, summary: Option<String>, is_name: bool) -> impl IntoElement {
-    let title = if is_name {
-        title.to_owned()
-    } else {
-        title.to_uppercase()
-    };
+    let title = if is_name { title.to_owned() } else { title.to_uppercase() };
     div()
         .flex()
         .justify_between()
@@ -325,9 +302,7 @@ mod tests {
         assert!(!draws_input(asking.minibuffer().unwrap()));
 
         let mut reading = Editor::new(&[]);
-        reading
-            .read(Prompt::default(), |_, _| Default::default(), |_, _| Ok(()))
-            .unwrap();
+        reading.read(Prompt::default(), |_, _| Default::default(), |_, _| Ok(())).unwrap();
         assert!(draws_input(reading.minibuffer().unwrap()));
     }
 }

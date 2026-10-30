@@ -53,14 +53,8 @@ pub(crate) fn update(editor: &mut Editor) {
         let point = buffer.point();
         let text = buffer.text().snapshot();
         let state = state(editor);
-        let edited = state
-            .text
-            .replace(text.clone())
-            .is_some_and(|before| !before.is_same(&text));
-        state.rest = (!edited).then(|| Rest {
-            point,
-            since: Instant::now(),
-        });
+        let edited = state.text.replace(text.clone()).is_some_and(|before| !before.is_same(&text));
+        state.rest = (!edited).then(|| Rest { point, since: Instant::now() });
     }
     let point = editor.window_buffer().point();
     let waiting = state(editor);
@@ -149,10 +143,7 @@ fn code_quoted(message: &str) -> String {
 
 /// Point moved by the mouse hides the problems.
 fn shown_point(buffer: &Buffer) -> Option<usize> {
-    buffer
-        .local::<Shown>()
-        .map(|shown| shown.point)
-        .filter(|&point| point == buffer.point())
+    buffer.local::<Shown>().map(|shown| shown.point).filter(|&point| point == buffer.point())
 }
 
 #[cfg(test)]
@@ -173,10 +164,7 @@ mod tests {
 
     #[test]
     fn apostrophes_and_backticks_stay() {
-        assert_eq!(
-            code_quoted("Object can't be 'null'"),
-            "Object can't be `null`"
-        );
+        assert_eq!(code_quoted("Object can't be 'null'"), "Object can't be `null`");
         let rust = "use of undeclared lifetime name `'a`";
         assert_eq!(code_quoted(rust), rust);
         assert_eq!(code_quoted("it's 'open\nstill"), "it's 'open\nstill");

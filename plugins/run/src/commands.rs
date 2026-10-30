@@ -26,10 +26,7 @@ pub fn run_with(editor: &mut Editor, starter: Option<Starter>) -> CommandResult 
     let root = window_root(editor).ok_or("Not in a project")?;
     let store = configuration_store(editor);
     let error = store.project(&root).1;
-    let chosen = store
-        .selected(&root)
-        .and_then(|name| store.read(&root)?.find(name))
-        .cloned();
+    let chosen = store.selected(&root).and_then(|name| store.read(&root)?.find(name)).cloned();
     if let Some(error) = error {
         editor.set_error(error);
     }
@@ -102,17 +99,13 @@ pub fn edit_configuration(
     let store = configuration_store(editor);
     let configuration = store.find_or_add(root, configuration)?;
     let (project, _) = store.project(root);
-    let path = project
-        .path()
-        .ok_or("Run configurations are not kept in files")?
-        .to_path_buf();
+    let path = project.path().ok_or("Run configurations are not kept in files")?.to_path_buf();
     editor.visit_file(&path)?;
     let name_line = format!("name = {}", toml::Value::String(configuration.name));
     let buffer = editor.window_buffer();
     let text = buffer.text();
     let line = (0..text.line_count()).find(|&line| {
-        text.line_range(line)
-            .is_some_and(|range| buffer.contents(range).trim() == name_line)
+        text.line_range(line).is_some_and(|range| buffer.contents(range).trim() == name_line)
     });
     if let Some(line) = line {
         editor.set_point_at(line, 0);
@@ -124,10 +117,7 @@ pub fn edit_configuration(
 pub fn edit_configurations(editor: &mut Editor) -> CommandResult {
     let root = window_root(editor).ok_or("Not in a project")?;
     let (project, _) = configuration_store(editor).project(&root);
-    let path = project
-        .path()
-        .ok_or("Run configurations are not kept in files")?
-        .to_path_buf();
+    let path = project.path().ok_or("Run configurations are not kept in files")?.to_path_buf();
     editor.visit_file(&path)?;
     Ok(())
 }
@@ -173,10 +163,8 @@ pub fn open_link_or_input(editor: &mut Editor) -> CommandResult {
     let Some(target) = link_at(buffer, buffer.point()) else {
         return read_input(editor, id);
     };
-    let directories = buffer
-        .local::<Console>()
-        .map(|console| console.directories.to_vec())
-        .unwrap_or_default();
+    let directories =
+        buffer.local::<Console>().map(|console| console.directories.to_vec()).unwrap_or_default();
     follow(editor, &target, &directories, true)
 }
 

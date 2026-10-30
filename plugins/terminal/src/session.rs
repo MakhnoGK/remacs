@@ -25,10 +25,7 @@ use crate::settings::TerminalSettings;
 
 const READ_SIZE: usize = 64 * 1024;
 /// Until the first layout tells the real size.
-const INITIAL_SIZE: ScreenSize = ScreenSize {
-    columns: 80,
-    rows: 24,
-};
+const INITIAL_SIZE: ScreenSize = ScreenSize { columns: 80, rows: 24 };
 /// What ends a word for `M-f`, `M-b` and a double click: punctuation, but not what
 /// paths and flags are made of, so that one is taken whole.
 const WORD_SEPARATORS: &str = ",│`|:\"' ()[]{}<>\t;=!@#$%^&*+\\?";
@@ -106,11 +103,7 @@ fn palette(index: usize) -> Rgb {
         256 | 258 => remacs_theme::color::fg_body(),
         _ => remacs_theme::color::bg_main(),
     };
-    Rgb {
-        r: (rgb >> 16) as u8,
-        g: (rgb >> 8) as u8,
-        b: rgb as u8,
-    }
+    Rgb { r: (rgb >> 16) as u8, g: (rgb >> 8) as u8, b: rgb as u8 }
 }
 
 /// A running terminal; dropping it hangs its programs up and kills what is left.
@@ -144,20 +137,13 @@ impl Session {
             shell: Some(Shell::new(launch.program.to_owned(), launch.args.to_vec())),
             working_directory: Some(launch.directory.to_path_buf()),
             drain_on_exit: true,
-            env: launch
-                .env
-                .iter()
-                .map(|(name, value)| (name.clone(), value.clone()))
-                .collect(),
+            env: launch.env.iter().map(|(name, value)| (name.clone(), value.clone())).collect(),
         };
         let pty =
             tty::new(&options, window_size(INITIAL_SIZE), 0).map_err(|error| error.to_string())?;
         let (input, typed) = mpsc::channel::<Vec<u8>>();
         let inbox = Arc::new(Mutex::new(Inbox::default()));
-        let listener = Listener {
-            inbox: Arc::clone(&inbox),
-            input: input.clone(),
-        };
+        let listener = Listener { inbox: Arc::clone(&inbox), input: input.clone() };
         let config = term::Config {
             scrolling_history: settings.scrollback_lines,
             semantic_escape_chars: WORD_SEPARATORS.to_owned(),
@@ -182,12 +168,8 @@ impl Session {
             .name("terminal-write".into())
             .spawn(move || write_input(writer, typed))
             .map_err(|error| error.to_string())?;
-        let reader = Reader {
-            pty,
-            screen: Arc::clone(&screen),
-            inbox: Arc::clone(&inbox),
-            notifier,
-        };
+        let reader =
+            Reader { pty, screen: Arc::clone(&screen), inbox: Arc::clone(&inbox), notifier };
         thread::Builder::new()
             .name("terminal-read".into())
             .spawn(move || reader.run())
@@ -213,9 +195,7 @@ impl Session {
             return;
         }
         self.size.set(size);
-        self.screen
-            .lock()
-            .resize(TermSize::new(size.columns, size.rows));
+        self.screen.lock().resize(TermSize::new(size.columns, size.rows));
         let winsize = libc::winsize {
             ws_row: size.rows as u16,
             ws_col: size.columns as u16,
@@ -245,12 +225,10 @@ impl Drop for Session {
         let groups = [self.pid, foreground];
         signal(&groups, libc::SIGHUP);
         let timeout = self.kill_timeout;
-        let _ = thread::Builder::new()
-            .name("terminal-kill".into())
-            .spawn(move || {
-                thread::sleep(timeout);
-                signal(&groups, libc::SIGKILL);
-            });
+        let _ = thread::Builder::new().name("terminal-kill".into()).spawn(move || {
+            thread::sleep(timeout);
+            signal(&groups, libc::SIGKILL);
+        });
     }
 }
 
@@ -378,11 +356,7 @@ fn wait_readable(fd: RawFd, deadline: Option<Instant>) -> bool {
         return true;
     };
     let timeout = deadline.saturating_duration_since(Instant::now());
-    let mut poll = libc::pollfd {
-        fd,
-        events: libc::POLLIN,
-        revents: 0,
-    };
+    let mut poll = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
     // SAFETY: one valid pollfd for the duration of the call.
     let ready = unsafe { libc::poll(&mut poll, 1, timeout.as_millis() as i32) };
     ready != 0
@@ -395,12 +369,7 @@ fn exit_code(pid: i32) -> i32 {
     let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
     // SAFETY: `info` is a local the call writes; WNOWAIT leaves the child to be reaped.
     let waited = unsafe {
-        libc::waitid(
-            libc::P_PID,
-            pid as libc::id_t,
-            &mut info,
-            libc::WEXITED | libc::WNOWAIT,
-        )
+        libc::waitid(libc::P_PID, pid as libc::id_t, &mut info, libc::WEXITED | libc::WNOWAIT)
     };
     if waited != 0 {
         return 0;

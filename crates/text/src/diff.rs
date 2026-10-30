@@ -33,11 +33,7 @@ impl Snapshot {
         while suffix > 0 && !old.is_char_boundary(old.len() - suffix) {
             suffix -= 1;
         }
-        Some(Edit {
-            start,
-            old_end: old.len() - suffix,
-            new_end: self.len() - suffix,
-        })
+        Some(Edit { start, old_end: old.len() - suffix, new_end: self.len() - suffix })
     }
 }
 
@@ -92,11 +88,7 @@ mod tests {
     use super::*;
 
     fn at(start: usize, old_end: usize, new_end: usize) -> Option<Edit> {
-        Some(Edit {
-            start,
-            old_end,
-            new_end,
-        })
+        Some(Edit { start, old_end, new_end })
     }
 
     fn edit(old: &Text, new: &Text) -> Option<(String, String)> {
@@ -115,10 +107,7 @@ mod tests {
         let mut new = Text::from("fn main() {}\n");
         new.delete(3..7);
         new.insert(3, "test");
-        assert_eq!(
-            edit(&Text::from("fn main() {}\n"), &new),
-            Some(("main".into(), "test".into()))
-        );
+        assert_eq!(edit(&Text::from("fn main() {}\n"), &new), Some(("main".into(), "test".into())));
     }
 
     #[test]

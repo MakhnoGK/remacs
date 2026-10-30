@@ -31,12 +31,7 @@ impl Command {
         doc: &'static str,
         run: fn(&mut Editor) -> CommandResult,
     ) -> Self {
-        Self {
-            name,
-            doc,
-            run,
-            each_cursor: false,
-        }
+        Self { name, doc, run, each_cursor: false }
     }
 
     pub const fn each_cursor(mut self) -> Self {

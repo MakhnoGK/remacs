@@ -70,11 +70,7 @@ impl Presence {
             return self.rest();
         }
         let step = now.saturating_duration_since(since).as_secs_f32() / duration.as_secs_f32();
-        if self.shown {
-            (from + step).min(1.0)
-        } else {
-            (from - step).max(0.0)
-        }
+        if self.shown { (from + step).min(1.0) } else { (from - step).max(0.0) }
     }
 }
 
@@ -94,11 +90,7 @@ pub struct Retained<T> {
 
 impl<T> Default for Retained<T> {
     fn default() -> Self {
-        Self {
-            presence: Presence::default(),
-            visibility: None,
-            last: None,
-        }
+        Self { presence: Presence::default(), visibility: None, last: None }
     }
 }
 
@@ -179,10 +171,7 @@ impl Look {
 
     /// Fading as this one does, in place.
     pub fn in_place(self) -> Self {
-        Self {
-            offset: 0.0,
-            ..self
-        }
+        Self { offset: 0.0, ..self }
     }
 
     /// `surface`, laid out over the whole view as surfaces are, drawn as this look says.
@@ -197,15 +186,8 @@ impl Look {
     }
 
     fn layer(self, layer: Div, surface: impl IntoElement) -> AnyElement {
-        let layer = layer
-            .top(px(self.offset))
-            .opacity(self.opacity)
-            .child(surface);
-        if self.leaving {
-            inert(layer).into_any_element()
-        } else {
-            layer.into_any_element()
-        }
+        let layer = layer.top(px(self.offset)).opacity(self.opacity).child(surface);
+        if self.leaving { inert(layer).into_any_element() } else { layer.into_any_element() }
     }
 }
 
@@ -222,26 +204,17 @@ mod tests {
     use super::*;
 
     const DURATION: Duration = Duration::from_millis(80);
-    const SLIDE: Transition = Transition {
-        duration: DURATION,
-        slide: 10.0,
-        from: Side::Below,
-    };
+    const SLIDE: Transition = Transition { duration: DURATION, slide: 10.0, from: Side::Below };
 
     #[test]
     fn comes_in_over_the_duration_and_rests() {
         let mut presence = Presence::default();
         let start = Instant::now();
         assert_eq!(presence.advance(true, start, DURATION), Some(0.0));
-        let halfway = presence
-            .advance(true, start + DURATION / 2, DURATION)
-            .unwrap();
+        let halfway = presence.advance(true, start + DURATION / 2, DURATION).unwrap();
         assert!((halfway - 0.5).abs() < 1e-3, "{halfway}");
         assert!(presence.is_changing());
-        assert_eq!(
-            presence.advance(true, start + DURATION, DURATION),
-            Some(1.0)
-        );
+        assert_eq!(presence.advance(true, start + DURATION, DURATION), Some(1.0));
         assert!(!presence.is_changing());
     }
 

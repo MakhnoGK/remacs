@@ -59,18 +59,12 @@ impl Scanner {
         let mut start = 0;
         for (index, &byte) in bytes.iter().enumerate() {
             if let Some(report) = self.feed(byte) {
-                pieces.push(Piece {
-                    bytes: &bytes[start..=index],
-                    report: Some(report),
-                });
+                pieces.push(Piece { bytes: &bytes[start..=index], report: Some(report) });
                 start = index + 1;
             }
         }
         if start < bytes.len() {
-            pieces.push(Piece {
-                bytes: &bytes[start..],
-                report: None,
-            });
+            pieces.push(Piece { bytes: &bytes[start..], report: None });
         }
         pieces
     }
@@ -117,9 +111,7 @@ fn parse(sequence: &str) -> Option<Report> {
                 "A" => Some(Report::Prompt),
                 "B" => Some(Report::Input),
                 "C" => Some(Report::Started),
-                "D" => Some(Report::Finished(
-                    fields.next().and_then(|code| code.parse().ok()),
-                )),
+                "D" => Some(Report::Finished(fields.next().and_then(|code| code.parse().ok()))),
                 _ => None,
             }
         }
@@ -181,10 +173,7 @@ mod tests {
     #[test]
     fn finds_reports_split_across_reads() {
         assert_eq!(
-            reports(&[
-                b"a\x1b]133;A\x07$ ls\x1b]13",
-                b"3;C\x1b\\out\x1b]133;D;2\x07"
-            ]),
+            reports(&[b"a\x1b]133;A\x07$ ls\x1b]13", b"3;C\x1b\\out\x1b]133;D;2\x07"]),
             vec![Report::Prompt, Report::Started, Report::Finished(Some(2))]
         );
         assert_eq!(

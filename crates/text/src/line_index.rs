@@ -39,12 +39,10 @@ impl LineIndex {
                     scope.spawn(move || count_blocks(file, file_len, first_block, counts))
                 })
                 .collect();
-            workers
-                .into_iter()
-                .try_fold(Utf8Check::default(), |mut utf8, worker| {
-                    utf8.join(worker.join().expect("line index worker panicked")?);
-                    io::Result::Ok(utf8)
-                })
+            workers.into_iter().try_fold(Utf8Check::default(), |mut utf8, worker| {
+                utf8.join(worker.join().expect("line index worker panicked")?);
+                io::Result::Ok(utf8)
+            })
         })?;
 
         Ok((Self::from_block_counts(block_counts), utf8.is_valid()))
@@ -58,9 +56,7 @@ impl LineIndex {
                 total
             }))
             .collect();
-        Self {
-            newlines_before_block,
-        }
+        Self { newlines_before_block }
     }
 
     pub fn total(&self) -> usize {
@@ -76,10 +72,7 @@ impl LineIndex {
         if rank >= self.total() {
             return None;
         }
-        let block = self
-            .newlines_before_block
-            .partition_point(|&before| before <= rank)
-            - 1;
+        let block = self.newlines_before_block.partition_point(|&before| before <= rank) - 1;
         let block_start = block * BLOCK_SIZE;
         let block_end = (block_start + BLOCK_SIZE).min(bytes.len());
         let rank_in_block = rank - self.newlines_before_block[block];
@@ -114,9 +107,7 @@ mod tests {
     use super::*;
 
     fn sample() -> Vec<u8> {
-        (0..BLOCK_SIZE * 3 + 777)
-            .map(|i| if i % 97 == 0 { b'\n' } else { b'x' })
-            .collect()
+        (0..BLOCK_SIZE * 3 + 777).map(|i| if i % 97 == 0 { b'\n' } else { b'x' }).collect()
     }
 
     #[test]

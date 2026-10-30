@@ -23,18 +23,11 @@ pub struct StatusItem {
 
 impl StatusItem {
     pub fn new(icon: Option<Icon>, text: impl Into<String>) -> Self {
-        Self {
-            icon,
-            text: text.into(),
-            tone: Tone::Plain,
-        }
+        Self { icon, text: text.into(), tone: Tone::Plain }
     }
 
     pub fn toned(text: impl Into<String>, tone: Tone) -> Self {
-        Self {
-            tone,
-            ..Self::new(None, text)
-        }
+        Self { tone, ..Self::new(None, text) }
     }
 }
 

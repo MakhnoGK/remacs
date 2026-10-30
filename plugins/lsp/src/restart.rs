@@ -103,10 +103,7 @@ mod tests {
         editor.add_buffer(Buffer::new("notes.txt", Text::default(), "Fundamental").with_file(path));
         editor.refresh();
         wait_for_exit(&mut editor, &notified);
-        assert_eq!(
-            editor.echo().as_deref(),
-            Some("failing exited: cannot serve")
-        );
+        assert_eq!(editor.echo().as_deref(), Some("failing exited: cannot serve"));
 
         editor.run_command("lsp-restart");
         let candidates = editor.minibuffer().unwrap().candidates();
@@ -116,9 +113,6 @@ mod tests {
         assert_eq!(editor.echo().as_deref(), Some("Restarted failing"));
         editor.refresh();
         wait_for_exit(&mut editor, &notified);
-        assert_eq!(
-            editor.echo().as_deref(),
-            Some("failing exited: cannot serve")
-        );
+        assert_eq!(editor.echo().as_deref(), Some("failing exited: cannot serve"));
     }
 }

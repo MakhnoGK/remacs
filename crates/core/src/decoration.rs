@@ -95,20 +95,12 @@ mod tests {
 
     #[test]
     fn spans_are_cut_to_the_lines_they_cross() {
-        let span = |range: Range<usize>| Span {
-            range,
-            face: Face::String,
-        };
+        let span = |range: Range<usize>| Span { range, face: Face::String };
         let spans = [span(0..2), span(4..12), span(20..21)];
         let lines = [0..5, 6..10, 11..15, 16..19];
         assert_eq!(
             split_by_line(&spans, &lines),
-            [
-                vec![span(0..2), span(4..5)],
-                vec![span(6..10)],
-                vec![span(11..12)],
-                vec![],
-            ]
+            [vec![span(0..2), span(4..5)], vec![span(6..10)], vec![span(11..12)], vec![],]
         );
     }
 }

@@ -34,11 +34,7 @@ pub struct Configuration {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(
-    tag = "kind",
-    rename_all = "kebab-case",
-    rename_all_fields = "kebab-case"
-)]
+#[serde(tag = "kind", rename_all = "kebab-case", rename_all_fields = "kebab-case")]
 pub enum Kind {
     Cargo(Cargo),
     /// A script of a `package.json`, relative to the project root.
@@ -260,9 +256,7 @@ impl Project {
 
     /// The configuration that runs the same thing, e.g. the same binary.
     pub fn find_kind(&self, kind: &Kind) -> Option<&Configuration> {
-        self.configurations
-            .iter()
-            .find(|configuration| configuration.kind == *kind)
+        self.configurations.iter().find(|configuration| configuration.kind == *kind)
     }
 
     /// `name`, or `name (2)` and so on when taken.
@@ -282,9 +276,7 @@ impl Project {
         let Some(path) = &self.path else {
             return Ok(());
         };
-        let modified = fs::metadata(path)
-            .and_then(|metadata| metadata.modified())
-            .ok();
+        let modified = fs::metadata(path).and_then(|metadata| metadata.modified()).ok();
         if modified.is_some() && modified == self.read_at {
             return Ok(());
         }
@@ -309,10 +301,8 @@ impl Project {
     /// what else the file holds stays as it was written.
     fn add(&mut self, root: &Path, configuration: Configuration) -> io::Result<()> {
         if self.path.is_some() {
-            let table = toml::to_string(&RunFile {
-                configurations: vec![configuration.clone()],
-            })
-            .map_err(io::Error::other)?;
+            let table = toml::to_string(&RunFile { configurations: vec![configuration.clone()] })
+                .map_err(io::Error::other)?;
             self.append(root, &table)?;
         }
         self.configurations.push(configuration);
@@ -332,14 +322,9 @@ impl Project {
         } else {
             HEADER.replace("{root}", &root.display().to_string())
         };
-        let mut file = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)?;
+        let mut file = fs::OpenOptions::new().create(true).append(true).open(path)?;
         write!(file, "{header}\n{text}")?;
-        self.read_at = fs::metadata(path)
-            .and_then(|metadata| metadata.modified())
-            .ok();
+        self.read_at = fs::metadata(path).and_then(|metadata| metadata.modified()).ok();
         Ok(())
     }
 }
@@ -390,19 +375,13 @@ impl Store {
     /// The configurations of the project at `root`, read again if their file changed;
     /// with the error when it does not parse.
     pub fn project(&mut self, root: &Path) -> (&mut Project, Option<String>) {
-        let path = self
-            .dir
-            .as_ref()
-            .map(|dir| dir.join(format!("{}.toml", project_name(root))));
-        let project = self
-            .projects
-            .entry(root.to_path_buf())
-            .or_insert_with(|| Project {
-                configurations: Vec::new(),
-                temporary: None,
-                path,
-                read_at: None,
-            });
+        let path = self.dir.as_ref().map(|dir| dir.join(format!("{}.toml", project_name(root))));
+        let project = self.projects.entry(root.to_path_buf()).or_insert_with(|| Project {
+            configurations: Vec::new(),
+            temporary: None,
+            path,
+            read_at: None,
+        });
         let error = project.reload().err();
         (project, error)
     }
@@ -425,16 +404,11 @@ impl Store {
         }
         // Saving the temporary one makes it permanent, under its own name.
         let temporary = project.temporary.take();
-        if temporary
-            .as_ref()
-            .is_some_and(|temporary| temporary.kind != configuration.kind)
-        {
+        if temporary.as_ref().is_some_and(|temporary| temporary.kind != configuration.kind) {
             project.temporary = temporary;
         }
-        let configuration = Configuration {
-            name: project.unique_name(&configuration.name),
-            ..configuration
-        };
+        let configuration =
+            Configuration { name: project.unique_name(&configuration.name), ..configuration };
         project
             .add(root, configuration.clone())
             .map_err(|error| format!("Could not save the configuration: {error}"))?;
@@ -453,10 +427,8 @@ impl Store {
             return existing.clone();
         }
         project.temporary = None;
-        let configuration = Configuration {
-            name: project.unique_name(&configuration.name),
-            ..configuration
-        };
+        let configuration =
+            Configuration { name: project.unique_name(&configuration.name), ..configuration };
         project.temporary = Some(configuration.clone());
         configuration
     }

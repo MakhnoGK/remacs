@@ -25,10 +25,8 @@ fn screen() -> Vec<String> {
     let inner = COLUMNS - 2;
     let border = |left: char, right: char| format!("{left}{}{right}", "─".repeat(inner));
     let graph: String = "⣿⣷⣦⡀⢀⣤⣶⠀".chars().cycle().take(inner).collect();
-    let text = format!(
-        "{:inner$}",
-        "  2714 iTerm2   /Applications/iTerm.app/Contents/MacOS/iTerm2"
-    );
+    let text =
+        format!("{:inner$}", "  2714 iTerm2   /Applications/iTerm.app/Contents/MacOS/iTerm2");
     let mut rows = vec![border('┌', '┐')];
     rows.extend((0..GRAPH_ROWS).map(|_| format!("│{graph}│")));
     rows.push(border('├', '┤'));

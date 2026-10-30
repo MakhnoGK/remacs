@@ -8,9 +8,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub const PARENT: &str = "..";
 
-const MONTHS: [&str; 12] = [
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-];
+const MONTHS: [&str; 12] =
+    ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /// One file of a listing, with its columns formatted when it is read.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -127,10 +126,7 @@ pub fn sort(entries: &mut [Entry], key: SortKey) {
             SortKey::Modified => b.modified.cmp(&a.modified),
             SortKey::Size => b.size.cmp(&a.size),
         };
-        group(a)
-            .cmp(&group(b))
-            .then(by_key)
-            .then_with(|| compare_names(&a.name, &b.name))
+        group(a).cmp(&group(b)).then(by_key).then_with(|| compare_names(&a.name, &b.name))
     });
 }
 
@@ -163,11 +159,7 @@ pub fn size_label(bytes: u64) -> String {
 }
 
 pub fn plural(count: usize, noun: &str) -> String {
-    if count == 1 {
-        noun.to_owned()
-    } else {
-        format!("{noun}s")
-    }
+    if count == 1 { noun.to_owned() } else { format!("{noun}s") }
 }
 
 /// As `describe_entries`, a single name quoted as prompts and dialogs quote names.
@@ -189,11 +181,7 @@ pub fn describe_entries(entries: &[Entry], adjective: &str) -> String {
         count if count == entries.len() => "folder",
         _ => "item",
     };
-    format!(
-        "{} {adjective}{}",
-        entries.len(),
-        plural(entries.len(), noun)
-    )
+    format!("{} {adjective}{}", entries.len(), plural(entries.len(), noun))
 }
 
 /// `name/` for a directory, as listings show it.
@@ -206,11 +194,7 @@ pub fn display_name(entry: &Entry) -> String {
 }
 
 pub fn items_label(count: u64) -> String {
-    if count == 1 {
-        "1 item".into()
-    } else {
-        format!("{count} items")
-    }
+    if count == 1 { "1 item".into() } else { format!("{count} items") }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -225,13 +209,7 @@ pub struct LocalTime {
 
 /// `Oct 4, 10:41` this year, `Oct 4, 2024` before, like `ls -l`.
 pub fn date_label(time: LocalTime, this_year: i32) -> String {
-    let LocalTime {
-        year,
-        month,
-        day,
-        hour,
-        minute,
-    } = time;
+    let LocalTime { year, month, day, hour, minute } = time;
     let month = MONTHS[month.min(11)];
     if year == this_year {
         format!("{month} {day}, {hour:02}:{minute:02}")
@@ -264,11 +242,7 @@ pub fn full_modified_label(time: Option<SystemTime>) -> String {
     let now = SystemTime::now();
     let labelled = || {
         let yesterday = local_time(now.checked_sub(Duration::from_secs(24 * 60 * 60))?)?;
-        Some(full_date_label(
-            local_time(time?)?,
-            local_time(now)?,
-            yesterday,
-        ))
+        Some(full_date_label(local_time(time?)?, local_time(now)?, yesterday))
     };
     labelled().unwrap_or_default()
 }
@@ -326,12 +300,8 @@ pub fn mode_label(mode: u32) -> String {
         };
         [read, write, execute]
     };
-    [
-        triple(6, 0o4000, 's'),
-        triple(3, 0o2000, 's'),
-        triple(0, 0o1000, 't'),
-    ]
-    .concat()
-    .into_iter()
-    .collect()
+    [triple(6, 0o4000, 's'), triple(3, 0o2000, 's'), triple(0, 0o1000, 't')]
+        .concat()
+        .into_iter()
+        .collect()
 }

@@ -33,10 +33,7 @@ impl Legend {
                 .filter_map(|name| Some(name.as_str()?.to_owned()))
                 .collect()
         };
-        Some(Self {
-            types: names("tokenTypes"),
-            modifiers: names("tokenModifiers"),
-        })
+        Some(Self { types: names("tokenTypes"), modifiers: names("tokenModifiers") })
     }
 }
 
@@ -155,9 +152,7 @@ impl Painting {
         tokens
             .iter()
             .filter_map(|(range, token)| {
-                let face = *faces
-                    .entry(*token)
-                    .or_insert_with(|| self.face(legend, *token));
+                let face = *faces.entry(*token).or_insert_with(|| self.face(legend, *token));
                 Some((range.clone(), face?))
             })
             .collect()
@@ -166,10 +161,8 @@ impl Painting {
 
 /// The built-in captures with `own` over them.
 pub(crate) fn captures(own: &BTreeMap<String, String>) -> BTreeMap<String, String> {
-    let mut captures: BTreeMap<String, String> = CAPTURES
-        .iter()
-        .map(|&(kind, capture)| (kind.to_owned(), capture.to_owned()))
-        .collect();
+    let mut captures: BTreeMap<String, String> =
+        CAPTURES.iter().map(|&(kind, capture)| (kind.to_owned(), capture.to_owned())).collect();
     captures.extend(own.clone());
     captures
 }
@@ -193,12 +186,7 @@ mod tests {
     }
 
     fn painting(level: u8, variables: bool) -> Painting {
-        Painting {
-            enabled: true,
-            captures: captures(&BTreeMap::new()),
-            level,
-            variables,
-        }
+        Painting { enabled: true, captures: captures(&BTreeMap::new()), level, variables }
     }
 
     #[test]
@@ -218,10 +206,7 @@ mod tests {
                 .paint(&legend(), &tokens)
                 .into_iter()
                 .map(|(range, face)| {
-                    (
-                        String::from_utf8(text.bytes_in(range).to_vec()).unwrap(),
-                        face,
-                    )
+                    (String::from_utf8(text.bytes_in(range).to_vec()).unwrap(), face)
                 })
                 .collect()
         };
@@ -253,14 +238,8 @@ mod tests {
     #[test]
     fn a_modifier_changes_the_capture_and_own_captures_win() {
         let legend = legend();
-        let constant = Token {
-            kind: 4,
-            modifiers: 0b100,
-        };
-        let property = Token {
-            kind: 2,
-            modifiers: 0,
-        };
+        let constant = Token { kind: 4, modifiers: 0b100 };
+        let property = Token { kind: 2, modifiers: 0 };
         let mut painting = painting(4, true);
         assert_eq!(painting.face(&legend, constant), Some(Face::Constant));
         assert_eq!(painting.face(&legend, property), None);
@@ -268,10 +247,7 @@ mod tests {
         painting.captures = captures(&own);
         assert_eq!(painting.face(&legend, property), Some(Face::Constant));
         // A number the legend lacks is no token.
-        let unknown = Token {
-            kind: 9,
-            modifiers: 0,
-        };
+        let unknown = Token { kind: 9, modifiers: 0 };
         assert_eq!(painting.face(&legend, unknown), None);
     }
 

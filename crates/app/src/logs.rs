@@ -179,10 +179,8 @@ fn reports(crashes: &Path) -> Vec<(SystemTime, PathBuf)> {
 
 /// `2026-10-20-142903` in local time, which sorts as it goes.
 fn local_time(at: SystemTime) -> String {
-    let seconds = at
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as libc::time_t;
+    let seconds =
+        at.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs() as libc::time_t;
     // SAFETY: `tm` is plain data, valid zeroed.
     let mut local: libc::tm = unsafe { std::mem::zeroed() };
     // SAFETY: both pointers are to locals that outlive the call.
@@ -224,17 +222,11 @@ mod tests {
             file.set_modified(past - Duration::from_secs(age)).unwrap();
         }
         let told = unseen_reports(&crashes).unwrap();
-        assert!(
-            told.contains("3 times") && told.ends_with("c.log"),
-            "{told}"
-        );
+        assert!(told.contains("3 times") && told.ends_with("c.log"), "{told}");
         assert_eq!(unseen_reports(&crashes), None);
 
         remove_old_reports(&crashes, 2);
-        let left: Vec<_> = reports(&crashes)
-            .into_iter()
-            .map(|(_, path)| path)
-            .collect();
+        let left: Vec<_> = reports(&crashes).into_iter().map(|(_, path)| path).collect();
         assert_eq!(left, [crashes.join("b.log"), crashes.join("c.log")]);
         fs::remove_dir_all(&crashes).unwrap();
     }

@@ -16,9 +16,9 @@ pub fn to_lsp(text: &Snapshot, offset: usize, encoding: Encoding) -> Position {
     let (line, column) = text.position(offset);
     let character = match encoding {
         Encoding::Utf8 => column,
-        Encoding::Utf16 => String::from_utf8_lossy(&text.bytes_in(offset - column..offset))
-            .encode_utf16()
-            .count(),
+        Encoding::Utf16 => {
+            String::from_utf8_lossy(&text.bytes_in(offset - column..offset)).encode_utf16().count()
+        }
     };
     Position::new(line as u32, character as u32)
 }
@@ -52,11 +52,7 @@ pub fn offset_in_line(
             utf16_offset(text, from..line.end, (character - from_character) as usize)
         }
     };
-    if text.is_char_boundary(offset) {
-        offset
-    } else {
-        text.previous_char_boundary(offset)
-    }
+    if text.is_char_boundary(offset) { offset } else { text.previous_char_boundary(offset) }
 }
 
 /// Offset in `line` of the character starting after `units` UTF-16 code units, else the
@@ -127,14 +123,8 @@ mod tests {
             from_lsp(&text, Position::new(1, 99), Encoding::Utf16),
             text.line_range(1).unwrap().end
         );
-        assert_eq!(
-            from_lsp(&text, Position::new(1, 5), Encoding::Utf8),
-            "fn x() {}\nlet ".len()
-        );
-        assert_eq!(
-            from_lsp(&text, Position::new(9, 0), Encoding::Utf8),
-            text.len()
-        );
+        assert_eq!(from_lsp(&text, Position::new(1, 5), Encoding::Utf8), "fn x() {}\nlet ".len());
+        assert_eq!(from_lsp(&text, Position::new(9, 0), Encoding::Utf8), text.len());
     }
 
     #[test]

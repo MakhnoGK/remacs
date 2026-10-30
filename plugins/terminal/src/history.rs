@@ -66,25 +66,12 @@ impl Commands {
         let command = self.by_prompt.get(&id)?;
         let started = command.started?;
         let Some((code, finished)) = command.finished else {
-            return Some(RowMark {
-                exit: None,
-                detail: "running".to_owned(),
-            });
+            return Some(RowMark { exit: None, detail: "running".to_owned() });
         };
         let code = code.unwrap_or(0);
-        let took = finished
-            .duration_since(started)
-            .unwrap_or_default()
-            .as_secs_f32();
-        let detail = format!(
-            "exit {code} · {} · finished {}",
-            duration(took),
-            clock(finished)
-        );
-        Some(RowMark {
-            exit: Some(code),
-            detail,
-        })
+        let took = finished.duration_since(started).unwrap_or_default().as_secs_f32();
+        let detail = format!("exit {code} · {} · finished {}", duration(took), clock(finished));
+        Some(RowMark { exit: Some(code), detail })
     }
 }
 
@@ -99,10 +86,8 @@ fn duration(seconds: f32) -> String {
 
 /// `10:41` in local time.
 fn clock(at: SystemTime) -> String {
-    let seconds = at
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as libc::time_t;
+    let seconds =
+        at.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs() as libc::time_t;
     // SAFETY: `tm` is plain data, valid zeroed.
     let mut local: libc::tm = unsafe { std::mem::zeroed() };
     // SAFETY: both pointers are to locals that outlive the call.
@@ -126,10 +111,7 @@ mod tests {
         commands.apply(Mark::Started, start);
         assert_eq!(commands.mark(1).unwrap().exit, None);
         assert!(commands.running());
-        commands.apply(
-            Mark::Finished(Some(101)),
-            start + Duration::from_millis(2_800),
-        );
+        commands.apply(Mark::Finished(Some(101)), start + Duration::from_millis(2_800));
         let mark = commands.mark(1).unwrap();
         assert_eq!(mark.exit, Some(101));
         assert!(!commands.running());

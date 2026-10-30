@@ -21,9 +21,7 @@ use crate::entry::{
     size_label, sort,
 };
 use crate::file_ops::{rename_exclusive, replace};
-use crate::listing::{
-    DIRED_MODE, Listing, entry_at_point, new_listing, select_entry, set_entries,
-};
+use crate::listing::{DIRED_MODE, Listing, entry_at_point, new_listing, select_entry, set_entries};
 use crate::{DiredPlugin, deliver_rename_edits, take_rename_requests};
 
 const READ_TIMEOUT: Duration = Duration::from_secs(10);
@@ -51,12 +49,7 @@ impl Drop for Tree {
 }
 
 fn editor() -> Editor {
-    let mut editor = Editor::new(&[
-        &EditingPlugin,
-        &MinibufferPlugin,
-        &FilesPlugin,
-        &DiredPlugin,
-    ]);
+    let mut editor = Editor::new(&[&EditingPlugin, &MinibufferPlugin, &FilesPlugin, &DiredPlugin]);
     editor.viewport.set_height(20);
     editor
 }
@@ -69,11 +62,7 @@ fn press(editor: &mut Editor, keys: &str) {
 
 fn lines(editor: &Editor) -> Vec<String> {
     let buffer = editor.window_buffer();
-    buffer
-        .contents(0..buffer.text().len())
-        .split('\n')
-        .map(str::to_owned)
-        .collect()
+    buffer.contents(0..buffer.text().len()).split('\n').map(str::to_owned).collect()
 }
 
 fn line_at_point(editor: &Editor) -> String {
@@ -94,10 +83,7 @@ fn wait_until(editor: &mut Editor, done: impl Fn(&Editor) -> bool) {
 #[track_caller]
 fn wait_for_listing(editor: &mut Editor) {
     wait_until(editor, |editor| {
-        editor
-            .window_buffer()
-            .local::<Listing>()
-            .is_some_and(|listing| !listing.entries.is_empty())
+        editor.window_buffer().local::<Listing>().is_some_and(|listing| !listing.entries.is_empty())
     });
 }
 
@@ -121,13 +107,7 @@ fn sizes_dates_and_permissions_read_like_finder_and_ls() {
     assert_eq!(size_label(999_999), "1.0 MB");
     assert_eq!(items_label(1), "1 item");
     assert_eq!(items_label(3), "3 items");
-    let time = LocalTime {
-        year: 2026,
-        month: 9,
-        day: 4,
-        hour: 9,
-        minute: 5,
-    };
+    let time = LocalTime { year: 2026, month: 9, day: 4, hour: 9, minute: 5 };
     assert_eq!(date_label(time, 2026), "Oct 4, 09:05");
     assert_eq!(date_label(time, 2027), "Oct 4, 2026");
     let day = |day| LocalTime { day, ..time };
@@ -135,10 +115,7 @@ fn sizes_dates_and_permissions_read_like_finder_and_ls() {
     assert_eq!(full_date_label(time, day(5), time), "Yesterday, 09:05");
     assert_eq!(full_date_label(time, day(9), day(8)), "Oct 4, 09:05");
     let next_year = LocalTime { year: 2027, ..time };
-    assert_eq!(
-        full_date_label(time, next_year, next_year),
-        "Oct 4, 2026, 09:05"
-    );
+    assert_eq!(full_date_label(time, next_year, next_year), "Oct 4, 2026, 09:05");
     assert_eq!(mode_label(0o755), "rwxr-xr-x");
     assert_eq!(mode_label(0o4755), "rwsr-xr-x");
     assert_eq!(mode_label(0o1777), "rwxrwxrwt");
@@ -158,20 +135,11 @@ fn directories_come_first_whatever_the_order() {
         entries.iter().map(|entry| entry.name.clone()).collect()
     };
     sort(&mut entries, SortKey::Name);
-    assert_eq!(
-        names(&entries),
-        ["..", "alpha", "zeta", "Big.rs", "small.rs"]
-    );
+    assert_eq!(names(&entries), ["..", "alpha", "zeta", "Big.rs", "small.rs"]);
     sort(&mut entries, SortKey::Modified);
-    assert_eq!(
-        names(&entries),
-        ["..", "alpha", "zeta", "small.rs", "Big.rs"]
-    );
+    assert_eq!(names(&entries), ["..", "alpha", "zeta", "small.rs", "Big.rs"]);
     sort(&mut entries, SortKey::Size);
-    assert_eq!(
-        names(&entries),
-        ["..", "alpha", "zeta", "Big.rs", "small.rs"]
-    );
+    assert_eq!(names(&entries), ["..", "alpha", "zeta", "Big.rs", "small.rs"]);
 }
 
 #[test]
@@ -182,10 +150,7 @@ fn a_listing_is_a_read_only_table_with_point_on_the_first_entry() {
     wait_for_listing(&mut editor);
 
     assert_eq!(editor.window_buffer().mode(), DIRED_MODE);
-    assert_eq!(
-        lines(&editor),
-        ["..", "sub", ".hidden", "lib.rs", "lib.rs~"]
-    );
+    assert_eq!(lines(&editor), ["..", "sub", ".hidden", "lib.rs", "lib.rs~"]);
     assert_eq!(line_at_point(&editor), "sub");
 
     let table = editor.table(0..20).unwrap();
@@ -196,10 +161,7 @@ fn a_listing_is_a_read_only_table_with_point_on_the_first_entry() {
     assert_eq!(table.rows[3].cells[2], "13 B");
     assert_eq!(table.rows[3].cells[4], "-rw-r--r--");
     assert!(table.rows.iter().all(|row| row.state.is_none()));
-    assert_eq!(
-        table.crumbs.last().unwrap().label,
-        editor.window_buffer().name()
-    );
+    assert_eq!(table.crumbs.last().unwrap().label, editor.window_buffer().name());
     let status = editor.status_segments();
     assert_eq!(status[0].items[0].text, "4 items");
 
@@ -213,18 +175,15 @@ struct KeyedPane;
 
 impl Plugin for KeyedPane {
     fn register(&self, registry: &mut Registry) {
-        registry
-            .commands
-            .add(Command::new("pane-key", "", |editor| {
-                editor.set_message("pane got n");
-                Ok(())
-            }));
+        registry.commands.add(Command::new("pane-key", "", |editor| {
+            editor.set_message("pane got n");
+            Ok(())
+        }));
         let mut keymap = Keymap::default();
         keymap.bind("n", "pane-key");
-        registry.minor_keymaps.push(MinorKeymap {
-            active: |editor| editor.pane_has_keys("Pane"),
-            keymap,
-        });
+        registry
+            .minor_keymaps
+            .push(MinorKeymap { active: |editor| editor.pane_has_keys("Pane"), keymap });
         registry.panes.push(PaneSource {
             name: "Pane",
             shown: |_| true,
@@ -236,13 +195,8 @@ impl Plugin for KeyedPane {
 #[test]
 fn a_pane_over_a_listing_takes_the_keys_until_they_go_back() {
     let tree = Tree::new("pane");
-    let mut editor = Editor::new(&[
-        &EditingPlugin,
-        &MinibufferPlugin,
-        &FilesPlugin,
-        &DiredPlugin,
-        &KeyedPane,
-    ]);
+    let mut editor =
+        Editor::new(&[&EditingPlugin, &MinibufferPlugin, &FilesPlugin, &DiredPlugin, &KeyedPane]);
     open_directory(&mut editor, &tree.0, None, false).unwrap();
     wait_for_listing(&mut editor);
 
@@ -269,11 +223,7 @@ fn opening_a_directory_replaces_the_listing_and_going_up_returns_to_it() {
     assert_eq!(editor.window_buffer().name(), "sub");
     assert_eq!(lines(&editor), ["..", "deeper", "inner.rs"]);
     let listings = |editor: &Editor| {
-        editor
-            .buffers()
-            .iter()
-            .filter(|buffer| buffer.mode() == DIRED_MODE)
-            .count()
+        editor.buffers().iter().filter(|buffer| buffer.mode() == DIRED_MODE).count()
     };
     assert_eq!(listings(&editor), 1);
 
@@ -314,9 +264,7 @@ fn changes_on_disk_show_up_by_themselves() {
     wait_for_listing(&mut editor);
 
     fs::write(tree.0.join("added.txt"), "").unwrap();
-    wait_until(&mut editor, |editor| {
-        lines(editor).contains(&"added.txt".to_owned())
-    });
+    wait_until(&mut editor, |editor| lines(editor).contains(&"added.txt".to_owned()));
     assert_eq!(line_at_point(&editor), "sub");
 }
 
@@ -335,24 +283,10 @@ fn the_preview_shows_the_items_of_a_directory_and_the_head_of_a_file() {
         preview(editor).is_some_and(|preview| matches!(preview.body, PreviewBody::Items(_)))
     });
     let directory = preview(&editor).unwrap();
-    assert_eq!(
-        (directory.title.as_str(), directory.kind.as_str()),
-        ("sub", "Folder")
-    );
-    let PreviewBody::Items(items) = directory.body else {
-        unreachable!()
-    };
-    let names: Vec<_> = items
-        .iter()
-        .map(|item| (item.name.as_str(), item.face))
-        .collect();
-    assert_eq!(
-        names,
-        [
-            ("deeper", RowFace::Directory),
-            ("inner.rs", RowFace::Normal)
-        ]
-    );
+    assert_eq!((directory.title.as_str(), directory.kind.as_str()), ("sub", "Folder"));
+    let PreviewBody::Items(items) = directory.body else { unreachable!() };
+    let names: Vec<_> = items.iter().map(|item| (item.name.as_str(), item.face)).collect();
+    assert_eq!(names, [("deeper", RowFace::Directory), ("inner.rs", RowFace::Normal)]);
     assert_eq!(directory.details[1], ("Size", "2 items".to_owned()));
 
     press(&mut editor, "n n");
@@ -360,13 +294,8 @@ fn the_preview_shows_the_items_of_a_directory_and_the_head_of_a_file() {
         preview(editor).is_some_and(|preview| preview.details[1].1.contains("line"))
     });
     let file = preview(&editor).unwrap();
-    assert_eq!(
-        (file.title.as_str(), file.kind.as_str()),
-        ("lib.rs", "Plain text")
-    );
-    let PreviewBody::Code(code) = file.body else {
-        unreachable!()
-    };
+    assert_eq!((file.title.as_str(), file.kind.as_str()), ("lib.rs", "Plain text"));
+    let PreviewBody::Code(code) = file.body else { unreachable!() };
     assert_eq!(code.text, "fn main() {}");
     assert_eq!(file.details[1], ("Size", "13 B · 1 line".to_owned()));
     assert_eq!(file.details[3], ("Permissions", "-rw-r--r--".to_owned()));
@@ -428,19 +357,14 @@ fn deleting_flagged_files_asks_first_and_keeps_marks_of_the_rest() {
     assert_eq!(dialog.yes_label, "Delete");
     assert!(!dialog.option.unwrap().on);
     press(&mut editor, "y");
-    wait_until(&mut editor, |editor| {
-        !lines(editor).contains(&"lib.rs~".to_owned())
-    });
+    wait_until(&mut editor, |editor| !lines(editor).contains(&"lib.rs~".to_owned()));
     assert!(!tree.0.join("lib.rs~").exists());
     assert_eq!(editor.echo().unwrap(), "Deleted lib.rs~");
     assert_eq!(marks(&editor)[2], Some(Mark::Marked));
 
     press(&mut editor, "U M-< n n n D");
     assert_eq!(line_at_point(&editor), "lib.rs");
-    assert_eq!(
-        editor.minibuffer().unwrap().dialog().unwrap().title,
-        "Delete `lib.rs`?"
-    );
+    assert_eq!(editor.minibuffer().unwrap().dialog().unwrap().title, "Delete `lib.rs`?");
     press(&mut editor, "n");
     assert!(editor.minibuffer().is_none());
     assert!(tree.0.join("lib.rs").exists());
@@ -503,10 +427,7 @@ fn a_new_file_is_named_in_the_prompt_and_listed_with_point_on_it() {
     type_text(&mut editor, "lib.rs");
     press(&mut editor, "RET");
     assert!(editor.echo().unwrap().ends_with("lib.rs already exists"));
-    assert_eq!(
-        fs::read_to_string(tree.0.join("lib.rs")).unwrap(),
-        "fn main() {}\n"
-    );
+    assert_eq!(fs::read_to_string(tree.0.join("lib.rs")).unwrap(), "fn main() {}\n");
 
     press(&mut editor, "c x C-g");
     assert!(editor.minibuffer().is_none() && !tree.0.join("x").exists());
@@ -520,9 +441,7 @@ fn type_text(editor: &mut Editor, text: &str) {
 }
 
 fn wait_for_message(editor: &mut Editor, start: &str) -> String {
-    wait_until(editor, |editor| {
-        editor.echo().is_some_and(|echo| echo.starts_with(start))
-    });
+    wait_until(editor, |editor| editor.echo().is_some_and(|echo| echo.starts_with(start)));
     editor.echo().unwrap()
 }
 
@@ -549,9 +468,7 @@ fn copying_a_file_to_a_new_name_keeps_its_modified_time() {
     assert_eq!(fs::read_to_string(&copy).unwrap(), "fn main() {}\n");
     let modified = |path: PathBuf| fs::metadata(path).unwrap().modified().unwrap();
     assert_eq!(modified(copy), modified(tree.0.join("lib.rs")));
-    wait_until(&mut editor, |editor| {
-        lines(editor).contains(&"copy.rs".to_owned())
-    });
+    wait_until(&mut editor, |editor| lines(editor).contains(&"copy.rs".to_owned()));
 }
 
 #[test]
@@ -584,9 +501,7 @@ fn moving_marked_files_into_a_new_folder_takes_their_buffers_along() {
             .iter()
             .any(|buffer| buffer.path() == Some(destination.join("lib.rs").as_path()))
     );
-    wait_until(&mut editor, |editor| {
-        !lines(editor).contains(&"lib.rs".to_owned())
-    });
+    wait_until(&mut editor, |editor| !lines(editor).contains(&"lib.rs".to_owned()));
 }
 
 #[test]
@@ -608,23 +523,14 @@ fn moving_updates_references_first_and_backends_hear_of_the_move() {
     let (from, to) = (tree.0.join("lib.rs"), tree.0.join("sub/lib.rs"));
     assert_eq!(request.renames, [(from.clone(), to.clone())]);
     editor.refresh();
-    assert_eq!(
-        editor.echo().as_deref(),
-        Some("Finding references to update…")
-    );
+    assert_eq!(editor.echo().as_deref(), Some("Finding references to update…"));
     assert!(from.exists());
 
-    let edits = FileEdits {
-        path: refs.clone(),
-        edits: vec![(4..7, "sub::lib".into())],
-    };
+    let edits = FileEdits { path: refs.clone(), edits: vec![(4..7, "sub::lib".into())] };
     deliver_rename_edits(&mut editor, request.id, vec![edits]);
     wait_for_message(&mut editor, "Moved lib.rs to");
     assert!(editor.echo().unwrap().ends_with("; updated refs.txt"));
-    assert_eq!(
-        fs::read_to_string(&refs).unwrap(),
-        "use sub::lib;\n// unsaved\n"
-    );
+    assert_eq!(fs::read_to_string(&refs).unwrap(), "use sub::lib;\n// unsaved\n");
     assert!(to.exists() && !from.exists());
     assert_eq!(editor.take_moved_files(), [(from, to)]);
 }
@@ -641,19 +547,13 @@ fn files_already_there_are_kept_unless_overwriting() {
     type_text(&mut editor, "sub/");
     press(&mut editor, "RET");
     wait_for_message(&mut editor, "Nothing to copy");
-    assert_eq!(
-        fs::read_to_string(tree.0.join("sub/lib.rs")).unwrap(),
-        "old"
-    );
+    assert_eq!(fs::read_to_string(tree.0.join("sub/lib.rs")).unwrap(), "old");
 
     press(&mut editor, "C");
     type_text(&mut editor, "sub/");
     press(&mut editor, "M-o RET");
     wait_for_message(&mut editor, "Copied lib.rs to");
-    assert_eq!(
-        fs::read_to_string(tree.0.join("sub/lib.rs")).unwrap(),
-        "fn main() {}\n"
-    );
+    assert_eq!(fs::read_to_string(tree.0.join("sub/lib.rs")).unwrap(), "fn main() {}\n");
 
     press(&mut editor, "M-< n R");
     type_text(&mut editor, "sub/inside/");
@@ -726,9 +626,7 @@ fn onto_itself_is_found_through_links_and_letter_case() {
 
     fs::create_dir(tree.0.join("sub/sub")).unwrap();
     open_directory(&mut editor, &tree.0.join("sub"), None, false).unwrap();
-    wait_until(&mut editor, |editor| {
-        lines(editor).contains(&"sub".to_owned())
-    });
+    wait_until(&mut editor, |editor| lines(editor).contains(&"sub".to_owned()));
     press(&mut editor, "M-<");
     while line_at_point(&editor) != "sub" {
         press(&mut editor, "n");
@@ -754,15 +652,10 @@ fn onto_itself_is_found_through_links_and_letter_case() {
     type_text(&mut editor, "LIB.RS");
     press(&mut editor, "M-RET");
     wait_for_message(&mut editor, "Moved lib.rs to");
-    let names: Vec<_> = fs::read_dir(&tree.0)
-        .unwrap()
-        .map(|item| item.unwrap().file_name())
-        .collect();
+    let names: Vec<_> =
+        fs::read_dir(&tree.0).unwrap().map(|item| item.unwrap().file_name()).collect();
     assert!(names.contains(&"LIB.RS".into()) && !names.contains(&"lib.rs".into()));
-    assert_eq!(
-        fs::read_to_string(tree.0.join("LIB.RS")).unwrap(),
-        "fn main() {}\n"
-    );
+    assert_eq!(fs::read_to_string(tree.0.join("LIB.RS")).unwrap(), "fn main() {}\n");
 }
 
 /// A listing of a fresh tree with its names editable, point on `sub`.
@@ -794,10 +687,7 @@ fn edited_names_are_fields_and_applying_renames_their_files() {
     assert!(table.sort.is_empty() && table.preview.is_none());
     assert_eq!(table.rows[0].field, None);
     assert_eq!(table.rows[3].cells[0], "new_lib.rs");
-    assert_eq!(
-        table.rows[3].field.as_ref().unwrap().original.as_deref(),
-        Some("lib.rs")
-    );
+    assert_eq!(table.rows[3].field.as_ref().unwrap().original.as_deref(), Some("lib.rs"));
     let changes = changes(&editor);
     assert_eq!(changes.summary, "1 rename");
     assert_eq!(changes.edits, [("lib.rs".into(), "new_lib.rs".into())]);
@@ -848,10 +738,7 @@ fn swapped_names_pass_through_temporary_names() {
 
     press(&mut editor, "C-c C-c");
     wait_for_message(&mut editor, "Renamed 2 files");
-    assert_eq!(
-        fs::read_to_string(tree.0.join("lib.rs~")).unwrap(),
-        "fn main() {}\n"
-    );
+    assert_eq!(fs::read_to_string(tree.0.join("lib.rs~")).unwrap(), "fn main() {}\n");
     assert_eq!(fs::read_to_string(tree.0.join("lib.rs")).unwrap(), "backup");
 }
 
@@ -861,16 +748,10 @@ fn names_that_cannot_be_are_refused_and_editing_goes_on() {
     press(&mut editor, "C-n C-n C-a C-k");
     type_text(&mut editor, "sub");
     press(&mut editor, "C-c C-c");
-    assert_eq!(
-        editor.echo().as_deref(),
-        Some("Two files would be named sub")
-    );
+    assert_eq!(editor.echo().as_deref(), Some("Two files would be named sub"));
 
     press(&mut editor, "C-a C-k C-c C-c");
-    assert_eq!(
-        editor.echo().as_deref(),
-        Some("Cannot rename lib.rs: the new name is empty")
-    );
+    assert_eq!(editor.echo().as_deref(), Some("Cannot rename lib.rs: the new name is empty"));
     assert!(!editor.window_buffer().is_read_only());
 }
 
@@ -894,17 +775,11 @@ fn replacing_in_names_changes_every_name_and_undoes_at_once() {
     press(&mut editor, "RET");
     type_text(&mut editor, "core");
     press(&mut editor, "RET");
-    assert_eq!(
-        lines(&editor),
-        ["..", "sub", ".hidden", "core.rs", "core.rs~"]
-    );
+    assert_eq!(lines(&editor), ["..", "sub", ".hidden", "core.rs", "core.rs~"]);
     assert_eq!(editor.echo().as_deref(), Some("Replaced 2 occurrences"));
 
     press(&mut editor, "C-/");
-    assert_eq!(
-        lines(&editor),
-        ["..", "sub", ".hidden", "lib.rs", "lib.rs~"]
-    );
+    assert_eq!(lines(&editor), ["..", "sub", ".hidden", "lib.rs", "lib.rs~"]);
 }
 
 #[test]
@@ -917,33 +792,19 @@ fn references_a_backend_finds_are_shown_and_updated_with_the_rename() {
 
     // Asked again as each letter was typed; only the newest question counts.
     let request = take_rename_requests(&mut editor).pop().unwrap();
-    assert_eq!(
-        request.renames,
-        [(tree.0.join("lib.rs"), tree.0.join("core.rs"))]
-    );
+    assert_eq!(request.renames, [(tree.0.join("lib.rs"), tree.0.join("core.rs"))]);
     assert_eq!(changes(&editor).elsewhere, Elsewhere::Checking);
     press(&mut editor, "C-c C-c");
-    assert!(
-        editor
-            .echo()
-            .unwrap()
-            .starts_with("Still finding references")
-    );
+    assert!(editor.echo().unwrap().starts_with("Still finding references"));
 
-    let edits = FileEdits {
-        path: refs.clone(),
-        edits: vec![(4..7, "core".into())],
-    };
+    let edits = FileEdits { path: refs.clone(), edits: vec![(4..7, "core".into())] };
     deliver_rename_edits(&mut editor, request.id, vec![edits]);
     let changes = changes(&editor);
     assert_eq!(
         changes.elsewhere,
         Elsewhere::Files(vec![FileDiff {
             name: "refs.txt".into(),
-            lines: vec![
-                DiffLine::Removed("use lib;".into()),
-                DiffLine::Added("use core;".into())
-            ],
+            lines: vec![DiffLine::Removed("use lib;".into()), DiffLine::Added("use core;".into())],
         }])
     );
     assert!(changes.options[0].selected);
@@ -962,10 +823,7 @@ fn references_are_left_alone_when_switched_off() {
     press(&mut editor, "TAB TAB C-a M-d");
     type_text(&mut editor, "core");
     let request = take_rename_requests(&mut editor).pop().unwrap();
-    let edits = FileEdits {
-        path: refs.clone(),
-        edits: vec![(4..7, "core".into())],
-    };
+    let edits = FileEdits { path: refs.clone(), edits: vec![(4..7, "core".into())] };
     deliver_rename_edits(&mut editor, request.id, vec![edits]);
     editor.run_command("wdired-toggle-reference-updates");
     let changes = changes(&editor);

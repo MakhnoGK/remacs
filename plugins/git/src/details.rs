@@ -48,26 +48,15 @@ pub fn read(root: &Path, snapshot: &Snapshot) -> Details {
         Head::Branch(branch) => base(root, branch, snapshot),
         _ => None,
     };
-    let stashes = if snapshot.stashes > 0 {
-        stashes(root)
-    } else {
-        Vec::new()
-    };
-    Details {
-        subject,
-        base,
-        stashes,
-    }
+    let stashes = if snapshot.stashes > 0 { stashes(root) } else { Vec::new() };
+    Details { subject, base, stashes }
 }
 
 /// The base named for `branch`, else the remote's default branch, else `main` or
 /// `master`; none on the base itself.
 fn base(root: &Path, branch: &str, snapshot: &Snapshot) -> Option<Base> {
-    let local = text(
-        root,
-        &["for-each-ref", "--format=%(refname:short)", "refs/heads"],
-    )
-    .unwrap_or_default();
+    let local = text(root, &["for-each-ref", "--format=%(refname:short)", "refs/heads"])
+        .unwrap_or_default();
     let has_local = |name: &str| local.lines().any(|line| line == name);
     let remote = snapshot
         .upstream
@@ -78,45 +67,24 @@ fn base(root: &Path, branch: &str, snapshot: &Snapshot) -> Option<Base> {
         .or_else(|| {
             let target = text(
                 root,
-                &[
-                    "symbolic-ref",
-                    "-q",
-                    "--short",
-                    &format!("refs/remotes/{remote}/HEAD"),
-                ],
+                &["symbolic-ref", "-q", "--short", &format!("refs/remotes/{remote}/HEAD")],
             )?;
             let default = target.strip_prefix(&format!("{remote}/"))?;
-            Some(if has_local(default) {
-                default.to_owned()
-            } else {
-                target.clone()
-            })
+            Some(if has_local(default) { default.to_owned() } else { target.clone() })
         })
-        .or_else(|| {
-            USUAL_BASES
-                .into_iter()
-                .find(|name| has_local(name))
-                .map(str::to_owned)
-        })?;
+        .or_else(|| USUAL_BASES.into_iter().find(|name| has_local(name)).map(str::to_owned))?;
     if name == branch {
         return None;
     }
-    let new_commits = text(
-        root,
-        &["rev-list", "--count", &format!("HEAD..{name}"), "--"],
-    )?
-    .parse()
-    .ok()?;
+    let new_commits =
+        text(root, &["rev-list", "--count", &format!("HEAD..{name}"), "--"])?.parse().ok()?;
     Some(Base { name, new_commits })
 }
 
 fn configured_base(root: &Path, branch: &str) -> Option<String> {
-    BASE_KEYS.iter().find_map(|key| {
-        text(
-            root,
-            &["config", "--get", &format!("branch.{branch}.{key}")],
-        )
-    })
+    BASE_KEYS
+        .iter()
+        .find_map(|key| text(root, &["config", "--get", &format!("branch.{branch}.{key}")]))
 }
 
 fn stashes(root: &Path) -> Vec<Stash> {

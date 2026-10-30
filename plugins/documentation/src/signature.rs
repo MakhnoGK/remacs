@@ -61,9 +61,7 @@ fn state(editor: &mut Editor) -> &mut State {
 }
 
 fn shown(buffer: &Buffer) -> Option<&Shown> {
-    buffer
-        .local::<Shown>()
-        .filter(|shown| shown.point == buffer.point())
+    buffer.local::<Shown>().filter(|shown| shown.point == buffer.point())
 }
 
 fn close(editor: &mut Editor) {
@@ -80,11 +78,7 @@ fn request(editor: &mut Editor, trigger: SignatureTrigger) {
     let offset = editor.window_buffer().point();
     let state = state(editor);
     state.next_id += 1;
-    let request = SignatureRequest {
-        id: state.next_id,
-        offset,
-        trigger,
-    };
+    let request = SignatureRequest { id: state.next_id, offset, trigger };
     state.awaited = Some(request);
     state.requests.push(request);
 }
@@ -182,12 +176,7 @@ pub fn deliver_signatures(editor: &mut Editor, id: u64, signatures: Option<Signa
         }
     }
     signatures.active = signatures.active.min(signatures.list.len() - 1);
-    buffer.set_local(Shown {
-        anchor,
-        point: awaited.offset,
-        signatures,
-        stepped,
-    });
+    buffer.set_local(Shown { anchor, point: awaited.offset, signatures, stepped });
     state(editor).showing = true;
 }
 

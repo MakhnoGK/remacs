@@ -48,11 +48,8 @@ pub fn clear(editor: &mut Editor) -> CommandResult {
 
 /// Shows the buffer shown before, like Emacs `quit-window`.
 pub fn quit(editor: &mut Editor) -> CommandResult {
-    let other = editor
-        .buffers()
-        .get(1)
-        .map(|buffer| buffer.name().to_owned())
-        .ok_or("No other buffer")?;
+    let other =
+        editor.buffers().get(1).map(|buffer| buffer.name().to_owned()).ok_or("No other buffer")?;
     editor.switch_to_buffer(&other);
     Ok(())
 }
@@ -76,9 +73,7 @@ pub fn update(editor: &mut Editor) {
     let Some(buffer) = editor.buffer_named_mut(MESSAGES_BUFFER) else {
         return;
     };
-    let following = buffer
-        .local::<Drawn>()
-        .is_none_or(|old| buffer.point() >= old.last_start);
+    let following = buffer.local::<Drawn>().is_none_or(|old| buffer.point() >= old.last_start);
     let last_start = drawn.last_start;
     buffer.replace_text(Text::from(text.as_str()));
     buffer.set_local(drawn);
@@ -91,21 +86,12 @@ pub fn decorate(buffer: &Buffer, range: Range<usize>) -> Vec<Span> {
     let Some(drawn) = buffer.local::<Drawn>() else {
         return Vec::new();
     };
-    let first = drawn
-        .faces
-        .partition_point(|span| span.range.end <= range.start);
-    drawn.faces[first..]
-        .iter()
-        .take_while(|span| span.range.start < range.end)
-        .cloned()
-        .collect()
+    let first = drawn.faces.partition_point(|span| span.range.end <= range.start);
+    drawn.faces[first..].iter().take_while(|span| span.range.start < range.end).cloned().collect()
 }
 
 pub fn controls(editor: &Editor) -> Option<TextControls> {
-    is_shown(editor).then(|| TextControls {
-        hints: HINTS,
-        ..TextControls::default()
-    })
+    is_shown(editor).then(|| TextControls { hints: HINTS, ..TextControls::default() })
 }
 
 /// One message per entry: the time, the command that showed it and its text, later lines
@@ -123,10 +109,8 @@ fn render(log: &MessageLog) -> (String, Drawn) {
     for message in log.messages() {
         last_start = text.len();
         let command = command_name(message);
-        let prefix = format!(
-            "{}{COLUMN_GAP}{command:<command_width$}{COLUMN_GAP}",
-            message.clock()
-        );
+        let prefix =
+            format!("{}{COLUMN_GAP}{command:<command_width$}{COLUMN_GAP}", message.clock());
         faces.push(Span {
             range: text.len()..text.len() + prefix.trim_end().len(),
             face: Face::Comment,
@@ -160,11 +144,7 @@ fn render(log: &MessageLog) -> (String, Drawn) {
         }
         text.push('\n');
     }
-    let drawn = Drawn {
-        revision: log.revision(),
-        faces,
-        last_start,
-    };
+    let drawn = Drawn { revision: log.revision(), faces, last_start };
     (text, drawn)
 }
 
@@ -173,8 +153,5 @@ fn command_name(message: &EchoMessage) -> String {
     if name.chars().count() <= MAX_COMMAND_WIDTH {
         return name.to_owned();
     }
-    name.chars()
-        .take(MAX_COMMAND_WIDTH - 1)
-        .chain(['…'])
-        .collect()
+    name.chars().take(MAX_COMMAND_WIDTH - 1).chain(['…']).collect()
 }

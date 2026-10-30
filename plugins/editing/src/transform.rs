@@ -28,9 +28,8 @@ pub fn capitalize_dwim(editor: &mut Editor) -> CommandResult {
 fn change_case(editor: &mut Editor, change: fn(&str) -> String) -> CommandResult {
     let buffer = writable_buffer(editor)?;
     let region = buffer.region();
-    let range = region
-        .clone()
-        .unwrap_or_else(|| buffer.point()..forward_word_end(buffer, buffer.point()));
+    let range =
+        region.clone().unwrap_or_else(|| buffer.point()..forward_word_end(buffer, buffer.point()));
     let changed = change(&buffer.contents(range.clone()));
     let end = range.start + changed.len();
     buffer.apply_edits(vec![(range, changed)]);
@@ -77,11 +76,7 @@ fn start_zapping(editor: &mut Editor, command: &'static str) -> CommandResult {
     }
     writable_buffer(editor)?;
     editor.plugin_state::<Zapping>().0 = Some(command);
-    let prompt = if command == ZAP_TO_CHAR {
-        "Zap to char: "
-    } else {
-        "Zap up to char: "
-    };
+    let prompt = if command == ZAP_TO_CHAR { "Zap to char: " } else { "Zap up to char: " };
     editor.set_message(prompt);
     Ok(())
 }
@@ -112,11 +107,7 @@ fn zap(editor: &mut Editor, command: &str, character: char) -> CommandResult {
     let needle = character.encode_utf8(&mut [0; 4]).as_bytes().to_owned();
     let found = find_forward(buffer, point, &needle)
         .ok_or_else(|| format!("Search failed: “{character}”"))?;
-    let end = if command == ZAP_TO_CHAR {
-        found + needle.len()
-    } else {
-        found
-    };
+    let end = if command == ZAP_TO_CHAR { found + needle.len() } else { found };
     buffer.add_undo_boundary();
     editor.kill(point..end);
     Ok(())
@@ -146,9 +137,7 @@ pub fn join_line(editor: &mut Editor) -> CommandResult {
         let before = skip_blanks(buffer, newline, false);
         let after = skip_blanks(buffer, start, true);
         let tight = before == buffer.text().line_start(line - 1).unwrap_or(0)
-            || buffer
-                .char_before(before)
-                .is_some_and(|c| "([{".contains(c))
+            || buffer.char_before(before).is_some_and(|c| "([{".contains(c))
             || buffer.char_after(after).is_none_or(|c| ")]}\n".contains(c));
         let space = if tight { "" } else { " " };
         buffer.apply_edits(vec![(before..after, space.into())]);
@@ -173,11 +162,8 @@ pub fn cycle_spacing(editor: &mut Editor) -> CommandResult {
         let buffer = editor.buffer();
         let point = buffer.point();
         let blanks = skip_blanks(buffer, point, false)..skip_blanks(buffer, point, true);
-        *editor.plugin_state::<Original>() = Original {
-            start: blanks.start,
-            text: buffer.contents(blanks.clone()),
-            point,
-        };
+        *editor.plugin_state::<Original>() =
+            Original { start: blanks.start, text: buffer.contents(blanks.clone()), point };
         replace(editor.buffer_mut(), blanks, " ");
         return Ok(());
     }
@@ -223,20 +209,14 @@ pub fn duplicate_dwim(editor: &mut Editor) -> CommandResult {
         let point_at_end = buffer.point() == region.end;
         buffer.apply_edits(vec![(region.end..region.end, copy)]);
         let copied = region.end..region.end + region.len();
-        let (mark, point) = if point_at_end {
-            (copied.start, copied.end)
-        } else {
-            (copied.end, copied.start)
-        };
+        let (mark, point) =
+            if point_at_end { (copied.start, copied.end) } else { (copied.end, copied.start) };
         buffer.set_mark(mark);
         buffer.set_point(point);
         buffer.activate_mark();
         return Ok(());
     }
-    let line = buffer
-        .text()
-        .line_range(buffer.point_line())
-        .ok_or("No line")?;
+    let line = buffer.text().line_range(buffer.point_line()).ok_or("No line")?;
     let column = buffer.point() - line.start;
     let copy = format!("\n{}", buffer.contents(line.clone()));
     buffer.apply_edits(vec![(line.end..line.end, copy)]);
@@ -257,15 +237,9 @@ pub fn move_line_down(editor: &mut Editor) -> CommandResult {
 fn move_lines(editor: &mut Editor, down: bool) -> CommandResult {
     let buffer = writable_buffer(editor)?;
     let text = buffer.text();
-    let span = buffer
-        .region()
-        .unwrap_or_else(|| buffer.point()..buffer.point());
+    let span = buffer.region().unwrap_or_else(|| buffer.point()..buffer.point());
     let (first, last) = lines_of(buffer, span);
-    let other = if down {
-        last + 1
-    } else {
-        first.checked_sub(1).ok_or("Beginning of buffer")?
-    };
+    let other = if down { last + 1 } else { first.checked_sub(1).ok_or("Beginning of buffer")? };
     let (Some(block_start), Some(block_end), Some(other_range)) = (
         text.line_start(first),
         text.line_range(last).map(|range| range.end),
@@ -277,20 +251,12 @@ fn move_lines(editor: &mut Editor, down: bool) -> CommandResult {
     let shift = other_range.len() as isize + 1;
     let shift = if down { shift } else { -shift };
     let (point, mark, active) = (buffer.point(), buffer.mark(), buffer.is_mark_active());
-    let (block_text, other_text) = (
-        buffer.contents(block.clone()),
-        buffer.contents(other_range.clone()),
-    );
+    let (block_text, other_text) =
+        (buffer.contents(block.clone()), buffer.contents(other_range.clone()));
     let (range, moved) = if down {
-        (
-            block.start..other_range.end,
-            format!("{other_text}\n{block_text}"),
-        )
+        (block.start..other_range.end, format!("{other_text}\n{block_text}"))
     } else {
-        (
-            other_range.start..block.end,
-            format!("{block_text}\n{other_text}"),
-        )
+        (other_range.start..block.end, format!("{block_text}\n{other_text}"))
     };
     buffer.apply_edits(vec![(range, moved)]);
     let moved_by = |offset: usize| offset.saturating_add_signed(shift);

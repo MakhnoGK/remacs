@@ -106,11 +106,7 @@ impl Editor {
         for plugin in plugins {
             plugin.register(&mut registry);
         }
-        let scratch = Buffer::new(
-            SCRATCH_BUFFER,
-            Text::default(),
-            registry.modes.name_for(None),
-        );
+        let scratch = Buffer::new(SCRATCH_BUFFER, Text::default(), registry.modes.name_for(None));
         Self {
             buffers: vec![scratch],
             default_keymap: registry.keymap.clone(),
@@ -164,8 +160,7 @@ impl Editor {
         self.reveal(point);
         let buffer = self.window_buffer();
         let point_line = buffer.point_line();
-        self.viewport
-            .ensure_visible(point_line, &buffer.shown_lines());
+        self.viewport.ensure_visible(point_line, &buffer.shown_lines());
     }
 
     /// Centers `line` of the window buffer in the window unless it is shown already,
@@ -184,10 +179,7 @@ impl Editor {
     /// open, as its preview of a search's match, only until it is quit.
     fn reveal(&mut self, offset: usize) {
         let buffer = self.window_buffer_mut();
-        if !buffer
-            .shown_lines()
-            .is_hidden(buffer.text().line_of(offset))
-        {
+        if !buffer.shown_lines().is_hidden(buffer.text().line_of(offset)) {
             return;
         }
         let shown = buffer.reveal(offset);
@@ -217,11 +209,7 @@ impl Editor {
 
     /// The buffers whose programs quitting now would end, all plugins' together.
     pub fn running_programs(&self) -> Vec<String> {
-        self.registry
-            .quit_queries
-            .iter()
-            .flat_map(|query| query(self))
-            .collect()
+        self.registry.quit_queries.iter().flat_map(|query| query(self)).collect()
     }
 
     pub fn request_frame(&mut self, request: FrameRequest) {
@@ -248,10 +236,7 @@ impl Editor {
     }
 
     pub fn set_notifier(&mut self, notifier: Notifier) {
-        *self
-            .notifier
-            .write()
-            .unwrap_or_else(PoisonError::into_inner) = Some(notifier);
+        *self.notifier.write().unwrap_or_else(PoisonError::into_inner) = Some(notifier);
     }
 
     /// Calls whichever notifier is set when it is called, so work started before the UI

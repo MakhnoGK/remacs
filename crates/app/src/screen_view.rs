@@ -68,29 +68,13 @@ pub fn render_screen(
     tip: Option<((usize, bool), Look)>,
     cx: &mut Context<EditorView>,
 ) -> Div {
-    let Screen {
-        rows,
-        cursor,
-        banner,
-        notice,
-        mode: _,
-        search,
-        above,
-        flash,
-        pointing,
-    } = screen;
-    let root = div()
-        .relative()
-        .size_full()
-        .overflow_hidden()
-        .when(pointing, |root| root.cursor_pointer());
+    let Screen { rows, cursor, banner, notice, mode: _, search, above, flash, pointing } = screen;
+    let root =
+        div().relative().size_full().overflow_hidden().when(pointing, |root| root.cursor_pointer());
     if let Some(notice) = notice {
         return root.child(render_notice(notice));
     }
-    let runs = rows
-        .iter()
-        .enumerate()
-        .flat_map(|(row, line)| render_row(row, line, cell));
+    let runs = rows.iter().enumerate().flat_map(|(row, line)| render_row(row, line, cell));
     let cells = div()
         .absolute()
         .inset_0()
@@ -159,9 +143,7 @@ fn render_run(run: &CellRun, left: Pixels, top: Pixels, cell: Cell) -> Div {
         .when_some(background, |run, background| run.bg(background))
         .when(face.bold, |run| run.font_weight(FontWeight::BOLD))
         .when(face.italic, |run| run.italic())
-        .when(face.underline, |run| {
-            run.text_decoration_1().text_decoration_color(text)
-        })
+        .when(face.underline, |run| run.text_decoration_1().text_decoration_color(text))
         .when(face.strikeout, |run| run.line_through())
         .child(shown)
         .when(drawn, |run| {
@@ -175,10 +157,7 @@ fn paint_pieces(pieces: &[Piece], origin: Point<Pixels>, color: Hsla, window: &m
     for &piece in pieces {
         let path = match piece {
             Piece::Fill { bounds, alpha } => {
-                let shade = Hsla {
-                    a: color.a * alpha,
-                    ..color
-                };
+                let shade = Hsla { a: color.a * alpha, ..color };
                 window.paint_quad(fill(at(bounds), shade));
                 continue;
             }
@@ -186,11 +165,7 @@ fn paint_pieces(pieces: &[Piece], origin: Point<Pixels>, color: Hsla, window: &m
                 window.paint_quad(fill(at(bounds), color).corner_radii(bounds.size.width * 0.5));
                 continue;
             }
-            Piece::Arc {
-                bounds,
-                corner,
-                thickness,
-            } => {
+            Piece::Arc { bounds, corner, thickness } => {
                 let radius = bounds.size.width.min(bounds.size.height);
                 let mut radii = Corners::all(px(0.0));
                 let mut edges = Edges::all(px(0.0));
@@ -216,11 +191,7 @@ fn paint_pieces(pieces: &[Piece], origin: Point<Pixels>, color: Hsla, window: &m
                 ));
                 continue;
             }
-            Piece::Line {
-                from,
-                to,
-                thickness,
-            } => {
+            Piece::Line { from, to, thickness } => {
                 let mut path = PathBuilder::stroke(thickness);
                 path.move_to(origin + from);
                 path.line_to(origin + to);
@@ -245,9 +216,7 @@ fn colors(face: &CellFace) -> (Hsla, Option<Hsla>) {
     if face.dim {
         text.a = 0.6;
     }
-    let background = face
-        .background
-        .map(|background| hsla(console_color(background)));
+    let background = face.background.map(|background| hsla(console_color(background)));
     let warning = |alpha| Some(rgba(color::warning() << 8 | alpha).into());
     match face.highlight {
         None => (text, background),
@@ -283,11 +252,8 @@ fn character_at(rows: &[ScreenRow], cursor: ScreenCursor) -> Option<String> {
     let mut column = 0;
     for run in &rows.get(cursor.row)?.runs {
         if cursor.column < column + run.cells {
-            let index = if run.cells == run.text.chars().count() {
-                cursor.column - column
-            } else {
-                0
-            };
+            let index =
+                if run.cells == run.text.chars().count() { cursor.column - column } else { 0 };
             return run.text.chars().nth(index).map(String::from);
         }
         column += run.cells;
@@ -354,11 +320,7 @@ fn render_mark(
     cx: &mut Context<EditorView>,
 ) -> Div {
     let top = cell.height * row as f32;
-    let tone = if mark.exit.is_some() {
-        color::error() << 8 | 0xcc
-    } else {
-        glass::ink(0x4d)
-    };
+    let tone = if mark.exit.is_some() { color::error() << 8 | 0xcc } else { glass::ink(0x4d) };
     let hover = move |on_plate: bool| {
         move |view: &mut EditorView,
               hovered: &bool,
@@ -401,11 +363,7 @@ fn render_mark(
 
 /// A row across the screen at `top`, its content at its end, or its start.
 fn beside_row(top: Pixels, at_end: bool) -> Div {
-    div()
-        .across()
-        .top(top)
-        .flex()
-        .when(at_end, |row| row.justify_end())
+    div().across().top(top).flex().when(at_end, |row| row.justify_end())
 }
 
 /// How the command on `row` went, beside its plate or its edge, whichever the mouse is
@@ -424,9 +382,7 @@ fn render_tip(row: usize, mark: &RowMark, on_plate: bool, look: Look, cell: Cell
         .whitespace_nowrap()
         .mono_status(color::fg_body())
         .child(mark.detail.clone());
-    beside_row(tip_top, on_plate)
-        .opacity(look.opacity)
-        .child(tip)
+    beside_row(tip_top, on_plate).opacity(look.opacity).child(tip)
 }
 
 /// The shell starting, or why it could not, in place of the rows.
@@ -438,10 +394,7 @@ fn render_notice(notice: ScreenNotice) -> Div {
         .font_weight(FontWeight::SEMIBOLD)
         .text(font::ui_size() + 2.0, title_color)
         .child(notice.title);
-    let detail = div()
-        .mono_status(color::fg_dim())
-        .line_height(px(18.0))
-        .child(notice.detail);
+    let detail = div().mono_status(color::fg_dim()).line_height(px(18.0)).child(notice.detail);
     let card = div()
         .flex()
         .flex_col()
@@ -450,18 +403,12 @@ fn render_notice(notice: ScreenNotice) -> Div {
         .p(px(18.0))
         .rounded(px(12.0))
         .when(danger, |card| {
-            card.bg(rgba(color::error() << 8 | 0x14))
-                .bordered(color::error() << 8 | 0x59)
+            card.bg(rgba(color::error() << 8 | 0x14)).bordered(color::error() << 8 | 0x59)
         })
         .ui()
         .child(title)
         .child(detail);
-    div()
-        .size_full()
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(card)
+    div().size_full().flex().items_center().justify_center().child(card)
 }
 
 /// That the program ended, over the bottom of the rows.
@@ -489,12 +436,7 @@ fn render_search(search: ScreenSearch) -> Div {
         None if search.input.is_empty() => String::new(),
         None => "no match".to_owned(),
     };
-    let caret = div()
-        .ml(px(1.0))
-        .w(px(8.0))
-        .h(px(17.0))
-        .rounded(px(1.0))
-        .bg(rgb(color::fg_main()));
+    let caret = div().ml(px(1.0)).w(px(8.0)).h(px(17.0)).rounded(px(1.0)).bg(rgb(color::fg_main()));
     let input = div()
         .flex()
         .items_center()

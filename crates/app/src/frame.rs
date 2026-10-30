@@ -88,11 +88,7 @@ pub fn system_appearance() -> Appearance {
             CStr::from_ptr(utf8) == c"Dark"
         }
     };
-    if dark {
-        Appearance::Dark
-    } else {
-        Appearance::Light
-    }
+    if dark { Appearance::Dark } else { Appearance::Light }
 }
 
 /// Whether the desktop is light or dark now, as its settings portal says, which gpui

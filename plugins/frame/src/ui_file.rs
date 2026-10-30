@@ -28,9 +28,7 @@ pub struct ThemeChoice {
 
 impl Default for ThemeChoice {
     fn default() -> Self {
-        Self {
-            name: DEFAULT.to_owned(),
-        }
+        Self { name: DEFAULT.to_owned() }
     }
 }
 
@@ -87,8 +85,7 @@ fn with_setting(text: &str, table: &str, key: &str, value: &str) -> String {
         .map_or(lines.len(), |offset| start + 1 + offset);
     let existing = (start + 1..end).find(|&index| {
         let line = lines[index].trim_start();
-        line.strip_prefix(key)
-            .is_some_and(|rest| rest.trim_start().starts_with('='))
+        line.strip_prefix(key).is_some_and(|rest| rest.trim_start().starts_with('='))
     });
     match existing {
         Some(index) => lines[index] = &setting,
@@ -117,18 +114,8 @@ mod tests {
 
     #[test]
     fn hints_show_unless_ui_toml_hides_them() {
-        assert!(
-            toml::from_str::<Ui>("[hints]\nside-room = 100\n")
-                .unwrap()
-                .hints
-                .show
-        );
-        assert!(
-            !toml::from_str::<Ui>("[hints]\nshow = false\n")
-                .unwrap()
-                .hints
-                .show
-        );
+        assert!(toml::from_str::<Ui>("[hints]\nside-room = 100\n").unwrap().hints.show);
+        assert!(!toml::from_str::<Ui>("[hints]\nshow = false\n").unwrap().hints.show);
     }
 
     #[test]
@@ -164,12 +151,7 @@ mod tests {
     #[test]
     fn a_key_is_not_taken_for_a_longer_one() {
         assert_eq!(
-            with_setting(
-                "[hints]\nshow-all = 1\nshow = true\n",
-                "hints",
-                "show",
-                "false"
-            ),
+            with_setting("[hints]\nshow-all = 1\nshow = true\n", "hints", "show", "false"),
             "[hints]\nshow-all = 1\nshow = false\n"
         );
     }

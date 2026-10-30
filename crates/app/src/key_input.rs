@@ -40,10 +40,7 @@ pub fn to_key(keystroke: &Keystroke, option_is_meta: bool) -> Option<Key> {
     // method's alone: as a bare key it would run the letter's command.
     if keystroke.modifiers.alt
         && !option_is_meta
-        && keystroke
-            .key_char
-            .as_ref()
-            .is_some_and(|typed| only_char(typed).is_none())
+        && keystroke.key_char.as_ref().is_some_and(|typed| only_char(typed).is_none())
     {
         return None;
     }
@@ -117,15 +114,8 @@ fn function_key(name: &str) -> Option<u8> {
 /// gpui reports shifted letters as `shift` + lowercase; Emacs folds shift into the character.
 fn char_key(name: &str, modifiers: Modifiers) -> Option<Key> {
     let character = only_char(name)?;
-    let character = if modifiers.shift {
-        character.to_ascii_uppercase()
-    } else {
-        character
-    };
-    let modifiers = Modifiers {
-        shift: false,
-        ..modifiers
-    };
+    let character = if modifiers.shift { character.to_ascii_uppercase() } else { character };
+    let modifiers = Modifiers { shift: false, ..modifiers };
     Some(Key::new(modifiers, KeyCode::Char(character)))
 }
 
@@ -152,11 +142,7 @@ mod tests {
     /// `key` with Option, and with Command when `platform`.
     fn option(key: &str, key_char: Option<&str>, platform: bool) -> Keystroke {
         Keystroke {
-            modifiers: gpui::Modifiers {
-                alt: true,
-                platform,
-                ..Default::default()
-            },
+            modifiers: gpui::Modifiers { alt: true, platform, ..Default::default() },
             key: key.to_owned(),
             key_char: key_char.map(str::to_owned),
         }

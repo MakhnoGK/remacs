@@ -111,10 +111,7 @@ pub fn parse_sequence(notation: &str) -> Option<Vec<Key>> {
 }
 
 pub fn describe_sequence(keys: &[Key]) -> String {
-    keys.iter()
-        .map(Key::to_string)
-        .collect::<Vec<_>>()
-        .join(" ")
+    keys.iter().map(Key::to_string).collect::<Vec<_>>().join(" ")
 }
 
 impl fmt::Display for Key {
@@ -153,10 +150,7 @@ mod tests {
         ] {
             assert_eq!(Key::parse(notation).unwrap().to_string(), notation);
         }
-        assert_eq!(
-            describe_sequence(&parse_sequence("C-x C-s").unwrap()),
-            "C-x C-s"
-        );
+        assert_eq!(describe_sequence(&parse_sequence("C-x C-s").unwrap()), "C-x C-s");
         assert_eq!(Key::parse("C-S-c"), Key::parse("C-C"));
         assert_eq!(Key::parse("C-xy"), None);
         assert_eq!(Key::parse("<f13>"), None);

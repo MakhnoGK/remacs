@@ -102,10 +102,7 @@ pub struct LanguageServer {
 
 impl LanguageServer {
     fn language_id(&self, mode: &str) -> Option<&'static str> {
-        self.languages
-            .iter()
-            .find(|(served, _)| *served == mode)
-            .map(|&(_, language)| language)
+        self.languages.iter().find(|(served, _)| *served == mode).map(|&(_, language)| language)
     }
 }
 

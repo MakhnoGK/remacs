@@ -31,12 +31,10 @@ impl Editor {
     /// A plugin's section of the settings; when it is wrong, its defaults, and the error
     /// is shown.
     pub fn settings_section<T: Section>(&mut self) -> T {
-        self.settings
-            .section::<T>()
-            .unwrap_or_else(|(error, defaults)| {
-                self.set_error(error.to_string());
-                defaults
-            })
+        self.settings.section::<T>().unwrap_or_else(|(error, defaults)| {
+            self.set_error(error.to_string());
+            defaults
+        })
     }
 
     /// State a plugin keeps between commands, created on first use.

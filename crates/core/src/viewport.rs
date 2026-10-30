@@ -39,9 +39,7 @@ impl Viewport {
     /// Scrolls by `rows`; returns whether the viewport moved.
     pub fn scroll_by(&mut self, rows: isize, shown: &ShownLines) -> bool {
         let first_line = self.first_line;
-        self.in_rows(shown, |viewport, row_count| {
-            viewport.scroll_rows(rows, row_count)
-        });
+        self.in_rows(shown, |viewport, row_count| viewport.scroll_rows(rows, row_count));
         first_line != self.first_line
     }
 
@@ -49,9 +47,7 @@ impl Viewport {
     /// lines that will fit into view out of it.
     pub fn ensure_visible(&mut self, line: usize, shown: &ShownLines) {
         let row = shown.row_of(line);
-        self.in_rows(shown, |viewport, row_count| {
-            viewport.ensure_row_visible(row, row_count)
-        });
+        self.in_rows(shown, |viewport, row_count| viewport.ensure_row_visible(row, row_count));
     }
 
     pub fn center_on(&mut self, line: usize, shown: &ShownLines) {
@@ -92,10 +88,7 @@ impl Viewport {
     /// Runs `moves` on the viewport counted in rows, its first line a row, with the count
     /// of rows.
     fn in_rows<T>(&mut self, shown: &ShownLines, moves: impl FnOnce(&mut Self, usize) -> T) -> T {
-        let mut rows = Self {
-            first_line: shown.row_of(self.first_line),
-            ..*self
-        };
+        let mut rows = Self { first_line: shown.row_of(self.first_line), ..*self };
         let result = moves(&mut rows, shown.rows());
         self.first_line = shown.line_at(rows.first_line);
         result
@@ -112,9 +105,7 @@ impl Viewport {
         }
         let (top_margin, bottom_margin) = self.fitting_margins();
         let top = line.saturating_sub(top_margin);
-        let bottom = (line + bottom_margin)
-            .min(line_count.saturating_sub(1))
-            .max(line);
+        let bottom = (line + bottom_margin).min(line_count.saturating_sub(1)).max(line);
         if top < self.first_line {
             self.first_line = top;
         } else if bottom > self.last_row() {
@@ -132,11 +123,7 @@ impl Viewport {
         if self.width == 0 {
             return;
         }
-        let margin = if 2 * self.column_margin < self.width {
-            self.column_margin
-        } else {
-            0
-        };
+        let margin = if 2 * self.column_margin < self.width { self.column_margin } else { 0 };
         let left = column.saturating_sub(margin);
         let right = column + margin;
         if left < self.first_column {
@@ -150,22 +137,14 @@ impl Viewport {
     fn clear_rows(&self, row_count: usize) -> RangeInclusive<usize> {
         let (top_margin, bottom_margin) = self.fitting_margins();
         let top = if self.first_line > 0 { top_margin } else { 0 };
-        let bottom = if self.last_row() + 1 < row_count {
-            bottom_margin
-        } else {
-            0
-        };
+        let bottom = if self.last_row() + 1 < row_count { bottom_margin } else { 0 };
         self.first_line + top..=self.last_row() - bottom
     }
 
     /// The margins, or none if they would leave no line clear.
     fn fitting_margins(&self) -> (usize, usize) {
         let (top, bottom) = self.margins;
-        if top + bottom < self.height.max(1) {
-            self.margins
-        } else {
-            (0, 0)
-        }
+        if top + bottom < self.height.max(1) { self.margins } else { (0, 0) }
     }
 }
 
@@ -174,19 +153,11 @@ mod tests {
     use super::*;
 
     fn rows(first_line: usize, height: usize) -> Viewport {
-        Viewport {
-            first_line,
-            height,
-            ..Viewport::default()
-        }
+        Viewport { first_line, height, ..Viewport::default() }
     }
 
     fn columns(width: usize, column_margin: usize) -> Viewport {
-        Viewport {
-            width,
-            column_margin,
-            ..Viewport::default()
-        }
+        Viewport { width, column_margin, ..Viewport::default() }
     }
 
     #[test]
@@ -214,10 +185,7 @@ mod tests {
         viewport.ensure_visible(55, shown);
         assert_eq!(viewport.first_line, 1);
         assert!(viewport.scroll_by(1, shown));
-        assert_eq!(
-            viewport.first_line, 52,
-            "the hidden lines are scrolled past at once"
-        );
+        assert_eq!(viewport.first_line, 52, "the hidden lines are scrolled past at once");
         viewport.center_on(60, shown);
         assert_eq!(viewport.first_line, 58);
         assert_eq!(viewport.clamp(0, shown), 58);

@@ -120,22 +120,13 @@ fn complete(file: &Path, before: &str, wanted: &str) -> String {
     let point = source.find(before).unwrap() + before.len();
     editor.window_buffer_mut().set_point(point);
     let started = Instant::now();
-    let offers = |popup: &Popup| {
-        popup
-            .rows
-            .iter()
-            .position(|row| row.label.starts_with(wanted))
-    };
+    let offers = |popup: &Popup| popup.rows.iter().position(|row| row.label.starts_with(wanted));
     let popup = loop {
         assert!(started.elapsed() < TIMEOUT, "{wanted} never offered");
         editor.run_command("completion-at-point");
         thread::sleep(Duration::from_millis(300));
         editor.refresh();
-        if let Some(popup) = editor
-            .popups()
-            .pop()
-            .filter(|popup| offers(popup).is_some())
-        {
+        if let Some(popup) = editor.popups().pop().filter(|popup| offers(popup).is_some()) {
             break popup;
         }
     };
@@ -165,54 +156,24 @@ fn servers_complete_at_point() {
     let rust = project(
         "rust-completion",
         &[
-            (
-                "Cargo.toml",
-                "[package]\nname = \"demo\"\nedition = \"2024\"\n",
-            ),
-            (
-                "src/main.rs",
-                "fn main() {\n    let range = 0..10usize;\n    let _ = range.st;\n}\n",
-            ),
+            ("Cargo.toml", "[package]\nname = \"demo\"\nedition = \"2024\"\n"),
+            ("src/main.rs", "fn main() {\n    let range = 0..10usize;\n    let _ = range.st;\n}\n"),
         ],
     );
     let typescript = project(
         "ts-completion",
-        &[
-            ("package.json", "{}\n"),
-            ("index.ts", "const s = \"a\";\ns.toUpp\n"),
-        ],
+        &[("package.json", "{}\n"), ("index.ts", "const s = \"a\";\ns.toUpp\n")],
     );
     let c = project(
         "c-completion",
-        &[(
-            "main.c",
-            "#include <string.h>\nint main(void) { return strle; }\n",
-        )],
+        &[("main.c", "#include <string.h>\nint main(void) { return strle; }\n")],
     );
     let css = project("css-completion", &[("style.css", "a { colo }\n")]);
-    let html = project(
-        "html-completion",
-        &[("index.html", "<body><secti</body>\n")],
-    );
+    let html = project("html-completion", &[("index.html", "<body><secti</body>\n")]);
     let cases = [
-        (
-            rust.join("src/main.rs"),
-            "range.st",
-            "start",
-            "range.start;",
-        ),
-        (
-            rust.join("src/main.rs"),
-            "range.st",
-            "step_by",
-            "range.step_by();",
-        ),
-        (
-            typescript.join("index.ts"),
-            "s.toUpp",
-            "toUpperCase",
-            "s.toUpperCase",
-        ),
+        (rust.join("src/main.rs"), "range.st", "start", "range.start;"),
+        (rust.join("src/main.rs"), "range.st", "step_by", "range.step_by();"),
+        (typescript.join("index.ts"), "s.toUpp", "toUpperCase", "s.toUpperCase"),
         (c.join("main.c"), "strle", "strlen", "return strlen("),
         (css.join("style.css"), "colo", "color", "a { color: "),
         (html.join("index.html"), "<secti", "section", "<section"),
@@ -237,10 +198,7 @@ fn ask_at<T>(
     let point = source.find(symbol).unwrap() + 1;
     let started = Instant::now();
     loop {
-        assert!(
-            started.elapsed() < TIMEOUT,
-            "{command} on {symbol} never answered"
-        );
+        assert!(started.elapsed() < TIMEOUT, "{command} on {symbol} never answered");
         editor.cancel_minibuffer();
         editor.visit_file(file).unwrap();
         editor.window_buffer_mut().set_point(point);
@@ -254,9 +212,8 @@ fn ask_at<T>(
 }
 
 fn documentation(file: &Path, symbol: &str) -> Documentation {
-    let documentation = ask_at(file, symbol, "show-documentation", |editor| {
-        editor.popups().pop()?.documentation
-    });
+    let documentation =
+        ask_at(file, symbol, "show-documentation", |editor| editor.popups().pop()?.documentation);
     eprintln!("{}: {symbol}: {documentation:#?}", file.display());
     documentation
 }
@@ -277,10 +234,7 @@ fn servers_show_documentation_and_go_to_definitions() {
     let rust = project(
         "rust-navigation",
         &[
-            (
-                "Cargo.toml",
-                "[package]\nname = \"demo\"\nedition = \"2024\"\n",
-            ),
+            ("Cargo.toml", "[package]\nname = \"demo\"\nedition = \"2024\"\n"),
             (
                 "src/main.rs",
                 "mod util;\n\nfn main() {\n    let mut bytes = [0u8; 2];\n    bytes.copy_from_slice(&[1, 2]);\n    util::helper();\n}\n",
@@ -292,14 +246,8 @@ fn servers_show_documentation_and_go_to_definitions() {
         "ts-navigation",
         &[
             ("package.json", "{}\n"),
-            (
-                "index.ts",
-                "import { helper } from \"./util\";\n\"a\".toUpperCase();\nhelper();\n",
-            ),
-            (
-                "util.ts",
-                "/** Says hello. */\nexport function helper() {}\n",
-            ),
+            ("index.ts", "import { helper } from \"./util\";\n\"a\".toUpperCase();\nhelper();\n"),
+            ("util.ts", "/** Says hello. */\nexport function helper() {}\n"),
         ],
     );
     let c = project(
@@ -310,10 +258,7 @@ fn servers_show_documentation_and_go_to_definitions() {
         )],
     );
     let css = project("css-navigation", &[("style.css", "a { color: red; }\n")]);
-    let html = project(
-        "html-navigation",
-        &[("index.html", "<body><section></section></body>\n")],
-    );
+    let html = project("html-navigation", &[("index.html", "<body><section></section></body>\n")]);
 
     let copy = documentation(&rust.join("src/main.rs"), "copy_from_slice");
     assert_eq!(copy.kind, "method");
@@ -330,16 +275,8 @@ fn servers_show_documentation_and_go_to_definitions() {
 
     let cases = [
         (rust.join("src/main.rs"), "helper();", "pub fn helper() {}"),
-        (
-            typescript.join("index.ts"),
-            "helper();",
-            "export function helper() {}",
-        ),
-        (
-            c.join("main.c"),
-            "helper() +",
-            "static int helper(void) { return 0; }",
-        ),
+        (typescript.join("index.ts"), "helper();", "export function helper() {}"),
+        (c.join("main.c"), "helper() +", "static int helper(void) { return 0; }"),
     ];
     for (file, call, expected) in cases {
         let (path, line) = definition(&file, call);
@@ -352,12 +289,7 @@ fn servers_show_documentation_and_go_to_definitions() {
 fn references(file: &Path, symbol: &str, count: usize) -> Vec<(String, String)> {
     let references = ask_at(file, symbol, "xref-find-references", |editor| {
         let rows: Vec<_> = (editor.minibuffer()?.candidates().iter())
-            .map(|row| {
-                (
-                    row.group.as_deref().unwrap_or_default().to_owned(),
-                    row.label.clone(),
-                )
-            })
+            .map(|row| (row.group.as_deref().unwrap_or_default().to_owned(), row.label.clone()))
             .collect();
         (rows.len() >= count).then_some(rows)
     });
@@ -386,32 +318,17 @@ fn servers_find_references_and_show_signatures() {
     let rust = project(
         "rust-references",
         &[
-            (
-                "Cargo.toml",
-                "[package]\nname = \"demo\"\nedition = \"2024\"\n",
-            ),
-            (
-                "src/main.rs",
-                "mod util;\n\nfn main() {\n    util::add(1, 2);\n}\n",
-            ),
-            (
-                "src/util.rs",
-                "pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n",
-            ),
+            ("Cargo.toml", "[package]\nname = \"demo\"\nedition = \"2024\"\n"),
+            ("src/main.rs", "mod util;\n\nfn main() {\n    util::add(1, 2);\n}\n"),
+            ("src/util.rs", "pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n"),
         ],
     );
     let typescript = project(
         "ts-references",
         &[
             ("package.json", "{}\n"),
-            (
-                "index.ts",
-                "import { add } from \"./util\";\nadd(1, 2);\nadd\n",
-            ),
-            (
-                "util.ts",
-                "export function add(a: number, b: number) {\n  return a + b;\n}\n",
-            ),
+            ("index.ts", "import { add } from \"./util\";\nadd(1, 2);\nadd\n"),
+            ("util.ts", "export function add(a: number, b: number) {\n  return a + b;\n}\n"),
         ],
     );
     let html = project(
@@ -425,10 +342,9 @@ fn servers_find_references_and_show_signatures() {
     let main = rust.join("src/main.rs");
     let uses = references(&main, "add(1", 2);
     assert!(uses.contains(&("main.rs  ·  src/".into(), "util::add(1, 2);".into())));
-    assert!(uses.contains(&(
-        "util.rs  ·  src/".into(),
-        "pub fn add(a: i32, b: i32) -> i32 {".into()
-    )));
+    assert!(
+        uses.contains(&("util.rs  ·  src/".into(), "pub fn add(a: i32, b: i32) -> i32 {".into()))
+    );
     let (label, parameter) = signature(&main, ", 2)");
     assert!(label.contains("fn add(a: i32, b: i32)"), "{label}");
     assert_eq!(parameter, "b: i32");
@@ -443,18 +359,11 @@ fn servers_find_references_and_show_signatures() {
 
     let page = html.join("index.html");
     let uses = references(&page, "add(1", 2);
-    assert!(
-        uses.iter().all(|(file, _)| file.starts_with("index.html")),
-        "{uses:?}"
-    );
+    assert!(uses.iter().all(|(file, _)| file.starts_with("index.html")), "{uses:?}");
     assert_eq!(signature(&page, ", 2)").1, "b: any");
 
     // Typing a call opens its signature and follows the arguments, once the server answers.
-    let typing: Vec<_> = PLUGINS
-        .iter()
-        .copied()
-        .chain([&EditingPlugin as _])
-        .collect();
+    let typing: Vec<_> = PLUGINS.iter().copied().chain([&EditingPlugin as _]).collect();
     let mut editor = Editor::new(&typing);
     editor.visit_file(&index).unwrap();
     let source = fs::read_to_string(&index).unwrap();
@@ -479,9 +388,7 @@ fn servers_find_references_and_show_signatures() {
             }
         }
     };
-    editor
-        .window_buffer_mut()
-        .set_point(source.find("1, 2").unwrap());
+    editor.window_buffer_mut().set_point(source.find("1, 2").unwrap());
     editor.run_command("signature-help");
     shown(&mut editor, "a: number");
     press(&mut editor, "ESC");
@@ -492,10 +399,7 @@ fn servers_find_references_and_show_signatures() {
     shown(&mut editor, "b: number");
 
     // Off, typing leaves signatures alone while ⌘P still shows them.
-    let lsp_toml = (
-        PathBuf::from("lsp.toml"),
-        "signature-help-on-typing = false\n".to_owned(),
-    );
+    let lsp_toml = (PathBuf::from("lsp.toml"), "signature-help-on-typing = false\n".to_owned());
     editor.set_settings(Settings::from_files([lsp_toml]));
     press(&mut editor, "ESC");
     let end = editor.window_buffer().text().len();
@@ -513,17 +417,10 @@ fn servers_find_references_and_show_signatures() {
 /// Wakes of the editor, as the app's refreshes, and how long the refreshes took, while
 /// typing a line of identifiers at a person's pace into a TypeScript file.
 fn wakes_while_typing(root: &Path, signature_help: bool) -> (usize, Duration) {
-    let typing: Vec<_> = PLUGINS
-        .iter()
-        .copied()
-        .chain([&EditingPlugin as _])
-        .collect();
+    let typing: Vec<_> = PLUGINS.iter().copied().chain([&EditingPlugin as _]).collect();
     let mut editor = Editor::new(&typing);
     let lsp_toml = format!("signature-help-on-typing = {signature_help}\n");
-    editor.set_settings(Settings::from_files([(
-        PathBuf::from("lsp.toml"),
-        lsp_toml,
-    )]));
+    editor.set_settings(Settings::from_files([(PathBuf::from("lsp.toml"), lsp_toml)]));
     let wakes = Arc::new(AtomicUsize::new(0));
     let counted = Arc::clone(&wakes);
     editor.set_notifier(Arc::new(move || {
@@ -548,11 +445,7 @@ fn wakes_while_typing(root: &Path, signature_help: bool) -> (usize, Duration) {
     let mut refreshing = Duration::ZERO;
     let mut refreshes = 0;
     for character in "let total = count + offset * scale".chars() {
-        let key = if character == ' ' {
-            "SPC".to_owned()
-        } else {
-            character.to_string()
-        };
+        let key = if character == ' ' { "SPC".to_owned() } else { character.to_string() };
         for key in parse_sequence(&key).unwrap() {
             editor.handle_key(key);
         }
@@ -580,10 +473,7 @@ fn signature_help_wakes_the_editor_no_more_often_while_typing() {
         "ts-typing-wakes",
         &[
             ("package.json", "{}\n"),
-            (
-                "index.ts",
-                "function add(a: number, b: number) {\n  return a + b;\n}\nadd(1, 2);\n",
-            ),
+            ("index.ts", "function add(a: number, b: number) {\n  return a + b;\n}\nadd(1, 2);\n"),
         ],
     );
     let mut wakes = [0; 2];
@@ -596,10 +486,7 @@ fn signature_help_wakes_the_editor_no_more_often_while_typing() {
     }
     let [off, on] = wakes;
     // Typed 35 keys twice; servers' own messages vary by a few.
-    assert!(
-        on <= off + 10,
-        "{on} wakes with signature help, {off} without"
-    );
+    assert!(on <= off + 10, "{on} wakes with signature help, {off} without");
 }
 
 #[test]
@@ -608,10 +495,7 @@ fn rust_analyzer_checks_on_open_and_save() {
     let root = project(
         "rust",
         &[
-            (
-                "Cargo.toml",
-                "[package]\nname = \"demo\"\nedition = \"2024\"\n",
-            ),
+            ("Cargo.toml", "[package]\nname = \"demo\"\nedition = \"2024\"\n"),
             ("src/main.rs", "fn main() {\n    let x: i32 = \"a\";\n}\n"),
         ],
     );
@@ -652,10 +536,7 @@ fn rust_analyzer_paints_what_tree_sitter_cannot_tell() {
     let root = project(
         "rust-semantic",
         &[
-            (
-                "Cargo.toml",
-                "[package]\nname = \"demo\"\nedition = \"2024\"\n",
-            ),
+            ("Cargo.toml", "[package]\nname = \"demo\"\nedition = \"2024\"\n"),
             ("src/main.rs", main),
         ],
     );
@@ -690,13 +571,8 @@ fn clangd_reports_errors() {
 #[test]
 #[ignore]
 fn typescript_reports_type_errors() {
-    let root = project(
-        "ts",
-        &[
-            ("package.json", "{}\n"),
-            ("index.ts", "const count: number = \"a\";\n"),
-        ],
-    );
+    let root =
+        project("ts", &[("package.json", "{}\n"), ("index.ts", "const count: number = \"a\";\n")]);
     let mut editor = check(&root.join("index.ts"), Icon::Error);
     fix_and_save(&mut editor, "\"a\"", "1");
 }
@@ -755,14 +631,8 @@ fn servers_offer_and_apply_code_actions() {
     let rust = project(
         "rust-actions",
         &[
-            (
-                "Cargo.toml",
-                "[package]\nname = \"demo\"\nedition = \"2024\"\n",
-            ),
-            (
-                "src/main.rs",
-                "fn main() {\n    let x = 1;\n    let _ = x;\n}\n",
-            ),
+            ("Cargo.toml", "[package]\nname = \"demo\"\nedition = \"2024\"\n"),
+            ("src/main.rs", "fn main() {\n    let x = 1;\n    let _ = x;\n}\n"),
         ],
     );
     let c = project("c-actions", &[("main.c", "int main(void) { return 0 }\n")]);
@@ -792,10 +662,7 @@ fn oxlint_checks_beside_typescript_with_the_projects_own_copy() {
     let root = project(
         "oxlint",
         &[
-            (
-                "package.json",
-                "{ \"devDependencies\": { \"oxlint\": \"1\" } }\n",
-            ),
+            ("package.json", "{ \"devDependencies\": { \"oxlint\": \"1\" } }\n"),
             ("index.ts", LINTED),
             (
                 "node_modules/.bin/oxlint",
@@ -825,10 +692,7 @@ fn vite_plus_projects_lint_and_format_with_vite_config() {
     let root = project(
         "vite-plus",
         &[
-            (
-                "package.json",
-                "{ \"devDependencies\": { \"vite-plus\": \"1\" } }\n",
-            ),
+            ("package.json", "{ \"devDependencies\": { \"vite-plus\": \"1\" } }\n"),
             (
                 "vite.config.ts",
                 "export default {\n  lint: { rules: { eqeqeq: 'error', 'no-useless-rename': 'error' } },\n  fmt: { semi: false, singleQuote: true },\n}\n",
@@ -838,26 +702,16 @@ fn vite_plus_projects_lint_and_format_with_vite_config() {
     );
     let mut editor = Editor::new(PLUGINS);
     editor.visit_file(&root.join("index.ts")).unwrap();
-    let problems = wait_until(&mut editor, |problems| {
-        problems.iter().any(|(_, label)| label.contains("==="))
-    });
+    let problems =
+        wait_until(&mut editor, |problems| problems.iter().any(|(_, label)| label.contains("===")));
     eprintln!("{problems:?}");
-    assert_eq!(
-        format(&root.join("index.ts")),
-        "if (1 == 2) {\n}\nconst a = { b: 'c' }\n"
-    );
+    assert_eq!(format(&root.join("index.ts")), "if (1 == 2) {\n}\nconst a = { b: 'c' }\n");
 
     let fixed = "const { c } = { c: 1 };\nexport { c };\n";
-    fs::write(
-        root.join("fix.ts"),
-        "const { c: c } = { c: 1 };\nexport { c };\n",
-    )
-    .unwrap();
+    fs::write(root.join("fix.ts"), "const { c: c } = { c: 1 };\nexport { c };\n").unwrap();
     let mut editor = Editor::new(PLUGINS);
     editor.visit_file(&root.join("fix.ts")).unwrap();
-    wait_until(&mut editor, |problems| {
-        problems.iter().any(|(_, label)| label.contains("renam"))
-    });
+    wait_until(&mut editor, |problems| problems.iter().any(|(_, label)| label.contains("renam")));
     editor.run_command("fix-all");
     refresh_until(&mut editor, "the fixes", |editor| {
         let buffer = editor.window_buffer();
@@ -868,19 +722,11 @@ fn vite_plus_projects_lint_and_format_with_vite_config() {
 #[test]
 #[ignore]
 fn linters_leave_projects_without_their_config_alone() {
-    let root = project(
-        "no-linters",
-        &[("package.json", "{}\n"), ("index.ts", LINTED)],
-    );
+    let root = project("no-linters", &[("package.json", "{}\n"), ("index.ts", LINTED)]);
     let mut editor = check(&root.join("index.ts"), Icon::Error);
     thread::sleep(Duration::from_secs(2));
     let problems = problems(&mut editor);
-    assert!(
-        problems
-            .iter()
-            .all(|(_, label)| !label.contains("debugger")),
-        "{problems:?}"
-    );
+    assert!(problems.iter().all(|(_, label)| !label.contains("debugger")), "{problems:?}");
 }
 
 #[test]
@@ -890,19 +736,14 @@ fn eslint_checks_and_fixes_with_the_projects_config() {
         "eslint",
         &[
             ("package.json", "{ \"type\": \"module\" }\n"),
-            (
-                "eslint.config.js",
-                "export default [{ rules: { \"prefer-const\": \"error\" } }];\n",
-            ),
+            ("eslint.config.js", "export default [{ rules: { \"prefer-const\": \"error\" } }];\n"),
             ("index.js", "let answer = 42;\nconsole.log(answer);\n"),
         ],
     );
     let mut editor = Editor::new(PLUGINS);
     editor.visit_file(&root.join("index.js")).unwrap();
     let problems = wait_until(&mut editor, |problems| {
-        problems
-            .iter()
-            .any(|(_, label)| label.contains("never reassigned"))
+        problems.iter().any(|(_, label)| label.contains("never reassigned"))
     });
     eprintln!("{problems:?}");
     let text = apply_action(&root.join("index.js"), "answer", "Fix this prefer-const");
@@ -925,24 +766,17 @@ fn rust_analyzer_updates_mod_declarations_of_files_renamed_in_dired() {
     let root = project(
         "rust-rename",
         &[
-            (
-                "Cargo.toml",
-                "[package]\nname = \"demo\"\nedition = \"2024\"\n",
-            ),
+            ("Cargo.toml", "[package]\nname = \"demo\"\nedition = \"2024\"\n"),
             ("src/lib.rs", "mod casefiddle;\n\npub use casefiddle::up;\n"),
             ("src/casefiddle.rs", "pub fn up() {}\n"),
         ],
     );
     let src = root.join("src").canonicalize().unwrap();
-    let plugins: Vec<&dyn Plugin> = [&DiredPlugin as &dyn Plugin]
-        .into_iter()
-        .chain(PLUGINS.iter().copied())
-        .collect();
+    let plugins: Vec<&dyn Plugin> =
+        [&DiredPlugin as &dyn Plugin].into_iter().chain(PLUGINS.iter().copied()).collect();
     let mut editor = Editor::new(&plugins);
     list_directory(&mut editor, &src).unwrap();
-    refresh_until(&mut editor, "listing", |editor| {
-        editor.window_buffer().text().line_count() > 1
-    });
+    refresh_until(&mut editor, "listing", |editor| editor.window_buffer().text().line_count() > 1);
     editor.run_command("wdired-change-to-wdired-mode");
     let buffer = editor.window_buffer_mut();
     let source = buffer.contents(0..buffer.text().len());
@@ -956,9 +790,7 @@ fn rust_analyzer_updates_mod_declarations_of_files_renamed_in_dired() {
     });
     editor.run_command("wdired-finish-edit");
     refresh_until(&mut editor, "the rename", |editor| {
-        editor
-            .echo()
-            .is_some_and(|echo| echo.starts_with("Renamed"))
+        editor.echo().is_some_and(|echo| echo.starts_with("Renamed"))
     });
     eprintln!("{}", editor.echo().unwrap());
     let lib = fs::read_to_string(src.join("lib.rs")).unwrap();
@@ -969,11 +801,8 @@ fn rust_analyzer_updates_mod_declarations_of_files_renamed_in_dired() {
 /// Renames the symbol `at` points into to `new_name`, asking again while the server is
 /// still loading the project; returns the editor once the rename is said to be done.
 fn rename_symbol(file: &Path, at: &str, new_name: &str) -> Editor {
-    let plugins: Vec<&dyn Plugin> = PLUGINS
-        .iter()
-        .copied()
-        .chain([&RenamePlugin as &dyn Plugin])
-        .collect();
+    let plugins: Vec<&dyn Plugin> =
+        PLUGINS.iter().copied().chain([&RenamePlugin as &dyn Plugin]).collect();
     let mut editor = Editor::new(&plugins);
     editor.visit_file(file).unwrap();
     let source = fs::read_to_string(file).unwrap();
@@ -995,9 +824,7 @@ fn rename_symbol(file: &Path, at: &str, new_name: &str) -> Editor {
     minibuffer.set_input(new_name);
     editor.exit_minibuffer(false).unwrap();
     refresh_until(&mut editor, "the rename", |editor| {
-        editor
-            .echo()
-            .is_some_and(|echo| !echo.starts_with("Renaming"))
+        editor.echo().is_some_and(|echo| !echo.starts_with("Renaming"))
     });
     eprintln!("{}", editor.echo().unwrap());
     editor
@@ -1009,14 +836,8 @@ fn rust_analyzer_renames_symbols_everywhere_saving_every_file() {
     let root = project(
         "rust-rename-symbol",
         &[
-            (
-                "Cargo.toml",
-                "[package]\nname = \"demo\"\nedition = \"2024\"\n",
-            ),
-            (
-                "src/lib.rs",
-                "mod util;\n\npub fn run() {\n    util::helper();\n}\n",
-            ),
+            ("Cargo.toml", "[package]\nname = \"demo\"\nedition = \"2024\"\n"),
+            ("src/lib.rs", "mod util;\n\npub fn run() {\n    util::helper();\n}\n"),
             ("src/util.rs", "pub fn helper() {}\n"),
         ],
     );
@@ -1036,14 +857,8 @@ fn rust_analyzer_renames_modules_with_their_files() {
     let root = project(
         "rust-rename-module",
         &[
-            (
-                "Cargo.toml",
-                "[package]\nname = \"demo\"\nedition = \"2024\"\n",
-            ),
-            (
-                "src/lib.rs",
-                "mod util;\n\npub fn run() {\n    util::assist();\n}\n",
-            ),
+            ("Cargo.toml", "[package]\nname = \"demo\"\nedition = \"2024\"\n"),
+            ("src/lib.rs", "mod util;\n\npub fn run() {\n    util::assist();\n}\n"),
             ("src/util.rs", "pub fn assist() {}\n"),
         ],
     );
@@ -1051,10 +866,7 @@ fn rust_analyzer_renames_modules_with_their_files() {
     let editor = rename_symbol(&src.join("lib.rs"), "util::", "tools");
     assert!(editor.echo().unwrap().contains("moved util.rs to tools.rs"));
     let lib = fs::read_to_string(src.join("lib.rs")).unwrap();
-    assert!(
-        lib.starts_with("mod tools;") && lib.contains("tools::assist();"),
-        "{lib}"
-    );
+    assert!(lib.starts_with("mod tools;") && lib.contains("tools::assist();"), "{lib}");
     assert!(src.join("tools.rs").exists() && !src.join("util.rs").exists());
 }
 
@@ -1066,25 +878,18 @@ fn typescript_updates_imports_of_files_moved_in_dired() {
         &[
             ("tsconfig.json", "{}\n"),
             ("src/a.ts", "export const x = 1;\n"),
-            (
-                "src/b.ts",
-                "import { x } from \"./a\";\n\nconsole.log(x);\n",
-            ),
+            ("src/b.ts", "import { x } from \"./a\";\n\nconsole.log(x);\n"),
         ],
     );
     let src = root.join("src").canonicalize().unwrap();
     fs::create_dir_all(src.join("lib")).unwrap();
-    let plugins: Vec<&dyn Plugin> = [&DiredPlugin as &dyn Plugin]
-        .into_iter()
-        .chain(PLUGINS.iter().copied())
-        .collect();
+    let plugins: Vec<&dyn Plugin> =
+        [&DiredPlugin as &dyn Plugin].into_iter().chain(PLUGINS.iter().copied()).collect();
     let mut editor = Editor::new(&plugins);
     // A served file starts the server for the project.
     editor.visit_file(&src.join("b.ts")).unwrap();
     list_directory(&mut editor, &src).unwrap();
-    refresh_until(&mut editor, "listing", |editor| {
-        editor.window_buffer().text().line_count() > 2
-    });
+    refresh_until(&mut editor, "listing", |editor| editor.window_buffer().text().line_count() > 2);
     let buffer = editor.window_buffer_mut();
     let source = buffer.contents(0..buffer.text().len());
     buffer.set_point(source.find("a.ts").unwrap());
@@ -1144,10 +949,7 @@ fn language_servers_format_files() {
     let rust = project(
         "rust-format",
         &[
-            (
-                "Cargo.toml",
-                "[package]\nname = \"demo\"\nedition = \"2024\"\n",
-            ),
+            ("Cargo.toml", "[package]\nname = \"demo\"\nedition = \"2024\"\n"),
             ("src/main.rs", "fn main(){let x=1;println!(\"{x}\");}\n"),
         ],
     );
@@ -1160,15 +962,9 @@ fn language_servers_format_files() {
     let configured = project(
         "rustfmt-toml",
         &[
-            (
-                "Cargo.toml",
-                "[package]\nname = \"demo\"\nedition = \"2024\"\n",
-            ),
+            ("Cargo.toml", "[package]\nname = \"demo\"\nedition = \"2024\"\n"),
             ("rustfmt.toml", "hard_tabs = true\n"),
-            (
-                "src/main.rs",
-                "use a::b::C;\nuse a::D;\nfn main(){let x=1;}\n",
-            ),
+            ("src/main.rs", "use a::b::C;\nuse a::D;\nfn main(){let x=1;}\n"),
         ],
     );
     assert_eq!(
@@ -1177,10 +973,8 @@ fn language_servers_format_files() {
     );
     let c = project("c-format", &[("main.c", "int main(void){return 0;}\n")]);
     assert_eq!(format(&c.join("main.c")), "int main(void) { return 0; }\n");
-    let typescript = project(
-        "ts-format",
-        &[("package.json", "{}\n"), ("index.ts", "const a={b:1}\n")],
-    );
+    let typescript =
+        project("ts-format", &[("package.json", "{}\n"), ("index.ts", "const a={b:1}\n")]);
     assert_eq!(format(&typescript.join("index.ts")), "const a = { b: 1 }\n");
     let css = project("css-format", &[("style.css", "a{color:red}\n")]);
     assert_eq!(format(&css.join("style.css")), "a {\n    color: red\n}\n");
@@ -1193,19 +987,13 @@ fn prettier_formats_projects_that_use_it_with_their_config() {
         "prettier",
         &[
             ("package.json", "{}\n"),
-            (
-                ".prettierrc",
-                "{ \"semi\": false, \"singleQuote\": true }\n",
-            ),
+            (".prettierrc", "{ \"semi\": false, \"singleQuote\": true }\n"),
             ("index.ts", "const a={b:\"c\"};\n"),
             ("broken.ts", "const = ;\n"),
             ("style.css", "a{color:red}\n"),
             ("rules.css", "a{color:red}\nb{color:blue}\n"),
             ("blank.css", "a{color:red}\n\nb{color:blue}\n"),
-            (
-                "page.html",
-                "<script>\nconst a={b:\"c\"};\n</script>\n<p>x</p>\n",
-            ),
+            ("page.html", "<script>\nconst a={b:\"c\"};\n</script>\n<p>x</p>\n"),
             (
                 "styled.html",
                 "<style>\n  a{\n    /* x\n       y */\n    color:red}\n  b{color:blue}\n</style>\n",
@@ -1225,10 +1013,7 @@ fn prettier_formats_projects_that_use_it_with_their_config() {
         "<style>\n  a {\n    /* x\n       y */\n    color: red;\n  }\n  b{color:blue}\n</style>\n"
     );
     let script = format_region(&root.join("page.html"), Some(("const a", "JavaScript")));
-    assert_eq!(
-        script,
-        "<script>\nconst a = { b: 'c' }\n</script>\n<p>x</p>\n"
-    );
+    assert_eq!(script, "<script>\nconst a = { b: 'c' }\n</script>\n<p>x</p>\n");
 
     let mut editor = Editor::new(PLUGINS);
     editor.visit_file(&root.join("broken.ts")).unwrap();
@@ -1246,10 +1031,7 @@ fn prettier_formats_projects_that_use_it_with_their_config() {
     buffer.set_point(14);
     editor.run_command("format");
     refresh_until(&mut editor, "the failure", |editor| editor.echo().is_some());
-    assert_eq!(
-        editor.echo().as_deref(),
-        Some("prettier: no rules in the region")
-    );
+    assert_eq!(editor.echo().as_deref(), Some("prettier: no rules in the region"));
 }
 
 /// The rules of a CSS region are formatted alone, but not as a file of their own.
@@ -1279,10 +1061,7 @@ fn prettier_of_the_project_comes_before_the_global_one() {
         &[
             ("package.json", "{}\n"),
             ("index.js", "let a\n"),
-            (
-                "node_modules/prettier/package.json",
-                "{ \"main\": \"index.js\" }\n",
-            ),
+            ("node_modules/prettier/package.json", "{ \"main\": \"index.js\" }\n"),
             ("node_modules/prettier/index.js", own),
         ],
     );
@@ -1296,19 +1075,10 @@ fn prettier_finds_the_plugins_of_the_projects_config() {
         "prettier-plugin",
         &[
             ("package.json", "{}\n"),
-            (
-                ".prettierrc",
-                "{ \"plugins\": [\"prettier-plugin-nothing\"] }\n",
-            ),
+            (".prettierrc", "{ \"plugins\": [\"prettier-plugin-nothing\"] }\n"),
             ("index.ts", "const a={b:1}\n"),
-            (
-                "node_modules/prettier-plugin-nothing/package.json",
-                "{ \"main\": \"index.js\" }\n",
-            ),
-            (
-                "node_modules/prettier-plugin-nothing/index.js",
-                "module.exports = {};\n",
-            ),
+            ("node_modules/prettier-plugin-nothing/package.json", "{ \"main\": \"index.js\" }\n"),
+            ("node_modules/prettier-plugin-nothing/index.js", "module.exports = {};\n"),
         ],
     );
     assert_eq!(format(&root.join("index.ts")), "const a = { b: 1 };\n");
@@ -1340,10 +1110,7 @@ fn files_are_formatted_after_each_save_when_turned_on() {
     let rust = project(
         "save-rust",
         &[
-            (
-                "Cargo.toml",
-                "[package]\nname = \"demo\"\nedition = \"2024\"\n",
-            ),
+            ("Cargo.toml", "[package]\nname = \"demo\"\nedition = \"2024\"\n"),
             ("src/main.rs", "fn main(){}\n"),
         ],
     );
@@ -1367,15 +1134,9 @@ fn servers_of_embedded_languages_format_and_explain_their_code() {
     );
     let page = web.join("index.html");
     let css = format_region(&page, Some(("a{color:red}", "CSS")));
-    assert!(
-        css.contains("<style>\na {\n    color: red\n}\n</style>"),
-        "{css}"
-    );
+    assert!(css.contains("<style>\na {\n    color: red\n}\n</style>"), "{css}");
     let script = format_region(&page, Some(("const a={b:1}", "JavaScript")));
-    assert!(
-        script.contains("<script>\nconst a = { b: 1 }\n"),
-        "{script}"
-    );
+    assert!(script.contains("<script>\nconst a = { b: 1 }\n"), "{script}");
 
     // Asked right after opening, before the page is parsed.
     assert_eq!(documentation(&page, "toUpperCase").kind, "method");
@@ -1385,10 +1146,7 @@ fn servers_of_embedded_languages_format_and_explain_their_code() {
 
     rename_symbol(&page, "helper();", "assist");
     let renamed = fs::read_to_string(&page).unwrap();
-    assert!(
-        renamed.contains("function assist() {}\nassist();"),
-        "{renamed}"
-    );
+    assert!(renamed.contains("function assist() {}\nassist();"), "{renamed}");
 }
 
 /// With `embedded-code = false` in `lsp.toml`, the page's code is its file's server's:
@@ -1401,18 +1159,12 @@ fn embedded_code_off_leaves_the_page_to_its_server() {
         "html-embedded-off",
         &[
             ("package.json", "{}\n"),
-            (
-                "index.html",
-                "<style>\na { colo }\n</style>\n<script>\nlet x = ;\n</script>\n",
-            ),
+            ("index.html", "<style>\na { colo }\n</style>\n<script>\nlet x = ;\n</script>\n"),
         ],
     );
     let page = web.join("index.html");
     let mut off = Editor::new(PLUGINS);
-    let lsp_toml = (
-        PathBuf::from("lsp.toml"),
-        "embedded-code = false\n".to_owned(),
-    );
+    let lsp_toml = (PathBuf::from("lsp.toml"), "embedded-code = false\n".to_owned());
     off.set_settings(Settings::from_files([lsp_toml]));
     assert!(offers_in(&mut off, &page, "colo", "color", TIMEOUT));
     // Opened later, the page with its code served shows how long checking it takes.
@@ -1430,21 +1182,14 @@ fn offers(file: &Path, before: &str, wanted: &str, wait: Duration) -> bool {
 fn offers_in(editor: &mut Editor, file: &Path, before: &str, wanted: &str, wait: Duration) -> bool {
     editor.visit_file(file).unwrap();
     let source = fs::read_to_string(file).unwrap();
-    editor
-        .window_buffer_mut()
-        .set_point(source.find(before).unwrap() + before.len());
+    editor.window_buffer_mut().set_point(source.find(before).unwrap() + before.len());
     let started = Instant::now();
     while started.elapsed() < wait {
         editor.run_command("completion-at-point");
         thread::sleep(Duration::from_millis(300));
         editor.refresh();
         if let Some(popup) = editor.popups().pop() {
-            let labels: Vec<_> = popup
-                .rows
-                .iter()
-                .take(5)
-                .map(|row| row.label.clone())
-                .collect();
+            let labels: Vec<_> = popup.rows.iter().take(5).map(|row| row.label.clone()).collect();
             if popup.rows.iter().any(|row| row.label.starts_with(wanted)) {
                 eprintln!("{before:?}: {wanted} offered, first {labels:?}");
                 return true;
@@ -1557,13 +1302,7 @@ fn vue_completes_templates_and_scripts_and_checks_its_typescript() {
     }
 
     let app = root.join("App.vue");
-    assert!(offers_in(
-        &mut editor,
-        &app,
-        "label.toUpp",
-        "toUpperCase",
-        TIMEOUT
-    ));
+    assert!(offers_in(&mut editor, &app, "label.toUpp", "toUpperCase", TIMEOUT));
     // Only Vue's server completes a component's props, from what TypeScript says of them.
     // Each of its questions to TypeScript is passed on by a refresh, so the test refreshes
     // often and asks again only now and then, unlike `offers_in`.
@@ -1587,9 +1326,7 @@ fn vue_completes_templates_and_scripts_and_checks_its_typescript() {
     editor.visit_file(&root.join("Broken.vue")).unwrap();
     let problems = wait_until(&mut editor, |problems| !problems.is_empty());
     assert!(
-        problems
-            .iter()
-            .any(|(icon, text)| *icon == Icon::Error && text.contains("not assignable")),
+        problems.iter().any(|(icon, text)| *icon == Icon::Error && text.contains("not assignable")),
         "{problems:?}"
     );
 }

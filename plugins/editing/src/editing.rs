@@ -11,10 +11,8 @@ pub fn writable_buffer(editor: &mut Editor) -> Result<&mut Buffer, CommandError>
 }
 
 pub fn self_insert(editor: &mut Editor) -> CommandResult {
-    let character = editor
-        .last_key()
-        .and_then(|key| key.printable_char())
-        .ok_or("Not a printable key")?;
+    let character =
+        editor.last_key().and_then(|key| key.printable_char()).ok_or("Not a printable key")?;
     let pairs = pairs::mode_pairs(editor);
     let context = editor.syntax_at(editor.buffer().point());
     let buffer = writable_buffer(editor)?;
@@ -60,10 +58,7 @@ pub fn delete_backward_char(editor: &mut Editor) -> CommandResult {
     }
     let pairs = pairs::mode_pairs(editor);
     let buffer = writable_buffer(editor)?;
-    if let Some(region) = buffer
-        .region()
-        .or_else(|| pairs::empty_pair_around(buffer, pairs))
-    {
+    if let Some(region) = buffer.region().or_else(|| pairs::empty_pair_around(buffer, pairs)) {
         buffer.delete(region);
         return Ok(());
     }

@@ -15,9 +15,8 @@ pub fn apply(editor: &mut Editor, id: u64, changes: Vec<FileEdits>) -> CommandRe
     let mut others = Vec::new();
     for edits in changes {
         let path = edits.path.clone();
-        let buffer = editor
-            .edit_file(edits)
-            .map_err(|error| format!("{}: {error}", path.display()))?;
+        let buffer =
+            editor.edit_file(edits).map_err(|error| format!("{}: {error}", path.display()))?;
         if buffer.path() != shown.as_deref() {
             others.push(buffer.name().to_owned());
         }

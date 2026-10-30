@@ -31,9 +31,7 @@ pub(crate) fn swatches(
 fn rgba(color: lsp_types::Color) -> u32 {
     [color.red, color.green, color.blue, color.alpha]
         .into_iter()
-        .fold(0, |rgba, channel| {
-            rgba << 8 | (channel.clamp(0.0, 1.0) * 255.0).round() as u32
-        })
+        .fold(0, |rgba, channel| rgba << 8 | (channel.clamp(0.0, 1.0) * 255.0).round() as u32)
 }
 
 /// Keeps what a server found, swatches or semantic tokens, on their text through `edit`:
@@ -72,34 +70,13 @@ mod tests {
         assert_eq!(swatches, [(2..12, 0xfa2b3680), (13..27, 0x1e90ffff)]);
 
         // `a` becomes `abc`: both move by two.
-        shift(
-            &mut swatches,
-            Edit {
-                start: 1,
-                old_end: 1,
-                new_end: 3,
-            },
-        );
+        shift(&mut swatches, Edit { start: 1, old_end: 1, new_end: 3 });
         assert_eq!(swatches, [(4..14, 0xfa2b3680), (15..29, 0x1e90ffff)]);
         // Typing in the first one drops it until the server looks again.
-        shift(
-            &mut swatches,
-            Edit {
-                start: 8,
-                old_end: 8,
-                new_end: 9,
-            },
-        );
+        shift(&mut swatches, Edit { start: 8, old_end: 8, new_end: 9 });
         assert_eq!(swatches, [(16..30, 0x1e90ffff)]);
         // Typing right after the last one keeps it.
-        shift(
-            &mut swatches,
-            Edit {
-                start: 30,
-                old_end: 30,
-                new_end: 31,
-            },
-        );
+        shift(&mut swatches, Edit { start: 30, old_end: 30, new_end: 31 });
         assert_eq!(swatches, [(16..30, 0x1e90ffff)]);
     }
 }

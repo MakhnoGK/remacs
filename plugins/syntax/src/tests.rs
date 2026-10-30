@@ -24,9 +24,7 @@ const GRAMMARS: &[Grammar] = &[
     Grammar {
         mode: "JavaScript",
         language: Source::Built(tree_sitter_javascript::LANGUAGE),
-        highlights: &[include_str!(
-            "../../languages/queries/ecmascript/highlights.scm"
-        )],
+        highlights: &[include_str!("../../languages/queries/ecmascript/highlights.scm")],
     },
     Grammar {
         mode: "HTML",
@@ -63,10 +61,7 @@ fn wait_for(editor: &mut Editor, face: (&str, Face)) -> Vec<(String, Face)> {
     for _ in 0..500 {
         editor.refresh();
         let faces = faces(editor);
-        if faces
-            .iter()
-            .any(|(text, found)| (text.as_str(), *found) == face)
-        {
+        if faces.iter().any(|(text, found)| (text.as_str(), *found) == face) {
             return faces;
         }
         thread::sleep(Duration::from_millis(5));
@@ -83,10 +78,7 @@ fn a_mode_without_a_grammar_reads_its_comments_strings_and_numbers() {
             registry.modes.add(Mode {
                 name: "Lisp",
                 pairs: &[('(', ')'), ('"', '"')],
-                comment: Some(CommentSyntax {
-                    start: "; ",
-                    end: "",
-                }),
+                comment: Some(CommentSyntax { start: "; ", end: "" }),
                 ..Mode::default()
             });
         }
@@ -113,10 +105,7 @@ fn a_mode_without_a_grammar_reads_its_comments_strings_and_numbers() {
     editor.set_settings(Settings::from_files([(PathBuf::from("syntax.toml"), file)]));
     editor.refresh();
     let faces_at_0 = faces(&editor);
-    assert!(
-        !faces_at_0.iter().any(|(_, face)| *face == Face::Comment),
-        "{faces_at_0:?}"
-    );
+    assert!(!faces_at_0.iter().any(|(_, face)| *face == Face::Comment), "{faces_at_0:?}");
     editor.set_settings(Default::default());
 
     // A line of megabytes is read only where it shows.
@@ -137,10 +126,7 @@ fn queries_of_ones_own_extend_or_replace_remacss() {
         std::fs::write(dir.join("highlights.scm"), query).unwrap();
     };
     // Matched by mode, ignoring case; `; extends` keeps remacs's patterns.
-    write(
-        "rust",
-        "; extends\n((identifier) @constant (#eq? @constant \"answer\"))\n",
-    );
+    write("rust", "; extends\n((identifier) @constant (#eq? @constant \"answer\"))\n");
     // Finder's files beside them are no modes.
     std::fs::write(home.join("queries").join(".DS_Store"), "").unwrap();
     let mut editor = rust_editor("fn f() { answer(); }\n");
@@ -183,24 +169,15 @@ fn highlights_after_the_background_parse() {
 fn a_downloaded_grammar_highlights_once_it_is_loaded() {
     static DOWNLOADED: &[Grammar] = &[Grammar {
         mode: "Git Rebase",
-        language: Source::Downloaded {
-            name: "git_rebase",
-            release: "7",
-        },
-        highlights: &[include_str!(
-            "../../languages/queries/git_rebase/highlights.scm"
-        )],
+        language: Source::Downloaded { name: "git_rebase", release: "7" },
+        highlights: &[include_str!("../../languages/queries/git_rebase/highlights.scm")],
     }];
     static PLUGIN: SyntaxPlugin = SyntaxPlugin::new(DOWNLOADED, &[]);
     let home = std::env::temp_dir().join(format!("remacs-grammars-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
     let mut editor = Editor::new(&[&PLUGIN, &remacs_tools::ToolsPlugin]);
     let source = "pick 1a2b3c4 feat: add\n";
-    editor.add_buffer(Buffer::new(
-        "git-rebase-todo",
-        Text::from(source),
-        "Git Rebase",
-    ));
+    editor.add_buffer(Buffer::new("git-rebase-todo", Text::from(source), "Git Rebase"));
     // Turned off, nothing is fetched, and the grammar is not there.
     let off = "download-grammars = false\n".to_owned();
     editor.set_settings(Settings::from_files([(PathBuf::from("syntax.toml"), off)]));
@@ -219,13 +196,7 @@ fn a_downloaded_grammar_highlights_once_it_is_loaded() {
     std::fs::copy(fixture, installed.join("tree-sitter-git_rebase.wasm")).unwrap();
     remacs_tools::keep_tools_in(&mut editor, &home);
     let faces = wait_for(&mut editor, ("pick", Face::Keyword));
-    assert_eq!(
-        faces,
-        [
-            ("pick".into(), Face::Keyword),
-            ("1a2b3c4".into(), Face::Constant),
-        ]
-    );
+    assert_eq!(faces, [("pick".into(), Face::Keyword), ("1a2b3c4".into(), Face::Constant),]);
     let missing = wasm::load("git_rebase", "/no/such.wasm".as_ref());
     assert!(missing.unwrap_err().starts_with("/no/such.wasm: "));
     std::fs::remove_dir_all(home).unwrap();
@@ -241,10 +212,7 @@ fn each_highlight_level_adds_to_the_one_below() {
         editor.refresh();
         faces(&editor)
     };
-    let level_1 = vec![
-        ("// c".into(), Face::Comment),
-        ("main".into(), Face::Function),
-    ];
+    let level_1 = vec![("// c".into(), Face::Comment), ("main".into(), Face::Function)];
     assert_eq!(at(1), level_1);
     // `MAX` is a constant, not left the type its capitalized name would make it.
     let level_2 = [
@@ -336,11 +304,7 @@ fn embedded_languages_turn_off_and_on_with_the_settings() {
 #[test]
 fn other_modes_are_not_parsed() {
     let mut editor = Editor::new(&[&SYNTAX]);
-    editor.add_buffer(Buffer::new(
-        "notes",
-        Text::from("fn main() {}"),
-        "Fundamental",
-    ));
+    editor.add_buffer(Buffer::new("notes", Text::from("fn main() {}"), "Fundamental"));
     editor.refresh();
     thread::sleep(Duration::from_millis(20));
     editor.refresh();
@@ -447,10 +411,7 @@ fn brackets_beside_point_are_highlighted_with_their_partners() {
     assert_eq!(pairs("fn f() { g([1]|) }"), brackets([10, 14], ["(", ")"]));
     assert_eq!(pairs("fn f() { g([1]|); }"), brackets([10, 14], ["(", ")"]));
     assert_eq!(pairs("fn f() { g([1])|; }"), brackets([10, 14], ["(", ")"]));
-    assert_eq!(
-        pairs("fn f(x: Vec|<u8>) {}"),
-        brackets([11, 14], ["<", ">"])
-    );
+    assert_eq!(pairs("fn f(x: Vec|<u8>) {}"), brackets([11, 14], ["<", ">"]));
     assert_eq!(pairs("let s = \"(|\";"), []);
     assert_eq!(pairs("fn f() { x|y }"), []);
     assert_eq!(pairs("fn f() { a <| b }"), []);
@@ -468,20 +429,11 @@ fn tags_at_point_are_highlighted_with_their_partners() {
     assert_eq!(html("<div>|<p>x</p></div>"), names([6, 11], "p"));
     assert_eq!(html("<div id|=\"a\">x</div>"), []);
     // In a script, by the script's own tree.
-    assert_eq!(
-        html("<script>f|(1)</script>"),
-        vec![(9, "(".into()), (11, ")".into())]
-    );
+    assert_eq!(html("<script>f|(1)</script>"), vec![(9, "(".into()), (11, ")".into())]);
 
     let jsx = |marked| matching_pairs("JavaScript", marked);
-    assert_eq!(
-        jsx("const a = <Lis|t.Item>x</List.Item>;"),
-        names([11, 24], "List.Item")
-    );
-    assert_eq!(
-        jsx("const a = <|>x</>;"),
-        vec![(10, "<>".into()), (13, "</>".into())]
-    );
+    assert_eq!(jsx("const a = <Lis|t.Item>x</List.Item>;"), names([11, 24], "List.Item"));
+    assert_eq!(jsx("const a = <|>x</>;"), vec![(10, "<>".into()), (13, "</>".into())]);
     assert_eq!(
         jsx("const a = <div onClick={() => f(|)}>x</div>;"),
         vec![(31, "(".into()), (32, ")".into())]
@@ -554,18 +506,9 @@ fn sexp_edits(marked: &str, keys: &[&str]) -> Vec<String> {
 
 #[test]
 fn expressions_are_killed_transposed_and_marked() {
-    assert_eq!(
-        sexp_edits("fn m() { f(a, |b + c, d); }", &["C-M-k"]),
-        ["fn m() { f(a, |, d); }"]
-    );
-    assert_eq!(
-        sexp_edits("fn m() { f(a, b|, d); }", &["C-M-DEL"]),
-        ["fn m() { f(a, |, d); }"]
-    );
-    assert_eq!(
-        sexp_edits("fn m() { f(a, |b); }", &["C-M-t"]),
-        ["fn m() { f(b, a|); }"]
-    );
+    assert_eq!(sexp_edits("fn m() { f(a, |b + c, d); }", &["C-M-k"]), ["fn m() { f(a, |, d); }"]);
+    assert_eq!(sexp_edits("fn m() { f(a, b|, d); }", &["C-M-DEL"]), ["fn m() { f(a, |, d); }"]);
+    assert_eq!(sexp_edits("fn m() { f(a, |b); }", &["C-M-t"]), ["fn m() { f(b, a|); }"]);
     assert_eq!(
         sexp_edits("fn m() { |a; b; }", &["C-M-SPC", "C-M-SPC"]),
         ["fn m() { |a;^ b; }", "fn m() { |a; b;^ }"]
@@ -576,11 +519,7 @@ fn expressions_are_killed_transposed_and_marked() {
 fn brackets_slurp_and_barf_expressions_but_not_separators() {
     assert_eq!(
         sexp_edits("fn m() { f(g(|a), b); }", &["C-)", "C-}", "C-}"]),
-        [
-            "fn m() { f(g(|a, b)); }",
-            "fn m() { f(g(|a), b); }",
-            "fn m() { f(g(|)a, b); }",
-        ]
+        ["fn m() { f(g(|a, b)); }", "fn m() { f(g(|a), b); }", "fn m() { f(g(|)a, b); }",]
     );
     assert_eq!(
         sexp_edits("fn m() { let x = [[|a, b], c]; }", &["C-{"]),
@@ -594,14 +533,8 @@ fn brackets_slurp_and_barf_expressions_but_not_separators() {
 
 #[test]
 fn lists_are_spliced_and_raised_with_what_they_close() {
-    assert_eq!(
-        sexp_edits("fn m() { f(g(|a, b)); }", &["M-D"]),
-        ["fn m() { f(g|a, b); }"]
-    );
-    assert_eq!(
-        sexp_edits("fn m() { f(g(a, |b)); }", &["raise-sexp"]),
-        ["fn m() { f(|b); }"]
-    );
+    assert_eq!(sexp_edits("fn m() { f(g(|a, b)); }", &["M-D"]), ["fn m() { f(g|a, b); }"]);
+    assert_eq!(sexp_edits("fn m() { f(g(a, |b)); }", &["raise-sexp"]), ["fn m() { f(|b); }"]);
 }
 
 #[test]
@@ -609,12 +542,7 @@ fn sexps_are_the_nodes_point_is_between() {
     let source = "fn main() {\n    |let total = add(1, mul(2, 3));\n    total\n}\n";
     assert_eq!(
         sexp_moves(source, &["C-M-f", "C-M-f", "C-M-b", "C-M-b"]),
-        [
-            "let total = add(1, mul(2, 3));|",
-            "total|",
-            "|total",
-            "|let total = add(1, mul(2, 3));",
-        ]
+        ["let total = add(1, mul(2, 3));|", "total|", "|total", "|let total = add(1, mul(2, 3));",]
     );
     assert_eq!(
         sexp_moves("fn f() { tot|al }\n", &["C-M-f", "C-M-f"]),
@@ -627,10 +555,7 @@ fn sexps_are_the_nodes_point_is_between() {
 fn lists_are_entered_left_and_skipped_by_their_brackets() {
     let source = "fn main() {\n    |let total = add(1, mul(2, 3));\n}\n";
     assert_eq!(
-        sexp_moves(
-            source,
-            &["C-M-d", "C-M-n", "C-M-p", "C-M-u", "C-M-u", "C-M-u"]
-        ),
+        sexp_moves(source, &["C-M-d", "C-M-n", "C-M-p", "C-M-u", "C-M-u", "C-M-u"]),
         [
             "let total = add(|1, mul(2, 3));",
             "let total = add(1, mul(2, 3)|);",

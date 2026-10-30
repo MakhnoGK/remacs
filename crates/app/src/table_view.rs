@@ -61,36 +61,15 @@ pub fn render_table(
     side: Option<Div>,
     cx: &mut Context<EditorView>,
 ) -> impl IntoElement + use<> {
-    let Table {
-        crumbs,
-        sort,
-        columns,
-        rows,
-        activate,
-        notice,
-        ..
-    } = table;
-    let TableCursor {
-        line: point_line,
-        column: point_column,
-        mut regions,
-        composition,
-    } = cursor;
+    let Table { crumbs, sort, columns, rows, activate, notice, .. } = table;
+    let TableCursor { line: point_line, column: point_column, mut regions, composition } = cursor;
     regions.resize(rows.len(), None);
-    let rows = rows
-        .into_iter()
-        .zip(regions)
-        .enumerate()
-        .map(|(index, (row, region))| {
-            let line = first_line + index;
-            let at_point = RowCursor {
-                selected: line == point_line,
-                column: point_column,
-                region,
-                composition,
-            };
-            render_row(row, columns, at_point, line, activate, cx)
-        });
+    let rows = rows.into_iter().zip(regions).enumerate().map(|(index, (row, region))| {
+        let line = first_line + index;
+        let at_point =
+            RowCursor { selected: line == point_line, column: point_column, region, composition };
+        render_row(row, columns, at_point, line, activate, cx)
+    });
     let rows = scrolled_by(
         div().flex().flex_col().gap(px(ROW_GAP)).children(rows),
         ROW_PITCH * scrolled_past,
@@ -108,11 +87,7 @@ pub fn render_table(
         .gap(px(SECTION_GAP))
         .child(render_bar(crumbs, sort, notice, cx))
         .child(render_header(columns))
-        .child(fade_scrolled(
-            rows,
-            scrolled,
-            rgba(glass::window_tint()).into(),
-        ));
+        .child(fade_scrolled(rows, scrolled, rgba(glass::window_tint()).into()));
     div()
         .absolute()
         .top(px(LIST_TOP))
@@ -153,9 +128,7 @@ fn render_bar(
         .enumerate()
         .flat_map(|(index, crumb)| {
             let chevron = (index + 1 < crumb_count).then(|| {
-                svg_icon(CHEVRON_ICON, 10.0, color::fg_muted())
-                    .flex_none()
-                    .into_any_element()
+                svg_icon(CHEVRON_ICON, 10.0, color::fg_muted()).flex_none().into_any_element()
             });
             [Some(render_crumb(crumb, cx)), chevron]
         })
@@ -173,19 +146,14 @@ fn render_bar(
         .pr(px(4.0))
         .child(div().row(2.0).min_w_0().children(crumbs))
         .child(div().flex_1())
-        .when(!options.is_empty(), |bar| {
-            bar.child(sort_label).child(segmented().children(options))
-        })
+        .when(!options.is_empty(), |bar| bar.child(sort_label).child(segmented().children(options)))
         .children(notice.map(render_notice))
 }
 
 /// What the rows are being edited for, with the keys that end it, on a warning tint.
 fn render_notice(notice: Notice) -> Div {
-    let notice_kbd = |key| {
-        kbd(key, false)
-            .bg(rgba(glass::field()))
-            .text_color(rgb(color::fg_on_warning()))
-    };
+    let notice_kbd =
+        |key| kbd(key, false).bg(rgba(glass::field())).text_color(rgb(color::fg_on_warning()));
     div()
         .row(8.0)
         .flex_none()
@@ -242,11 +210,7 @@ fn render_header(columns: &[Column]) -> Div {
         .text(font::small_size(), color::fg_faint())
         .child(div().flex_none().w(px(MARK_WIDTH)))
         .child(div().flex_none().w(px(ICON_WIDTH)))
-        .children(
-            columns
-                .iter()
-                .map(|column| cell(column).child(column.title.to_uppercase())),
-        )
+        .children(columns.iter().map(|column| cell(column).child(column.title.to_uppercase())))
 }
 
 /// Whether a row is point's, and the part of it to draw as the cursor and the region.
@@ -297,11 +261,7 @@ fn render_row(
                 return state_letter(state, highlighted).w(px(column.width.unwrap_or_default()));
             }
         };
-        let text_color = if highlighted && !primary {
-            color::fg_alt()
-        } else {
-            text_color
-        };
+        let text_color = if highlighted && !primary { color::fg_alt() } else { text_color };
         if primary && let Some(field) = field.take() {
             let at_point = selected.then_some(cursor.column);
             let composition = cursor.composition.filter(|_| selected);
@@ -320,9 +280,7 @@ fn render_row(
         .flex_none()
         .bar(ROW_HEIGHT, 12.0)
         .rounded(px(8.0))
-        .when_some(mark_tint.filter(|_| !highlighted), |row, tint| {
-            row.bg(rgba(tint << 8 | 0x14))
-        })
+        .when_some(mark_tint.filter(|_| !highlighted), |row, tint| row.bg(rgba(tint << 8 | 0x14)))
         .when(highlighted, |row| {
             row.bg(rgba(glass::selection())).shadow(vec![shadow(
                 glass::shadow(0x73),
@@ -396,38 +354,23 @@ fn render_field(
                 .bg(rgba(color::warning() << 8 | 0x14))
         })
         .when(at_point.is_some(), |input| {
-            input
-                .border_color(rgba(color::accent() << 8 | 0xbf))
-                .shadow(vec![shadow(color::accent() << 8 | 0x33, 0.0, 0.0, 3.0)])
+            input.border_color(rgba(color::accent() << 8 | 0xbf)).shadow(vec![shadow(
+                color::accent() << 8 | 0x33,
+                0.0,
+                0.0,
+                3.0,
+            )])
         })
         .child(content);
-    div()
-        .row(CELL_GAP)
-        .flex_1()
-        .min_w_0()
-        .child(input)
-        .children(field.original.map(|original| {
-            div()
-                .flex_none()
-                .ui()
-                .status_text(color::fg_faint())
-                .child(format!("was {original}"))
-        }))
+    div().row(CELL_GAP).flex_1().min_w_0().child(input).children(field.original.map(|original| {
+        div().flex_none().ui().status_text(color::fg_faint()).child(format!("was {original}"))
+    }))
 }
 
 /// A column's slot: fixed and right-aligned, or the rest of the row, cut short.
 fn cell(column: &Column) -> Div {
     match column.width {
-        Some(width) => div()
-            .flex_none()
-            .w(px(width))
-            .text_right()
-            .whitespace_nowrap(),
-        None => div()
-            .flex_1()
-            .min_w_0()
-            .overflow_hidden()
-            .whitespace_nowrap()
-            .text_ellipsis(),
+        Some(width) => div().flex_none().w(px(width)).text_right().whitespace_nowrap(),
+        None => div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis(),
     }
 }

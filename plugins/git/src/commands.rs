@@ -32,11 +32,7 @@ pub fn status(editor: &mut Editor) -> CommandResult {
     let existing = editor
         .buffers()
         .iter()
-        .find(|buffer| {
-            buffer
-                .local::<StatusView>()
-                .is_some_and(|view| view.root == root)
-        })
+        .find(|buffer| buffer.local::<StatusView>().is_some_and(|view| view.root == root))
         .map(|buffer| buffer.name().to_owned());
     if let Some(name) = existing {
         editor.switch_to_buffer(&name);
@@ -54,9 +50,7 @@ pub fn status(editor: &mut Editor) -> CommandResult {
 pub fn toggle(editor: &mut Editor) -> CommandResult {
     let buffer = editor.window_buffer_mut();
     let point_line = buffer.point_line();
-    let view = buffer
-        .local_mut::<StatusView>()
-        .ok_or(NOT_A_STATUS_BUFFER)?;
+    let view = buffer.local_mut::<StatusView>().ok_or(NOT_A_STATUS_BUFFER)?;
     let line = view.line(point_line).cloned().ok_or("Nothing here")?;
     match &line {
         Line::Heading(section) => view.toggle_section(*section),
@@ -75,9 +69,8 @@ pub fn toggle(editor: &mut Editor) -> CommandResult {
         Line::Stash(index) => return toggle_stash(editor, *index),
         Line::StashFile { stash, .. } | Line::StashDiff { stash, .. } => {
             view.fold_stash(stash);
-            let stash_line = view.lines[..point_line]
-                .iter()
-                .rposition(|each| matches!(each, Line::Stash(_)));
+            let stash_line =
+                view.lines[..point_line].iter().rposition(|each| matches!(each, Line::Stash(_)));
             if let Some(stash_line) = stash_line {
                 editor.set_point_at(stash_line, 0);
             }
@@ -90,11 +83,7 @@ pub fn toggle(editor: &mut Editor) -> CommandResult {
 /// `magit-section-cycle-global`.
 pub fn toggle_all(editor: &mut Editor) -> CommandResult {
     let any_open = status_view(editor)?.any_file_open();
-    if any_open {
-        collapse_all(editor)
-    } else {
-        expand_all(editor)
-    }
+    if any_open { collapse_all(editor) } else { expand_all(editor) }
 }
 
 pub fn expand_all(editor: &mut Editor) -> CommandResult {
@@ -192,10 +181,7 @@ fn is_file(line: &Line) -> bool {
 }
 
 fn status_view(editor: &mut Editor) -> Result<&mut StatusView, &'static str> {
-    editor
-        .window_buffer_mut()
-        .local_mut::<StatusView>()
-        .ok_or(NOT_A_STATUS_BUFFER)
+    editor.window_buffer_mut().local_mut::<StatusView>().ok_or(NOT_A_STATUS_BUFFER)
 }
 
 /// Unfolds the stash to show its files and their diffs, or folds it.
@@ -207,10 +193,7 @@ fn toggle_stash(editor: &mut Editor, index: usize) -> CommandResult {
         .and_then(|details| details.stashes.get(index))
         .map(|stash| stash.id.clone())
         .ok_or("The stash is gone")?;
-    let view = editor
-        .window_buffer_mut()
-        .local_mut::<StatusView>()
-        .ok_or(NOT_A_STATUS_BUFFER)?;
+    let view = editor.window_buffer_mut().local_mut::<StatusView>().ok_or(NOT_A_STATUS_BUFFER)?;
     if !view.fold_stash(&id) {
         view.show_stash(id.clone(), stash::contents(&root, &id)?);
     }
@@ -223,25 +206,16 @@ pub fn stage(editor: &mut Editor) -> CommandResult {
     let job = match &line {
         Line::Heading(Section::Unstaged) => git_job(["add", "--update", "--", "."]),
         Line::Heading(section @ (Section::Untracked | Section::Unmerged)) => {
-            let paths = section_files(&snapshot, *section)
-                .into_iter()
-                .map(|file| file.path);
+            let paths = section_files(&snapshot, *section).into_iter().map(|file| file.path);
             git_job(args(["add", "--"], paths))
         }
         Line::File(Section::Unstaged | Section::Untracked | Section::Unmerged, path)
-        | Line::Diff {
-            section: Section::Untracked,
-            path,
-            ..
-        }
+        | Line::Diff { section: Section::Untracked, path, .. }
         | Line::NoDiff(Section::Untracked, path)
         | Line::MoreFiles(path) => git_job(args(["add", "--all", "--"], [path.clone()])),
-        Line::Diff {
-            section: Section::Unstaged,
-            path,
-            hunk,
-            ..
-        } => apply_job(&snapshot, path, *hunk, false, &["--cached"])?,
+        Line::Diff { section: Section::Unstaged, path, hunk, .. } => {
+            apply_job(&snapshot, path, *hunk, false, &["--cached"])?
+        }
         Line::Stash(_) | Line::Heading(Section::Stashes) => return Err("Not a change".into()),
         _ => return Err("Already staged".into()),
     };
@@ -259,9 +233,7 @@ pub fn unstage(editor: &mut Editor) -> CommandResult {
         Line::Heading(Section::Staged) => git_job(["reset", "-q", "--"]),
         Line::Heading(Section::Resolved) => git_job(args(
             ["reset", "-q", "--"],
-            section_files(&snapshot, Section::Resolved)
-                .into_iter()
-                .map(|file| file.path),
+            section_files(&snapshot, Section::Resolved).into_iter().map(|file| file.path),
         )),
         Line::File(section @ (Section::Staged | Section::Resolved), path) => {
             let original = section_files(&snapshot, *section)
@@ -275,12 +247,9 @@ pub fn unstage(editor: &mut Editor) -> CommandResult {
                 git_job(args(["reset", "-q", "--"], paths))
             }
         }
-        Line::Diff {
-            section: Section::Staged | Section::Resolved,
-            path,
-            hunk,
-            ..
-        } => apply_job(&snapshot, path, *hunk, true, &["--cached", "--reverse"])?,
+        Line::Diff { section: Section::Staged | Section::Resolved, path, hunk, .. } => {
+            apply_job(&snapshot, path, *hunk, true, &["--cached", "--reverse"])?
+        }
         _ => return Err("Not staged".into()),
     };
     run(editor, &root, job)
@@ -308,12 +277,7 @@ pub fn discard(editor: &mut Editor) -> CommandResult {
             Vec::new(),
             git_job(args(["restore", "--worktree", "--"], [path.clone()])),
         ),
-        Line::Diff {
-            section: Section::Unstaged,
-            path,
-            hunk,
-            ..
-        } => (
+        Line::Diff { section: Section::Unstaged, path, hunk, .. } => (
             format!("Discard this change to {}?", quote(&file_name(path))),
             "The lines go back to what is staged, or to the last commit.",
             Vec::new(),
@@ -333,11 +297,7 @@ pub fn discard(editor: &mut Editor) -> CommandResult {
             )
         }
         Line::File(Section::Untracked, path)
-        | Line::Diff {
-            section: Section::Untracked,
-            path,
-            ..
-        }
+        | Line::Diff { section: Section::Untracked, path, .. }
         | Line::NoDiff(Section::Untracked, path)
         | Line::MoreFiles(path) => {
             let (_, job) = untracked(vec![path.clone()]);
@@ -388,16 +348,9 @@ pub fn visit(editor: &mut Editor) -> CommandResult {
         _ => line.file().ok_or("No file here")?,
     };
     let target = match &line {
-        Line::Diff {
-            hunk,
-            line: diff_line,
-            ..
-        } => {
+        Line::Diff { hunk, line: diff_line, .. } => {
             let staged = section.is_staged();
-            let key = crate::status::DiffKey {
-                staged,
-                path: path.to_path_buf(),
-            };
+            let key = crate::status::DiffKey { staged, path: path.to_path_buf() };
             snapshot
                 .diffs
                 .get(&key)
@@ -421,11 +374,8 @@ pub fn refresh(editor: &mut Editor) -> CommandResult {
 
 /// Shows the buffer shown before this one, like Emacs `magit-mode-bury-buffer`.
 pub fn quit(editor: &mut Editor) -> CommandResult {
-    let other = editor
-        .buffers()
-        .get(1)
-        .map(|buffer| buffer.name().to_owned())
-        .ok_or("No other buffer")?;
+    let other =
+        editor.buffers().get(1).map(|buffer| buffer.name().to_owned()).ok_or("No other buffer")?;
     editor.switch_to_buffer(&other);
     // Buried as the least recent, so the next quit goes further back, not to it again.
     editor.buffers_mut()[1..].rotate_left(1);
@@ -442,10 +392,7 @@ fn view_root(editor: &Editor) -> Result<(PathBuf, usize), &'static str> {
 fn at_point(editor: &Editor) -> Result<(PathBuf, Arc<Snapshot>, Line), &'static str> {
     let (root, snapshot) = shown_status(editor)?;
     let point_line = editor.window_buffer().point_line();
-    let view = editor
-        .window_buffer()
-        .local::<StatusView>()
-        .ok_or(NOT_A_STATUS_BUFFER)?;
+    let view = editor.window_buffer().local::<StatusView>().ok_or(NOT_A_STATUS_BUFFER)?;
     if view.tab == Tab::History {
         return Err("The changes are in their tab: 1 shows them");
     }
@@ -522,10 +469,7 @@ fn apply_job(
     staged: bool,
     flags: &[&str],
 ) -> Result<Job, &'static str> {
-    let key = crate::status::DiffKey {
-        staged,
-        path: path.to_path_buf(),
-    };
+    let key = crate::status::DiffKey { staged, path: path.to_path_buf() };
     let patch = snapshot
         .diffs
         .get(&key)
@@ -534,10 +478,7 @@ fn apply_job(
     let flags: Vec<String> = flags.iter().map(|flag| (*flag).to_owned()).collect();
     Ok(Box::new(move |root| {
         output_with_input(
-            git(root)
-                .arg("apply")
-                .args(&flags)
-                .args(["--whitespace=nowarn", "-"]),
+            git(root).arg("apply").args(&flags).args(["--whitespace=nowarn", "-"]),
             patch.as_bytes(),
         )
         .map(drop)
@@ -555,9 +496,7 @@ fn trash_all(root: &Path, paths: &[PathBuf]) -> Result<(), String> {
         trash::macos::DeleteMethod::NsFileManager,
     );
     let full: Vec<PathBuf> = paths.iter().map(|path| root.join(path)).collect();
-    trash
-        .delete_all(&full)
-        .map_err(|error| format!("Could not move to the Trash: {error}"))
+    trash.delete_all(&full).map_err(|error| format!("Could not move to the Trash: {error}"))
 }
 
 fn paths_dialog_items(snapshot: &Snapshot, section: Section) -> Vec<ListItem> {
@@ -575,8 +514,6 @@ fn paths_dialog_items(snapshot: &Snapshot, section: Section) -> Vec<ListItem> {
 }
 
 fn file_name(path: &Path) -> String {
-    path.file_name().map_or_else(
-        || path.display().to_string(),
-        |name| name.to_string_lossy().into_owned(),
-    )
+    path.file_name()
+        .map_or_else(|| path.display().to_string(), |name| name.to_string_lossy().into_owned())
 }

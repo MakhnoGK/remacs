@@ -53,28 +53,21 @@ fn desktop_font(family: &str) -> Option<String> {
         .args(["--format=%{family[0]}", generic])
         .output()
         .ok()?;
-    String::from_utf8(output.stdout)
-        .ok()
-        .filter(|family| !family.is_empty())
+    String::from_utf8(output.stdout).ok().filter(|family| !family.is_empty())
 }
 
 /// Reads the settings and applies the process-wide part of `ui`, the theme as for macOS in
 /// `system` appearance; the view and the plugins apply the rest.
 pub fn read_settings(system: Appearance) -> ReadSettings {
     let home = home();
-    let (settings, mut errors) = home
-        .as_deref()
-        .map(|home| Settings::load(&config_dir(home)))
-        .unwrap_or_default();
+    let (settings, mut errors) =
+        home.as_deref().map(|home| Settings::load(&config_dir(home))).unwrap_or_default();
     let mut ui: UiSettings = section(&settings, &mut errors);
     let theme = read_theme(ui.theme.shown(system), home.as_deref(), &mut errors);
     remacs_theme::install(&theme);
     // Only the Metal renderer blurs (ADR 0035); unblurred, the desktop would show through.
     if cfg!(not(target_os = "macos")) {
-        ui.glass = GlassSettings {
-            opacity: Some(1.0),
-            blur: 0,
-        };
+        ui.glass = GlassSettings { opacity: Some(1.0), blur: 0 };
     }
     glass::set_window_opacity(*ui.glass.opacity.get_or_insert(theme.opacity));
     #[cfg(not(target_os = "macos"))]
@@ -95,11 +88,7 @@ pub fn read_settings(system: Appearance) -> ReadSettings {
     set_text_strokes(ui.font.strokes.into());
     glass::set_blurs(ui.glass.blur > 0);
     cursor::set_radius(ui.cursor.radius);
-    ReadSettings {
-        settings,
-        ui,
-        errors,
-    }
+    ReadSettings { settings, ui, errors }
 }
 
 /// The theme `ui.toml` names, else the default one, the error reported.
@@ -155,10 +144,7 @@ pub fn watch_settings(view: WeakEntity<EditorView>, cx: &mut App) {
             cx.background_executor().timer(SETTLE_TIME).await;
             while changes.try_recv().is_ok() {}
             let read = read_settings(frame::system_appearance());
-            if view
-                .update(cx, |view, cx| view.apply_settings(read, cx))
-                .is_err()
-            {
+            if view.update(cx, |view, cx| view.apply_settings(read, cx)).is_err() {
                 break;
             }
         }

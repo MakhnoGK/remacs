@@ -48,10 +48,8 @@ impl Expansion {
             }
             // Variables such as `$TM_FILENAME` are not known here and insert nothing.
             Some(&first) if first.is_ascii_alphabetic() || first == '_' => {
-                while chars
-                    .next_if(|&next| next.is_ascii_alphanumeric() || next == '_')
-                    .is_some()
-                {}
+                while chars.next_if(|&next| next.is_ascii_alphanumeric() || next == '_').is_some() {
+                }
             }
             _ => self.text.push('$'),
         }
@@ -93,9 +91,7 @@ impl Expansion {
 fn number(chars: &mut Peekable<Chars>) -> u32 {
     let mut number = 0u32;
     while let Some(digit) = chars.next_if(char::is_ascii_digit) {
-        number = number
-            .saturating_mul(10)
-            .saturating_add(digit.to_digit(10).unwrap_or(0));
+        number = number.saturating_mul(10).saturating_add(digit.to_digit(10).unwrap_or(0));
     }
     number
 }
@@ -106,15 +102,9 @@ mod tests {
 
     #[test]
     fn placeholders_keep_their_text_and_point_goes_to_the_first_stop() {
-        assert_eq!(
-            expand("step_by(${1:step})$0"),
-            ("step_by(step)".into(), Some(8))
-        );
+        assert_eq!(expand("step_by(${1:step})$0"), ("step_by(step)".into(), Some(8)));
         assert_eq!(expand("len()$0"), ("len()".into(), Some(5)));
-        assert_eq!(
-            expand("if ${2:b} {\n\t$1\n}"),
-            ("if b {\n\t\n}".into(), Some(8))
-        );
+        assert_eq!(expand("if ${2:b} {\n\t$1\n}"), ("if b {\n\t\n}".into(), Some(8)));
         assert_eq!(
             expand("${1:outer ${2:inner}} \\$x ${3|a,b|} $TM_FILENAME"),
             ("outer inner $x a ".into(), Some(0))

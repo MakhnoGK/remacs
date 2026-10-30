@@ -45,10 +45,7 @@ mod tests {
         write_message(&mut stream, &json!({"id": 1, "text": "ж"})).unwrap();
         write_message(&mut stream, &json!({"id": 2})).unwrap();
         let mut reader = stream.as_slice();
-        assert_eq!(
-            read_message(&mut reader).unwrap(),
-            Some(json!({"id": 1, "text": "ж"}))
-        );
+        assert_eq!(read_message(&mut reader).unwrap(), Some(json!({"id": 1, "text": "ж"})));
         assert_eq!(read_message(&mut reader).unwrap(), Some(json!({"id": 2})));
         assert_eq!(read_message(&mut reader).unwrap(), None);
     }

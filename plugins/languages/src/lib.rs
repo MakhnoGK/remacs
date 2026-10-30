@@ -73,9 +73,8 @@ mod tests {
             grammars: Vec<toml::Table>,
         }
         let list: List = toml::from_str(include_str!("../grammars.toml")).unwrap();
-        let mut listed: Vec<_> = (list.grammars.iter())
-            .map(|grammar| grammar["name"].as_str().unwrap())
-            .collect();
+        let mut listed: Vec<_> =
+            (list.grammars.iter()).map(|grammar| grammar["name"].as_str().unwrap()).collect();
         let mut downloaded = Vec::new();
         for grammar in GRAMMARS {
             if let remacs_syntax::Source::Downloaded { name, release } = grammar.language {
@@ -97,10 +96,7 @@ mod tests {
             assert!(known, "no {} in languages.toml", grammar.mode);
         }
         for &Mode { name: mode, .. } in MODES.iter() {
-            let grammar = GRAMMARS
-                .iter()
-                .find(|grammar| grammar.mode == mode)
-                .unwrap();
+            let grammar = GRAMMARS.iter().find(|grammar| grammar.mode == mode).unwrap();
             let language = grammar.language().unwrap();
             let query = Query::new(&language, &grammar.highlights.concat())
                 .unwrap_or_else(|error| panic!("{mode}: {error}"));
@@ -130,18 +126,13 @@ mod tests {
         assert_eq!(editor.syntax_at(string + 1), SyntaxContext::String);
 
         let commented = |editor: &mut Editor, at: &str| {
-            let offset = editor
-                .buffer()
-                .contents(0..editor.buffer().text().len())
-                .find(at)
-                .unwrap();
+            let offset =
+                editor.buffer().contents(0..editor.buffer().text().len()).find(at).unwrap();
             editor.window_buffer_mut().set_point(offset);
             editor.run_command("comment-line");
             editor.refresh();
             let text = editor.buffer().text();
-            editor
-                .buffer()
-                .contents(text.line_range(text.line_of(offset)).unwrap())
+            editor.buffer().contents(text.line_range(text.line_of(offset)).unwrap())
         };
         assert_eq!(commented(&mut editor, "a {"), "/* a { color: red; } */");
         assert_eq!(commented(&mut editor, "let s"), "// let s = \"x\";");
@@ -185,19 +176,12 @@ mod tests {
         let faces = |editor: &Editor| -> Vec<(String, Face)> {
             let buffer = editor.window_buffer();
             let spans = editor.decorations(0..buffer.text().len()).concat();
-            spans
-                .into_iter()
-                .map(|span| (buffer.contents(span.range), span.face))
-                .collect()
+            spans.into_iter().map(|span| (buffer.contents(span.range), span.face)).collect()
         };
         let wait_for = |editor: &mut Editor, shows: (&str, Face), shown: bool| {
             let start = Instant::now();
             while faces(editor).contains(&(shows.0.into(), shows.1)) != shown {
-                assert!(
-                    start.elapsed() < Duration::from_secs(5),
-                    "{shows:?}: {:?}",
-                    faces(editor)
-                );
+                assert!(start.elapsed() < Duration::from_secs(5), "{shows:?}: {:?}", faces(editor));
                 thread::sleep(Duration::from_millis(5));
                 editor.refresh();
             }
@@ -213,10 +197,7 @@ mod tests {
             ("boolean", Face::Type),
             ("\"on\"", Face::Function),
         ] {
-            assert!(
-                shown.contains(&(expected.0.into(), expected.1)),
-                "{expected:?} in {shown:?}"
-            );
+            assert!(shown.contains(&(expected.0.into(), expected.1)), "{expected:?} in {shown:?}");
         }
         // The template stays text.
         assert!(!shown.contains(&("3".into(), Face::Constant)), "{shown:?}");
@@ -230,9 +211,7 @@ mod tests {
         wait_for(&mut editor, ("3", Face::Constant), true);
         let end = editor.window_buffer().text().len();
         editor.window_buffer_mut().set_point(end);
-        editor
-            .window_buffer_mut()
-            .insert("<style>late { }</style>\n");
+        editor.window_buffer_mut().insert("<style>late { }</style>\n");
         wait_for(&mut editor, ("late", Face::Function), true);
         let json = page.find("<script type=\"application/json\">").unwrap();
         let json_end = page[json..].find('\n').unwrap() + json;
@@ -252,19 +231,12 @@ mod tests {
         let faces = |editor: &Editor| -> Vec<(String, Face)> {
             let buffer = editor.window_buffer();
             let spans = editor.decorations(0..buffer.text().len()).concat();
-            spans
-                .into_iter()
-                .map(|span| (buffer.contents(span.range), span.face))
-                .collect()
+            spans.into_iter().map(|span| (buffer.contents(span.range), span.face)).collect()
         };
         let wait_for = |editor: &mut Editor, shows: (&str, Face)| {
             let start = Instant::now();
             while !faces(editor).contains(&(shows.0.into(), shows.1)) {
-                assert!(
-                    start.elapsed() < Duration::from_secs(5),
-                    "{shows:?}: {:?}",
-                    faces(editor)
-                );
+                assert!(start.elapsed() < Duration::from_secs(5), "{shows:?}: {:?}", faces(editor));
                 thread::sleep(Duration::from_millis(5));
                 editor.refresh();
             }
@@ -291,10 +263,7 @@ mod tests {
                 );
             }
             // The attribute's string face gives way to the code in it.
-            assert!(
-                !shown.iter().any(|(text, _)| text.contains("margin")),
-                "{shown:?}"
-            );
+            assert!(!shown.iter().any(|(text, _)| text.contains("margin")), "{shown:?}");
         };
         assert_shown(&wait_for(&mut editor, ("7", Face::Constant)));
         let documents: Vec<_> = (editor.embedded(editor.window_buffer()).unwrap().iter())
@@ -306,11 +275,7 @@ mod tests {
         editor.window_buffer_mut().set_point(0);
         editor.window_buffer_mut().insert("<code>z</code>");
         assert_shown(&wait_for(&mut editor, ("code", Face::Function)));
-        let go = editor
-            .buffer()
-            .contents(0..editor.buffer().text().len())
-            .find("go(")
-            .unwrap();
+        let go = editor.buffer().contents(0..editor.buffer().text().len()).find("go(").unwrap();
         editor.window_buffer_mut().delete(go..go + 2);
         editor.window_buffer_mut().set_point(go);
         editor.window_buffer_mut().insert("run");
@@ -333,10 +298,7 @@ mod tests {
                     .map(|span| (buffer.contents(span.range), span.face))
                     .collect();
             }
-            assert!(
-                start.elapsed() < Duration::from_secs(5),
-                "{mode} never parsed"
-            );
+            assert!(start.elapsed() < Duration::from_secs(5), "{mode} never parsed");
             thread::sleep(Duration::from_millis(5));
         }
     }
@@ -348,9 +310,8 @@ mod tests {
                       const b = sql`select name from cards`;\n";
         // The templates come with the parse that brings the first faces.
         let faces = highlighted(TYPESCRIPT, source);
-        let selects = (faces.iter())
-            .filter(|shown| **shown == ("select".into(), Face::Keyword))
-            .count();
+        let selects =
+            (faces.iter()).filter(|shown| **shown == ("select".into(), Face::Keyword)).count();
         assert_eq!(selects, 2, "{faces:?}");
     }
 
@@ -465,12 +426,7 @@ mod tests {
             (
                 TSX,
                 "const a = <Box size={2}>{n as number}</Box>;\n",
-                &[
-                    ("Box", Type),
-                    ("size", Builtin),
-                    ("2", Constant),
-                    ("number", Type),
-                ],
+                &[("Box", Type), ("size", Builtin), ("2", Constant), ("number", Type)],
             ),
             (
                 HTML,
@@ -545,11 +501,7 @@ mod tests {
             (
                 DIFF,
                 "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new\n",
-                &[
-                    ("@@ -1 +1 @@", Function),
-                    ("-old", Removed),
-                    ("+new", Added),
-                ],
+                &[("@@ -1 +1 @@", Function), ("-old", Removed), ("+new", Added)],
             ),
             (
                 MAKE,
@@ -1133,10 +1085,7 @@ mod tests {
             let faces = |editor: &Editor| -> Vec<(std::string::String, Face)> {
                 let buffer = editor.window_buffer();
                 let spans = editor.decorations(0..buffer.text().len()).concat();
-                spans
-                    .into_iter()
-                    .map(|span| (buffer.contents(span.range), span.face))
-                    .collect()
+                spans.into_iter().map(|span| (buffer.contents(span.range), span.face)).collect()
             };
             let start = Instant::now();
             while !expected
@@ -1183,15 +1132,9 @@ mod tests {
     /// `println` used to lose its face to the `_` capture that picks the format macros.
     #[test]
     fn macros_called_keep_their_face_where_a_predicate_reads_them() {
-        let faces = highlighted(
-            RUST,
-            "fn f() { println!(\"{}\", 1); tracing::info!(\"x\"); }\n",
-        );
+        let faces = highlighted(RUST, "fn f() { println!(\"{}\", 1); tracing::info!(\"x\"); }\n");
         for shown in ["println!", "info!"] {
-            assert!(
-                faces.contains(&(shown.into(), Face::Builtin)),
-                "{shown}: {faces:?}"
-            );
+            assert!(faces.contains(&(shown.into(), Face::Builtin)), "{shown}: {faces:?}");
         }
     }
 
@@ -1207,23 +1150,15 @@ mod tests {
             ("vec!", Face::Builtin),
             ("Some", Face::Type),
         ] {
-            assert!(
-                faces.contains(&(shown.0.into(), shown.1)),
-                "{shown:?}: {faces:?}"
-            );
+            assert!(faces.contains(&(shown.0.into(), shown.1)), "{shown:?}: {faces:?}");
         }
-        assert!(
-            !faces.iter().any(|(text, _)| text.contains("{x}")),
-            "{faces:?}"
-        );
+        assert!(!faces.iter().any(|(text, _)| text.contains("{x}")), "{faces:?}");
     }
 
     #[test]
     fn builtins_are_called_not_any_name_alike() {
         let faces = highlighted(RUBY, "items.each { |p| p.save }\np items\n");
-        let builtins: Vec<_> = (faces.iter())
-            .filter(|(_, face)| *face == Face::Builtin)
-            .collect();
+        let builtins: Vec<_> = (faces.iter()).filter(|(_, face)| *face == Face::Builtin).collect();
         assert_eq!(builtins, [&("p".into(), Face::Builtin)], "{faces:?}");
     }
 
@@ -1234,11 +1169,7 @@ mod tests {
             (TYPESCRIPT, "let s = `hi ${name}!`;\n", ["`hi ", "!`"]),
             (PYTHON, "s = f\"hi {name}!\"\n", ["f\"hi ", "!\""]),
             (RUBY, "s = \"hi #{name}!\"\n", ["\"hi ", "!\""]),
-            (
-                RUST,
-                "fn f() { println!(\"hi {name}!\"); }\n",
-                ["\"hi ", "!\""],
-            ),
+            (RUST, "fn f() { println!(\"hi {name}!\"); }\n", ["\"hi ", "!\""]),
         ];
         for (mode, source, strings) in cases {
             let faces = highlighted(mode, source);
@@ -1276,18 +1207,12 @@ mod tests {
         // A file's own word comes first, in the names Emacs and vim give the modes.
         let mode_of_file =
             |path: &str, text: &str| modes.name_for_file(Path::new(path), &Text::from(text));
-        assert_eq!(
-            mode_of_file("bin/serve", "#!/usr/bin/env node\n"),
-            "JavaScript"
-        );
+        assert_eq!(mode_of_file("bin/serve", "#!/usr/bin/env node\n"), "JavaScript");
         assert_eq!(mode_of_file("bin/build", "#!/bin/zsh\n"), "Bash");
         assert_eq!(mode_of_file("bin/check", "#!/usr/bin/python3\n"), "Python");
         assert_eq!(mode_of_file("lib.h", "// -*- mode: c++ -*-\n"), "C++");
         assert_eq!(mode_of_file("env", "# -*- sh -*-\n"), "Bash");
-        assert_eq!(
-            mode_of_file("conf.in", "x\n// vim: set ft=javascriptreact :\n"),
-            "JSX"
-        );
+        assert_eq!(mode_of_file("conf.in", "x\n// vim: set ft=javascriptreact :\n"), "JSX");
         assert_eq!(mode_of_file("index", "<!DOCTYPE html>\n<html>\n"), "HTML");
         assert_eq!(mode_of_file("feed", "<?xml version=\"1.0\"?>\n"), "XML");
     }

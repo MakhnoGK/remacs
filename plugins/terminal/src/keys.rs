@@ -14,14 +14,7 @@ pub fn encode(key: Key, mode: TermMode) -> Option<Vec<u8>> {
 }
 
 /// xterm's modifier parameter: 1 plus shift 1, alt 2, control 4.
-fn parameter(
-    Modifiers {
-        control,
-        meta,
-        shift,
-        ..
-    }: Modifiers,
-) -> u8 {
+fn parameter(Modifiers { control, meta, shift, .. }: Modifiers) -> u8 {
     1 + u8::from(shift) + 2 * u8::from(meta) + 4 * u8::from(control)
 }
 
@@ -78,12 +71,7 @@ fn kitty(key: Key, mode: TermMode) -> Option<Vec<u8>> {
 /// As xterm encodes `key`; `application_cursor` is the mode in which programs like
 /// `less` want arrows as SS3.
 fn legacy(key: Key, application_cursor: bool) -> Option<Vec<u8>> {
-    let Modifiers {
-        control,
-        meta,
-        shift,
-        ..
-    } = key.modifiers;
+    let Modifiers { control, meta, shift, .. } = key.modifiers;
     let parameter = parameter(key.modifiers);
     let modified = parameter > 1;
     let csi = |final_byte: char| -> Vec<u8> {
@@ -103,11 +91,7 @@ fn legacy(key: Key, application_cursor: bool) -> Option<Vec<u8>> {
         }
     };
     let with_meta = |bytes: Vec<u8>| -> Vec<u8> {
-        if meta {
-            [b"\x1b".as_slice(), &bytes].concat()
-        } else {
-            bytes
-        }
+        if meta { [b"\x1b".as_slice(), &bytes].concat() } else { bytes }
     };
     let bytes = match key.code {
         KeyCode::Char(character) if control => with_meta(vec![control_byte(character)?]),

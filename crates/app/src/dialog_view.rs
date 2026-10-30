@@ -31,12 +31,11 @@ pub fn render_dialog(dialog: Dialog, cx: &mut Context<EditorView>) -> Div {
                 .child(title_text(&dialog.title))
                 .child(explanation.line_height(px(17.0))),
         );
-    let items = div()
-        .column()
-        .gap(px(2.0))
-        .pt(px(4.0))
-        .pl(px(ITEMS_INSET))
-        .children(list_items(dialog.items, MAX_SHOWN_ITEMS, 32.0));
+    let items = div().column().gap(px(2.0)).pt(px(4.0)).pl(px(ITEMS_INSET)).children(list_items(
+        dialog.items,
+        MAX_SHOWN_ITEMS,
+        32.0,
+    ));
     let buttons = div()
         .flex()
         .justify_end()
@@ -68,20 +67,13 @@ fn warning_icon() -> Div {
 fn render_option(option: DialogOption, cx: &mut Context<EditorView>) -> Div {
     let chip = option_chip(option.label, &option.key.to_string(), option.on)
         .on_press(cx, |view, cx| view.toggle_dialog_option(cx));
-    div()
-        .flex()
-        .pt(px(12.0))
-        .pb(px(2.0))
-        .pl(px(ITEMS_INSET + 10.0))
-        .child(chip)
+    div().flex().pt(px(12.0)).pb(px(2.0)).pl(px(ITEMS_INSET + 10.0)).child(chip)
 }
 
 /// The answer `yes` or not, with its key.
 fn render_button(label: String, yes: bool, destructive: bool, cx: &mut Context<EditorView>) -> Div {
     let key_cap = kbd(if yes { "y" } else { "n" }, false).when(destructive, |key_cap| {
-        key_cap
-            .bg(rgb(color::bg_danger_kbd()))
-            .fg(color::fg_on_danger())
+        key_cap.bg(rgb(color::bg_danger_kbd())).fg(color::fg_on_danger())
     });
     div()
         .row(10.0)
@@ -93,9 +85,7 @@ fn render_button(label: String, yes: bool, destructive: bool, cx: &mut Context<E
         .shadow(vec![shadow(glass::shadow(0x80), 1.0, 2.0, 0.0)])
         .text_size(px(font::ui_size()))
         .when(destructive, |button| {
-            button
-                .bg(rgb(color::bg_danger()))
-                .border_color(rgba(color::error() << 8 | 0x66))
+            button.bg(rgb(color::bg_danger())).border_color(rgba(color::error() << 8 | 0x66))
         })
         .on_press(cx, move |view, cx| view.answer_question(yes, cx))
         .child(label)

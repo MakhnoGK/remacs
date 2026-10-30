@@ -139,9 +139,8 @@ fn render_details(
     version: Option<(&'static str, FileStatus)>,
 ) -> Div {
     let value = || div().font_family(font::mono()).fg(color::fg_body());
-    let plain = details
-        .into_iter()
-        .map(|(label, text)| (label, value().min_w_0().truncate().child(text)));
+    let plain =
+        details.into_iter().map(|(label, text)| (label, value().min_w_0().truncate().child(text)));
     let version = version.map(|(name, status)| {
         let mut text = String::new();
         let mut faces = Vec::new();
@@ -163,19 +162,16 @@ fn render_details(
         let styled = StyledText::new(text).with_highlights(faces);
         (name, value().flex_none().child(styled))
     });
-    let rows = plain
-        .chain(version)
-        .enumerate()
-        .map(|(index, (label, value))| {
-            div()
-                .flex()
-                .justify_between()
-                .gap(px(12.0))
-                .p(px(PADDING))
-                .when(index > 0, |row| row.top_border(glass::ink(0x0f)))
-                .child(div().flex_none().child(label))
-                .child(value)
-        });
+    let rows = plain.chain(version).enumerate().map(|(index, (label, value))| {
+        div()
+            .flex()
+            .justify_between()
+            .gap(px(12.0))
+            .p(px(PADDING))
+            .when(index > 0, |row| row.top_border(glass::ink(0x0f)))
+            .child(div().flex_none().child(label))
+            .child(value)
+    });
     div()
         .column()
         .flex_none()

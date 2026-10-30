@@ -26,9 +26,7 @@ impl Editor {
     /// The window that the window buffer and the viewport are now: the selected one,
     /// unless another is displayed.
     pub fn displayed_window(&self) -> WindowId {
-        self.displayed
-            .as_ref()
-            .map_or(self.windows.selected(), |displayed| displayed.window)
+        self.displayed.as_ref().map_or(self.windows.selected(), |displayed| displayed.window)
     }
 
     pub fn window_count(&self) -> usize {
@@ -49,9 +47,7 @@ impl Editor {
             .iter()
             .position(|buffer| buffer.id() != shown && !in_windows.contains(&buffer.id()))
             .or((self.buffers.len() > 1).then_some(1));
-        replacement
-            .inspect(|&index| self.select_buffer(index))
-            .is_some()
+        replacement.inspect(|&index| self.select_buffer(index)).is_some()
     }
 
     /// The window selected before the selected one, where Emacs `*-other-window` commands
@@ -76,9 +72,7 @@ impl Editor {
             return false;
         };
         let whole = size as f32 / share;
-        self.windows
-            .layout
-            .resize(selected, axis, cells as f32 / whole, min as f32 / whole)
+        self.windows.layout.resize(selected, axis, cells as f32 / whole, min as f32 / whole)
     }
 
     /// Sets the share of the first side of the `split`th split, counted depth first, as
@@ -102,9 +96,7 @@ impl Editor {
     /// Deletes the selected window and selects the one selected before it.
     pub fn delete_window(&mut self) -> CommandResult {
         let deleted = self.windows.selected();
-        let previous = self
-            .previous_window()
-            .ok_or("Can't delete the only window")?;
+        let previous = self.previous_window().ok_or("Can't delete the only window")?;
         self.select_window(previous);
         self.remove_window(deleted);
         Ok(())

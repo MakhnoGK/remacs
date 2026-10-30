@@ -32,11 +32,7 @@ impl Folds {
         folds.dedup();
         let lines = folds.iter().map(|fold| fold.lines.clone());
         let shown = ShownLines::new(snapshot.line_count(), lines);
-        Self {
-            snapshot,
-            folds,
-            shown,
-        }
+        Self { snapshot, folds, shown }
     }
 
     /// The folds in `text`, those an edit since touched gone; the others' lines move by
@@ -110,17 +106,11 @@ impl ShownLines {
     /// The row `line` is shown on; a hidden line's is its fold's header's.
     pub fn row_of(&self, line: usize) -> usize {
         let line = line.min(self.line_count.saturating_sub(1));
-        let index = self
-            .hidden
-            .partition_point(|(range, _)| range.start <= line);
+        let index = self.hidden.partition_point(|(range, _)| range.start <= line);
         let Some((range, before)) = index.checked_sub(1).map(|index| &self.hidden[index]) else {
             return line;
         };
-        if line < range.end {
-            range.start - 1 - before
-        } else {
-            line - before - range.len()
-        }
+        if line < range.end { range.start - 1 - before } else { line - before - range.len() }
     }
 
     /// The line shown on `row`, the last one past the last row.
@@ -141,9 +131,7 @@ impl ShownLines {
 
     /// The lines a fold hides after `line`, its header; none when it heads no fold.
     pub fn hidden_after(&self, line: usize) -> Option<usize> {
-        let index = self
-            .hidden
-            .partition_point(|(range, _)| range.start <= line);
+        let index = self.hidden.partition_point(|(range, _)| range.start <= line);
         (self.hidden.get(index))
             .filter(|(range, _)| range.start == line + 1)
             .map(|(range, _)| range.len())
@@ -153,10 +141,8 @@ impl ShownLines {
 impl Buffer {
     /// The lines as windows show them, with folds' lines hidden.
     pub fn shown_lines(&self) -> ShownLines {
-        self.folds_now().map_or_else(
-            || ShownLines::all(self.text().line_count()),
-            |folds| folds.shown.clone(),
-        )
+        self.folds_now()
+            .map_or_else(|| ShownLines::all(self.text().line_count()), |folds| folds.shown.clone())
     }
 
     /// Hides each of `folds`, ranges of whole lines after their header, which stays shown.
@@ -167,19 +153,14 @@ impl Buffer {
             let last = lines.end.checked_sub(1)?;
             let start = text.line_start(lines.start).filter(|_| lines.start > 0)?;
             let end = text.line_range(last).filter(|_| lines.start <= last)?.end;
-            Some(Fold {
-                bytes: start..end,
-                lines,
-            })
+            Some(Fold { bytes: start..end, lines })
         }));
         self.set_folds(current);
     }
 
     /// The lines each fold hides, folds within folds too, for `fold` to hide again.
     pub fn folded_lines(&self) -> Vec<Range<usize>> {
-        (self.current_folds().into_iter())
-            .map(|fold| fold.lines)
-            .collect()
+        (self.current_folds().into_iter()).map(|fold| fold.lines).collect()
     }
 
     /// Shows the lines the folds `line` heads hide; false when it heads none.
@@ -221,8 +202,7 @@ impl Buffer {
     }
 
     fn current_folds(&self) -> Vec<Fold> {
-        self.folds_now()
-            .map_or_else(Vec::new, |folds| folds.folds.clone())
+        self.folds_now().map_or_else(Vec::new, |folds| folds.folds.clone())
     }
 
     /// The folds placed in the text as it is now, if there are any.
@@ -286,11 +266,7 @@ mod tests {
         let inside = buffer.text().line_start(3).unwrap();
         buffer.set_point(inside);
         buffer.insert("y");
-        assert_eq!(
-            buffer.shown_lines(),
-            ShownLines::all(7),
-            "an edit inside unfolds it"
-        );
+        assert_eq!(buffer.shown_lines(), ShownLines::all(7), "an edit inside unfolds it");
     }
 
     #[test]
@@ -298,11 +274,7 @@ mod tests {
         let mut buffer = Buffer::new("t", Text::from("a\nb\nc\nd\ne\n"), "Fundamental");
         buffer.fold([1..4, 2..3]);
         assert!(buffer.unfold_at(0));
-        assert_eq!(
-            buffer.shown_lines(),
-            ShownLines::new(6, [2..3]),
-            "the inner one stays"
-        );
+        assert_eq!(buffer.shown_lines(), ShownLines::new(6, [2..3]), "the inner one stays");
         assert!(!buffer.unfold_at(4));
         let offset = buffer.text().line_start(2).unwrap();
         assert_eq!(buffer.reveal(offset), [2..3]);

@@ -145,10 +145,7 @@ fn center(extent: Pixels, thickness: Pixels) -> Pixels {
 }
 
 fn fill(x: Pixels, y: Pixels, width: Pixels, height: Pixels) -> Piece {
-    Piece::Fill {
-        bounds: Bounds::new(point(x, y), size(width, height)),
-        alpha: 1.0,
-    }
+    Piece::Fill { bounds: Bounds::new(point(x, y), size(width, height)), alpha: 1.0 }
 }
 
 const UP: u16 = 0;
@@ -185,30 +182,18 @@ fn lines(arms: u16, width: Pixels, height: Pixels, out: &mut Vec<Piece>) {
             continue;
         }
         let vertical = arm == UP || arm == DOWN;
-        let (along, across) = if vertical {
-            (height, width)
-        } else {
-            (width, height)
-        };
+        let (along, across) = if vertical { (height, width) } else { (width, height) };
         // `before` is beside the arm's first stroke, `after` beside its last.
         let (before, after) = if vertical { (LEFT, RIGHT) } else { (UP, DOWN) };
         let from_edge_start = arm == UP || arm == LEFT;
         let span = |beside: u16, near: bool| {
             let (spans, count) = strokes(weight(beside), along, light);
-            let first = if near == from_edge_start {
-                0
-            } else {
-                count - 1
-            };
+            let first = if near == from_edge_start { 0 } else { count - 1 };
             spans[first]
         };
         let (own_strokes, count) = strokes(own, across, light);
         for (index, &(offset, thickness)) in own_strokes[..count].iter().enumerate() {
-            let (side, other) = if index == 0 {
-                (before, after)
-            } else {
-                (after, before)
-            };
+            let (side, other) = if index == 0 { (before, after) } else { (after, before) };
             // A single line passes straight through two arms beside it, as ┼ and ╪ do.
             let reached = match (own == DOUBLE, weight(side) != 0, weight(other) != 0) {
                 (true, true, _) => Some(span(side, true)),
@@ -271,27 +256,13 @@ fn arc(code: u32, width: Pixels, height: Pixels) -> Piece {
     let y = center(height, thickness);
     let (origin, extent, corner) = match code {
         0x256D => (point(x, y), size(width - x, height - y), Corner::TopLeft),
-        0x256E => (
-            point(px(0.0), y),
-            size(x + thickness, height - y),
-            Corner::TopRight,
-        ),
-        0x256F => (
-            point(px(0.0), px(0.0)),
-            size(x + thickness, y + thickness),
-            Corner::BottomRight,
-        ),
-        _ => (
-            point(x, px(0.0)),
-            size(width - x, y + thickness),
-            Corner::BottomLeft,
-        ),
+        0x256E => (point(px(0.0), y), size(x + thickness, height - y), Corner::TopRight),
+        0x256F => {
+            (point(px(0.0), px(0.0)), size(x + thickness, y + thickness), Corner::BottomRight)
+        }
+        _ => (point(x, px(0.0)), size(width - x, y + thickness), Corner::BottomLeft),
     };
-    Piece::Arc {
-        bounds: Bounds::new(origin, extent),
-        corner,
-        thickness,
-    }
+    Piece::Arc { bounds: Bounds::new(origin, extent), corner, thickness }
 }
 
 fn block(code: u32, width: Pixels, height: Pixels, out: &mut Vec<Piece>) {
@@ -334,11 +305,7 @@ fn dashed(code: u32, width: Pixels, height: Pixels, out: &mut Vec<Piece>) {
     };
     let thickness = light(width) * if index % 2 == 1 { 2.0 } else { 1.0 };
     let vertical = index / 2 % 2 == 1;
-    let (along, across) = if vertical {
-        (height, width)
-    } else {
-        (width, height)
-    };
+    let (along, across) = if vertical { (height, width) } else { (width, height) };
     let segment = along * (1.0 / count as f32);
     let dash = segment * DASH;
     let offset = center(across, thickness);
@@ -370,29 +337,17 @@ fn diagonals(code: u32, width: Pixels, height: Pixels, out: &mut Vec<Piece>) {
 /// Eight dots spread over the whole cell, so a graph of them runs on across rows.
 fn braille(code: u32, width: Pixels, height: Pixels, out: &mut Vec<Piece>) {
     // Dots 1 to 8 by their bit, as column and row: 1–3 and 7 down the left, 4–6 and 8 the right.
-    const PLACES: [(f32, f32); 8] = [
-        (0., 0.),
-        (0., 1.),
-        (0., 2.),
-        (1., 0.),
-        (1., 1.),
-        (1., 2.),
-        (0., 3.),
-        (1., 3.),
-    ];
+    const PLACES: [(f32, f32); 8] =
+        [(0., 0.), (0., 1.), (0., 2.), (1., 0.), (1., 1.), (1., 2.), (0., 3.), (1., 3.)];
     let dots = code - 0x2800;
     let diameter = (width * 0.25).max(px(1.0));
-    out.extend(
-        PLACES
-            .iter()
-            .enumerate()
-            .filter(|&(bit, _)| dots >> bit & 1 == 1)
-            .map(|(_, &(column, row))| {
-                let x = width * (0.25 + 0.5 * column) - diameter * 0.5;
-                let y = height * (0.125 + 0.25 * row) - diameter * 0.5;
-                Piece::Dot(Bounds::new(point(x, y), size(diameter, diameter)))
-            }),
-    );
+    out.extend(PLACES.iter().enumerate().filter(|&(bit, _)| dots >> bit & 1 == 1).map(
+        |(_, &(column, row))| {
+            let x = width * (0.25 + 0.5 * column) - diameter * 0.5;
+            let y = height * (0.125 + 0.25 * row) - diameter * 0.5;
+            Piece::Dot(Bounds::new(point(x, y), size(diameter, diameter)))
+        },
+    ));
 }
 
 /// 🬀 to 🬻: the cell in two columns and three rows, every combination but the empty, full
@@ -422,33 +377,19 @@ fn sextant(code: u32, width: Pixels, height: Pixels, out: &mut Vec<Piece>) {
 // shortcut: a chevron's two strokes overlap at its tip, brighter with dim text; draw it as
 // one outline polygon if that is ever seen.
 fn powerline(code: u32, width: Pixels, height: Pixels, out: &mut Vec<Piece>) {
-    let (base, tip) = if code < 0xE0B2 {
-        (px(0.0), width)
-    } else {
-        (width, px(0.0))
-    };
-    let (top, middle, bottom) = (
-        point(base, px(0.0)),
-        point(tip, height * 0.5),
-        point(base, height),
-    );
+    let (base, tip) = if code < 0xE0B2 { (px(0.0), width) } else { (width, px(0.0)) };
+    let (top, middle, bottom) =
+        (point(base, px(0.0)), point(tip, height * 0.5), point(base, height));
     if code.is_multiple_of(2) {
         out.push(Piece::Triangle([top, middle, bottom]));
         return;
     }
     let thickness = light(width);
-    out.extend([
-        line(top, middle, thickness),
-        line(middle, bottom, thickness),
-    ]);
+    out.extend([line(top, middle, thickness), line(middle, bottom, thickness)]);
 }
 
 fn line(from: Point<Pixels>, to: Point<Pixels>, thickness: Pixels) -> Piece {
-    Piece::Line {
-        from,
-        to,
-        thickness,
-    }
+    Piece::Line { from, to, thickness }
 }
 
 fn shifted(mut piece: Piece, left: Pixels) -> Piece {
@@ -468,17 +409,14 @@ fn shifted(mut piece: Piece, left: Pixels) -> Piece {
 fn push(pieces: &mut Vec<Piece>, piece: Piece) {
     const RECENT: usize = 4;
     if let Piece::Fill { bounds, alpha } = piece
-        && let Some(last) = pieces
-            .iter_mut()
-            .rev()
-            .take(RECENT)
-            .find_map(|recent| match recent {
-                Piece::Fill {
-                    bounds: last,
-                    alpha: last_alpha,
-                } if *last_alpha == alpha && joins(last, &bounds) => Some(last),
-                _ => None,
-            })
+        && let Some(last) = pieces.iter_mut().rev().take(RECENT).find_map(|recent| match recent {
+            Piece::Fill { bounds: last, alpha: last_alpha }
+                if *last_alpha == alpha && joins(last, &bounds) =>
+            {
+                Some(last)
+            }
+            _ => None,
+        })
     {
         *last = last.union(&bounds);
         return;
@@ -516,11 +454,7 @@ mod tests {
 
     fn around(points: &[Point<Pixels>]) -> Bounds<Pixels> {
         let corner = |pick: fn(Pixels, Pixels) -> Pixels| {
-            points
-                .iter()
-                .copied()
-                .reduce(|a, b| point(pick(a.x, b.x), pick(a.y, b.y)))
-                .unwrap()
+            points.iter().copied().reduce(|a, b| point(pick(a.x, b.x), pick(a.y, b.y))).unwrap()
         };
         Bounds::from_corners(corner(Pixels::min), corner(Pixels::max))
     }
@@ -532,11 +466,7 @@ mod tests {
 
     /// The bounds around all of `pieces`.
     fn union(pieces: &[Piece]) -> Bounds<Pixels> {
-        pieces
-            .iter()
-            .map(bounds)
-            .reduce(|a, b| a.union(&b))
-            .unwrap()
+        pieces.iter().map(bounds).reduce(|a, b| a.union(&b)).unwrap()
     }
 
     #[test]
@@ -575,10 +505,7 @@ mod tests {
     #[test]
     fn sextants_skip_the_halves_that_have_their_own_characters() {
         // 🬀 is the upper left sixth alone.
-        assert_eq!(
-            pieces_of("🬀"),
-            vec![fill(px(0.0), px(0.0), WIDTH * 0.5, HEIGHT * (1.0 / 3.0))]
-        );
+        assert_eq!(pieces_of("🬀"), vec![fill(px(0.0), px(0.0), WIDTH * 0.5, HEIGHT * (1.0 / 3.0))]);
         // 🬻, the last, is all but the upper left: the right column and the lower left two.
         assert_eq!(pieces_of("🬻").len(), 2);
     }
@@ -617,11 +544,7 @@ mod tests {
     fn a_double_line_across_cells_is_two_pieces() {
         let pieces = pieces_of("═══");
         assert_eq!(pieces.len(), 2);
-        assert!(
-            pieces
-                .iter()
-                .all(|piece| bounds(piece).size.width == WIDTH * 3.0)
-        );
+        assert!(pieces.iter().all(|piece| bounds(piece).size.width == WIDTH * 3.0));
     }
 
     #[test]
@@ -640,11 +563,7 @@ mod tests {
 
     #[test]
     fn a_single_line_crosses_a_double_one_unbroken() {
-        assert!(
-            pieces_of("╪")
-                .iter()
-                .any(|piece| bounds(piece).size.height == HEIGHT)
-        );
+        assert!(pieces_of("╪").iter().any(|piece| bounds(piece).size.height == HEIGHT));
         assert!(pieces_of("╬").iter().all(|piece| {
             let piece = bounds(piece);
             piece.size.height < HEIGHT && piece.size.width < WIDTH

@@ -82,10 +82,7 @@ fn conflicted_at_point(editor: &Editor) -> Option<(PathBuf, usize)> {
 
 fn current_conflict(editor: &Editor) -> Result<(PathBuf, usize), &'static str> {
     let (path, count) = conflicted_at_point(editor).ok_or("No conflict here")?;
-    let view = editor
-        .window_buffer()
-        .local::<StatusView>()
-        .ok_or(NOT_A_STATUS_BUFFER)?;
+    let view = editor.window_buffer().local::<StatusView>().ok_or(NOT_A_STATUS_BUFFER)?;
     let index = view.conflicts.current(&path, count);
     Ok((path, index))
 }
@@ -129,10 +126,7 @@ pub fn keep_at(editor: &mut Editor, path: &Path, index: usize, keep: Keep) -> Co
 /// Visits `path` at the start of conflict `index`.
 pub fn edit_at(editor: &mut Editor, path: &Path, index: usize) -> CommandResult {
     let (root, snapshot) = shown_status(editor)?;
-    let file = snapshot
-        .conflicts
-        .get(path)
-        .ok_or("No conflicts in this file")?;
+    let file = snapshot.conflicts.get(path).ok_or("No conflicts in this file")?;
     let starts = file.starts();
     let line = file
         .regions
@@ -164,10 +158,7 @@ fn step_conflict(editor: &mut Editor, by: isize) -> CommandResult {
             _ => None,
         })
         .collect();
-    let at = files
-        .iter()
-        .position(|(_, file)| *file == path)
-        .unwrap_or_default();
+    let at = files.iter().position(|(_, file)| *file == path).unwrap_or_default();
     let target = (at as isize + by).rem_euclid(files.len() as isize) as usize;
     let (line, file) = files[target].clone();
     let first = if by > 0 { 0 } else { usize::MAX };
@@ -181,11 +172,7 @@ fn step_conflict(editor: &mut Editor, by: isize) -> CommandResult {
 pub fn continue_operation(editor: &mut Editor) -> CommandResult {
     let (root, snapshot) = shown_status(editor)?;
     let operation = snapshot.operation.clone().ok_or("Nothing is in progress")?;
-    let unmerged = snapshot
-        .files
-        .values()
-        .filter(|entry| entry.conflicted)
-        .count();
+    let unmerged = snapshot.files.values().filter(|entry| entry.conflicted).count();
     if unmerged > 0 {
         return Err(match conflicts_left(&snapshot) {
             0 => "Stage the resolved files first (s)".into(),
@@ -193,15 +180,8 @@ pub fn continue_operation(editor: &mut Editor) -> CommandResult {
             left => format!("{left} conflicts left").into(),
         });
     }
-    let OperationKind::Rebase {
-        step, total, next, ..
-    } = &operation.kind
-    else {
-        return run(
-            editor,
-            &root,
-            git_job(&["commit", "--no-edit"], "git commit"),
-        );
+    let OperationKind::Rebase { step, total, next, .. } = &operation.kind else {
+        return run(editor, &root, git_job(&["commit", "--no-edit"], "git commit"));
     };
     let message_path = git_path(&root, "rebase-merge/message");
     // Git notes the conflicts in comments, which it leaves out of the commit.
@@ -266,13 +246,9 @@ pub fn continue_operation(editor: &mut Editor) -> CommandResult {
                 fs::write(path, format!("{}\n", message.trim_end()))
                     .map_err(|error| format!("Writing the message: {error}"))?;
             }
-            output(
-                git(root)
-                    .args(["rebase", "--continue"])
-                    .env("GIT_EDITOR", "true"),
-            )
-            .map(drop)
-            .map_err(|error| format!("git rebase: {error}"))
+            output(git(root).args(["rebase", "--continue"]).env("GIT_EDITOR", "true"))
+                .map(drop)
+                .map_err(|error| format!("git rebase: {error}"))
         });
         run(editor, &root, job)
     })
@@ -298,19 +274,15 @@ pub fn abort(editor: &mut Editor) -> CommandResult {
         OperationKind::Rebase { .. } => (
             match &operation.original {
                 Some(original) => {
-                    format!(
-                        "Abort the rebase? {branch} goes back to {}",
-                        quote(original)
-                    )
+                    format!("Abort the rebase? {branch} goes back to {}", quote(original))
                 }
                 None => "Abort the rebase?".into(),
             },
             ["rebase", "--abort"],
         ),
-        OperationKind::Merge => (
-            format!("Abort the merge? {branch} goes back as it was"),
-            ["merge", "--abort"],
-        ),
+        OperationKind::Merge => {
+            (format!("Abort the merge? {branch} goes back as it was"), ["merge", "--abort"])
+        }
     };
     editor.ask_y_or_n(question, move |editor, yes| {
         if !yes {
@@ -351,10 +323,8 @@ fn resolved_items(editor: &Editor, snapshot: &Snapshot) -> Vec<ListItem> {
             for resolution in view.map_or(&[][..], |view| view.conflicts.resolutions(&file.path)) {
                 *ways.entry(resolution.said).or_default() += 1;
             }
-            let ways: Vec<String> = ways
-                .into_iter()
-                .map(|(said, count)| format!("{count} {said}"))
-                .collect();
+            let ways: Vec<String> =
+                ways.into_iter().map(|(said, count)| format!("{count} {said}")).collect();
             let mut detail = directory_label(&file.path);
             if !ways.is_empty() {
                 detail = format!("{detail} · {}", ways.join(", "));
@@ -390,11 +360,7 @@ fn static_action(action: &str) -> &'static str {
 
 /// The text of the file, from the buffer visiting it if one does.
 fn read(editor: &Editor, path: &Path) -> Result<String, String> {
-    match editor
-        .buffers()
-        .iter()
-        .find(|buffer| buffer.path() == Some(path))
-    {
+    match editor.buffers().iter().find(|buffer| buffer.path() == Some(path)) {
         Some(buffer) if buffer.is_modified() => {
             Err(format!("Save {} first: it has changes", buffer.name()))
         }
@@ -407,11 +373,7 @@ fn read(editor: &Editor, path: &Path) -> Result<String, String> {
 
 /// Writes the file, through the buffer visiting it if one does, so the two agree.
 fn write(editor: &mut Editor, path: &Path, text: &str) -> Result<(), String> {
-    let saved = match editor
-        .buffers_mut()
-        .iter_mut()
-        .find(|buffer| buffer.path() == Some(path))
-    {
+    let saved = match editor.buffers_mut().iter_mut().find(|buffer| buffer.path() == Some(path)) {
         Some(buffer) => {
             buffer.replace_text(Text::from(text));
             buffer.save()
@@ -422,8 +384,5 @@ fn write(editor: &mut Editor, path: &Path, text: &str) -> Result<(), String> {
 }
 
 fn view_mut(editor: &mut Editor) -> Result<&mut StatusView, &'static str> {
-    editor
-        .window_buffer_mut()
-        .local_mut::<StatusView>()
-        .ok_or(NOT_A_STATUS_BUFFER)
+    editor.window_buffer_mut().local_mut::<StatusView>().ok_or(NOT_A_STATUS_BUFFER)
 }

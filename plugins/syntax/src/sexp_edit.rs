@@ -36,10 +36,7 @@ pub(crate) fn transpose_sexps(editor: &mut Editor) -> CommandResult {
         "Don't have two things to transpose",
     )?;
     let buffer = editor.buffer_mut();
-    let (first, second) = (
-        buffer.contents(before.clone()),
-        buffer.contents(after.clone()),
-    );
+    let (first, second) = (buffer.contents(before.clone()), buffer.contents(after.clone()));
     buffer.apply_edits(vec![(before, second), (after.clone(), first)]);
     buffer.set_point(after.end);
     Ok(())
@@ -56,12 +53,7 @@ pub(crate) fn kill_sexp(editor: &mut Editor) -> CommandResult {
 pub(crate) fn backward_kill_sexp(editor: &mut Editor) -> CommandResult {
     ensure_editable(editor)?;
     let point = editor.buffer().point();
-    let start = find_at(
-        editor.buffer(),
-        point,
-        previous_start,
-        "No previous expression",
-    )?;
+    let start = find_at(editor.buffer(), point, previous_start, "No previous expression")?;
     editor.kill(start..point);
     Ok(())
 }
@@ -110,10 +102,8 @@ pub(crate) fn barf_forward(editor: &mut Editor) -> CommandResult {
         |list| {
             let items: Vec<_> = items(list).collect();
             items.last()?;
-            let to = items
-                .len()
-                .checked_sub(2)
-                .map_or(open(list).end, |index| items[index].end_byte());
+            let to =
+                items.len().checked_sub(2).map_or(open(list).end, |index| items[index].end_byte());
             Some((close(list), to))
         },
         "Nothing to barf",
@@ -127,9 +117,7 @@ pub(crate) fn barf_backward(editor: &mut Editor) -> CommandResult {
         |list| {
             let mut items = items(list);
             items.next()?;
-            let to = items
-                .next()
-                .map_or(close(list).start, |item| item.start_byte());
+            let to = items.next().map_or(close(list).start, |item| item.start_byte());
             Some((open(list), to))
         },
         "Nothing to barf",
@@ -146,9 +134,7 @@ pub(crate) fn splice_sexp(editor: &mut Editor) -> CommandResult {
         |node, point| list_around(node, point).map(|list| (open(list), close(list))),
         "Not in a list",
     )?;
-    editor
-        .buffer_mut()
-        .apply_edits(vec![(open, String::new()), (close, String::new())]);
+    editor.buffer_mut().apply_edits(vec![(open, String::new()), (close, String::new())]);
     Ok(())
 }
 
@@ -184,12 +170,8 @@ fn move_bracket(
 ) -> CommandResult {
     ensure_editable(editor)?;
     let buffer = editor.buffer();
-    let (bracket, to) = find_at(
-        buffer,
-        buffer.point(),
-        |node, point| target(list_around(node, point)?),
-        nowhere,
-    )?;
+    let (bracket, to) =
+        find_at(buffer, buffer.point(), |node, point| target(list_around(node, point)?), nowhere)?;
     let buffer = editor.buffer_mut();
     let text = buffer.contents(bracket.clone());
     buffer.apply_edits(vec![(bracket, String::new()), (to..to, text)]);
@@ -225,19 +207,11 @@ fn close(list: Node) -> Range<usize> {
 /// so as not to go past a separator after it.
 fn neighbor(list: Node, forward: bool) -> Option<Node> {
     let edge = |node: &Node| {
-        if forward {
-            node.end_byte()
-        } else {
-            node.start_byte()
-        }
+        if forward { node.end_byte() } else { node.start_byte() }
     };
     let mut node = list;
     loop {
-        let sibling = if forward {
-            node.next_named_sibling()
-        } else {
-            node.prev_named_sibling()
-        };
+        let sibling = if forward { node.next_named_sibling() } else { node.prev_named_sibling() };
         if let Some(sibling) = sibling {
             return Some(sibling);
         }

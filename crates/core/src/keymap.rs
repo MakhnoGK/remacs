@@ -84,10 +84,8 @@ impl Keymap {
             .commands
             .iter()
             .filter_map(move |(keys, &command)| Some((next(keys)?, Binding::Command(command))));
-        let prefixes = self
-            .prefixes
-            .iter()
-            .filter_map(move |keys| Some((next(keys)?, Binding::Prefix)));
+        let prefixes =
+            self.prefixes.iter().filter_map(move |keys| Some((next(keys)?, Binding::Prefix)));
         commands.chain(prefixes)
     }
 

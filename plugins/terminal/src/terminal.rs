@@ -23,11 +23,7 @@ const SHELL_DIRECTORIES: &[&str] = &["/opt/homebrew/bin", "/usr/local/bin", "/bi
 /// Characters of a title shown in a chip and a buffer name.
 const MAX_TITLE: usize = 28;
 /// Started in place of a shell that could not be.
-pub const FALLBACK_SHELL: &str = if cfg!(target_os = "macos") {
-    "/bin/zsh"
-} else {
-    "/bin/sh"
-};
+pub const FALLBACK_SHELL: &str = if cfg!(target_os = "macos") { "/bin/zsh" } else { "/bin/sh" };
 
 /// Kept in a terminal's buffer.
 pub struct Terminal {
@@ -107,12 +103,8 @@ impl Terminal {
             Some(injected) => (&injected.args, &injected.env),
             None => (&self.args, &settings.env),
         };
-        let launch = Launch {
-            program: &program.to_string_lossy(),
-            args,
-            directory: &self.directory,
-            env,
-        };
+        let launch =
+            Launch { program: &program.to_string_lossy(), args, directory: &self.directory, env };
         match Session::start(&launch, settings, notifier) {
             Ok(session) => {
                 self.session = Some(session);
@@ -168,11 +160,7 @@ impl Terminal {
         }
         self.focused = focused;
         if let Some(session) = &self.session
-            && session
-                .screen
-                .lock()
-                .mode()
-                .contains(TermMode::FOCUS_IN_OUT)
+            && session.screen.lock().mode().contains(TermMode::FOCUS_IN_OUT)
         {
             session.write(if focused { "\x1b[I" } else { "\x1b[O" });
         }
@@ -193,10 +181,7 @@ impl Terminal {
 
     /// The shell's name, e.g. `fish`.
     pub fn shell(&self) -> &str {
-        Path::new(&self.program)
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or(&self.program)
+        Path::new(&self.program).file_name().and_then(|name| name.to_str()).unwrap_or(&self.program)
     }
 
     pub fn tab_state(&self) -> TabState {
@@ -229,11 +214,7 @@ fn login_shell() -> Option<String> {
         if entry.is_null() || (*entry).pw_shell.is_null() {
             return None;
         }
-        Some(
-            CStr::from_ptr((*entry).pw_shell)
-                .to_string_lossy()
-                .into_owned(),
-        )
+        Some(CStr::from_ptr((*entry).pw_shell).to_string_lossy().into_owned())
     }
 }
 
@@ -260,11 +241,7 @@ fn tidy_title(title: &str) -> String {
         _ => title,
     };
     let directory = title.starts_with('~') || title.starts_with('/');
-    let title = if directory {
-        short_directory(&expand_home(title))
-    } else {
-        title.to_owned()
-    };
+    let title = if directory { short_directory(&expand_home(title)) } else { title.to_owned() };
     let count = title.chars().count();
     if count <= MAX_TITLE {
         return title;

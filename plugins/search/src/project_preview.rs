@@ -28,11 +28,7 @@ impl<'a> Place<'a> {
         let mut parts = value.rsplitn(3, ':');
         let column = parts.next()?.parse().ok()?;
         let line = parts.next()?.parse().ok()?;
-        Some(Self {
-            file: parts.next()?,
-            line,
-            column,
-        })
+        Some(Self { file: parts.next()?, line, column })
     }
 
     pub fn value(file: &str, line: usize, column: usize) -> String {
@@ -67,10 +63,7 @@ struct Lit {
 
 impl Preview {
     pub fn begin(editor: &Editor) -> Self {
-        Self {
-            files: FilePreview::begin(editor),
-            shown: None,
-        }
+        Self { files: FilePreview::begin(editor), shown: None }
     }
 
     /// Shows the candidate `value` stands for, unless it is shown already; with none,
@@ -94,10 +87,7 @@ impl Preview {
         if self.files.visit(editor, &path).is_err() || go_to(editor, &path, &place).is_err() {
             return;
         }
-        editor.window_buffer_mut().set_local(Lit {
-            words: Arc::clone(words),
-            line: place.line,
-        });
+        editor.window_buffer_mut().set_local(Lit { words: Arc::clone(words), line: place.line });
     }
 
     /// Shows what the window showed before, as there is nothing to search for.
@@ -135,20 +125,11 @@ pub fn decorate(buffer: &Buffer, range: Range<usize>) -> Vec<Span> {
         };
         let end = line_range.end.min(line_range.start + MAX_LIT_LINE);
         let line_text = String::from_utf8_lossy(&text.bytes_in(line_range.start..end)).into_owned();
-        let face = if line == lit.line {
-            Face::SearchCurrent
-        } else {
-            Face::SearchMatch
-        };
-        spans.extend(
-            lit.words
-                .ranges_in(&line_text)
-                .into_iter()
-                .map(|matched| Span {
-                    range: line_range.start + matched.start..line_range.start + matched.end,
-                    face,
-                }),
-        );
+        let face = if line == lit.line { Face::SearchCurrent } else { Face::SearchMatch };
+        spans.extend(lit.words.ranges_in(&line_text).into_iter().map(|matched| Span {
+            range: line_range.start + matched.start..line_range.start + matched.end,
+            face,
+        }));
     }
     spans
 }

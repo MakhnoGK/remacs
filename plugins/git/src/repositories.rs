@@ -59,14 +59,9 @@ pub fn track(editor: &mut Editor) {
     let mut wanted = status_view::wants(editor);
     let notifier = editor.notifier();
     let repositories = editor.plugin_state::<Repositories>();
-    repositories
-        .roots
-        .retain(|directory, _| directories.contains(directory));
+    repositories.roots.retain(|directory, _| directories.contains(directory));
     for directory in directories {
-        repositories
-            .roots
-            .entry(directory)
-            .or_insert_with_key(|directory| working_tree(directory));
+        repositories.roots.entry(directory).or_insert_with_key(|directory| working_tree(directory));
     }
     let used: HashSet<&PathBuf> = repositories.roots.values().flatten().collect();
     repositories.open.retain(|root, _| used.contains(root));
@@ -123,11 +118,8 @@ fn carry_resolved(previous: Option<&Snapshot>, snapshot: &mut Snapshot) {
     if let Some(previous) = previous.filter(|previous| previous.operation == snapshot.operation) {
         snapshot.resolved.extend(previous.resolved.iter().cloned());
     }
-    let conflicted = snapshot
-        .files
-        .iter()
-        .filter(|(_, entry)| entry.conflicted)
-        .map(|(path, _)| path.clone());
+    let conflicted =
+        snapshot.files.iter().filter(|(_, entry)| entry.conflicted).map(|(path, _)| path.clone());
     snapshot.resolved.extend(conflicted.collect::<Vec<_>>());
 }
 
@@ -156,8 +148,5 @@ pub fn record_moves(editor: &mut Editor, moves: &[(PathBuf, PathBuf)]) {
 /// The nearest enclosing directory with a `.git`, a directory or, for a linked working
 /// tree or a submodule, a file.
 pub fn working_tree(directory: &Path) -> Option<PathBuf> {
-    directory
-        .ancestors()
-        .find(|ancestor| ancestor.join(".git").exists())
-        .map(Path::to_path_buf)
+    directory.ancestors().find(|ancestor| ancestor.join(".git").exists()).map(Path::to_path_buf)
 }

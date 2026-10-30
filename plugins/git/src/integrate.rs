@@ -116,17 +116,10 @@ impl Plan {
 
     fn read(&mut self) -> Result<(), String> {
         let target = self.target().to_owned();
-        self.steps = log(
-            &self.root,
-            &[&format!("{target}..HEAD"), "--reverse", "--no-merges"],
-        )?
-        .into_iter()
-        .map(|commit| Step {
-            id: commit.id,
-            subject: commit.subject,
-            action: Action::Pick,
-        })
-        .collect();
+        self.steps = log(&self.root, &[&format!("{target}..HEAD"), "--reverse", "--no-merges"])?
+            .into_iter()
+            .map(|commit| Step { id: commit.id, subject: commit.subject, action: Action::Pick })
+            .collect();
         self.incoming = log(&self.root, &[&format!("HEAD..{target}")])?;
         self.edited = false;
         Ok(())
@@ -136,10 +129,9 @@ impl Plan {
     fn check(&self) -> Result<(), String> {
         let first = self.steps.iter().find(|step| step.action != Action::Drop);
         match first {
-            Some(step) if !step.action.keeps_commit() => Err(format!(
-                "{} has nothing before it to fold into",
-                short(&step.id)
-            )),
+            Some(step) if !step.action.keeps_commit() => {
+                Err(format!("{} has nothing before it to fold into", short(&step.id)))
+            }
             _ => Ok(()),
         }
     }
@@ -235,12 +227,7 @@ fn open(editor: &mut Editor, rebasing: bool) -> CommandResult {
         editor.plugin_state::<OpenPlan>().0 = None;
         let plan = plan.borrow();
         let job = if rebase.get() {
-            rebase_job(
-                &plan,
-                interactive.get() && plan.edited,
-                autostash.get(),
-                autosquash.get(),
-            )
+            rebase_job(&plan, interactive.get() && plan.edited, autostash.get(), autosquash.get())
         } else {
             merge_job(plan.target().to_owned(), autostash.get())
         };
@@ -260,22 +247,11 @@ fn completions(plan: &Plan, rebasing: bool, autostash: bool, changed: usize) -> 
             ..Candidate::new(id)
         };
     let (candidates, outcome): (Vec<Candidate>, _) = if rebasing {
-        let kept = plan
-            .steps
-            .iter()
-            .filter(|step| step.action.keeps_commit())
-            .count();
+        let kept = plan.steps.iter().filter(|step| step.action.keeps_commit()).count();
         let rows = plan
             .steps
             .iter()
-            .map(|step| {
-                commit_row(
-                    &step.id,
-                    &step.subject,
-                    Some(step.action),
-                    "Commits to replay",
-                )
-            })
+            .map(|step| commit_row(&step.id, &step.subject, Some(step.action), "Commits to replay"))
             .collect();
         let summary = format!("{} on top of {target}", commits(kept));
         (rows, (summary, chain(target, &plan.head, kept)))
@@ -327,14 +303,8 @@ fn completions(plan: &Plan, rebasing: bool, autostash: bool, changed: usize) -> 
 
 fn chain(target: &str, head: &str, commits: usize) -> CommitChain {
     CommitChain {
-        base: RefChip {
-            name: target.into(),
-            kind: RefKind::Main,
-        },
-        tip: RefChip {
-            name: head.into(),
-            kind: RefKind::Head,
-        },
+        base: RefChip { name: target.into(), kind: RefKind::Main },
+        tip: RefChip { name: head.into(), kind: RefKind::Head },
         incoming: 0,
         commits,
         note: None,
@@ -415,22 +385,14 @@ fn move_step(editor: &mut Editor, by: isize) -> CommandResult {
 fn selected_step(editor: &mut Editor) -> Result<(Rc<RefCell<Plan>>, usize), &'static str> {
     let plan = open_plan(editor)?;
     let minibuffer = editor.minibuffer().ok_or("Not in the minibuffer")?;
-    let is_step = minibuffer
-        .selected_candidate()
-        .is_some_and(|candidate| candidate.action.is_some());
-    let index = minibuffer
-        .selected()
-        .filter(|_| is_step)
-        .ok_or("No commit to replay here")?;
+    let is_step =
+        minibuffer.selected_candidate().is_some_and(|candidate| candidate.action.is_some());
+    let index = minibuffer.selected().filter(|_| is_step).ok_or("No commit to replay here")?;
     Ok((plan, index))
 }
 
 fn open_plan(editor: &mut Editor) -> Result<Rc<RefCell<Plan>>, &'static str> {
-    editor
-        .plugin_state::<OpenPlan>()
-        .0
-        .clone()
-        .ok_or("No rebase or merge is being set up")
+    editor.plugin_state::<OpenPlan>().0.clone().ok_or("No rebase or merge is being set up")
 }
 
 /// Rebases onto the plan's target; edited, its steps are given to Git as the to-do list.
@@ -457,15 +419,11 @@ fn rebase_job(plan: &Plan, edited: bool, autostash: bool, autosquash: bool) -> J
             // squashed messages are kept as Git combines them.
             command
                 .arg("--interactive")
-                .env(
-                    "GIT_SEQUENCE_EDITOR",
-                    format!("cp '{}'", todo_path.display()),
-                )
+                .env("GIT_SEQUENCE_EDITOR", format!("cp '{}'", todo_path.display()))
                 .env("GIT_EDITOR", "true");
         }
-        let rebased = output(command.arg(&target))
-            .map(drop)
-            .map_err(|error| format!("git rebase: {error}"));
+        let rebased =
+            output(command.arg(&target)).map(drop).map_err(|error| format!("git rebase: {error}"));
         if edited {
             let _ = fs::remove_file(&todo_path);
         }
@@ -480,9 +438,7 @@ fn merge_job(target: String, autostash: bool) -> Job {
         if autostash {
             command.arg("--autostash");
         }
-        output(command.arg(&target))
-            .map(drop)
-            .map_err(|error| format!("git merge: {error}"))
+        output(command.arg(&target)).map(drop).map_err(|error| format!("git merge: {error}"))
     })
 }
 
@@ -500,8 +456,7 @@ fn targets(root: &Path, snapshot: &Snapshot, head: &str) -> Result<Vec<String>, 
         .lines()
         .filter(|name| !(name.starts_with("refs/remotes/") && name.ends_with("/HEAD")))
         .filter_map(|name| {
-            name.strip_prefix("refs/heads/")
-                .or_else(|| name.strip_prefix("refs/remotes/"))
+            name.strip_prefix("refs/heads/").or_else(|| name.strip_prefix("refs/remotes/"))
         })
         .map(str::to_owned);
     let base = snapshot
@@ -509,10 +464,7 @@ fn targets(root: &Path, snapshot: &Snapshot, head: &str) -> Result<Vec<String>, 
         .as_ref()
         .and_then(|details| details.base.as_ref())
         .map(|base| base.name.clone());
-    let upstream = snapshot
-        .upstream
-        .as_ref()
-        .map(|upstream| upstream.name.clone());
+    let upstream = snapshot.upstream.as_ref().map(|upstream| upstream.name.clone());
     let mut targets: Vec<String> = Vec::new();
     for name in base.into_iter().chain(upstream).chain(branches) {
         if name != head && !targets.contains(&name) {
@@ -524,30 +476,17 @@ fn targets(root: &Path, snapshot: &Snapshot, head: &str) -> Result<Vec<String>, 
 
 /// Tracked files with changes, which a rebase or merge may refuse to run over.
 fn changed_files(snapshot: &Snapshot) -> usize {
-    snapshot
-        .files
-        .values()
-        .filter(|entry| entry.staged != b'?')
-        .count()
+    snapshot.files.values().filter(|entry| entry.staged != b'?').count()
 }
 
 fn log(root: &Path, range: &[&str]) -> Result<Vec<Commit>, String> {
-    let printed = output(
-        git(root)
-            .arg("log")
-            .arg("--format=%H%x00%s")
-            .args(range)
-            .arg("--"),
-    )
-    .map_err(|error| format!("git log: {error}"))?;
+    let printed = output(git(root).arg("log").arg("--format=%H%x00%s").args(range).arg("--"))
+        .map_err(|error| format!("git log: {error}"))?;
     Ok(String::from_utf8_lossy(&printed)
         .lines()
         .filter_map(|line| {
             let (id, subject) = line.split_once('\0')?;
-            Some(Commit {
-                id: id.to_owned(),
-                subject: subject.to_owned(),
-            })
+            Some(Commit { id: id.to_owned(), subject: subject.to_owned() })
         })
         .collect())
 }
@@ -558,9 +497,5 @@ fn short(id: &str) -> String {
 
 /// `1 commit`, `3 commits`.
 fn commits(count: usize) -> String {
-    if count == 1 {
-        "1 commit".into()
-    } else {
-        format!("{count} commits")
-    }
+    if count == 1 { "1 commit".into() } else { format!("{count} commits") }
 }

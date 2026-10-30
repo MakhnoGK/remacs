@@ -375,68 +375,22 @@ pub(crate) enum Answer {
 
 /// A request in flight and what its answer is for.
 enum Pending {
-    Pull {
-        path: PathBuf,
-        version: i32,
-    },
-    Colors {
-        path: PathBuf,
-        text: Snapshot,
-    },
-    SemanticTokens {
-        path: PathBuf,
-        text: Snapshot,
-    },
-    Complete {
-        id: u64,
-        origin: Origin,
-    },
-    Resolve {
-        id: u64,
-        index: usize,
-        origin: Origin,
-    },
-    AtPoint {
-        question: Question,
-        id: u64,
-        origin: Origin,
-    },
-    Signatures {
-        id: u64,
-        mode: &'static str,
-    },
-    CodeActions {
-        id: u64,
-        kind: Option<&'static str>,
-    },
-    ResolveAction {
-        id: u64,
-    },
-    Execute {
-        id: u64,
-    },
-    Format {
-        id: u64,
-        text: Snapshot,
-    },
-    WillRename {
-        id: u64,
-    },
-    Symbols {
-        id: u64,
-    },
-    DocumentSymbols {
-        id: u64,
-        path: PathBuf,
-    },
-    PrepareRename {
-        id: u64,
-        text: Snapshot,
-        offset: usize,
-    },
-    Rename {
-        id: u64,
-    },
+    Pull { path: PathBuf, version: i32 },
+    Colors { path: PathBuf, text: Snapshot },
+    SemanticTokens { path: PathBuf, text: Snapshot },
+    Complete { id: u64, origin: Origin },
+    Resolve { id: u64, index: usize, origin: Origin },
+    AtPoint { question: Question, id: u64, origin: Origin },
+    Signatures { id: u64, mode: &'static str },
+    CodeActions { id: u64, kind: Option<&'static str> },
+    ResolveAction { id: u64 },
+    Execute { id: u64 },
+    Format { id: u64, text: Snapshot },
+    WillRename { id: u64 },
+    Symbols { id: u64 },
+    DocumentSymbols { id: u64, path: PathBuf },
+    PrepareRename { id: u64, text: Snapshot, offset: usize },
+    Rename { id: u64 },
     Tsserver(TsserverReply),
 }
 
@@ -491,9 +445,7 @@ fn lock(inbox: &SharedInbox) -> MutexGuard<'_, Inbox> {
 type SharedReplies = Arc<Mutex<Option<Sender<Outgoing>>>>;
 
 fn send_reply(replies: &SharedReplies, message: Outgoing) {
-    let replies = replies
-        .lock()
-        .expect("no thread panics holding the replies");
+    let replies = replies.lock().expect("no thread panics holding the replies");
     if let Some(replies) = &*replies {
         let _ = replies.send(message);
     }
@@ -566,10 +518,7 @@ pub(crate) struct Client {
 
 impl Drop for Client {
     fn drop(&mut self) {
-        self.replies
-            .lock()
-            .expect("no thread panics holding the replies")
-            .take();
+        self.replies.lock().expect("no thread panics holding the replies").take();
     }
 }
 
@@ -612,10 +561,7 @@ impl Client {
             signatures: Arc::clone(&signatures),
         };
         let program_dir = fs::canonicalize(program).unwrap_or_else(|_| program.to_path_buf());
-        let program_dir = program_dir
-            .parent()
-            .unwrap_or(&program_dir)
-            .to_string_lossy();
+        let program_dir = program_dir.parent().unwrap_or(&program_dir).to_string_lossy();
         let initialize = initialize_params(
             server.initialization_options.clone().map(|mut options| {
                 fill_program_dir(&mut options, &program_dir);
@@ -642,15 +588,13 @@ impl Client {
             legend: None,
         };
         let (exit_inbox, exit_notifier) = (Arc::clone(&inbox), Arc::clone(&notifier));
-        thread::Builder::new()
-            .name(format!("{} reader", server.name))
-            .spawn(move || {
-                reader.read_all(stdout);
-                let status = child.wait();
-                let errors = last_errors.join().unwrap_or_default();
-                lock(&exit_inbox).exit = Some(exit_reason(status, &errors));
-                exit_notifier();
-            })?;
+        thread::Builder::new().name(format!("{} reader", server.name)).spawn(move || {
+            reader.read_all(stdout);
+            let status = child.wait();
+            let errors = last_errors.join().unwrap_or_default();
+            lock(&exit_inbox).exit = Some(exit_reason(status, &errors));
+            exit_notifier();
+        })?;
         Ok(Self {
             outgoing,
             inbox,
@@ -683,10 +627,7 @@ impl Client {
     /// Answers its `tsserver/request` `id` with nothing, as there is no TypeScript server
     /// to ask.
     pub fn answer_tsserver(&self, id: Value) {
-        self.send(Outgoing::TsserverResponse {
-            id,
-            body: Value::Null,
-        });
+        self.send(Outgoing::TsserverResponse { id, body: Value::Null });
     }
 
     pub fn is_settled(&self) -> bool {
@@ -697,9 +638,7 @@ impl Client {
     /// on what it supports, as the writer holds requests until then.
     pub fn may_sign(&self, trigger: SignatureTrigger) -> bool {
         self.signatures.get().is_none_or(|support| {
-            support
-                .as_ref()
-                .is_some_and(|support| support.context(trigger).is_some())
+            support.as_ref().is_some_and(|support| support.context(trigger).is_some())
         })
     }
 
@@ -778,12 +717,12 @@ impl Client {
 fn fill_program_dir(value: &mut Value, program_dir: &str) {
     match value {
         Value::String(text) => *text = text.replace(PROGRAM_DIR, program_dir),
-        Value::Array(items) => items
-            .iter_mut()
-            .for_each(|item| fill_program_dir(item, program_dir)),
-        Value::Object(fields) => fields
-            .values_mut()
-            .for_each(|field| fill_program_dir(field, program_dir)),
+        Value::Array(items) => {
+            items.iter_mut().for_each(|item| fill_program_dir(item, program_dir))
+        }
+        Value::Object(fields) => {
+            fields.values_mut().for_each(|field| fill_program_dir(field, program_dir))
+        }
         _ => {}
     }
 }
@@ -899,17 +838,11 @@ impl Writer {
         negotiated: Receiver<Negotiated>,
         queued: Receiver<Outgoing>,
     ) -> io::Result<()> {
-        write_message(
-            &mut self.stdin,
-            &request(INITIALIZE_ID, Initialize::METHOD, initialize),
-        )?;
+        write_message(&mut self.stdin, &request(INITIALIZE_ID, Initialize::METHOD, initialize))?;
         let Ok(negotiated) = negotiated.recv() else {
             return Ok(());
         };
-        write_message(
-            &mut self.stdin,
-            &notification::<Initialized>(InitializedParams {}),
-        )?;
+        write_message(&mut self.stdin, &notification::<Initialized>(InitializedParams {}))?;
         while let Ok(first) = queued.recv() {
             let batch: Vec<_> = iter::once(first).chain(queued.try_iter()).collect();
             for (index, message) in batch.iter().enumerate() {
@@ -932,10 +865,7 @@ impl Writer {
         let json = match message {
             Outgoing::Pull { uri, path, version } => {
                 let params = json!({ "textDocument": TextDocumentIdentifier::new(uri.clone()) });
-                let pending = Pending::Pull {
-                    path: path.clone(),
-                    version: *version,
-                };
+                let pending = Pending::Pull { path: path.clone(), version: *version };
                 self.ask(DocumentDiagnosticRequest::METHOD, params, pending)
             }
             Outgoing::Colors { uri, path, text } => {
@@ -943,10 +873,7 @@ impl Writer {
                     return Ok(());
                 }
                 let params = json!({ "textDocument": TextDocumentIdentifier::new(uri.clone()) });
-                let pending = Pending::Colors {
-                    path: path.clone(),
-                    text: text.clone(),
-                };
+                let pending = Pending::Colors { path: path.clone(), text: text.clone() };
                 self.ask(DocumentColor::METHOD, params, pending)
             }
             Outgoing::SemanticTokens { uri, path, text } => {
@@ -954,30 +881,14 @@ impl Writer {
                     return Ok(());
                 }
                 let params = json!({ "textDocument": TextDocumentIdentifier::new(uri.clone()) });
-                let pending = Pending::SemanticTokens {
-                    path: path.clone(),
-                    text: text.clone(),
-                };
+                let pending = Pending::SemanticTokens { path: path.clone(), text: text.clone() };
                 self.ask(SemanticTokensFullRequest::METHOD, params, pending)
             }
-            Outgoing::Complete {
-                uri,
-                id,
-                text,
-                start,
-                offset,
-                trigger,
-                modes,
-            } => {
+            Outgoing::Complete { uri, id, text, start, offset, trigger, modes } => {
                 let Some(context) = completion.and_then(|support| support.context(*trigger)) else {
                     let origin = origin(text, *start, *modes);
                     let (list, items) = completion::list(None, &origin);
-                    lock(&self.inbox).answers.push(Answer::Listed {
-                        id: *id,
-                        list,
-                        items,
-                        origin,
-                    });
+                    lock(&self.inbox).answers.push(Answer::Listed { id: *id, list, items, origin });
                     (self.notifier)();
                     return Ok(());
                 };
@@ -986,20 +897,10 @@ impl Writer {
                     "position": to_lsp(text, *offset, negotiated.encoding),
                     "context": context,
                 });
-                let pending = Pending::Complete {
-                    id: *id,
-                    origin: origin(text, *start, *modes),
-                };
+                let pending = Pending::Complete { id: *id, origin: origin(text, *start, *modes) };
                 self.ask(Completion::METHOD, params, pending)
             }
-            Outgoing::Resolve {
-                id,
-                index,
-                item,
-                text,
-                start,
-                modes,
-            } => {
+            Outgoing::Resolve { id, index, item, text, start, modes } => {
                 if !completion.is_some_and(CompletionSupport::resolves) {
                     return Ok(());
                 }
@@ -1011,14 +912,7 @@ impl Writer {
                 let params = serde_json::to_value(item)?;
                 self.ask(ResolveCompletionItem::METHOD, params, pending)
             }
-            Outgoing::AtPoint {
-                question,
-                uri,
-                id,
-                text,
-                offset,
-                modes,
-            } => {
+            Outgoing::AtPoint { question, uri, id, text, offset, modes } => {
                 let mut params = json!({
                     "textDocument": TextDocumentIdentifier::new(uri.clone()),
                     "position": to_lsp(text, *offset, negotiated.encoding),
@@ -1033,20 +927,12 @@ impl Writer {
                 };
                 self.ask(question.method(), params, pending)
             }
-            Outgoing::Signatures {
-                uri,
-                id,
-                text,
-                offset,
-                trigger,
-                modes,
-            } => {
+            Outgoing::Signatures { uri, id, text, offset, trigger, modes } => {
                 let support = self.signatures.get().and_then(Option::as_ref);
                 let Some(context) = support.and_then(|support| support.context(*trigger)) else {
-                    lock(&self.inbox).answers.push(Answer::Signatures {
-                        id: *id,
-                        signatures: None,
-                    });
+                    lock(&self.inbox)
+                        .answers
+                        .push(Answer::Signatures { id: *id, signatures: None });
                     (self.notifier)();
                     return Ok(());
                 };
@@ -1055,20 +941,10 @@ impl Writer {
                     "position": to_lsp(text, *offset, negotiated.encoding),
                     "context": context,
                 });
-                let pending = Pending::Signatures {
-                    id: *id,
-                    mode: modes.document,
-                };
+                let pending = Pending::Signatures { id: *id, mode: modes.document };
                 self.ask(SignatureHelpRequest::METHOD, params, pending)
             }
-            Outgoing::CodeActions {
-                uri,
-                id,
-                text,
-                range,
-                diagnostics,
-                kind,
-            } => {
+            Outgoing::CodeActions { uri, id, text, range, diagnostics, kind } => {
                 let range = lsp_types::Range::new(
                     to_lsp(text, range.start, negotiated.encoding),
                     to_lsp(text, range.end, negotiated.encoding),
@@ -1090,10 +966,7 @@ impl Writer {
                 self.ask(
                     CodeActionRequest::METHOD,
                     params,
-                    Pending::CodeActions {
-                        id: *id,
-                        kind: *kind,
-                    },
+                    Pending::CodeActions { id: *id, kind: *kind },
                 )
             }
             Outgoing::ResolveAction { id, action } => {
@@ -1114,11 +987,7 @@ impl Writer {
                     "command": "typescript.tsserverRequest",
                     "arguments": [request.command, request.args, { "isAsync": true, "lowPriority": true }],
                 });
-                self.ask(
-                    ExecuteCommand::METHOD,
-                    params,
-                    Pending::Tsserver(reply.take()),
-                )
+                self.ask(ExecuteCommand::METHOD, params, Pending::Tsserver(reply.take()))
             }
             Outgoing::WillRename { id, files } => {
                 if !negotiated.will_rename {
@@ -1149,12 +1018,7 @@ impl Writer {
                     .collect();
                 json!({ "jsonrpc": "2.0", "method": DidRenameFiles::METHOD, "params": { "files": files } })
             }
-            Outgoing::PrepareRename {
-                id,
-                uri,
-                text,
-                offset,
-            } => {
+            Outgoing::PrepareRename { id, uri, text, offset } => {
                 if !negotiated.rename || !negotiated.prepare_rename {
                     let name = if negotiated.rename {
                         symbol_rename::word_at(text, *offset).ok_or_else(nothing_to_rename)
@@ -1170,20 +1034,11 @@ impl Writer {
                     "textDocument": TextDocumentIdentifier::new(uri.clone()),
                     "position": to_lsp(text, *offset, negotiated.encoding),
                 });
-                let pending = Pending::PrepareRename {
-                    id: *id,
-                    text: text.clone(),
-                    offset: *offset,
-                };
+                let pending =
+                    Pending::PrepareRename { id: *id, text: text.clone(), offset: *offset };
                 self.ask(PrepareRenameRequest::METHOD, params, pending)
             }
-            Outgoing::Rename {
-                id,
-                uri,
-                text,
-                offset,
-                new_name,
-            } => {
+            Outgoing::Rename { id, uri, text, offset, new_name } => {
                 let params = json!({
                     "textDocument": TextDocumentIdentifier::new(uri.clone()),
                     "position": to_lsp(text, *offset, negotiated.encoding),
@@ -1222,12 +1077,7 @@ impl Writer {
                 let pending = Pending::DocumentSymbols { id: *id, path };
                 self.ask(DocumentSymbolRequest::METHOD, params, pending)
             }
-            Outgoing::Format {
-                uri,
-                id,
-                text,
-                range,
-            } => {
+            Outgoing::Format { uri, id, text, range } => {
                 let supported = match range {
                     Some(_) => negotiated.range_formatting,
                     None => negotiated.formatting,
@@ -1257,10 +1107,7 @@ impl Writer {
                     }
                     None => Formatting::METHOD,
                 };
-                let pending = Pending::Format {
-                    id: *id,
-                    text: text.clone(),
-                };
+                let pending = Pending::Format { id: *id, text: text.clone() };
                 self.ask(method, params, pending)
             }
             message => message.to_json(negotiated),
@@ -1289,12 +1136,9 @@ fn is_superseded(message: &Outgoing, later: &[Outgoing]) -> bool {
         | (Outgoing::CodeActions { uri, .. }, Outgoing::CodeActions { uri: other, .. }) => {
             uri == other
         }
-        (
-            Outgoing::AtPoint { question, .. },
-            Outgoing::AtPoint {
-                question: other, ..
-            },
-        ) => question == other,
+        (Outgoing::AtPoint { question, .. }, Outgoing::AtPoint { question: other, .. }) => {
+            question == other
+        }
         (Outgoing::Symbols { .. }, Outgoing::Symbols { .. }) => true,
         (Outgoing::DocumentSymbols { uri, .. }, Outgoing::DocumentSymbols { uri: other, .. }) => {
             uri == other
@@ -1306,29 +1150,22 @@ fn is_superseded(message: &Outgoing, later: &[Outgoing]) -> bool {
 impl Outgoing {
     fn to_json(&self, negotiated: &Negotiated) -> Value {
         match self {
-            Outgoing::Open {
-                uri,
-                language,
-                version,
-                text,
-            } => notification::<DidOpenTextDocument>(DidOpenTextDocumentParams {
-                text_document: TextDocumentItem::new(
-                    uri.clone(),
-                    (*language).into(),
-                    *version,
-                    contents(text, 0..text.len()),
-                ),
-            }),
-            Outgoing::Change {
-                uri,
-                version,
-                old,
-                new,
-                edit,
-            } => notification::<DidChangeTextDocument>(DidChangeTextDocumentParams {
-                text_document: VersionedTextDocumentIdentifier::new(uri.clone(), *version),
-                content_changes: vec![content_change(old, new, *edit, negotiated)],
-            }),
+            Outgoing::Open { uri, language, version, text } => {
+                notification::<DidOpenTextDocument>(DidOpenTextDocumentParams {
+                    text_document: TextDocumentItem::new(
+                        uri.clone(),
+                        (*language).into(),
+                        *version,
+                        contents(text, 0..text.len()),
+                    ),
+                })
+            }
+            Outgoing::Change { uri, version, old, new, edit } => {
+                notification::<DidChangeTextDocument>(DidChangeTextDocumentParams {
+                    text_document: VersionedTextDocumentIdentifier::new(uri.clone(), *version),
+                    content_changes: vec![content_change(old, new, *edit, negotiated)],
+                })
+            }
             Outgoing::Save { uri } => {
                 notification::<DidSaveTextDocument>(DidSaveTextDocumentParams {
                     text_document: TextDocumentIdentifier::new(uri.clone()),
@@ -1560,12 +1397,9 @@ impl Reader {
         let Some(pending) = lock(&self.inbox).requests.remove(&id) else {
             return;
         };
-        let error = response.get("error").map(|error| {
-            error["message"]
-                .as_str()
-                .unwrap_or("no reason given")
-                .to_owned()
-        });
+        let error = response
+            .get("error")
+            .map(|error| error["message"].as_str().unwrap_or("no reason given").to_owned());
         if error.is_some() && !pending.answers_failure() {
             return;
         }
@@ -1592,12 +1426,7 @@ impl Reader {
             Pending::Complete { id, origin } => {
                 let response = serde_json::from_value(result).unwrap_or_default();
                 let (list, items) = completion::list(response, &origin);
-                self.deliver(Answer::Listed {
-                    id,
-                    list,
-                    items,
-                    origin,
-                });
+                self.deliver(Answer::Listed { id, list, items, origin });
             }
             Pending::Resolve { id, index, origin } => {
                 if let Ok(item) = serde_json::from_value(result) {
@@ -1605,20 +1434,12 @@ impl Reader {
                     self.deliver(Answer::Resolved { id, index, item });
                 }
             }
-            Pending::AtPoint {
-                question: Question::Hover,
-                id,
-                origin,
-            } => {
+            Pending::AtPoint { question: Question::Hover, id, origin } => {
                 let response = serde_json::from_value(result).unwrap_or_default();
                 let answer = hover::answer(response, &origin.text, origin.encoding, origin.modes);
                 self.deliver(Answer::Hover { id, answer });
             }
-            Pending::AtPoint {
-                question: Question::Definition,
-                id,
-                ..
-            } => {
+            Pending::AtPoint { question: Question::Definition, id, .. } => {
                 let response = serde_json::from_value(result).unwrap_or_default();
                 self.deliver(Answer::Locations {
                     id,
@@ -1626,11 +1447,7 @@ impl Reader {
                     encoding: self.encoding,
                 });
             }
-            Pending::AtPoint {
-                question: Question::References,
-                id,
-                ..
-            } => {
+            Pending::AtPoint { question: Question::References, id, .. } => {
                 let response: Option<Vec<lsp_types::Location>> =
                     serde_json::from_value(result).unwrap_or_default();
                 let response = response.map(GotoDefinitionResponse::Array);
@@ -1703,10 +1520,7 @@ impl Reader {
                 self.deliver(Answer::Formatted { id, formatted });
             }
             Pending::WillRename { id } => {
-                let edit = error
-                    .is_none()
-                    .then(|| serde_json::from_value(result).ok())
-                    .flatten();
+                let edit = error.is_none().then(|| serde_json::from_value(result).ok()).flatten();
                 lock(&self.inbox).renamed.push(Renamed {
                     id,
                     edit,
@@ -1716,10 +1530,8 @@ impl Reader {
                 (self.notifier)();
             }
             Pending::Symbols { id } => {
-                let response = error
-                    .is_none()
-                    .then(|| serde_json::from_value(result).ok())
-                    .flatten();
+                let response =
+                    error.is_none().then(|| serde_json::from_value(result).ok()).flatten();
                 lock(&self.inbox).found.push(Found {
                     id,
                     symbols: symbols::found(response),
@@ -1729,10 +1541,8 @@ impl Reader {
                 (self.notifier)();
             }
             Pending::DocumentSymbols { id, path } => {
-                let response = error
-                    .is_none()
-                    .then(|| serde_json::from_value(result).ok())
-                    .flatten();
+                let response =
+                    error.is_none().then(|| serde_json::from_value(result).ok()).flatten();
                 lock(&self.inbox).document_symbols.push(Found {
                     id,
                     symbols: document_symbols::found(response, &path),
@@ -1803,11 +1613,7 @@ impl Reader {
         version: Option<i32>,
         diagnostics: Vec<lsp_types::Diagnostic>,
     ) {
-        let published = Published {
-            version,
-            diagnostics,
-            encoding: self.encoding,
-        };
+        let published = Published { version, diagnostics, encoding: self.encoding };
         lock(&self.inbox).published.insert(path, published);
         (self.notifier)();
     }
@@ -1825,10 +1631,7 @@ mod tests {
         let server = LanguageServer {
             name: "tsc",
             command: "sh",
-            args: &[
-                "-c",
-                "echo \"error TS5023: Unknown compiler option '--lsp'.\" >&2; exit 1",
-            ],
+            args: &["-c", "echo \"error TS5023: Unknown compiler option '--lsp'.\" >&2; exit 1"],
             ..LanguageServer::default()
         };
         let (sender, exited) = mpsc::channel();
@@ -1859,12 +1662,8 @@ mod tests {
             request.len(),
         );
         let args: &'static [&'static str] = Vec::leak(vec!["-c", String::leak(script)]);
-        let server = LanguageServer {
-            name: "oxfmt",
-            command: "sh",
-            args,
-            ..LanguageServer::default()
-        };
+        let server =
+            LanguageServer { name: "oxfmt", command: "sh", args, ..LanguageServer::default() };
         let (sender, notified) = mpsc::channel();
         let notifier: Notifier = Arc::new(move || {
             let _ = sender.send(());
@@ -1872,18 +1671,13 @@ mod tests {
         let client = Client::start(&server, Path::new("sh"), &[], Path::new("/"), notifier);
         let inbox = Arc::clone(&client.unwrap().inbox);
         while lock(&inbox).exit.is_none() {
-            notified
-                .recv_timeout(Duration::from_secs(5))
-                .expect("the server exits");
+            notified.recv_timeout(Duration::from_secs(5)).expect("the server exits");
         }
     }
 
     /// A shell command writing `json` as a message.
     fn message(json: &str) -> String {
-        format!(
-            "printf 'Content-Length: {}\\r\\n\\r\\n%s' '{json}'",
-            json.len()
-        )
+        format!("printf 'Content-Length: {}\\r\\n\\r\\n%s' '{json}'", json.len())
     }
 
     /// A server that answers `initialize`, runs the shell command `then` once its input
@@ -1919,14 +1713,8 @@ mod tests {
             let _ = sender.send(());
         });
         let start = |server| {
-            Client::start(
-                server,
-                Path::new("sh"),
-                &[],
-                Path::new("/"),
-                Arc::clone(&notifier),
-            )
-            .unwrap()
+            Client::start(server, Path::new("sh"), &[], Path::new("/"), Arc::clone(&notifier))
+                .unwrap()
         };
         let (vue, typescript) = (start(&vue), start(&typescript));
 
@@ -1961,10 +1749,7 @@ mod tests {
         let (answered, asked) = ask_tsserver("tsserver-answers", &message(response));
         let answer = r#"{"jsonrpc":"2.0","method":"tsserver/response","params":[[7,{"configFileName":"/tsconfig.json"}]]}"#;
         assert!(answered.contains(answer), "{answered}");
-        assert!(
-            asked.contains(r#""arguments":["_vue:projectInfo",{"file":"/a.vue"},"#),
-            "{asked}"
-        );
+        assert!(asked.contains(r#""arguments":["_vue:projectInfo",{"file":"/a.vue"},"#), "{asked}");
     }
 
     #[test]
@@ -1988,10 +1773,7 @@ mod tests {
                 _ => panic!("not an answer"),
             })
             .collect();
-        assert_eq!(
-            answers,
-            [(json!(1), json!("body")), (json!(2), Value::Null)]
-        );
+        assert_eq!(answers, [(json!(1), json!("body")), (json!(2), Value::Null)]);
     }
 
     #[test]

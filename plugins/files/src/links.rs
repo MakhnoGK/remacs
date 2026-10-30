@@ -49,19 +49,12 @@ pub fn follow(
 ) -> CommandResult {
     match target {
         Target::Url(url) => {
-            let opener = if cfg!(target_os = "macos") {
-                "open"
-            } else {
-                "xdg-open"
-            };
+            let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
             Command::new(opener).arg(url).spawn()?;
         }
         Target::File { path, line, column } => {
             let file = resolve(path, directories).ok_or_else(|| format!("No file {path}"))?;
-            let (line, column) = (
-                line.saturating_sub(1),
-                column.unwrap_or(1).saturating_sub(1),
-            );
+            let (line, column) = (line.saturating_sub(1), column.unwrap_or(1).saturating_sub(1));
             if from_window {
                 editor.display_file(&file, |editor| editor.set_point_at(line, column))?;
             } else {
@@ -79,10 +72,7 @@ pub fn resolve(path: &str, directories: &[PathBuf]) -> Option<PathBuf> {
     if path.is_absolute() {
         return path.exists().then_some(path);
     }
-    directories
-        .iter()
-        .map(|directory| directory.join(&path))
-        .find(|candidate| candidate.exists())
+    directories.iter().map(|directory| directory.join(&path)).find(|candidate| candidate.exists())
 }
 
 /// Characters a path is made of.
@@ -93,10 +83,8 @@ fn is_path_char(character: char) -> bool {
 fn urls(line: &str) -> Vec<Link> {
     let mut links = Vec::new();
     let mut from = 0;
-    while let Some(found) = ["https://", "http://"]
-        .iter()
-        .filter_map(|scheme| line[from..].find(scheme))
-        .min()
+    while let Some(found) =
+        ["https://", "http://"].iter().filter_map(|scheme| line[from..].find(scheme)).min()
     {
         let start = from + found;
         let length = line[start..]
@@ -104,10 +92,7 @@ fn urls(line: &str) -> Vec<Link> {
             .unwrap_or(line.len() - start);
         let url = line[start..start + length].trim_end_matches(['.', ',', ';', ':']);
         let end = start + url.len();
-        links.push(Link {
-            range: start..end,
-            target: Target::Url(url.to_owned()),
-        });
+        links.push(Link { range: start..end, target: Target::Url(url.to_owned()) });
         from = end.max(start + 1);
     }
     links
@@ -131,21 +116,18 @@ fn file_positions(line: &str, urls: &[Link]) -> Vec<Link> {
             .map_or(colon, |(index, _)| index);
         let path = &line[start..colon];
         let is_path = (path.contains('/') || path.contains('.'))
-            && !path
-                .chars()
-                .all(|character| character.is_ascii_digit() || character == '.');
+            && !path.chars().all(|character| character.is_ascii_digit() || character == '.');
         if !is_path || in_url(start) || links.iter().any(|link: &Link| link.range.contains(&start))
         {
             continue;
         }
         let (number, mut end) = line_number;
-        let column = line[end..]
-            .strip_prefix(':')
-            .and_then(|_| number_at(line, end + 1))
-            .map(|(column, column_end)| {
+        let column = line[end..].strip_prefix(':').and_then(|_| number_at(line, end + 1)).map(
+            |(column, column_end)| {
                 end = column_end;
                 column
-            });
+            },
+        );
         let (start, path) = match (line[..start].strip_suffix("file:"), path.strip_prefix("//")) {
             (Some(before), Some(absolute)) => (before.len(), absolute),
             // Another scheme's, like Node's own `node:internal/…`, is no file here.
@@ -154,11 +136,7 @@ fn file_positions(line: &str, urls: &[Link]) -> Vec<Link> {
         };
         links.push(Link {
             range: start..end,
-            target: Target::File {
-                path: path.to_owned(),
-                line: number,
-                column,
-            },
+            target: Target::File { path: path.to_owned(), line: number, column },
         });
     }
     links
@@ -178,11 +156,7 @@ mod tests {
     use super::*;
 
     fn file(path: &str, line: usize, column: Option<usize>) -> Target {
-        Target::File {
-            path: path.into(),
-            line,
-            column,
-        }
+        Target::File { path: path.into(), line, column }
     }
 
     fn targets(line: &str) -> Vec<Target> {
@@ -194,23 +168,14 @@ mod tests {
         let panic = "thread 'main' panicked at core/src/cart.rs:20:9:";
         assert_eq!(
             links_in(panic),
-            [Link {
-                range: 26..47,
-                target: file("core/src/cart.rs", 20, Some(9))
-            }]
+            [Link { range: 26..47, target: file("core/src/cart.rs", 20, Some(9)) }]
         );
         let stack = "    at lineTotal (apps/site/src/api.ts:4:21) file:///tmp/x.mjs:3 (node:internal/x.js:9:2)";
         assert_eq!(
             targets(stack),
-            [
-                file("apps/site/src/api.ts", 4, Some(21)),
-                file("/tmp/x.mjs", 3, None)
-            ]
+            [file("apps/site/src/api.ts", 4, Some(21)), file("/tmp/x.mjs", 3, None)]
         );
         let served = "Local: http://localhost:5173/, on 127.0.0.1:3000 at 9:15:31.";
-        assert_eq!(
-            targets(served),
-            [Target::Url("http://localhost:5173/".into())]
-        );
+        assert_eq!(targets(served), [Target::Url("http://localhost:5173/".into())]);
     }
 }

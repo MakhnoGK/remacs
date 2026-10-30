@@ -70,11 +70,7 @@ pub struct Code {
 
 impl Code {
     pub fn new(text: impl Into<String>, mode: Option<&'static str>) -> Self {
-        Self {
-            text: text.into(),
-            mode,
-            emphasis: None,
-        }
+        Self { text: text.into(), mode, emphasis: None }
     }
 }
 

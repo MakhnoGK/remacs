@@ -62,11 +62,7 @@ impl FittedHints {
     /// Those a list over the row shows: the ones that did not fit, or all when none
     /// show.
     pub fn listed(&self) -> Hints {
-        if self.width == px(0.0) {
-            self.hints
-        } else {
-            self.hidden()
-        }
+        if self.width == px(0.0) { self.hints } else { self.hidden() }
     }
 }
 
@@ -80,29 +76,20 @@ impl PrefixKeys {
     pub fn new(pending: &[Key], mut continuations: Vec<(Key, Binding)>) -> Self {
         continuations
             .sort_by_key(|(key, _)| (key.modifiers != Default::default(), key.to_string()));
-        Self {
-            pending: pending.to_vec(),
-            continuations,
-        }
+        Self { pending: pending.to_vec(), continuations }
     }
 }
 
 /// As many of `hints` as fit between `side_room` kept on each side of a window this
 /// wide; the rest go under a chip.
 pub fn fit_hints(hints: Hints, show: bool, side_room: f32, window: &Window) -> FittedHints {
-    let fitted = |shown, width| FittedHints {
-        hints,
-        shown,
-        width,
-    };
+    let fitted = |shown, width| FittedHints { hints, shown, width };
     if !show || hints.is_empty() {
         return fitted(0, px(0.0));
     }
     let room = window.viewport_size().width - px(2.0 * (SIDE + GAP + side_room));
-    let widths: Vec<Pixels> = hints
-        .iter()
-        .map(|&(keys, label)| hint_width(keys, label, window))
-        .collect();
+    let widths: Vec<Pixels> =
+        hints.iter().map(|&(keys, label)| hint_width(keys, label, window)).collect();
     let pill_width = |items: &[Pixels], extra: Option<Pixels>| {
         let count = items.len() + usize::from(extra.is_some());
         let gaps = PILL_ITEM_GAP * count.saturating_sub(1) as f32;
@@ -152,10 +139,7 @@ fn pill_item(gap: f32) -> Div {
 
 /// The keys of a prefix typed so far, with a caret waiting for the next one.
 pub fn render_prefix_echo(pending: &[Key]) -> Div {
-    let caret = div()
-        .w(px(7.0))
-        .h(px(14.0))
-        .rounded_fill(1.0, color::fg_main() << 8 | 0xd9);
+    let caret = div().w(px(7.0)).h(px(14.0)).rounded_fill(1.0, color::fg_main() << 8 | 0xd9);
     let keys = pending.iter().map(|key| kbd(&key.to_string(), true));
     pill().child(pill_item(ITEM_GAP).children(keys).child(caret))
 }
@@ -213,11 +197,7 @@ pub fn render_hints(
         .iter()
         .map(|&(keys, label)| pill_item(ITEM_GAP).children(key_caps(keys)).child(label));
     let chip = (hidden > 0).then(|| {
-        let background = if listed {
-            glass::selection()
-        } else {
-            glass::control()
-        };
+        let background = if listed { glass::selection() } else { glass::control() };
         pill_item(0.0)
             .rounded_fill(6.0, background)
             .text_color(rgb(color::fg_main()))
@@ -277,9 +257,7 @@ pub fn render_message_card(
         .children(kind_mark(message.kind))
         .child(div().child(kind))
         .children(message.command.map(command));
-    let clock = div()
-        .mono_status(color::fg_placeholder())
-        .child(message.clock());
+    let clock = div().mono_status(color::fg_placeholder()).child(message.clock());
     let body = div()
         .id("echo-message")
         .max_h(px(CARD_LINE_HEIGHT * lines as f32 + 20.0))
@@ -309,10 +287,7 @@ pub fn render_prefix_keys(
     cancel_key: &str,
     window: &Window,
 ) -> impl IntoElement {
-    let PrefixKeys {
-        pending,
-        continuations,
-    } = keys;
+    let PrefixKeys { pending, continuations } = keys;
     let max_rows = ((window.viewport_size().height - px(PREFIX_TOP_ROOM)) / px(PREFIX_ROW_HEIGHT))
         .floor()
         .max(MIN_PREFIX_ROWS as f32) as usize;
@@ -334,14 +309,8 @@ pub fn render_prefix_keys(
                         .child(format!("{} …", describe_sequence(&sequence)))
                 }
             };
-            let cap = div()
-                .flex()
-                .flex_none()
-                .min_w(px(40.0))
-                .child(kbd(&key.to_string(), false));
-            prefix_row(10.0)
-                .child(cap)
-                .child(label.min_w_0().truncate())
+            let cap = div().flex().flex_none().min_w(px(40.0)).child(kbd(&key.to_string(), false));
+            prefix_row(10.0).child(cap).child(label.min_w_0().truncate())
         })
         .collect();
     if more > 0 {
@@ -351,13 +320,7 @@ pub fn render_prefix_keys(
     let rows = entries.len().div_ceil(columns).max(1);
     let mut entries = entries.into_iter();
     let column = |entries: Vec<Div>| {
-        div()
-            .flex_1()
-            .min_w_0()
-            .flex()
-            .flex_col()
-            .gap(px(2.0))
-            .children(entries)
+        div().flex_1().min_w_0().flex().flex_col().gap(px(2.0)).children(entries)
     };
     let grid = div()
         .flex()
@@ -369,12 +332,8 @@ pub fn render_prefix_keys(
         .row(10.0)
         .children(pending.iter().map(|key| kbd(&key.to_string(), true)))
         .child(div().child("then"));
-    let counted = div()
-        .status_text(color::fg_placeholder())
-        .child(format!("{count} keys"));
-    let footer = card_footer(ITEM_GAP, 34.0, 16.0)
-        .children(key_caps(cancel_key))
-        .child("Cancel");
+    let counted = div().status_text(color::fg_placeholder()).child(format!("{count} keys"));
+    let footer = card_footer(ITEM_GAP, 34.0, 16.0).children(key_caps(cancel_key)).child("Cancel");
     card()
         .right(px(SIDE))
         .text_size(px(theme_font::status_size()))
@@ -389,13 +348,7 @@ fn kind_mark(kind: MessageKind) -> Option<Div> {
         MessageKind::Done => color::vc_added(),
         MessageKind::Error => color::error(),
     };
-    Some(
-        div()
-            .flex_none()
-            .size(px(MARK_SIZE))
-            .rounded_full()
-            .bg(rgb(mark_color)),
-    )
+    Some(div().flex_none().size(px(MARK_SIZE)).rounded_full().bg(rgb(mark_color)))
 }
 
 /// A card over the row, from its left side up.
@@ -442,11 +395,7 @@ fn section_heading(title: &str) -> Div {
 
 /// `+3` beside some keys, `Keys · 8` alone.
 fn chip_label(shown: usize, hidden: usize) -> String {
-    if shown == 0 {
-        format!("Keys · {hidden}")
-    } else {
-        format!("+{hidden}")
-    }
+    if shown == 0 { format!("Keys · {hidden}") } else { format!("+{hidden}") }
 }
 
 fn chip_width(label: &str, window: &Window) -> Pixels {

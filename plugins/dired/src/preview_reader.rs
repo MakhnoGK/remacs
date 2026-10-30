@@ -116,11 +116,7 @@ fn run(requests: &Receiver<PreviewRequest>, contents: &Sender<Contents>, notifie
 }
 
 fn read(request: PreviewRequest) -> Contents {
-    let body = if request.is_directory {
-        read_items(&request)
-    } else {
-        read_head(&request)
-    };
+    let body = if request.is_directory { read_items(&request) } else { read_head(&request) };
     Contents {
         body: body.unwrap_or_else(|error| Body::Failed(error.to_string())),
         request,
@@ -135,16 +131,11 @@ fn read_items(request: &PreviewRequest) -> io::Result<Body> {
             let is_directory = item
                 .file_type()
                 .is_ok_and(|kind| kind.is_dir() || (kind.is_symlink() && item.path().is_dir()));
-            (
-                item.file_name().to_string_lossy().into_owned(),
-                is_directory,
-            )
+            (item.file_name().to_string_lossy().into_owned(), is_directory)
         })
         .collect();
     items.sort_by(|(a, a_is_directory), (b, b_is_directory)| {
-        b_is_directory
-            .cmp(a_is_directory)
-            .then_with(|| compare_names(a, b))
+        b_is_directory.cmp(a_is_directory).then_with(|| compare_names(a, b))
     });
     items.truncate(MAX_ITEMS);
     Ok(Body::Items(items))
@@ -152,9 +143,7 @@ fn read_items(request: &PreviewRequest) -> io::Result<Body> {
 
 fn read_head(request: &PreviewRequest) -> io::Result<Body> {
     let mut head = Vec::with_capacity(HEAD_BYTES);
-    open_regular_file(&request.path)?
-        .take(HEAD_BYTES as u64)
-        .read_to_end(&mut head)?;
+    open_regular_file(&request.path)?.take(HEAD_BYTES as u64).read_to_end(&mut head)?;
     if memchr::memchr(0, &head).is_some() {
         return Ok(Body::Binary);
     }
@@ -192,11 +181,7 @@ fn push_display(line: &str, out: &mut String) {
             out.extend(std::iter::repeat_n(' ', width));
             column += width;
         } else {
-            out.push(if character.is_control() {
-                ' '
-            } else {
-                character
-            });
+            out.push(if character.is_control() { ' ' } else { character });
             column += 1;
         }
     }

@@ -57,11 +57,7 @@ impl LocalsQuery {
     pub fn new(language: &Language, sources: &[&str]) -> Result<Self, String> {
         let source = sources.join("\n");
         let query = Query::new(language, &source).map_err(|error| error.to_string())?;
-        let index = |name| {
-            query
-                .capture_index_for_name(name)
-                .ok_or_else(|| format!("no @{name}"))
-        };
+        let index = |name| query.capture_index_for_name(name).ok_or_else(|| format!("no @{name}"));
         let (scope, definition) = (index("local.scope")?, index("local.definition")?);
         let mut definitions_query =
             Query::new(language, &source).map_err(|error| error.to_string())?;
@@ -156,19 +152,13 @@ impl LocalsQuery {
     fn defined_in(&self, tree: &Tree, text: &Snapshot, scopes: Range<usize>) -> Defined {
         let mut names: Vec<(Range<usize>, HashSet<Vec<u8>>)> = Vec::new();
         let mut definitions = Vec::new();
-        Self::capture(
-            &self.definitions_query,
-            tree,
-            text,
-            scopes.clone(),
-            |node, capture| {
-                if capture == self.scope {
-                    names.push((node.byte_range(), HashSet::new()));
-                } else if capture == self.definition {
-                    definitions.push(node);
-                }
-            },
-        );
+        Self::capture(&self.definitions_query, tree, text, scopes.clone(), |node, capture| {
+            if capture == self.scope {
+                names.push((node.byte_range(), HashSet::new()));
+            } else if capture == self.definition {
+                definitions.push(node);
+            }
+        });
         names.sort_by_key(|(scope, _)| (scope.start, std::cmp::Reverse(scope.end)));
         names.dedup_by(|later, earlier| later.0 == earlier.0);
         for definition in definitions {
@@ -180,12 +170,7 @@ impl LocalsQuery {
             }
         }
         names.retain(|(_, names)| !names.is_empty());
-        Defined {
-            text: text.clone(),
-            root: tree.root_node().id(),
-            scopes,
-            names,
-        }
+        Defined { text: text.clone(), root: tree.root_node().id(), scopes, names }
     }
 
     fn capture<'tree>(

@@ -15,9 +15,7 @@ pub fn default_directory(editor: &Editor) -> PathBuf {
 
 /// The nearest enclosing Git work tree, else `directory` itself.
 pub fn project_root(directory: &Path) -> PathBuf {
-    let directory = directory
-        .canonicalize()
-        .unwrap_or_else(|_| directory.to_path_buf());
+    let directory = directory.canonicalize().unwrap_or_else(|_| directory.to_path_buf());
     directory
         .ancestors()
         .find(|ancestor| ancestor.join(".git").exists())
@@ -52,11 +50,7 @@ pub fn expand_home(path: &str) -> PathBuf {
 }
 
 pub fn with_slash(directory: &str) -> String {
-    if directory.ends_with('/') {
-        directory.to_owned()
-    } else {
-        format!("{directory}/")
-    }
+    if directory.ends_with('/') { directory.to_owned() } else { format!("{directory}/") }
 }
 
 fn home() -> Option<PathBuf> {

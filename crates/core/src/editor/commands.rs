@@ -188,11 +188,7 @@ impl Editor {
     fn takes_typing(&self) -> bool {
         match &self.minibuffer {
             Some(minibuffer) => minibuffer.is_typed(),
-            None => !self
-                .registry
-                .typing_blockers
-                .iter()
-                .any(|blocks| blocks(self)),
+            None => !self.registry.typing_blockers.iter().any(|blocks| blocks(self)),
         }
     }
 
@@ -249,10 +245,7 @@ impl Editor {
     pub fn next_error_source(&self) -> Option<NextErrorSource> {
         let name = self.next_error_source?;
         let sources = &self.registry.next_error_sources;
-        sources
-            .iter()
-            .find(|source| source.name == name && (source.active)(self))
-            .copied()
+        sources.iter().find(|source| source.name == name && (source.active)(self)).copied()
     }
 
     /// Makes `next-error` go to the source named, as when it made or visited locations, or
@@ -323,11 +316,7 @@ impl Editor {
             keymaps.push(&registry.minibuffer_keymap);
         }
         let minors = registry.minor_keymaps.iter();
-        keymaps.extend(
-            minors
-                .filter(|minor| (minor.active)(self))
-                .map(|minor| &minor.keymap),
-        );
+        keymaps.extend(minors.filter(|minor| (minor.active)(self)).map(|minor| &minor.keymap));
         keymaps.push(&registry.keymap);
         keymaps
     }
@@ -345,11 +334,7 @@ impl Editor {
     }
 
     pub(super) fn after_command(&mut self) {
-        if self
-            .minibuffer
-            .as_ref()
-            .is_some_and(Minibuffer::needs_completions)
-        {
+        if self.minibuffer.as_ref().is_some_and(Minibuffer::needs_completions) {
             self.refresh_minibuffer();
         }
         self.show_point();
@@ -401,9 +386,7 @@ mod tests {
     #[test]
     fn reads_a_key_sequence_whole_instead_of_running_it() {
         let mut editor = editor_registering(|registry| {
-            registry
-                .commands
-                .add(Command::new("one", "", |_| Err("ran".into())));
+            registry.commands.add(Command::new("one", "", |_| Err("ran".into())));
             registry.keymap.bind("C-x a", "one");
         });
         let read = |editor: &mut Editor| {
@@ -453,17 +436,13 @@ mod tests {
     #[test]
     fn a_typing_key_is_left_to_the_input_method_whose_text_self_inserts() {
         let mut editor = editor_registering(|registry| {
-            registry
-                .commands
-                .add(Command::new(SELF_INSERT_COMMAND, "", |editor| {
-                    let key = editor.last_key().and_then(|key| key.printable_char());
-                    let character = key.ok_or("Not printable")?;
-                    editor.buffer().ensure_writable()?;
-                    editor
-                        .buffer_mut()
-                        .insert(character.encode_utf8(&mut [0; 4]));
-                    Ok(())
-                }));
+            registry.commands.add(Command::new(SELF_INSERT_COMMAND, "", |editor| {
+                let key = editor.last_key().and_then(|key| key.printable_char());
+                let character = key.ok_or("Not printable")?;
+                editor.buffer().ensure_writable()?;
+                editor.buffer_mut().insert(character.encode_utf8(&mut [0; 4]));
+                Ok(())
+            }));
             registry.commands.add(Command::new("newline", "", |editor| {
                 if editor.minibuffer().is_some() {
                     return editor.exit_minibuffer(true);

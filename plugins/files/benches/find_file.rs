@@ -26,7 +26,8 @@ struct Project(PathBuf);
 
 impl Project {
     fn new(files: usize) -> Self {
-        let root = std::env::temp_dir().join(format!("remacs-bench-{}-{files}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("remacs-bench-{}-{files}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join(".git")).unwrap();
         fs::write(root.join(".git/HEAD"), "").unwrap();
@@ -59,9 +60,7 @@ fn refresh_with_find_file_open(bencher: Bencher, files: usize) {
     for key in parse_sequence("C-x C-f").unwrap() {
         editor.handle_key(key);
     }
-    notifications
-        .recv_timeout(Duration::from_secs(30))
-        .expect("the index finishes its first scan");
+    notifications.recv_timeout(Duration::from_secs(30)).expect("the index finishes its first scan");
     for character in "srcfile1".chars() {
         editor.handle_key(Key::parse(&character.to_string()).unwrap());
     }

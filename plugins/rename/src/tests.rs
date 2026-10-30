@@ -39,9 +39,7 @@ fn type_text(editor: &mut Editor, text: &str) {
 }
 
 fn input(editor: &Editor) -> Option<String> {
-    editor
-        .minibuffer()
-        .map(|minibuffer| minibuffer.input_text())
+    editor.minibuffer().map(|minibuffer| minibuffer.input_text())
 }
 
 /// Asks for the name at point and is told it is `helper`.
@@ -79,25 +77,13 @@ fn renames_everywhere_and_saves_every_file_changed() {
     buffer.set_point(POINT);
     let id = rename_to_assist(&mut editor, &main);
     let changes = vec![
-        FileChange::Edit(FileEdits {
-            path: main.clone(),
-            edits: vec![(16..22, "assist".into())],
-        }),
-        FileChange::Edit(FileEdits {
-            path: lib.clone(),
-            edits: vec![(7..13, "assist".into())],
-        }),
+        FileChange::Edit(FileEdits { path: main.clone(), edits: vec![(16..22, "assist".into())] }),
+        FileChange::Edit(FileEdits { path: lib.clone(), edits: vec![(7..13, "assist".into())] }),
     ];
     deliver_changes(&mut editor, id, Ok(changes));
 
-    assert_eq!(
-        editor.echo().as_deref(),
-        Some("Renamed helper to assist: 2 places in 2 files")
-    );
-    assert_eq!(
-        fs::read_to_string(&main).unwrap(),
-        "fn main() {\n    assist();\n}\n// unsaved\n"
-    );
+    assert_eq!(editor.echo().as_deref(), Some("Renamed helper to assist: 2 places in 2 files"));
+    assert_eq!(fs::read_to_string(&main).unwrap(), "fn main() {\n    assist();\n}\n// unsaved\n");
     assert_eq!(fs::read_to_string(&lib).unwrap(), "pub fn assist() {}\n");
     assert!(!editor.window_buffer().is_modified());
 }

@@ -45,11 +45,7 @@ pub struct UiSettings {
 
 impl UiSettings {
     pub fn bottom(&self) -> BottomSettings {
-        BottomSettings {
-            echo: self.echo,
-            hints: self.hints,
-            prefix_keys: self.prefix_keys,
-        }
+        BottomSettings { echo: self.echo, hints: self.hints, prefix_keys: self.prefix_keys }
     }
 }
 
@@ -141,11 +137,9 @@ fn check_range<T: PartialOrd + Display>(
     range: &RangeInclusive<T>,
 ) -> Result<(), String> {
     match value.into() {
-        Some(value) if !range.contains(&value) => Err(format!(
-            "{name} {value} is outside {}..={}",
-            range.start(),
-            range.end()
-        )),
+        Some(value) if !range.contains(&value) => {
+            Err(format!("{name} {value} is outside {}..={}", range.start(), range.end()))
+        }
         _ => Ok(()),
     }
 }
@@ -166,9 +160,7 @@ mod tests {
         let fixed = parse("[theme]\nname = \"paper\"\n").unwrap().theme;
         assert!(!fixed.follows_system());
         assert_eq!(fixed.shown(Appearance::Light), "paper");
-        let system = parse("[theme]\nname = \"system\"\nlight = \"paper\"\n")
-            .unwrap()
-            .theme;
+        let system = parse("[theme]\nname = \"system\"\nlight = \"paper\"\n").unwrap().theme;
         assert!(system.follows_system());
         assert_eq!(system.shown(Appearance::Light), "paper");
         assert_eq!(system.shown(Appearance::Dark), DEFAULT);
@@ -215,63 +207,29 @@ mod tests {
         assert_eq!(settings.transitions.pane().duration, Duration::ZERO);
         assert_eq!(
             settings.transitions.prompt(),
-            Transition {
-                duration: Duration::from_millis(100),
-                slide: 12.0,
-                from: Side::Above
-            }
+            Transition { duration: Duration::from_millis(100), slide: 12.0, from: Side::Above }
         );
         assert_eq!(settings.transitions.popup().slide, 4.0);
         assert_eq!(settings.prompts.input_margin, 20.0);
         assert_eq!(settings.prompts.directory, DirectoryPosition::Below);
         assert_eq!(
             settings.swatches,
-            SwatchesSettings {
-                inline: false,
-                thickness: 2.0,
-                completion: false
-            }
+            SwatchesSettings { inline: false, thickness: 2.0, completion: false }
         );
         assert_eq!(
             settings.documentation,
-            DocumentationSettings {
-                max_width: 900.0,
-                max_height: 300.0
-            }
+            DocumentationSettings { max_width: 900.0, max_height: 300.0 }
         );
-        assert_eq!(
-            settings.problems,
-            ProblemsSettings {
-                max_width: 700.0,
-                max_height: 200.0
-            }
-        );
+        assert_eq!(settings.problems, ProblemsSettings { max_width: 700.0, max_height: 200.0 });
         assert_eq!(
             settings.bottom(),
             BottomSettings {
-                echo: EchoSettings {
-                    lines: 6,
-                    history: 50,
-                    hide_after: 0
-                },
-                hints: HintsSettings {
-                    show: false,
-                    side_room: 200.0
-                },
-                prefix_keys: PrefixKeysSettings {
-                    show: false,
-                    delay: 0,
-                    columns: 3
-                },
+                echo: EchoSettings { lines: 6, history: 50, hide_after: 0 },
+                hints: HintsSettings { show: false, side_room: 200.0 },
+                prefix_keys: PrefixKeysSettings { show: false, delay: 0, columns: 3 },
             }
         );
-        assert_eq!(
-            settings.glass,
-            GlassSettings {
-                opacity: Some(0.5),
-                blur: 0
-            }
-        );
+        assert_eq!(settings.glass, GlassSettings { opacity: Some(0.5), blur: 0 });
         assert_eq!(settings.theme.name, "modus-operandi");
         assert_eq!(settings.keyboard.meta, MetaOption::Left);
         assert_eq!(settings.mouse.drag_scroll_interval, 60);
@@ -294,12 +252,7 @@ mod tests {
         assert_eq!(settings.cursor.radius, 2.5);
         assert_eq!(
             settings.zoom,
-            ZoomSettings {
-                step: 2.0,
-                min_size: 10.0,
-                max_size: 24.0,
-                wheel_step: 50.0
-            }
+            ZoomSettings { step: 2.0, min_size: 10.0, max_size: 24.0, wheel_step: 50.0 }
         );
     }
 
@@ -311,19 +264,10 @@ mod tests {
 
     #[test]
     fn an_opaque_tint_makes_the_window_opaque_and_unblurred() {
-        let glass = |opacity| GlassSettings {
-            opacity: Some(opacity),
-            blur: 30,
-        };
-        assert_eq!(
-            glass(1.0).window_background(),
-            WindowBackgroundAppearance::Opaque
-        );
+        let glass = |opacity| GlassSettings { opacity: Some(opacity), blur: 30 };
+        assert_eq!(glass(1.0).window_background(), WindowBackgroundAppearance::Opaque);
         assert_eq!(glass(1.0).window_blur(), 0);
-        assert_eq!(
-            glass(0.9).window_background(),
-            WindowBackgroundAppearance::Transparent
-        );
+        assert_eq!(glass(0.9).window_background(), WindowBackgroundAppearance::Transparent);
         assert_eq!(glass(0.9).window_blur(), 30);
     }
 

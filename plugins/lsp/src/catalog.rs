@@ -113,9 +113,7 @@ impl When {
 /// project, whatever stray `package.json` it holds.
 pub(crate) fn project_ancestors(directory: &Path) -> impl Iterator<Item = &Path> {
     let home = std::env::var_os("HOME").map(PathBuf::from);
-    directory
-        .ancestors()
-        .take_while(move |ancestor| home.as_deref() != Some(*ancestor))
+    directory.ancestors().take_while(move |ancestor| home.as_deref() != Some(*ancestor))
 }
 
 /// Whether `directory` has a file named `pattern`, where `*` matches any part of a name.
@@ -139,33 +137,22 @@ fn depends_on(directory: &Path, packages: &[&str]) -> bool {
     let Ok(manifest) = serde_json::from_str::<Value>(&text) else {
         return false;
     };
-    let fields = [
-        "dependencies",
-        "devDependencies",
-        "peerDependencies",
-        "optionalDependencies",
-    ];
+    let fields = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"];
     fields
         .iter()
         .filter_map(|field| manifest.get(field)?.as_object())
         .flat_map(|dependencies| dependencies.keys())
         .any(|name| {
-            packages
-                .iter()
-                .any(|package| match package.strip_suffix('*') {
-                    Some(prefix) => name.starts_with(prefix),
-                    None => name == package,
-                })
+            packages.iter().any(|package| match package.strip_suffix('*') {
+                Some(prefix) => name.starts_with(prefix),
+                None => name == package,
+            })
         })
 }
 
 pub(crate) fn built_in(text: &str) -> Vec<(String, ServerSpec)> {
     let built_in: BuiltIn = toml::from_str(text).expect("the built-in servers are valid");
-    built_in
-        .servers
-        .into_iter()
-        .map(|named| (named.name, named.spec))
-        .collect()
+    built_in.servers.into_iter().map(|named| (named.name, named.spec)).collect()
 }
 
 /// The built-in servers with `changes` over them, then the servers only `changes` has;
@@ -203,9 +190,7 @@ impl ServerSpec {
             args: change.args.or(self.args),
             languages: change.languages.or(self.languages),
             root_markers: change.root_markers.or(self.root_markers),
-            initialization_options: change
-                .initialization_options
-                .or(self.initialization_options),
+            initialization_options: change.initialization_options.or(self.initialization_options),
             configuration: change.configuration.or(self.configuration),
             pull_diagnostics: change.pull_diagnostics.or(self.pull_diagnostics),
             reports_loading: change.reports_loading.or(self.reports_loading),
@@ -224,10 +209,8 @@ impl ServerSpec {
     /// The server it describes, with the tool it is downloaded as. `own_command`: its
     /// command was set in `lsp.toml` and runs as it is.
     pub(crate) fn build(&self, name: &str, own_command: bool) -> Result<LanguageServer, String> {
-        let command = self
-            .command
-            .as_deref()
-            .ok_or_else(|| format!("server {name} has no `command`"))?;
+        let command =
+            self.command.as_deref().ok_or_else(|| format!("server {name} has no `command`"))?;
         let languages = self
             .languages
             .as_ref()
@@ -287,11 +270,7 @@ fn leak(text: &str) -> &'static str {
 }
 
 fn leak_all<'a>(texts: impl IntoIterator<Item = &'a String>) -> &'static [&'static str] {
-    texts
-        .into_iter()
-        .map(|text| leak(text))
-        .collect::<Vec<_>>()
-        .leak()
+    texts.into_iter().map(|text| leak(text)).collect::<Vec<_>>().leak()
 }
 
 fn expand_home(command: &str) -> PathBuf {
@@ -333,10 +312,8 @@ mod tests {
         assert!(!when(&["tailwind.config.js"], &[]).holds(&app));
         assert!(when(&[], &["@tailwindcss/*"]).holds(&app));
         assert!(!when(&[], &["tailwindcss"]).holds(&app));
-        let ruff = When {
-            contains: vec![("pyproject.toml", "[tool.ruff]")].leak(),
-            ..When::default()
-        };
+        let ruff =
+            When { contains: vec![("pyproject.toml", "[tool.ruff]")].leak(), ..When::default() };
         assert!(ruff.holds(&app));
         assert!(!when(&["tailwind.config.*"], &[]).holds(&std::env::temp_dir()));
         fs::remove_dir_all(&root).unwrap();
@@ -347,10 +324,7 @@ mod tests {
         let home = PathBuf::from(std::env::var_os("HOME").unwrap());
         let web = home.join("projects/blog/web");
         let ancestors: Vec<_> = project_ancestors(&web).collect();
-        assert_eq!(
-            ancestors,
-            [web.as_path(), web.parent().unwrap(), &home.join("projects")]
-        );
+        assert_eq!(ancestors, [web.as_path(), web.parent().unwrap(), &home.join("projects")]);
         assert_eq!(project_ancestors(&home).count(), 0);
     }
 
@@ -383,10 +357,7 @@ mod tests {
 
         let rust = merged[0].1.build("rust-analyzer", merged[0].2).unwrap();
         let home = PathBuf::from(std::env::var_os("HOME").unwrap());
-        assert_eq!(
-            rust.own_program,
-            Some(home.join("bin/rust-analyzer").as_path())
-        );
+        assert_eq!(rust.own_program, Some(home.join("bin/rust-analyzer").as_path()));
         assert_eq!(rust.languages, [("Rust", "rust")]);
         let serve_d = merged[1].1.build("serve-d", merged[1].2).unwrap();
         assert_eq!(serve_d.own_program, None);

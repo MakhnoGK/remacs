@@ -19,18 +19,15 @@ pub(crate) fn goto_last_change(editor: &mut Editor) -> CommandResult {
 }
 
 pub(crate) fn goto_last_change_reverse(editor: &mut Editor) -> CommandResult {
-    let index = continued(editor)
-        .and_then(|index| index.checked_sub(1))
-        .ok_or("No later change")?;
+    let index =
+        continued(editor).and_then(|index| index.checked_sub(1)).ok_or("No later change")?;
     go_to_change(editor, index)
 }
 
 /// Where the last run left off, when it ran just before.
 fn continued(editor: &mut Editor) -> Option<usize> {
-    let continuing = matches!(
-        editor.last_command(),
-        Some(GOTO_LAST_CHANGE | GOTO_LAST_CHANGE_REVERSE)
-    );
+    let continuing =
+        matches!(editor.last_command(), Some(GOTO_LAST_CHANGE | GOTO_LAST_CHANGE_REVERSE));
     continuing.then(|| editor.plugin_state::<Visited>().0)
 }
 
@@ -41,16 +38,9 @@ fn go_to_change(editor: &mut Editor, index: usize) -> CommandResult {
         (offset, text.line_of(offset))
     })
     .nth(index)
-    .ok_or(if index == 0 {
-        "No changes in this buffer"
-    } else {
-        "No earlier change"
-    })?;
-    let offset = if text.is_char_boundary(offset) {
-        offset
-    } else {
-        text.previous_char_boundary(offset)
-    };
+    .ok_or(if index == 0 { "No changes in this buffer" } else { "No earlier change" })?;
+    let offset =
+        if text.is_char_boundary(offset) { offset } else { text.previous_char_boundary(offset) };
     editor.plugin_state::<Visited>().0 = index;
     let buffer = editor.buffer_mut();
     buffer.set_point(offset);

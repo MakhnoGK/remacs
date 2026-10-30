@@ -24,11 +24,7 @@ struct Selection {
 
 impl Selection {
     fn of(buffer: &Buffer) -> Self {
-        Self {
-            point: buffer.point(),
-            mark: buffer.mark(),
-            mark_active: buffer.is_mark_active(),
-        }
+        Self { point: buffer.point(), mark: buffer.mark(), mark_active: buffer.is_mark_active() }
     }
 
     fn restore(self, buffer: &mut Buffer) {

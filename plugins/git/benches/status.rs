@@ -49,9 +49,7 @@ impl Repository {
         for file in 0..files {
             fs::write(path(file), "line\nchanged\n").unwrap();
         }
-        let lines: String = (0..20)
-            .map(|line| format!("let line_{line} = {line};\n"))
-            .collect();
+        let lines: String = (0..20).map(|line| format!("let line_{line} = {line};\n")).collect();
         for file in files..files + untracked {
             fs::write(path(file), &lines).unwrap();
         }
@@ -59,11 +57,7 @@ impl Repository {
     }
 
     fn git(&self, args: &[&str]) {
-        let status = Command::new("git")
-            .current_dir(&self.0)
-            .args(args)
-            .status()
-            .unwrap();
+        let status = Command::new("git").current_dir(&self.0).args(args).status().unwrap();
         assert!(status.success(), "git {args:?}");
     }
 }
@@ -116,17 +110,10 @@ fn refresh_with_untracked(bencher: Bencher, untracked: usize) {
 
 /// The status of `repository`, once it lists `rows` headings and files.
 fn status(repository: &Repository, rows: usize) -> Editor {
-    let mut editor = Editor::new(&[
-        &EditingPlugin,
-        &MinibufferPlugin,
-        &FilesPlugin,
-        &DiredPlugin,
-        &GitPlugin,
-    ]);
+    let mut editor =
+        Editor::new(&[&EditingPlugin, &MinibufferPlugin, &FilesPlugin, &DiredPlugin, &GitPlugin]);
     editor.viewport.set_height(40);
-    editor
-        .visit_file(&repository.0.join("src/module_0/file_0.rs"))
-        .unwrap();
+    editor.visit_file(&repository.0.join("src/module_0/file_0.rs")).unwrap();
     editor.run_command("git-status");
     wait_until(&mut editor, "the changes", |editor| {
         side(editor).is_some_and(|side| side.rows.len() == rows)

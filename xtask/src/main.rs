@@ -34,11 +34,8 @@ const TREE_SITTER_CLI: &str = "tree-sitter-cli@0.27.1";
 
 /// The commit types that make a changelog's groups, in its order; the others (chore, ci,
 /// docs, refactor, style, test) change nothing people see.
-const CHANGELOG_GROUPS: &[(&[&str], &str)] = &[
-    (&["feat", "feature"], "Added"),
-    (&["fix"], "Fixed"),
-    (&["perf"], "Faster"),
-];
+const CHANGELOG_GROUPS: &[(&[&str], &str)] =
+    &[(&["feat", "feature"], "Added"), (&["fix"], "Fixed"), (&["perf"], "Faster")];
 
 /// The iconset's images: its name, the master it comes from, its size in pixels. 16 and
 /// 32 px have masters of their own, drawn heavier.
@@ -85,9 +82,7 @@ fn root() -> PathBuf {
 }
 
 fn home() -> Result<PathBuf> {
-    env::var_os("HOME")
-        .map(PathBuf::from)
-        .ok_or_else(|| "HOME is not set".to_owned())
+    env::var_os("HOME").map(PathBuf::from).ok_or_else(|| "HOME is not set".to_owned())
 }
 
 fn bundle() -> Result<PathBuf> {
@@ -113,26 +108,17 @@ fn bundle() -> Result<PathBuf> {
     create(&contents.join("MacOS"))?;
     create(&resources)?;
 
-    fs::copy(
-        root.join("target/release").join(EXECUTABLE),
-        contents.join("MacOS").join(EXECUTABLE),
-    )
-    .map_err(|error| format!("copying the binary: {error}"))?;
+    fs::copy(root.join("target/release").join(EXECUTABLE), contents.join("MacOS").join(EXECUTABLE))
+        .map_err(|error| format!("copying the binary: {error}"))?;
     fs::copy(&notices, resources.join(NOTICES))
         .map_err(|error| format!("copying the notices: {error}"))?;
     copy(&sources.join("launcher.sh"), &resources.join("launcher"))?;
     let plist = read(&sources.join("Info.plist"))?;
     write(&contents.join("Info.plist"), &version.fill(&plist))?;
-    icon(
-        &sources,
-        &out,
-        &resources.join(format!("{EXECUTABLE}.icns")),
-    )?;
+    icon(&sources, &out, &resources.join(format!("{EXECUTABLE}.icns")))?;
 
     // Ad hoc: enough for a Mac that built it, and seals Info.plist and the icon.
-    run(Command::new("codesign")
-        .args(["--force", "--sign", "-"])
-        .arg(&app))?;
+    run(Command::new("codesign").args(["--force", "--sign", "-"]).arg(&app))?;
     Ok(app)
 }
 
@@ -148,21 +134,14 @@ fn bundle_linux(
 ) -> Result<PathBuf> {
     let linux = sources.join("linux");
     let desktop = format!("{APP_ID}.desktop");
-    let folder = out.join(format!(
-        "{EXECUTABLE}-{}-{}-linux",
-        version.version,
-        env::consts::ARCH
-    ));
+    let folder = out.join(format!("{EXECUTABLE}-{}-{}-linux", version.version, env::consts::ARCH));
     remove(&folder)?;
     let (bin, lib) = (folder.join("bin"), folder.join("lib").join(EXECUTABLE));
     let applications = folder.join("share/applications");
     for dir in [&bin, &lib, &applications] {
         create(dir)?;
     }
-    copy(
-        &root.join("target/release").join(EXECUTABLE),
-        &lib.join(EXECUTABLE),
-    )?;
+    copy(&root.join("target/release").join(EXECUTABLE), &lib.join(EXECUTABLE))?;
     copy(notices, &lib.join(NOTICES))?;
     copy(&linux.join("launcher.sh"), &bin.join(EXECUTABLE))?;
     copy(&linux.join("install.sh"), &folder.join("install.sh"))?;
@@ -170,10 +149,7 @@ fn bundle_linux(
     for size in LINUX_ICON_SIZES {
         let apps = folder.join(format!("share/icons/hicolor/{size}x{size}/apps"));
         create(&apps)?;
-        copy(
-            &linux.join(format!("icons/{size}.png")),
-            &apps.join(format!("{APP_ID}.png")),
-        )?;
+        copy(&linux.join(format!("icons/{size}.png")), &apps.join(format!("{APP_ID}.png")))?;
     }
     Ok(folder)
 }
@@ -212,9 +188,7 @@ fn notices(cargo: &str, root: &Path, sources: &Path, out: &Path) -> Result<PathB
 }
 
 fn modified(path: &Path) -> Option<std::time::SystemTime> {
-    fs::metadata(path)
-        .and_then(|metadata| metadata.modified())
-        .ok()
+    fs::metadata(path).and_then(|metadata| metadata.modified()).ok()
 }
 
 fn icon(sources: &Path, out: &Path, icns: &Path) -> Result {
@@ -229,10 +203,7 @@ fn icon(sources: &Path, out: &Path, icns: &Path) -> Result {
             .arg("--out")
             .arg(iconset.join(name)))?;
     }
-    run(Command::new("iconutil")
-        .args(["--convert", "icns", "--output"])
-        .arg(icns)
-        .arg(&iconset))
+    run(Command::new("iconutil").args(["--convert", "icns", "--output"]).arg(icns).arg(&iconset))
 }
 
 fn install() -> Result {
@@ -311,11 +282,7 @@ fn rollback() -> Result {
     if swapping.exists() {
         rename(&swapping, &previous)?;
     }
-    println!(
-        "{} is back; the one it replaced is {}",
-        installed.display(),
-        previous.display()
-    );
+    println!("{} is back; the one it replaced is {}", installed.display(), previous.display());
     Ok(())
 }
 
@@ -366,10 +333,7 @@ fn changelog_section<'a>(title: &str, subjects: impl Iterator<Item = &'a str>) -
             continue;
         };
         let kind = kind.split(['(', '!']).next().unwrap_or(kind);
-        if let Some(group) = CHANGELOG_GROUPS
-            .iter()
-            .position(|(kinds, _)| kinds.contains(&kind))
-        {
+        if let Some(group) = CHANGELOG_GROUPS.iter().position(|(kinds, _)| kinds.contains(&kind)) {
             groups[group].push_str(&format!("- {change}\n"));
         }
     }
@@ -386,10 +350,8 @@ fn changelog_section<'a>(title: &str, subjects: impl Iterator<Item = &'a str>) -
 }
 
 fn today() -> Result<String> {
-    let output = Command::new("date")
-        .arg("+%F")
-        .output()
-        .map_err(|error| format!("date: {error}"))?;
+    let output =
+        Command::new("date").arg("+%F").output().map_err(|error| format!("date: {error}"))?;
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
@@ -419,10 +381,8 @@ impl Version {
         // Fails only when no tag is reachable.
         let tag = git(root, &["describe", "--tags", "--match", "v[0-9]*"]).ok();
         Ok(Self {
-            version: tag.map_or_else(
-                || env!("CARGO_PKG_VERSION").to_owned(),
-                |tag| tag[1..].to_owned(),
-            ),
+            version: tag
+                .map_or_else(|| env!("CARGO_PKG_VERSION").to_owned(), |tag| tag[1..].to_owned()),
             build,
             commit: if dirty { format!("{hash}-dirty") } else { hash },
         })
@@ -475,9 +435,7 @@ fn grammars(out: &Path) -> Result {
     let list: Grammars = toml::from_str(&read(&root().join("plugins/languages/grammars.toml"))?)
         .map_err(|error| format!("grammars.toml: {error}"))?;
     create(out)?;
-    let out = out
-        .canonicalize()
-        .map_err(|error| format!("{}: {error}", out.display()))?;
+    let out = out.canonicalize().map_err(|error| format!("{}: {error}", out.display()))?;
     let sources = root().join("target/grammar-sources");
     for grammar in &list.grammars {
         let source = sources.join(&grammar.name);
@@ -485,13 +443,7 @@ fn grammars(out: &Path) -> Result {
         create(&source)?;
         let archive = source.with_extension("tar.gz");
         run(Command::new("curl")
-            .args([
-                "--fail",
-                "--silent",
-                "--show-error",
-                "--location",
-                "--output",
-            ])
+            .args(["--fail", "--silent", "--show-error", "--location", "--output"])
             .arg(&archive)
             .arg(format!(
                 "https://codeload.github.com/{}/tar.gz/{}",
@@ -518,15 +470,9 @@ fn grammars(out: &Path) -> Result {
 /// Shows what the tool says on stderr (cargo's progress, anyone's errors), not its chatter.
 fn run(command: &mut Command) -> Result {
     let program = command.get_program().display().to_string();
-    let status = command
-        .stdout(Stdio::null())
-        .status()
-        .map_err(|error| format!("{program}: {error}"))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("{program} failed ({status})"))
-    }
+    let status =
+        command.stdout(Stdio::null()).status().map_err(|error| format!("{program}: {error}"))?;
+    if status.success() { Ok(()) } else { Err(format!("{program} failed ({status})")) }
 }
 
 fn read(path: &Path) -> Result<String> {

@@ -35,25 +35,17 @@ pub fn rows<L: EventListener>(
 ) -> (Vec<ScreenRow>, Option<ScreenCursor>) {
     let grid = term.grid();
     let offset = grid.display_offset() as i32;
-    let selection = term
-        .selection
-        .as_ref()
-        .and_then(|selection| selection.to_range(term));
+    let selection = term.selection.as_ref().and_then(|selection| selection.to_range(term));
     let colors = term.colors();
     // Matches are sorted and cells are visited in order, so one index walks them all.
     let mut next_match = 0;
     let mut in_match = |point: Point| {
         let matches = overlay.matches;
         next_match += matches[next_match..].partition_point(|found| *found.end() < point);
-        matches
-            .get(next_match)
-            .is_some_and(|found| found.contains(&point))
+        matches.get(next_match).is_some_and(|found| found.contains(&point))
     };
     let mut highlight = |point: Point| -> Option<CellHighlight> {
-        if overlay
-            .current_match
-            .is_some_and(|current| current.contains(&point))
-        {
+        if overlay.current_match.is_some_and(|current| current.contains(&point)) {
             Some(CellHighlight::SearchCurrent)
         } else if selection.is_some_and(|selection| selection.contains(point)) {
             Some(CellHighlight::Selection)
@@ -77,9 +69,7 @@ pub fn rows<L: EventListener>(
             for column in 0..grid.columns() {
                 let point = Point::new(line, Column(column));
                 let cell = &grid[point];
-                if cell
-                    .flags
-                    .intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER)
+                if cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER)
                 {
                     continue;
                 }
@@ -87,38 +77,20 @@ pub fn rows<L: EventListener>(
                     prompt = cell.hyperlink().and_then(|link| prompt_id(link.uri()));
                 }
                 let highlight = highlight(point);
-                let mut face = CellFace {
-                    highlight,
-                    ..face(cell, colors)
-                };
+                let mut face = CellFace { highlight, ..face(cell, colors) };
                 face.underline |= highlight == Some(CellHighlight::Link);
-                let cells = if cell.flags.contains(Flags::WIDE_CHAR) {
-                    2
-                } else {
-                    1
-                };
-                let character = if cell.flags.contains(Flags::HIDDEN) {
-                    ' '
-                } else {
-                    cell.c
-                };
+                let cells = if cell.flags.contains(Flags::WIDE_CHAR) { 2 } else { 1 };
+                let character = if cell.flags.contains(Flags::HIDDEN) { ' ' } else { cell.c };
                 match runs.last_mut() {
                     Some(run) if joinable && cells == 1 && run.face == face => {
                         run.text.push(character);
                         run.cells += 1;
                     }
-                    _ => runs.push(CellRun {
-                        text: character.to_string(),
-                        cells,
-                        face,
-                    }),
+                    _ => runs.push(CellRun { text: character.to_string(), cells, face }),
                 }
                 joinable = cells == 1;
                 if let Some(zero_width) = cell.zerowidth() {
-                    runs.last_mut()
-                        .expect("a run was just added to")
-                        .text
-                        .extend(zero_width);
+                    runs.last_mut().expect("a run was just added to").text.extend(zero_width);
                 }
             }
             let prompt = prompt.filter(|&id| marked.insert(id));
@@ -192,10 +164,9 @@ fn color(color: Color, colors: &Colors) -> (Option<ConsoleColor>, bool) {
             )),
             false,
         ),
-        Color::Indexed(index) => (
-            rgb(usize::from(index)).or(Some(ConsoleColor::Indexed(index))),
-            false,
-        ),
+        Color::Indexed(index) => {
+            (rgb(usize::from(index)).or(Some(ConsoleColor::Indexed(index))), false)
+        }
         Color::Named(named) => {
             let index = named as usize;
             match named {
@@ -204,10 +175,7 @@ fn color(color: Color, colors: &Colors) -> (Option<ConsoleColor>, bool) {
                 | NamedColor::Cursor
                 | NamedColor::BrightForeground => (rgb(index), false),
                 NamedColor::DimForeground => (rgb(index), true),
-                _ if index < 16 => (
-                    rgb(index).or(Some(ConsoleColor::Indexed(index as u8))),
-                    false,
-                ),
+                _ if index < 16 => (rgb(index).or(Some(ConsoleColor::Indexed(index as u8))), false),
                 // The dim ones follow the eight normal ones in the same order.
                 _ => {
                     let base = index - NamedColor::DimBlack as usize;

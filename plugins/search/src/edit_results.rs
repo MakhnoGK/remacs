@@ -41,11 +41,7 @@ pub fn edit_search_results(editor: &mut Editor) -> CommandResult {
     for (file, lines) in found {
         let path = root.join(&file);
         // As searched: an open buffer's text, unsaved changes and all.
-        let snapshot = match editor
-            .buffers()
-            .iter()
-            .find(|buffer| buffer.path() == Some(&path))
-        {
+        let snapshot = match editor.buffers().iter().find(|buffer| buffer.path() == Some(&path)) {
             Some(buffer) => buffer.text().snapshot(),
             None => Text::open(&path)?.snapshot(),
         };
@@ -61,16 +57,11 @@ pub fn edit_search_results(editor: &mut Editor) -> CommandResult {
     if listed.is_empty() {
         return Err("No lines to edit".into());
     }
-    let contents: Vec<_> = listed
-        .iter()
-        .map(|line| format!("{}{}", line.prefix, line.text))
-        .collect();
-    let mut buffer = Buffer::new(
-        BUFFER_NAME,
-        Text::from(contents.join("\n").as_str()),
-        FUNDAMENTAL_MODE,
-    )
-    .with_directory(root);
+    let contents: Vec<_> =
+        listed.iter().map(|line| format!("{}{}", line.prefix, line.text)).collect();
+    let mut buffer =
+        Buffer::new(BUFFER_NAME, Text::from(contents.join("\n").as_str()), FUNDAMENTAL_MODE)
+            .with_directory(root);
     buffer.set_local(Listed(listed));
     editor.add_buffer(buffer);
     editor.set_message("Edit the lines; C-c C-c writes them, C-c C-k discards them");
@@ -90,9 +81,7 @@ pub fn finish(editor: &mut Editor) -> CommandResult {
     let mut changes: BTreeMap<PathBuf, Vec<(usize, String, String)>> = BTreeMap::new();
     for (index, listed_line) in listed.iter().enumerate() {
         let now = line_text(text, index).unwrap_or_default();
-        let edited = now
-            .strip_prefix(&listed_line.prefix)
-            .ok_or(LAYOUT_CHANGED)?;
+        let edited = now.strip_prefix(&listed_line.prefix).ok_or(LAYOUT_CHANGED)?;
         if edited != listed_line.text {
             changes.entry(listed_line.path.clone()).or_default().push((
                 listed_line.line,

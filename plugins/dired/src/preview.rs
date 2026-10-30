@@ -18,11 +18,7 @@ pub struct PreviewState {
 
 impl PreviewState {
     pub fn new(notifier: Notifier) -> Self {
-        Self {
-            reader: PreviewReader::start(notifier),
-            requested: None,
-            contents: None,
-        }
+        Self { reader: PreviewReader::start(notifier), requested: None, contents: None }
     }
 
     fn update(&mut self, request: PreviewRequest) {
@@ -43,11 +39,7 @@ pub fn sync(editor: &mut Editor) {
     let Some((path, entry)) = entry_path_at_point(buffer) else {
         return;
     };
-    let mode = if entry.is_directory {
-        FUNDAMENTAL_MODE
-    } else {
-        editor.mode_for(Some(&path))
-    };
+    let mode = if entry.is_directory { FUNDAMENTAL_MODE } else { editor.mode_for(Some(&path)) };
     let request = PreviewRequest {
         path,
         is_directory: entry.is_directory,
@@ -85,10 +77,9 @@ pub fn describe(
         }
         Some(Body::Binary) => ("Binary", message("Binary file")),
         Some(Body::Items(items)) if items.is_empty() => ("Folder", message("Empty folder")),
-        Some(Body::Items(items)) => (
-            "Folder",
-            PreviewBody::Items(items.iter().map(item).collect()),
-        ),
+        Some(Body::Items(items)) => {
+            ("Folder", PreviewBody::Items(items.iter().map(item).collect()))
+        }
         Some(Body::Failed(error)) => ("", PreviewBody::Message(error.clone())),
     };
     let size = if entry.is_directory {
@@ -101,10 +92,9 @@ pub fn describe(
     };
     Some(Preview {
         icon: file_icon(entry.is_directory),
-        title: path.file_name().map_or_else(
-            || path.display().to_string(),
-            |name| name.to_string_lossy().into_owned(),
-        ),
+        title: path
+            .file_name()
+            .map_or_else(|| path.display().to_string(), |name| name.to_string_lossy().into_owned()),
         kind: kind.into(),
         body,
         details: vec![
@@ -144,11 +134,7 @@ fn entry_path(directory: &Path, entry: &Entry) -> Option<PathBuf> {
 }
 
 fn mode_label(mode: &'static str) -> &'static str {
-    if mode == FUNDAMENTAL_MODE {
-        "Plain text"
-    } else {
-        mode
-    }
+    if mode == FUNDAMENTAL_MODE { "Plain text" } else { mode }
 }
 
 fn message(text: &str) -> PreviewBody {
@@ -164,9 +150,5 @@ fn item((name, is_directory): &(String, bool)) -> PreviewItem {
 }
 
 fn lines_label(count: u64) -> String {
-    if count == 1 {
-        "1 line".into()
-    } else {
-        format!("{count} lines")
-    }
+    if count == 1 { "1 line".into() } else { format!("{count} lines") }
 }

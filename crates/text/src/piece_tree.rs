@@ -30,9 +30,7 @@ enum Items {
 
 impl PieceTree {
     pub fn new(initial: Option<Piece>) -> Self {
-        Self {
-            root: Node::new(Items::Leaf(initial.into_iter().collect())),
-        }
+        Self { root: Node::new(Items::Leaf(initial.into_iter().collect())) }
     }
 
     pub fn summary(&self) -> Summary {
@@ -88,9 +86,7 @@ impl PieceTree {
         while nodes.len() > 1 {
             nodes = Items::Internal(nodes).into_nodes();
         }
-        let mut root = nodes
-            .pop()
-            .unwrap_or_else(|| Node::new(Items::Leaf(Vec::new())));
+        let mut root = nodes.pop().unwrap_or_else(|| Node::new(Items::Leaf(Vec::new())));
         while let Items::Internal(children) = &root.items
             && children.len() == 1
         {
@@ -119,10 +115,7 @@ impl PieceTree {
 
 impl Node {
     fn new(items: Items) -> Arc<Self> {
-        Arc::new(Self {
-            summary: items.summary(),
-            items,
-        })
+        Arc::new(Self { summary: items.summary(), items })
     }
 
     fn is_underfull(&self) -> bool {
@@ -172,9 +165,7 @@ fn even_nodes<T>(items: Vec<T>, kind: fn(Vec<T>) -> Items) -> Vec<Arc<Node>> {
     let chunk_count = items.len().div_ceil(MAX_ITEMS);
     let chunk_len = items.len().div_ceil(chunk_count.max(1));
     let mut items = items.into_iter();
-    (0..chunk_count)
-        .map(|_| Node::new(kind(items.by_ref().take(chunk_len).collect())))
-        .collect()
+    (0..chunk_count).map(|_| Node::new(kind(items.by_ref().take(chunk_len).collect()))).collect()
 }
 
 fn find_index<T: Summarized>(
@@ -328,12 +319,7 @@ pub(crate) struct Pieces<'a> {
 
 impl<'a> Pieces<'a> {
     fn new(rev: bool) -> Self {
-        Self {
-            ancestors: Vec::new(),
-            leaf: [].iter(),
-            offset: 0,
-            rev,
-        }
+        Self { ancestors: Vec::new(), leaf: [].iter(), offset: 0, rev }
     }
 
     /// Starts at the piece containing `offset`.

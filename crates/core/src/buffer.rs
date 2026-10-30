@@ -101,14 +101,8 @@ impl Buffer {
     }
 
     pub fn set_local<T: 'static>(&mut self, value: T) -> &mut T {
-        let local = self
-            .locals
-            .entry(TypeId::of::<T>())
-            .insert_entry(Box::new(value))
-            .into_mut();
-        local
-            .downcast_mut()
-            .expect("locals are keyed by their type")
+        let local = self.locals.entry(TypeId::of::<T>()).insert_entry(Box::new(value)).into_mut();
+        local.downcast_mut().expect("locals are keyed by their type")
     }
 
     pub fn remove_local<T: 'static>(&mut self) {
@@ -130,9 +124,7 @@ impl Buffer {
     /// Where file names typed in this buffer are relative to, like Emacs
     /// `default-directory`: its own directory, else its file's.
     pub fn default_directory(&self) -> Option<&Path> {
-        self.directory
-            .as_deref()
-            .or_else(|| self.file.as_deref()?.parent())
+        self.directory.as_deref().or_else(|| self.file.as_deref()?.parent())
     }
 
     pub fn read_only(mut self) -> Self {
@@ -252,9 +244,7 @@ impl Buffer {
 
     pub fn char_after(&self, offset: usize) -> Option<char> {
         let end = (offset + 4).min(self.text.len());
-        String::from_utf8_lossy(&self.text.bytes_in(offset..end))
-            .chars()
-            .next()
+        String::from_utf8_lossy(&self.text.bytes_in(offset..end)).chars().next()
     }
 
     pub fn char_before(&self, offset: usize) -> Option<char> {
@@ -338,8 +328,7 @@ impl Buffer {
 
     /// Text between point and mark, whether or not the mark is active.
     pub fn mark_range(&self) -> Option<Range<usize>> {
-        self.mark
-            .map(|mark| self.point.min(mark)..self.point.max(mark))
+        self.mark.map(|mark| self.point.min(mark)..self.point.max(mark))
     }
 
     /// The active region, if any.
@@ -359,14 +348,13 @@ impl Buffer {
         kill_ring: &KillRing,
     ) {
         let len = self.text.len();
-        self.cursors
-            .extend(places.into_iter().map(|(point, mark)| Cursor {
-                point: point.min(len),
-                mark: mark.map(|mark| mark.min(len)),
-                mark_active: mark.is_some(),
-                goal_column: None,
-                kill_ring: kill_ring.clone(),
-            }));
+        self.cursors.extend(places.into_iter().map(|(point, mark)| Cursor {
+            point: point.min(len),
+            mark: mark.map(|mark| mark.min(len)),
+            mark_active: mark.is_some(),
+            goal_column: None,
+            kill_ring: kill_ring.clone(),
+        }));
         self.merge_cursors();
     }
 
@@ -491,10 +479,7 @@ impl Buffer {
     }
 
     fn cursor_places(&self) -> Vec<CursorPlace> {
-        self.cursors
-            .iter()
-            .map(|cursor| (cursor.point, cursor.mark, cursor.mark_active))
-            .collect()
+        self.cursors.iter().map(|cursor| (cursor.point, cursor.mark, cursor.mark_active)).collect()
     }
 
     /// Moves the cursors to `places` and returns where they were. Only as many as there
@@ -516,8 +501,7 @@ impl Buffer {
         let (depth, len) = (self.text.undo_depth(), self.text.len());
         edit(&mut self.text);
         if self.text.undo_depth() > depth {
-            self.cursors_before_groups
-                .push(self.cursors_at_boundary.clone());
+            self.cursors_before_groups.push(self.cursors_at_boundary.clone());
         }
         // An empty edit records nothing, so redo still has what it had.
         if self.text.len() != len {
@@ -581,11 +565,7 @@ impl Buffer {
 
 fn on_character(text: &Text, offset: usize) -> usize {
     let offset = offset.min(text.len());
-    if text.is_char_boundary(offset) {
-        offset
-    } else {
-        text.previous_char_boundary(offset)
-    }
+    if text.is_char_boundary(offset) { offset } else { text.previous_char_boundary(offset) }
 }
 
 /// Edits to one file, in offsets of the text of the buffer visiting it, else of the file.

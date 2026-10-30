@@ -59,12 +59,7 @@ impl Layer {
     }
 
     fn kind(&self) -> Kind {
-        kind(
-            self.grammar,
-            self.combined,
-            self.terminator,
-            &self.owners[0],
-        )
+        kind(self.grammar, self.combined, self.terminator, &self.owners[0])
     }
 
     pub fn edit(&mut self, edit: &InputEdit) {
@@ -120,14 +115,9 @@ fn run(requests: Receiver<Request>, notifier: Notifier) {
             }
             compiled.use_queries(&request.queries);
             let old_tree = request.tree.as_ref();
-            let Some(tree) = parse_in(
-                &mut parser,
-                request.grammar,
-                &request.snapshot,
-                &[],
-                old_tree,
-                None,
-            ) else {
+            let Some(tree) =
+                parse_in(&mut parser, request.grammar, &request.snapshot, &[], old_tree, None)
+            else {
                 continue;
             };
             let layers = Injector {
@@ -138,11 +128,7 @@ fn run(requests: Receiver<Request>, notifier: Notifier) {
                 text: &request.snapshot,
                 edited: request.edited,
             }
-            .layers(
-                request.grammar,
-                &tree,
-                old_tree.map(|old| (old, request.layers)),
-            );
+            .layers(request.grammar, &tree, old_tree.map(|old| (old, request.layers)));
             *request.slot.lock().expect("parse slots are never poisoned") = Some(Parse {
                 snapshot: request.snapshot,
                 tree,
@@ -158,10 +144,7 @@ fn run(requests: Receiver<Request>, notifier: Notifier) {
 fn newest_per_buffer(first: Request, requests: &Receiver<Request>) -> Vec<Request> {
     let mut newest: Vec<Request> = Vec::new();
     for request in std::iter::once(first).chain(requests.try_iter()) {
-        match newest
-            .iter_mut()
-            .find(|queued| Arc::ptr_eq(&queued.slot, &request.slot))
-        {
+        match newest.iter_mut().find(|queued| Arc::ptr_eq(&queued.slot, &request.slot)) {
             Some(queued) => *queued = request,
             None => newest.push(request),
         }
@@ -215,10 +198,7 @@ impl Injector<'_> {
         tree: &Tree,
         old: Option<(&Tree, Vec<Layer>)>,
     ) -> Vec<Layer> {
-        let Some(query) = self
-            .compiled
-            .injections(self.injections, grammar, self.grammars)
-        else {
+        let Some(query) = self.compiled.injections(self.injections, grammar, self.grammars) else {
             return Vec::new();
         };
         let (old_tree, old_layers) = match old {
@@ -229,63 +209,59 @@ impl Injector<'_> {
         // regions and put together again; and those parsed again, from their old trees.
         let mut untouched: Vec<Layer> = Vec::new();
         let mut reparsed: HashMap<Kind, Layer> = HashMap::new();
-        let mut regions =
-            match old_tree {
-                None => query.regions(tree, self.text, None),
-                Some(old_tree) => {
-                    let mut changed: Vec<Range<usize>> = old_tree
-                        .changed_ranges(tree)
-                        .map(|range| range.start_byte..range.end_byte)
-                        .chain(self.edited.clone())
-                        .collect();
-                    let mut kept = Vec::new();
-                    for layer in old_layers {
-                        let touched = |owner: &Range<usize>| {
-                            changed.iter().any(|range| touches(range, owner))
-                        };
-                        if !layer.owners.iter().any(touched) {
-                            untouched.push(layer);
-                            continue;
-                        }
-                        let ranges = layer.tree.included_ranges();
-                        for (owner, content) in layer.owners.iter().zip(ranges) {
-                            if changed.iter().any(|range| touches(range, owner)) {
-                                changed.push(owner.clone());
-                            } else {
-                                kept.push(Region {
-                                    grammar: layer.grammar,
-                                    owner: owner.clone(),
-                                    content,
-                                    combined: layer.combined,
-                                    terminator: layer.terminator,
-                                    overlay: layer.overlay,
-                                });
-                            }
-                        }
-                        reparsed.insert(layer.kind(), layer);
+        let mut regions = match old_tree {
+            None => query.regions(tree, self.text, None),
+            Some(old_tree) => {
+                let mut changed: Vec<Range<usize>> = old_tree
+                    .changed_ranges(tree)
+                    .map(|range| range.start_byte..range.end_byte)
+                    .chain(self.edited.clone())
+                    .collect();
+                let mut kept = Vec::new();
+                for layer in old_layers {
+                    let touched =
+                        |owner: &Range<usize>| changed.iter().any(|range| touches(range, owner));
+                    if !layer.owners.iter().any(touched) {
+                        untouched.push(layer);
+                        continue;
                     }
-                    for range in changed {
-                        kept.extend(query.regions(tree, self.text, Some(range)));
-                    }
-                    // One that gains code, like a new attribute, is parsed again with it.
-                    let gaining: HashSet<Kind> = kept.iter().map(Region::kind).collect();
-                    for layer in untouched.extract_if(.., |layer| gaining.contains(&layer.kind())) {
-                        let ranges = layer.tree.included_ranges();
-                        kept.extend(layer.owners.iter().zip(ranges).map(|(owner, content)| {
-                            Region {
+                    let ranges = layer.tree.included_ranges();
+                    for (owner, content) in layer.owners.iter().zip(ranges) {
+                        if changed.iter().any(|range| touches(range, owner)) {
+                            changed.push(owner.clone());
+                        } else {
+                            kept.push(Region {
                                 grammar: layer.grammar,
                                 owner: owner.clone(),
                                 content,
                                 combined: layer.combined,
                                 terminator: layer.terminator,
                                 overlay: layer.overlay,
-                            }
-                        }));
-                        reparsed.insert(layer.kind(), layer);
+                            });
+                        }
                     }
-                    kept
+                    reparsed.insert(layer.kind(), layer);
                 }
-            };
+                for range in changed {
+                    kept.extend(query.regions(tree, self.text, Some(range)));
+                }
+                // One that gains code, like a new attribute, is parsed again with it.
+                let gaining: HashSet<Kind> = kept.iter().map(Region::kind).collect();
+                for layer in untouched.extract_if(.., |layer| gaining.contains(&layer.kind())) {
+                    let ranges = layer.tree.included_ranges();
+                    kept.extend(layer.owners.iter().zip(ranges).map(|(owner, content)| Region {
+                        grammar: layer.grammar,
+                        owner: owner.clone(),
+                        content,
+                        combined: layer.combined,
+                        terminator: layer.terminator,
+                        overlay: layer.overlay,
+                    }));
+                    reparsed.insert(layer.kind(), layer);
+                }
+                kept
+            }
+        };
         regions.sort_by_key(|region| region.content.start_byte);
         regions.dedup_by_key(|region| region.content.start_byte);
         let mut groups: Vec<Vec<&Region>> = Vec::new();
@@ -299,9 +275,8 @@ impl Injector<'_> {
         }
         let mut layers = untouched;
         for group in groups {
-            let (owners, ranges): (Vec<_>, Vec<_>) = (group.iter())
-                .map(|region| (region.owner.clone(), region.content))
-                .unzip();
+            let (owners, ranges): (Vec<_>, Vec<_>) =
+                (group.iter()).map(|region| (region.owner.clone(), region.content)).unzip();
             let old = reparsed.remove(&group[0].kind());
             layers.extend(self.layer(group[0], owners, &ranges, old));
         }
@@ -328,29 +303,16 @@ impl Injector<'_> {
         if old.as_ref().is_some_and(untouched) {
             return old;
         }
-        let (grammar, combined, terminator, overlay) = (
-            first.grammar,
-            first.combined,
-            first.terminator,
-            first.overlay,
-        );
+        let (grammar, combined, terminator, overlay) =
+            (first.grammar, first.combined, first.terminator, first.overlay);
         let (old_tree, old_layers) = match old {
             Some(old) => (Some(old.tree), old.layers),
             None => (None, Vec::new()),
         };
-        let tree = parse_in(
-            self.parser,
-            grammar,
-            self.text,
-            ranges,
-            old_tree.as_ref(),
-            terminator,
-        )?;
-        let layers = self.layers(
-            grammar,
-            &tree,
-            old_tree.as_ref().map(|old_tree| (old_tree, old_layers)),
-        );
+        let tree =
+            parse_in(self.parser, grammar, self.text, ranges, old_tree.as_ref(), terminator)?;
+        let layers =
+            self.layers(grammar, &tree, old_tree.as_ref().map(|old_tree| (old_tree, old_layers)));
         Some(Layer {
             grammar,
             tree,
@@ -475,9 +437,7 @@ impl Compiled {
         grammars: &'static [Grammar],
     ) -> Option<Arc<InjectionQuery>> {
         // Looked up first, so that injections turned off do not cache their absence.
-        let injections = injections
-            .iter()
-            .find(|injections| injections.host == host.mode)?;
+        let injections = injections.iter().find(|injections| injections.host == host.mode)?;
         let language = host.language()?;
         self.injections
             .entry(host.mode)
@@ -493,9 +453,7 @@ impl Compiled {
 
 /// The grammar of the mode named `name`, ignoring case.
 fn grammar_named(grammars: &'static [Grammar], name: &[u8]) -> Option<&'static Grammar> {
-    grammars
-        .iter()
-        .find(|grammar| grammar.mode.as_bytes().eq_ignore_ascii_case(name))
+    grammars.iter().find(|grammar| grammar.mode.as_bytes().eq_ignore_ascii_case(name))
 }
 
 /// What one pattern of an injection query injects.
@@ -577,27 +535,21 @@ impl InjectionQuery {
                 continue;
             };
             let captures = matched.captures();
-            let start = captures
-                .iter()
-                .map(|capture| capture.node.start_byte())
-                .min();
+            let start = captures.iter().map(|capture| capture.node.start_byte()).min();
             let end = captures.iter().map(|capture| capture.node.end_byte()).max();
             let (Some(start), Some(end)) = (start, end) else {
                 continue;
             };
-            regions.extend(
-                captures
-                    .iter()
-                    .filter(|capture| capture.index == self.content)
-                    .map(|capture| Region {
-                        grammar,
-                        owner: start..end,
-                        content: capture.node.range(),
-                        combined: injection.combined,
-                        terminator: injection.terminator,
-                        overlay: injection.overlay,
-                    }),
-            );
+            regions.extend(captures.iter().filter(|capture| capture.index == self.content).map(
+                |capture| Region {
+                    grammar,
+                    owner: start..end,
+                    content: capture.node.range(),
+                    combined: injection.combined,
+                    terminator: injection.terminator,
+                    overlay: injection.overlay,
+                },
+            ));
         }
         regions
     }

@@ -27,9 +27,7 @@ impl Pair {
 
 /// The bracket and quote pairs of the language at point; none in Fundamental mode.
 pub fn mode_pairs(editor: &Editor) -> &'static [(char, char)] {
-    editor
-        .mode_at(editor.buffer().point())
-        .map_or(&[], |mode| mode.pairs)
+    editor.mode_at(editor.buffer().point()).map_or(&[], |mode| mode.pairs)
 }
 
 /// Types `character` as part of a pair: an opener wraps the region or inserts its closer
@@ -104,9 +102,7 @@ fn type_quote(
 fn pairs_before_next(buffer: &Buffer, pairs: &[(char, char)]) -> bool {
     buffer.char_after(buffer.point()).is_none_or(|next| {
         PAIR_BEFORE.contains(next)
-            || pairs
-                .iter()
-                .any(|&(opener, closer)| closer == next && opener != closer)
+            || pairs.iter().any(|&(opener, closer)| closer == next && opener != closer)
     })
 }
 
@@ -115,9 +111,7 @@ pub fn empty_pair_around(buffer: &Buffer, pairs: &[(char, char)]) -> Option<Rang
     let point = buffer.point();
     let before = buffer.char_before(point)?;
     let after = buffer.char_after(point)?;
-    pairs
-        .contains(&(before, after))
-        .then(|| point - before.len_utf8()..point + after.len_utf8())
+    pairs.contains(&(before, after)).then(|| point - before.len_utf8()..point + after.len_utf8())
 }
 
 /// The pairs on the lines within `MAX_SCAN` of `selected`. Quotes pair within a line and
@@ -131,9 +125,7 @@ pub(crate) fn pairs_near(
     let first_line = text.line_of(selected.start.saturating_sub(MAX_SCAN));
     let last_line = text.line_of((selected.end + MAX_SCAN).min(text.len()));
     let start = text.line_start(first_line).unwrap_or(0);
-    let end = text
-        .line_range(last_line)
-        .map_or(text.len(), |line| line.end);
+    let end = text.line_range(last_line).map_or(text.len(), |line| line.end);
     let window = String::from_utf8_lossy(&text.bytes_in(start..end)).into_owned();
 
     let mut found = Vec::new();
@@ -160,9 +152,8 @@ pub(crate) fn pairs_near(
             .find(|(opener, _)| *opener == character && !UNBALANCED_OPENERS.contains(opener))
         {
             open_brackets.push((offset, opener, closer));
-        } else if let Some(index) = open_brackets
-            .iter()
-            .rposition(|&(_, _, closer)| closer == character)
+        } else if let Some(index) =
+            open_brackets.iter().rposition(|&(_, _, closer)| closer == character)
         {
             let (opener_at, opener, closer) = open_brackets[index];
             open_brackets.truncate(index);
@@ -180,11 +171,8 @@ fn wrap(buffer: &mut Buffer, region: Range<usize>, opener: char, closer: char) {
     buffer.set_point(region.start);
     buffer.insert(&opener.to_string());
     let inner = region.start + opener.len_utf8()..region.end + opener.len_utf8();
-    let (mark, point) = if point_at_end {
-        (inner.start, inner.end)
-    } else {
-        (inner.end, inner.start)
-    };
+    let (mark, point) =
+        if point_at_end { (inner.start, inner.end) } else { (inner.end, inner.start) };
     buffer.set_mark(mark);
     buffer.set_point(point);
     buffer.activate_mark();
@@ -199,13 +187,7 @@ fn is_balanced_on_line(buffer: &Buffer, opener: char, closer: char) -> bool {
     let start = line.start.max(point.saturating_sub(MAX_SCAN));
     let end = line.end.min(point + MAX_SCAN);
     let line = String::from_utf8_lossy(&text.bytes_in(start..end)).into_owned();
-    let opened = line
-        .chars()
-        .filter(|&character| character == opener)
-        .count();
-    let closed = line
-        .chars()
-        .filter(|&character| character == closer)
-        .count();
+    let opened = line.chars().filter(|&character| character == opener).count();
+    let closed = line.chars().filter(|&character| character == closer).count();
     opened <= closed
 }

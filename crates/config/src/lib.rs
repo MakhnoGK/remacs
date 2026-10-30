@@ -50,9 +50,7 @@ pub fn project_cache_dir(cache: &Path, root: &Path) -> PathBuf {
 /// What a project's own files and directories are called: after its root for people, and
 /// a hash of the root's path for uniqueness.
 pub fn project_name(root: &Path) -> String {
-    let name = root
-        .file_name()
-        .map_or_else(|| "root".into(), |name| name.to_string_lossy());
+    let name = root.file_name().map_or_else(|| "root".into(), |name| name.to_string_lossy());
     let hash = fnv1a(root.as_os_str().as_encoded_bytes());
     format!("{name}-{hash:016x}")
 }
@@ -120,9 +118,7 @@ pub fn assert_default_file<T: Section + PartialEq + fmt::Debug>() {
         .find(|(name, _)| *name == T::NAME)
         .unwrap_or_else(|| panic!("no {file} in DEFAULT_FILES"));
     let settings = Settings::from_files([(PathBuf::from(&file), (*text).to_owned())]);
-    let section = settings
-        .section::<T>()
-        .map_err(|(error, _)| error.to_string());
+    let section = settings.section::<T>().map_err(|(error, _)| error.to_string());
     assert_eq!(section, Ok(T::default()), "{file}");
 }
 
@@ -210,20 +206,12 @@ impl Settings {
         let Some(file) = self.files.get(T::NAME) else {
             return Ok(T::default());
         };
-        let error = |line, message| SettingsError {
-            file: file.path.clone(),
-            line,
-            message,
-        };
+        let error = |line, message| SettingsError { file: file.path.clone(), line, message };
         let section = toml::from_str::<T>(&file.text).map_err(|parse_error| {
-            let line = parse_error
-                .span()
-                .map(|span| line_at(&file.text, span.start));
+            let line = parse_error.span().map(|span| line_at(&file.text, span.start));
             (error(line, parse_error.message().to_owned()), T::default())
         })?;
-        section
-            .check()
-            .map_err(|message| (error(None, message), T::default()))?;
+        section.check().map_err(|message| (error(None, message), T::default()))?;
         Ok(section)
     }
 }
@@ -262,10 +250,7 @@ mod tests {
 
     impl Default for Sample {
         fn default() -> Self {
-            Self {
-                size: 13.0,
-                name: "default".to_owned(),
-            }
+            Self { size: 13.0, name: "default".to_owned() }
         }
     }
 
@@ -274,9 +259,7 @@ mod tests {
 
         fn check(&self) -> Result<(), String> {
             let above_zero = self.size > 0.0;
-            above_zero
-                .then_some(())
-                .ok_or("size must be above 0".to_owned())
+            above_zero.then_some(()).ok_or("size must be above 0".to_owned())
         }
     }
 
@@ -298,9 +281,7 @@ mod tests {
     #[test]
     fn every_file_of_the_defaults_is_listed_once() {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/defaults");
-        let on_disk = fs::read_dir(dir)
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name());
+        let on_disk = fs::read_dir(dir).unwrap().map(|entry| entry.unwrap().file_name());
         let mut on_disk: Vec<String> = on_disk.map(|name| name.into_string().unwrap()).collect();
         on_disk.sort();
         let listed = DEFAULT_FILES.iter().map(|(name, _)| format!("{name}.toml"));
@@ -309,9 +290,7 @@ mod tests {
 
     /// The `NAME` of each `impl Section` in the sources under `dir`.
     fn section_names(dir: &Path, names: &mut Vec<String>) {
-        let paths = fs::read_dir(dir)
-            .unwrap()
-            .map(|entry| entry.unwrap().path());
+        let paths = fs::read_dir(dir).unwrap().map(|entry| entry.unwrap().path());
         for path in paths {
             if path.is_dir() {
                 section_names(&path, names);

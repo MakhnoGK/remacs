@@ -24,14 +24,7 @@ pub fn hsla(hex: u32) -> Hsla {
 
 /// A run of `len` bytes of text in `font` and `color`.
 pub fn text_run(len: usize, font: Font, color: Hsla) -> TextRun {
-    TextRun {
-        len,
-        font,
-        color,
-        background_color: None,
-        underline: None,
-        strikethrough: None,
-    }
+    TextRun { len, font, color, background_color: None, underline: None, strikethrough: None }
 }
 
 /// Interface text whose names, as `quote` marks them, are set in the code font; it wraps
@@ -42,10 +35,7 @@ pub fn ui_text(text: &str, weight: FontWeight, color: u32) -> StyledText {
     for (part, quoted) in quoted_parts(text) {
         let family = if quoted { font::mono() } else { font::ui() };
         shown.push_str(&part);
-        let font = Font {
-            weight,
-            ..gpui::font(family)
-        };
+        let font = Font { weight, ..gpui::font(family) };
         runs.push(text_run(part.len(), font, hsla(color)));
     }
     StyledText::new(shown).with_runs(runs)
@@ -55,11 +45,7 @@ pub trait GlassBlur: Styled {
     /// Blurs what is under the element by `radius` pixels, unless `ui.toml` turned
     /// blurring off.
     fn glass_blur(self, radius: f32, saturation: f32) -> Self {
-        if glass::blurs() {
-            self.backdrop_filter(px(radius), saturation)
-        } else {
-            self
-        }
+        if glass::blurs() { self.backdrop_filter(px(radius), saturation) } else { self }
     }
 }
 
@@ -215,11 +201,7 @@ pub fn edge_fade(edge: Edge, size: f32, under: Hsla) -> impl IntoElement {
         Edge::Right => 270.0,
     };
     let gradient = |from: Hsla, to: Hsla| {
-        linear_gradient(
-            angle,
-            linear_color_stop(from, 0.0),
-            linear_color_stop(to, 1.0),
-        )
+        linear_gradient(angle, linear_color_stop(from, 0.0), linear_color_stop(to, 1.0))
     };
     let amount = gradient(hsla(0x000000), rgba(0x00000000).into());
     // Only Metal mixes (ADR 0038); elsewhere surfaces are opaque, so a gradient over the
@@ -254,13 +236,8 @@ pub fn over(top: u32, bottom: u32) -> Hsla {
     let mix = |top_channel: f32, bottom_channel: f32| {
         (top_channel * top.a + bottom_channel * bottom.a * (1.0 - top.a)) / alpha
     };
-    Rgba {
-        r: mix(top.r, bottom.r),
-        g: mix(top.g, bottom.g),
-        b: mix(top.b, bottom.b),
-        a: alpha,
-    }
-    .into()
+    Rgba { r: mix(top.r, bottom.r), g: mix(top.g, bottom.g), b: mix(top.b, bottom.b), a: alpha }
+        .into()
 }
 
 /// The icon at `path`, `size` pixels square, in `color`.
@@ -311,17 +288,13 @@ fn lift() -> Vec<BoxShadow> {
 
 /// A check for a marked row, a `D` for one flagged for deletion.
 pub fn mark_badge(mark: Mark) -> Div {
-    let badge = div()
-        .row(0.0)
-        .flex_none()
-        .justify_center()
-        .rounded(px(4.0))
-        .shadow(lift());
+    let badge = div().row(0.0).flex_none().justify_center().rounded(px(4.0)).shadow(lift());
     match mark {
-        Mark::Marked => badge
-            .size(px(14.0))
-            .bg(rgb(color::accent()))
-            .child(svg_icon(CHECK_ICON, 10.0, color::bg_main())),
+        Mark::Marked => badge.size(px(14.0)).bg(rgb(color::accent())).child(svg_icon(
+            CHECK_ICON,
+            10.0,
+            color::bg_main(),
+        )),
         Mark::Flagged => badge
             .size(px(16.0))
             .bg(rgb(color::bg_danger()))
@@ -348,8 +321,7 @@ pub fn state_color(state: FileState, selected: bool) -> u32 {
 /// A file's version control state as its letter, centered in its slot.
 pub fn state_letter(state: Option<FileState>, selected: bool) -> Div {
     let letter = |slot: Div, state: FileState| {
-        slot.text_color(rgb(state_color(state, selected)))
-            .child(state.letter())
+        slot.text_color(rgb(state_color(state, selected))).child(state.letter())
     };
     div()
         .flex_none()
@@ -401,9 +373,7 @@ pub fn list_items(items: Vec<ListItem>, max: usize, row_height: f32) -> Vec<Div>
                 .children(item.lines.map(|lines| line_counts(lines, false)));
         }
         let detail = div().flex_none().mono_status(color::fg_dim());
-        let label = label
-            .fill_truncated()
-            .text(font::mono_size(), color::fg_kbd());
+        let label = label.fill_truncated().text(font::mono_size(), color::fg_kbd());
         row.child(label).child(detail.child(item.detail))
     });
     let more = (hidden > 0).then(|| {
@@ -418,20 +388,12 @@ pub fn list_items(items: Vec<ListItem>, max: usize, row_height: f32) -> Vec<Div>
 
 /// A sunken strip of `segment`s, one of them selected.
 pub fn segmented() -> Div {
-    div()
-        .flex()
-        .flex_none()
-        .p(px(2.0))
-        .rounded_fill(8.0, glass::field())
-        .bordered(glass::ink(0x0f))
+    div().flex().flex_none().p(px(2.0)).rounded_fill(8.0, glass::field()).bordered(glass::ink(0x0f))
 }
 
 pub fn segment(label: &str, selected: bool) -> Div {
     let selected_look = |segment: Div| {
-        segment
-            .bg(rgba(glass::segment()))
-            .text_color(rgb(color::fg_main()))
-            .shadow(lift())
+        segment.bg(rgba(glass::segment())).text_color(rgb(color::fg_main())).shadow(lift())
     };
     div()
         .row(0.0)
@@ -450,13 +412,12 @@ pub fn option_chip(label: &str, key: &str, on: bool) -> Div {
 
 /// A choice's chip: its label and value, which a click changes.
 pub fn choice_chip(label: &str, value: &str) -> Div {
-    let value = div()
-        .mono()
-        .text_color(rgb(color::fg_main()))
-        .child(value.to_owned());
-    toggle_chip(&format!("{label}:"), false)
-        .child(value)
-        .child(svg_icon(CHEVRON_DOWN_ICON, 10.0, color::fg_kbd()))
+    let value = div().mono().text_color(rgb(color::fg_main())).child(value.to_owned());
+    toggle_chip(&format!("{label}:"), false).child(value).child(svg_icon(
+        CHEVRON_DOWN_ICON,
+        10.0,
+        color::fg_kbd(),
+    ))
 }
 
 /// A setting's chip, lit and checked while it is on.
@@ -491,12 +452,7 @@ pub fn key_hint(keys: &str, label: &'static str, gap: f32) -> Div {
 
 /// `child` centered across its parent, `bottom` pixels over the parent's bottom.
 pub fn bottom_centered(bottom: f32, child: impl IntoElement) -> Div {
-    div()
-        .across()
-        .bottom(px(bottom))
-        .flex()
-        .justify_center()
-        .child(child)
+    div().across().bottom(px(bottom)).flex().justify_center().child(child)
 }
 
 /// The block cursor's quad, which a text highlight cannot round; text in it is inverted.
@@ -511,11 +467,7 @@ pub fn block_cursor() -> Div {
 /// Where point is in a window that is not selected, like Emacs
 /// `cursor-in-non-selected-windows`: an outline, the text under it left as it is.
 pub fn hollow_cursor() -> Div {
-    div()
-        .flex_none()
-        .rounded(px(cursor::radius()))
-        .border_1()
-        .border_color(rgb(color::fg_dim()))
+    div().flex_none().rounded(px(cursor::radius())).border_1().border_color(rgb(color::fg_dim()))
 }
 
 /// `text` with the block cursor over its bytes `at`, the text on either side of it
@@ -588,12 +540,12 @@ pub fn shadow(color: u32, y: f32, blur: f32, spread: f32) -> BoxShadow {
 }
 
 pub fn modified_dot() -> impl IntoElement {
-    div()
-        .flex_none()
-        .size(px(7.0))
-        .rounded_full()
-        .bg(rgb(color::warning()))
-        .shadow(vec![shadow(color::warning() << 8 | 0x2e, 0.0, 0.0, 2.0)])
+    div().flex_none().size(px(7.0)).rounded_full().bg(rgb(color::warning())).shadow(vec![shadow(
+        color::warning() << 8 | 0x2e,
+        0.0,
+        0.0,
+        2.0,
+    )])
 }
 
 /// A translucent floating bar over the bottom of the window, like the status pill.
@@ -638,15 +590,7 @@ fn key_label(key: &str) -> String {
     if cfg!(target_os = "macos") {
         return key.to_owned();
     }
-    [
-        ("⌘", "Super+"),
-        ("⌃", "Ctrl+"),
-        ("⌥", "Alt+"),
-        ("⇧", "Shift+"),
-        ("↩", "↵"),
-    ]
-    .iter()
-    .fold(key.to_owned(), |label, (symbol, name)| {
-        label.replace(symbol, name)
-    })
+    [("⌘", "Super+"), ("⌃", "Ctrl+"), ("⌥", "Alt+"), ("⇧", "Shift+"), ("↩", "↵")]
+        .iter()
+        .fold(key.to_owned(), |label, (symbol, name)| label.replace(symbol, name))
 }

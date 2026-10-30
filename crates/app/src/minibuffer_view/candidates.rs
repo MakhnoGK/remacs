@@ -50,18 +50,12 @@ fn candidate_row(index: usize, selected: bool, cx: &mut Context<EditorView>) -> 
         .items_center()
         .px(px(10.0))
         .rounded(px(8.0))
-        .when(selected, |row| {
-            row.bg(rgba(glass::selection())).shadow(vec![lift])
-        })
+        .when(selected, |row| row.bg(rgba(glass::selection())).shadow(vec![lift]))
         .on_press(cx, move |view, cx| view.choose_candidate(index, cx))
 }
 
 pub(crate) fn secondary_color(selected: bool) -> u32 {
-    if selected {
-        color::fg_alt()
-    } else {
-        color::fg_dim()
-    }
+    if selected { color::fg_alt() } else { color::fg_dim() }
 }
 
 /// `matches` within `range` of a label, relative to the range's start.
@@ -70,11 +64,7 @@ pub(crate) fn matches_in(
     range: Range<usize>,
     selected: bool,
 ) -> Vec<(Range<usize>, HighlightStyle)> {
-    let accent = if selected {
-        color::accent_on_selection()
-    } else {
-        color::accent()
-    };
+    let accent = if selected { color::accent_on_selection() } else { color::accent() };
     let style = HighlightStyle::color(hsla(accent));
     matches
         .iter()
@@ -93,10 +83,7 @@ fn status_label(text: impl IntoElement, text_color: u32) -> Div {
 /// What a step or an entry is, taking the room left.
 fn annotation(candidate: &Candidate) -> Div {
     let annotation = candidate.annotation.clone();
-    div()
-        .fill_truncated()
-        .text_size(px(font::ui_size()))
-        .child(annotation)
+    div().fill_truncated().text_size(px(font::ui_size())).child(annotation)
 }
 
 /// A problem: severity icon, message, source and `line:column`.
@@ -123,11 +110,7 @@ fn render_step(
     selected: bool,
 ) -> Div {
     let action_color = tone_color(tone, color::fg_body());
-    let id_color = if selected {
-        color::fg_alt()
-    } else {
-        color::fg_line_number()
-    };
+    let id_color = if selected { color::fg_alt() } else { color::fg_line_number() };
     let chevron = svg().path(CHEVRON_DOWN_ICON).size(px(10.0));
     let button = div()
         .flex()
@@ -186,10 +169,8 @@ fn render_entry(
     } else {
         (glass::ink(0x14), glass::ink(0x08))
     };
-    let (destructive, actions): (Vec<_>, Vec<_>) = expansion
-        .actions
-        .iter()
-        .partition(|action| action.destructive);
+    let (destructive, actions): (Vec<_>, Vec<_>) =
+        expansion.actions.iter().partition(|action| action.destructive);
     let mut button = |action: &EntryAction| {
         let command = action.command;
         let (border, text_color) = if action.destructive {
@@ -261,9 +242,7 @@ fn render_message(candidate: &Candidate, selected: bool) -> impl IntoElement {
             div()
                 .flex_none()
                 .when(is_code, |code| {
-                    code.px(px(5.0))
-                        .rounded_fill(4.0, code_background)
-                        .mono_status(code_color)
+                    code.px(px(5.0)).rounded_fill(4.0, code_background).mono_status(code_color)
                 })
                 .child(text),
         );

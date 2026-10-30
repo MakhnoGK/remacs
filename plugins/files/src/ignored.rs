@@ -33,14 +33,7 @@ const ALWAYS_IGNORED: &str = ".git/";
 
 impl Default for FilesSettings {
     fn default() -> Self {
-        let ignore = [
-            "node_modules/",
-            "target/",
-            "dist/",
-            "build/",
-            ".next/",
-            ".DS_Store",
-        ];
+        let ignore = ["node_modules/", "target/", "dist/", "build/", ".next/", ".DS_Store"];
         Self {
             ignore: ignore.map(str::to_owned).to_vec(),
             use_gitignore: false,
@@ -100,9 +93,7 @@ impl Ignored {
 
     /// Whether `path`, under the root, or a folder it is in is left out.
     pub fn is_ignored(&self, path: &Path, is_dir: bool) -> bool {
-        self.matcher
-            .matched_path_or_any_parents(path, is_dir)
-            .is_ignore()
+        self.matcher.matched_path_or_any_parents(path, is_dir).is_ignore()
     }
 
     /// A walk of `directory` that leaves out what is ignored; hidden files are listed.
@@ -153,10 +144,7 @@ mod tests {
 
     #[test]
     fn bad_patterns_are_reported() {
-        let settings = FilesSettings {
-            ignore: vec!["{a".into()],
-            ..FilesSettings::default()
-        };
+        let settings = FilesSettings { ignore: vec!["{a".into()], ..FilesSettings::default() };
         assert!(settings.check().unwrap_err().contains("{a"));
     }
 }

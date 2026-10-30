@@ -52,9 +52,7 @@ pub(super) fn render_beside_rows(
     shift: f32,
     cx: &mut Context<EditorView>,
 ) -> Div {
-    beside_column()
-        .child(tabs_header(tabs, cx))
-        .child(fade_beside(shifted(rows, shift), scrolled))
+    beside_column().child(tabs_header(tabs, cx)).child(fade_beside(shifted(rows, shift), scrolled))
 }
 
 pub(super) fn render_history(
@@ -76,9 +74,7 @@ pub(super) fn render_history(
         .min(MAX_LANES);
     let indent = (FIRST_LANE_X + LANE_WIDTH * (lanes - 1) as f32 + 28.0).max(MIN_COMMIT_INDENT);
     let search_hint = match history.search {
-        Some(search) => div()
-            .text_color(rgb(color::fg_alt()))
-            .child(format!("“{search}”")),
+        Some(search) => div().text_color(rgb(color::fg_alt())).child(format!("“{search}”")),
         None => div().child("Search history"),
     };
     let search = div().row(6.0).px(px(8.0)).status_text(color::fg_faint());
@@ -135,10 +131,8 @@ fn commit_row(commit: CommitRow, indent: f32, selected: bool, cx: &mut Context<E
         .rounded(px(8.0))
         .when(selected, |row| row.bg(rgba(glass::selection())))
         .whitespace_nowrap();
-    let graph = canvas(
-        |_, _, _| {},
-        move |bounds, _, window, _| paint_graph(&graph, bounds, window),
-    );
+    let graph =
+        canvas(|_, _, _| {}, move |bounds, _, window, _| paint_graph(&graph, bounds, window));
     let subject = div()
         .row(6.0)
         .flex_1()
@@ -165,10 +159,7 @@ fn paint_graph(graph: &GraphRow, bounds: Bounds<Pixels>, window: &mut Window) {
     let middle = top + px(COMMIT_HEIGHT / 2.0);
     let bottom = top + px(COMMIT_HEIGHT);
     for (edges, from_y, to_y) in [(&graph.upper, top, middle), (&graph.lower, middle, bottom)] {
-        for edge in edges
-            .iter()
-            .filter(|edge| edge.from.max(edge.to) < MAX_LANES)
-        {
+        for edge in edges.iter().filter(|edge| edge.from.max(edge.to) < MAX_LANES) {
             let start = point(x(edge.from), from_y);
             let end = point(x(edge.to), to_y);
             let mut path = PathBuilder::stroke(px(GRAPH_STROKE));
@@ -206,12 +197,5 @@ fn paint_dot(window: &mut Window, center: Point<Pixels>, radius: f32, fill: u32,
     let origin = point(center.x - outer, center.y - outer);
     let bounds = Bounds::new(origin, size(outer * 2.0, outer * 2.0));
     let (fill, ring) = (rgb(fill), rgb(ring));
-    window.paint_quad(quad(
-        bounds,
-        outer,
-        fill,
-        px(GRAPH_STROKE),
-        ring,
-        BorderStyle::Solid,
-    ));
+    window.paint_quad(quad(bounds, outer, fill, px(GRAPH_STROKE), ring, BorderStyle::Solid));
 }

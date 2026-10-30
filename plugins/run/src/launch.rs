@@ -32,9 +32,7 @@ impl Launch {
         }
         let program = Path::new(&self.program)
             .file_name()
-            .map_or(self.program.as_str(), |name| {
-                name.to_str().unwrap_or_default()
-            });
+            .map_or(self.program.as_str(), |name| name.to_str().unwrap_or_default());
         std::iter::once(program)
             .chain(self.args.iter().map(String::as_str))
             .map(quote)
@@ -49,11 +47,7 @@ fn quote(word: &str) -> String {
         && word
             .chars()
             .all(|character| character.is_ascii_alphanumeric() || "-_./:=@%+,".contains(character));
-    if plain {
-        word.to_owned()
-    } else {
-        format!("'{}'", word.replace('\'', r"'\''"))
-    }
+    if plain { word.to_owned() } else { format!("'{}'", word.replace('\'', r"'\''")) }
 }
 
 /// What runs `configuration` of the project at `root`.
@@ -74,11 +68,7 @@ pub fn launch(
             }
             ("cargo".to_owned(), args, root.to_path_buf())
         }
-        Kind::Npm {
-            package_json,
-            script,
-            package_manager,
-        } => {
+        Kind::Npm { package_json, script, package_manager } => {
             let directory = root
                 .join(package_json)
                 .parent()
@@ -124,41 +114,21 @@ pub fn launch(
     if !matches!(configuration.kind, Kind::Shell { .. }) {
         args.extend(configuration.args.iter().cloned());
     }
-    let cwd = configuration
-        .cwd
-        .as_ref()
-        .map_or(own_directory, |cwd| root.join(expand_home(cwd)));
-    let mut env: Vec<(String, String)> = settings
-        .env
-        .iter()
-        .map(|(name, value)| (name.clone(), value.clone()))
-        .collect();
+    let cwd = configuration.cwd.as_ref().map_or(own_directory, |cwd| root.join(expand_home(cwd)));
+    let mut env: Vec<(String, String)> =
+        settings.env.iter().map(|(name, value)| (name.clone(), value.clone())).collect();
     if let Some(env_file) = &configuration.env_file {
         let path = cwd.join(expand_home(env_file));
         let text = fs::read_to_string(&path)
             .map_err(|error| format!("Could not read {}: {error}", path.display()))?;
         env.extend(parse_dotenv(&text));
     }
-    env.extend(
-        configuration
-            .env
-            .iter()
-            .map(|(name, value)| (name.clone(), value.clone())),
-    );
-    Ok(Launch {
-        program,
-        args,
-        cwd,
-        env,
-        before: configuration.before_launch.clone(),
-        shown,
-    })
+    env.extend(configuration.env.iter().map(|(name, value)| (name.clone(), value.clone())));
+    Ok(Launch { program, args, cwd, env, before: configuration.before_launch.clone(), shown })
 }
 
 pub fn is_typescript(file: &str) -> bool {
-    [".ts", ".mts", ".cts"]
-        .iter()
-        .any(|extension| file.ends_with(extension))
+    [".ts", ".mts", ".cts"].iter().any(|extension| file.ends_with(extension))
 }
 
 /// The package manager whose lock file is nearest to `directory`, up to `root`; npm when
@@ -202,11 +172,11 @@ pub fn typescript_command(
     match runtime {
         TypeScriptRuntime::Node => Ok(node_command(node)),
         TypeScriptRuntime::Auto if can_strip => Ok(node_command(node)),
-        TypeScriptRuntime::Auto | TypeScriptRuntime::Tsx => tsx()
-            .map(|tsx| (tsx.display().to_string(), Vec::new()))
-            .ok_or_else(|| {
+        TypeScriptRuntime::Auto | TypeScriptRuntime::Tsx => {
+            tsx().map(|tsx| (tsx.display().to_string(), Vec::new())).ok_or_else(|| {
                 "No tsx in node_modules: install it, or run on Node 22.6 or later".to_owned()
-            }),
+            })
+        }
     }
 }
 
@@ -235,11 +205,8 @@ fn node_version() -> Option<Version> {
 
 /// `(22, 6, 0)` from `v22.6.0`.
 pub fn parse_version(text: &str) -> Option<Version> {
-    let mut numbers = text
-        .trim()
-        .trim_start_matches('v')
-        .split('.')
-        .map(|number| number.parse().ok());
+    let mut numbers =
+        text.trim().trim_start_matches('v').split('.').map(|number| number.parse().ok());
     Some((numbers.next()??, numbers.next()??, numbers.next()??))
 }
 
@@ -258,18 +225,9 @@ pub fn parse_dotenv(text: &str) -> Vec<(String, String)> {
             let value = match value.chars().next() {
                 Some(quote @ ('"' | '\'')) => {
                     let inner = value[1..].split(quote).next().unwrap_or_default();
-                    if quote == '"' {
-                        inner.replace("\\n", "\n")
-                    } else {
-                        inner.to_owned()
-                    }
+                    if quote == '"' { inner.replace("\\n", "\n") } else { inner.to_owned() }
                 }
-                _ => value
-                    .split(" #")
-                    .next()
-                    .unwrap_or_default()
-                    .trim_end()
-                    .to_owned(),
+                _ => value.split(" #").next().unwrap_or_default().trim_end().to_owned(),
             };
             Some((name.trim().to_owned(), value))
         })

@@ -20,12 +20,7 @@ pub enum Trigger {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Request {
     /// Candidates for the word from `start` to `offset`, where point is.
-    Complete {
-        id: u64,
-        start: usize,
-        offset: usize,
-        trigger: Trigger,
-    },
+    Complete { id: u64, start: usize, offset: usize, trigger: Trigger },
     /// More about item `index` of list `id`, such as its documentation.
     Resolve { id: u64, index: usize },
 }

@@ -34,22 +34,14 @@ pub struct Format {
 
 impl Default for Format {
     fn default() -> Self {
-        Self {
-            encoding: UTF_8,
-            byte_order_mark: false,
-            crlf: false,
-            binary: false,
-        }
+        Self { encoding: UTF_8, byte_order_mark: false, crlf: false, binary: false }
     }
 }
 
 impl Format {
     /// UTF-8 with every line ending in CR LF.
     pub(crate) fn crlf() -> Self {
-        Self {
-            crlf: true,
-            ..Self::default()
-        }
+        Self { crlf: true, ..Self::default() }
     }
 }
 
@@ -102,9 +94,7 @@ pub(crate) fn is_binary(head: &[u8]) -> bool {
 
 /// The UTF-16 encoding whose byte order mark `head` starts with.
 pub(crate) fn utf16_byte_order_mark(head: &[u8]) -> Option<&'static Encoding> {
-    Encoding::for_bom(head)
-        .map(|(encoding, _)| encoding)
-        .filter(|&encoding| encoding != UTF_8)
+    Encoding::for_bom(head).map(|(encoding, _)| encoding).filter(|&encoding| encoding != UTF_8)
 }
 
 pub(crate) fn first_line_ends_in_crlf(head: &[u8]) -> bool {
@@ -237,11 +227,7 @@ impl Format {
                 Cow::Owned(text) => Cow::Owned(text.into_bytes()),
             }
         };
-        if self.crlf {
-            Cow::Owned(without_cr(&text))
-        } else {
-            text
-        }
+        if self.crlf { Cow::Owned(without_cr(&text)) } else { text }
     }
 
     /// Writes `chunks` of a text, whole characters each, as a file in this format holds
@@ -314,8 +300,7 @@ impl<W: Write> Encoded<'_, W> {
         }
         loop {
             let (result, read, written) =
-                self.encoder
-                    .encode_from_utf8_without_replacement(text, &mut self.buffer, last);
+                self.encoder.encode_from_utf8_without_replacement(text, &mut self.buffer, last);
             self.output.write_all(&self.buffer[..written])?;
             text = &text[read..];
             match result {
@@ -385,18 +370,10 @@ mod tests {
     }
 
     fn assert_round_trip(file: &[u8], format: Format, text: &str) {
-        assert_eq!(
-            read(file, format),
-            Ok((format.crlf, text.as_bytes().to_vec()))
-        );
+        assert_eq!(read(file, format), Ok((format.crlf, text.as_bytes().to_vec())));
         assert_eq!(written(format, &[text]).unwrap(), file);
         let (head, tail) = text.split_at(text.char_indices().nth(2).map_or(0, |(at, _)| at));
-        assert_eq!(
-            written(format, &[head, tail]).unwrap(),
-            file,
-            "split at {}",
-            head.len()
-        );
+        assert_eq!(written(format, &[head, tail]).unwrap(), file, "split at {}", head.len());
         assert_eq!(&*format.decode(file), text.as_bytes());
     }
 
@@ -420,19 +397,14 @@ mod tests {
         let every_byte: Vec<u8> = (1..=255).collect();
         let (_, text) = read(&every_byte, format(WINDOWS_1252, false)).unwrap();
         let text = String::from_utf8(text).unwrap();
-        assert_eq!(
-            written(format(WINDOWS_1252, false), &[&text]).unwrap(),
-            every_byte
-        );
+        assert_eq!(written(format(WINDOWS_1252, false), &[&text]).unwrap(), every_byte);
     }
 
     #[test]
     fn utf16_with_a_byte_order_mark_is_decoded_and_encoded_back() {
         let text = "a€😀\n";
         let utf16 = |bom: [u8; 2], text: &str, unit_bytes: fn(u16) -> [u8; 2]| -> Vec<u8> {
-            bom.into_iter()
-                .chain(text.encode_utf16().flat_map(unit_bytes))
-                .collect()
+            bom.into_iter().chain(text.encode_utf16().flat_map(unit_bytes)).collect()
         };
         let le = utf16([0xFF, 0xFE], text, u16::to_le_bytes);
         let be = utf16([0xFE, 0xFF], text, u16::to_be_bytes);
@@ -451,10 +423,7 @@ mod tests {
     #[test]
     fn crlf_is_dropped_on_reading_and_written_back() {
         assert_round_trip(b"a\r\nb\r\n", format(UTF_8, true), "a\nb\n");
-        assert_eq!(
-            read(b"a\r\nb\nc\r\n", format(UTF_8, true)),
-            Err(Stop::LoneLf)
-        );
+        assert_eq!(read(b"a\r\nb\nc\r\n", format(UTF_8, true)), Err(Stop::LoneLf));
         assert_eq!(
             read(b"no line end\r", format(UTF_8, true)),
             Ok((false, b"no line end\r".to_vec()))
@@ -475,13 +444,7 @@ mod tests {
     fn binary_files_are_told_by_a_nul_and_never_saved() {
         assert!(is_binary(b"\x7fELF\x02\x01\x00"));
         assert!(!is_binary("plain é".as_bytes()));
-        let binary = Format {
-            binary: true,
-            ..Format::default()
-        };
-        assert_eq!(
-            written(binary, &["x"]).unwrap_err().kind(),
-            io::ErrorKind::Unsupported
-        );
+        let binary = Format { binary: true, ..Format::default() };
+        assert_eq!(written(binary, &["x"]).unwrap_err().kind(), io::ErrorKind::Unsupported);
     }
 }

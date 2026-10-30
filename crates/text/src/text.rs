@@ -178,9 +178,7 @@ impl Text {
     }
 
     pub fn path(&self) -> Option<&Path> {
-        self.disk_file
-            .as_ref()
-            .map(|disk_file| disk_file.path.as_path())
+        self.disk_file.as_ref().map(|disk_file| disk_file.path.as_path())
     }
 
     /// Whether the file was replaced or modified by someone else since it was loaded or saved.
@@ -201,9 +199,8 @@ impl Text {
     pub fn save_as(&mut self, path: impl AsRef<Path>) -> io::Result<()> {
         let snapshot = &self.snapshot;
         let chunks = snapshot.chunks(0..snapshot.len());
-        let disk_file = DiskFile::write(path.as_ref(), |output| {
-            snapshot.format().write(chunks, output)
-        })?;
+        let disk_file =
+            DiskFile::write(path.as_ref(), |output| snapshot.format().write(chunks, output))?;
         self.disk_file = Some(disk_file);
         self.saved = self.snapshot.pieces.clone();
         self.saves += 1;
@@ -215,10 +212,7 @@ impl Text {
     }
 
     fn assert_char_boundary(&self, offset: usize) {
-        assert!(
-            self.snapshot.is_char_boundary(offset),
-            "offset {offset} is not a char boundary"
-        );
+        assert!(self.snapshot.is_char_boundary(offset), "offset {offset} is not a char boundary");
     }
 }
 
@@ -326,10 +320,7 @@ mod tests {
             }
         }
         assert_matches(&text, &model);
-        assert!(
-            text.pieces.depth() > 2,
-            "edits should grow a multi-level tree"
-        );
+        assert!(text.pieces.depth() > 2, "edits should grow a multi-level tree");
 
         models.pop();
         while let Some(expected) = models.pop() {
@@ -389,9 +380,7 @@ mod tests {
 
     #[test]
     fn opened_file_matches_contents() {
-        let contents: String = (0..20_000)
-            .map(|line| format!("{line}: some text\n"))
-            .collect();
+        let contents: String = (0..20_000).map(|line| format!("{line}: some text\n")).collect();
         let (path, mut text) = opened("open", contents.as_bytes());
         fs::remove_file(&path).unwrap();
 

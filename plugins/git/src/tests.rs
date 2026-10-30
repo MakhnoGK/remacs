@@ -62,13 +62,8 @@ impl Drop for Repository {
 }
 
 fn editor() -> Editor {
-    let mut editor = Editor::new(&[
-        &EditingPlugin,
-        &MinibufferPlugin,
-        &FilesPlugin,
-        &DiredPlugin,
-        &GitPlugin,
-    ]);
+    let mut editor =
+        Editor::new(&[&EditingPlugin, &MinibufferPlugin, &FilesPlugin, &DiredPlugin, &GitPlugin]);
     editor.viewport.set_height(20);
     editor
 }
@@ -115,11 +110,7 @@ fn wait_for_status(editor: &mut Editor, repository: &Repository, expected: &str)
 /// The listed names and their states' letters.
 fn states(editor: &Editor) -> Vec<(String, String)> {
     let table = editor.table(0..20).unwrap();
-    table
-        .rows
-        .into_iter()
-        .map(|row| (row.cells[0].clone(), row.cells[1].clone()))
-        .collect()
+    table.rows.into_iter().map(|row| (row.cells[0].clone(), row.cells[1].clone())).collect()
 }
 
 fn state_of(editor: &Editor, name: &str) -> String {
@@ -133,17 +124,12 @@ fn state_of(editor: &Editor, name: &str) -> String {
 fn list(editor: &mut Editor, directory: &Path) {
     list_directory(editor, directory).unwrap();
     wait_until(editor, "the listing", |editor| {
-        editor
-            .table(0..20)
-            .is_some_and(|table| table.rows.len() > 2)
+        editor.table(0..20).is_some_and(|table| table.rows.len() > 2)
     });
 }
 
 fn go_to(editor: &mut Editor, name: &str) {
-    let line = states(editor)
-        .iter()
-        .position(|(listed, _)| listed == name)
-        .unwrap();
+    let line = states(editor).iter().position(|(listed, _)| listed == name).unwrap();
     editor.set_point_at(line, 0);
     editor.refresh();
 }
@@ -159,9 +145,7 @@ fn listings_show_each_files_state_and_the_preview_its_lines() {
     let mut editor = editor();
     list(&mut editor, &repository.0);
 
-    wait_until(&mut editor, "states", |editor| {
-        state_of(editor, "lib.rs") == "M"
-    });
+    wait_until(&mut editor, "states", |editor| state_of(editor, "lib.rs") == "M");
     assert_eq!(
         states(&editor),
         [
@@ -180,13 +164,8 @@ fn listings_show_each_files_state_and_the_preview_its_lines() {
 
     go_to(&mut editor, "lib.rs");
     let preview = editor.table(0..20).unwrap().preview.unwrap();
-    let modified = FileStatus {
-        state: FileState::Modified,
-        lines: Some(LineCounts {
-            added: 1,
-            removed: 0,
-        }),
-    };
+    let modified =
+        FileStatus { state: FileState::Modified, lines: Some(LineCounts { added: 1, removed: 0 }) };
     assert_eq!(preview.version, Some(("Git", modified)));
     go_to(&mut editor, "..");
     assert_eq!(editor.table(0..20).unwrap().preview.unwrap().version, None);
@@ -203,14 +182,10 @@ fn a_change_on_disk_shows_without_asking() {
     });
 
     repository.write("kept.rs", "changed\n");
-    wait_until(&mut editor, "the change", |editor| {
-        state_of(editor, "kept.rs") == "M"
-    });
+    wait_until(&mut editor, "the change", |editor| state_of(editor, "kept.rs") == "M");
     repository.git(&["add", "kept.rs"]);
     repository.git(&["commit", "-q", "-m", "Second"]);
-    wait_until(&mut editor, "the commit", |editor| {
-        state_of(editor, "kept.rs").is_empty()
-    });
+    wait_until(&mut editor, "the commit", |editor| state_of(editor, "kept.rs").is_empty());
 }
 
 #[test]
@@ -233,10 +208,7 @@ fn moving_a_file_keeps_what_was_staged_as_git_mv_does() {
             .map(|option| option.labels.join("/"))
             .collect()
     };
-    assert_eq!(
-        shown(&editor),
-        ["Copy/Move", "Move with git mv", "Overwrite existing"]
-    );
+    assert_eq!(shown(&editor), ["Copy/Move", "Move with git mv", "Overwrite existing"]);
     press(&mut editor, "M-m");
     assert_eq!(shown(&editor), ["Copy/Move", "Overwrite existing"]);
     press(&mut editor, "M-m");
@@ -269,17 +241,11 @@ fn renaming_in_place_tells_git_unless_switched_off() {
     press(&mut editor, "C-c C-c");
     wait_for_status(&mut editor, &repository, "R  lib.rs -> main.rs\n");
 
-    wait_until(&mut editor, "the listing", |editor| {
-        state_of(editor, "main.rs") == "R"
-    });
+    wait_until(&mut editor, "the listing", |editor| state_of(editor, "main.rs") == "R");
     rename(&mut editor, "kept.rs", "other.rs");
     editor.run_command("wdired-toggle-move-recording");
     press(&mut editor, "C-c C-c");
-    wait_for_status(
-        &mut editor,
-        &repository,
-        " D kept.rs\nR  lib.rs -> main.rs\n?? other.rs\n",
-    );
+    wait_for_status(&mut editor, &repository, " D kept.rs\nR  lib.rs -> main.rs\n?? other.rs\n");
 }
 
 /// A bare repository the tests push to, removed with it.
@@ -290,12 +256,7 @@ impl Remote {
     fn for_repository(repository: &Repository) -> Self {
         let path = repository.0.with_extension("remote.git");
         let _ = fs::remove_dir_all(&path);
-        output(
-            git(&repository.0)
-                .args(["init", "-q", "--bare", "-b", "main"])
-                .arg(&path),
-        )
-        .unwrap();
+        output(git(&repository.0).args(["init", "-q", "--bare", "-b", "main"]).arg(&path)).unwrap();
         repository.git(&["remote", "add", "origin", path.to_str().unwrap()]);
         repository.git(&["push", "-q", "-u", "origin", "main"]);
         repository.git(&["remote", "set-head", "origin", "main"]);
@@ -316,11 +277,7 @@ fn commit(repository: &Repository, name: &str, contents: &str, message: &str) {
 }
 
 fn line_changes(editor: &Editor) -> Vec<(Range<usize>, LineChange)> {
-    editor
-        .line_changes(0..100)
-        .into_iter()
-        .map(|changed| (changed.lines, changed.change))
-        .collect()
+    editor.line_changes(0..100).into_iter().map(|changed| (changed.lines, changed.change)).collect()
 }
 
 #[test]
@@ -336,9 +293,7 @@ fn buffers_mark_the_lines_changed_since_the_last_commit_saved_or_not() {
 
     editor.window_buffer_mut().save().unwrap();
     repository.git(&["commit", "-q", "-am", "Four lines"]);
-    wait_until(&mut editor, "the new commit", |editor| {
-        line_changes(editor).is_empty()
-    });
+    wait_until(&mut editor, "the new commit", |editor| line_changes(editor).is_empty());
 
     repository.write("new.rs", "a\nb\n");
     editor.visit_file(&repository.0.join("new.rs")).unwrap();
@@ -385,9 +340,7 @@ fn status_buffer(repository: &Repository) -> Editor {
     editor.run_command("git-status");
     assert_eq!(editor.window_buffer().mode(), "Git");
     wait_until(&mut editor, "the status", |editor| {
-        editor
-            .outline(0..100)
-            .is_some_and(|outline| !outline.facts.is_empty())
+        editor.outline(0..100).is_some_and(|outline| !outline.facts.is_empty())
     });
     editor
 }
@@ -415,13 +368,7 @@ fn status_of_a_folder_made_a_repository_after_it_was_opened_lists_its_files() {
 
 /// Each row in short: `> Staged 2`, `A src/x.rs +3`, `+line`.
 fn rows(editor: &Editor) -> Vec<String> {
-    editor
-        .outline(0..100)
-        .unwrap()
-        .rows
-        .into_iter()
-        .map(describe_row)
-        .collect()
+    editor.outline(0..100).unwrap().rows.into_iter().map(describe_row).collect()
 }
 
 /// The changes' headings and files at the left of their diffs, as `rows` has them.
@@ -432,21 +379,12 @@ fn listed(editor: &Editor) -> Vec<String> {
 
 fn describe_row(row: OutlineRow) -> String {
     match row {
-        OutlineRow::Heading {
-            title, count, open, ..
-        } => {
+        OutlineRow::Heading { title, count, open, .. } => {
             format!("{} {title} {count}", if open { "v" } else { ">" })
         }
-        OutlineRow::File {
-            state,
-            name,
-            directory,
-            lines,
-            ..
-        } => {
-            let lines = lines.map_or(String::new(), |lines| {
-                format!(" +{} -{}", lines.added, lines.removed)
-            });
+        OutlineRow::File { state, name, directory, lines, .. } => {
+            let lines = lines
+                .map_or(String::new(), |lines| format!(" +{} -{}", lines.added, lines.removed));
             format!("{} {directory}{name}{lines}", state.letter())
         }
         OutlineRow::Diff(DiffRow::Hunk(text)) => text,
@@ -458,13 +396,7 @@ fn describe_row(row: OutlineRow) -> String {
 }
 
 fn facts(editor: &Editor) -> Vec<String> {
-    editor
-        .outline(0..100)
-        .unwrap()
-        .facts
-        .into_iter()
-        .map(describe_fact)
-        .collect()
+    editor.outline(0..100).unwrap().facts.into_iter().map(describe_fact).collect()
 }
 
 fn describe_fact(fact: Fact) -> String {
@@ -505,9 +437,7 @@ fn the_status_shows_the_branch_and_the_changes_by_section() {
             "? ./notes/",
         ]
     );
-    wait_until(&mut editor, "the diffs", |editor| {
-        rows(editor).contains(&"+two".to_owned())
-    });
+    wait_until(&mut editor, "the diffs", |editor| rows(editor).contains(&"+two".to_owned()));
     assert_eq!(
         rows(&editor),
         [
@@ -529,22 +459,11 @@ fn the_status_shows_the_branch_and_the_changes_by_section() {
     );
     let outline = editor.outline(0..100).unwrap();
     assert!(outline.history.is_none());
-    let tabs: Vec<_> = (outline.tabs.iter())
-        .map(|tab| (tab.label.as_str(), tab.selected))
-        .collect();
-    assert_eq!(
-        tabs,
-        [
-            ("Changes", true),
-            ("History", false),
-            ("Current branch", false)
-        ]
-    );
+    let tabs: Vec<_> =
+        (outline.tabs.iter()).map(|tab| (tab.label.as_str(), tab.selected)).collect();
+    assert_eq!(tabs, [("Changes", true), ("History", false), ("Current branch", false)]);
     assert_eq!(facts(&editor), ["Head: main · First"]);
-    assert_eq!(
-        rows(&editor)[editor.window_buffer().point_line()],
-        "A src/added.rs +2 -0"
-    );
+    assert_eq!(rows(&editor)[editor.window_buffer().point_line()], "A src/added.rs +2 -0");
     let pill: Vec<String> = editor
         .status_segments()
         .into_iter()
@@ -567,24 +486,17 @@ fn untracked_files_unfold_into_added_lines_and_directories_into_their_files() {
     repository.write("big.txt", "0123456789ab");
     repository.write("data.bin", "\0\x01");
     let mut editor = editor();
-    let settings = [(
-        "git.toml",
-        "untracked-max-bytes = 10\nuntracked-max-files = 1\n",
-    )]
-    .map(|(name, text)| (PathBuf::from(name), text.to_owned()));
+    let settings = [("git.toml", "untracked-max-bytes = 10\nuntracked-max-files = 1\n")]
+        .map(|(name, text)| (PathBuf::from(name), text.to_owned()));
     editor.set_settings(Settings::from_files(settings));
     editor.visit_file(&repository.0.join("lib.rs")).unwrap();
     editor.run_command("git-status");
     wait_until(&mut editor, "the untracked files' diffs", |editor| {
         editor.outline(0..100).is_some_and(|_| {
             let rows = rows(editor);
-            [
-                "+one",
-                " Diff of 12 B not shown, past git.toml's limits",
-                " Binary file",
-            ]
-            .iter()
-            .all(|shown| rows.contains(&(*shown).to_owned()))
+            ["+one", " Diff of 12 B not shown, past git.toml's limits", " Binary file"]
+                .iter()
+                .all(|shown| rows.contains(&(*shown).to_owned()))
         })
     });
     assert!(rows(&editor).contains(&"@@ -0,0 +1 @@".to_owned()));
@@ -592,9 +504,7 @@ fn untracked_files_unfold_into_added_lines_and_directories_into_their_files() {
     let unfold = |editor: &mut Editor, row: &str, shown: &str| {
         go_to_row(editor, row);
         press(editor, "TAB");
-        wait_until(editor, shown, |editor| {
-            rows(editor).contains(&shown.to_owned())
-        });
+        wait_until(editor, shown, |editor| rows(editor).contains(&shown.to_owned()));
     };
     unfold(&mut editor, "? ./notes/", "? notes/a.md");
     assert!(rows(&editor).contains(&"… 1 more files".to_owned()));
@@ -616,9 +526,7 @@ fn diffs_show_and_stage_whatever_prefixes_the_users_config_asks_for() {
     repository.git(&["config", "diff.mnemonicPrefix", "true"]);
     repository.write("lib.rs", "one\ntwo\n");
     let mut editor = status_buffer(&repository);
-    wait_until(&mut editor, "the diff", |editor| {
-        rows(editor).contains(&"+two".to_owned())
-    });
+    wait_until(&mut editor, "the diff", |editor| rows(editor).contains(&"+two".to_owned()));
     go_to_row(&mut editor, "+two");
     press(&mut editor, "s");
     wait_for_status(&mut editor, &repository, "M  lib.rs\n");
@@ -636,9 +544,7 @@ fn untracked_files_share_one_budget_of_bytes() {
     editor.visit_file(&repository.0.join("lib.rs")).unwrap();
     editor.run_command("git-status");
     wait_until(&mut editor, "both untracked files", |editor| {
-        editor
-            .outline(0..100)
-            .is_some_and(|_| rows(editor).len() == 6)
+        editor.outline(0..100).is_some_and(|_| rows(editor).len() == 6)
     });
     assert_eq!(
         rows(&editor),
@@ -691,15 +597,10 @@ fn upstream_and_base_say_how_far_the_branch_is() {
 
     repository.write("feature.rs", "draft\n");
     repository.git(&["stash", "push", "-q", "-m", "Try a draft"]);
-    wait_until(&mut editor, "the stash", |editor| {
-        rows(editor) == ["> Stashes 1"]
-    });
+    wait_until(&mut editor, "the stash", |editor| rows(editor) == ["> Stashes 1"]);
     editor.set_point_at(0, 0);
     press(&mut editor, "TAB");
-    assert_eq!(
-        rows(&editor),
-        ["v Stashes 1", "stash@{0} On feature: Try a draft"]
-    );
+    assert_eq!(rows(&editor), ["v Stashes 1", "stash@{0} On feature: Try a draft"]);
 }
 
 #[test]
@@ -707,9 +608,7 @@ fn hunks_and_files_are_staged_unstaged_and_discarded() {
     let repository = Repository::new("stage");
     let lines: String = (1..=20).map(|line| format!("line {line}\n")).collect();
     commit(&repository, "long.rs", &lines, "Long file");
-    let changed = lines
-        .replace("line 2\n", "line two\n")
-        .replace("line 19\n", "line nineteen\n");
+    let changed = lines.replace("line 2\n", "line two\n").replace("line 19\n", "line nineteen\n");
     repository.write("long.rs", &changed);
     let mut editor = status_buffer(&repository);
     wait_until(&mut editor, "the change", |editor| {
@@ -717,27 +616,16 @@ fn hunks_and_files_are_staged_unstaged_and_discarded() {
     });
 
     wait_until(&mut editor, "the diff", |editor| {
-        rows(editor)
-            .iter()
-            .filter(|row| row.starts_with("@@"))
-            .count()
-            == 2
+        rows(editor).iter().filter(|row| row.starts_with("@@")).count() == 2
     });
     assert!(rows(&editor).contains(&"-line 2".to_owned()));
     assert!(rows(&editor).contains(&"+line two".to_owned()));
 
-    let second_hunk = rows(&editor)
-        .iter()
-        .rposition(|row| row.starts_with("@@"))
-        .unwrap();
+    let second_hunk = rows(&editor).iter().rposition(|row| row.starts_with("@@")).unwrap();
     editor.set_point_at(second_hunk, 0);
     press(&mut editor, "s");
     wait_for_status(&mut editor, &repository, "MM long.rs\n");
-    assert!(
-        repository
-            .git(&["diff", "--cached"])
-            .contains("+line nineteen")
-    );
+    assert!(repository.git(&["diff", "--cached"]).contains("+line nineteen"));
     assert!(!repository.git(&["diff", "--cached"]).contains("+line two"));
 
     wait_until(&mut editor, "the staged file", |editor| {
@@ -748,19 +636,14 @@ fn hunks_and_files_are_staged_unstaged_and_discarded() {
     wait_for_status(&mut editor, &repository, " M long.rs\n");
 
     wait_until(&mut editor, "the unstaged file", |editor| {
-        rows(editor)
-            .first()
-            .is_some_and(|row| row == "v Unstaged 1")
+        rows(editor).first().is_some_and(|row| row == "v Unstaged 1")
     });
     go_to_row(&mut editor, "M ./long.rs +2 -2");
     press(&mut editor, "k");
     assert!(editor.minibuffer().is_some());
     press(&mut editor, "y");
     wait_for_status(&mut editor, &repository, "");
-    assert_eq!(
-        fs::read_to_string(repository.0.join("long.rs")).unwrap(),
-        lines
-    );
+    assert_eq!(fs::read_to_string(repository.0.join("long.rs")).unwrap(), lines);
 }
 
 #[test]
@@ -772,12 +655,7 @@ fn every_diff_is_shown_or_hidden_at_once() {
     repository.write("b.rs", "b2\n");
     repository.git(&["add", "b.rs"]);
     let mut editor = status_buffer(&repository);
-    let hunks = |editor: &Editor| {
-        rows(editor)
-            .iter()
-            .filter(|row| row.starts_with("@@"))
-            .count()
-    };
+    let hunks = |editor: &Editor| rows(editor).iter().filter(|row| row.starts_with("@@")).count();
     wait_until(&mut editor, "both diffs", |editor| hunks(editor) == 2);
     assert!(rows(&editor).contains(&"+a2".to_owned()));
     assert!(rows(&editor).contains(&"+b2".to_owned()));
@@ -795,15 +673,11 @@ fn keys_go_from_hunk_to_hunk_and_file_to_file_as_in_a_commit() {
     let repository = Repository::new("status-keys");
     let lines: String = (1..=20).map(|line| format!("line {line}\n")).collect();
     commit(&repository, "long.rs", &lines, "Long file");
-    let changed = lines
-        .replace("line 2\n", "line two\n")
-        .replace("line 19\n", "line nineteen\n");
+    let changed = lines.replace("line 2\n", "line two\n").replace("line 19\n", "line nineteen\n");
     repository.write("long.rs", &changed);
     repository.write("new.md", "idea\n");
     let mut editor = status_buffer(&repository);
-    wait_until(&mut editor, "the diffs", |editor| {
-        rows(editor).contains(&"+idea".to_owned())
-    });
+    wait_until(&mut editor, "the diffs", |editor| rows(editor).contains(&"+idea".to_owned()));
     let row_at_point = |editor: &Editor| rows(editor)[editor.window_buffer().point_line()].clone();
     assert_eq!(row_at_point(&editor), "M ./long.rs +2 -2");
 
@@ -818,10 +692,7 @@ fn keys_go_from_hunk_to_hunk_and_file_to_file_as_in_a_commit() {
     assert_eq!(row_at_point(&editor), "? ./new.md");
     press(&mut editor, "M-p");
     assert_eq!(row_at_point(&editor), "M ./long.rs +2 -2");
-    assert_eq!(
-        editor.outline(0..100).unwrap().side.unwrap().selected,
-        Some(1)
-    );
+    assert_eq!(editor.outline(0..100).unwrap().side.unwrap().selected, Some(1));
 
     let click = editor.outline(0..100).unwrap().side.unwrap().actions[3].clone();
     editor.run_action(&click.unwrap());
@@ -838,9 +709,7 @@ fn visiting_a_diff_line_opens_the_file_there() {
     wait_until(&mut editor, "the change", |editor| {
         rows(editor).contains(&"M ./long.rs +1 -1".to_owned())
     });
-    wait_until(&mut editor, "the diff", |editor| {
-        rows(editor).contains(&"+line seven".to_owned())
-    });
+    wait_until(&mut editor, "the diff", |editor| rows(editor).contains(&"+line seven".to_owned()));
     go_to_row(&mut editor, "+line seven");
     press(&mut editor, "RET");
     let buffer = editor.window_buffer();
@@ -882,9 +751,7 @@ fn the_history_shows_all_branches_or_the_current_one_and_searches_messages() {
     let mut editor = status_buffer(&repository);
     press(&mut editor, "2");
 
-    wait_until(&mut editor, "the history", |editor| {
-        history(editor).len() == 4
-    });
+    wait_until(&mut editor, "the history", |editor| history(editor).len() == 4);
     let all = history(&editor);
     assert!(all.contains(&"[feature] Grow the feature".to_owned()));
     assert!(all.contains(&"[main] Move main on".to_owned()));
@@ -893,24 +760,16 @@ fn the_history_shows_all_branches_or_the_current_one_and_searches_messages() {
     assert!(graph.iter().any(|commit| commit.graph.lane == 1));
 
     press(&mut editor, "l");
-    wait_until(&mut editor, "the current branch's history", |editor| {
-        history(editor).len() == 3
-    });
+    wait_until(&mut editor, "the current branch's history", |editor| history(editor).len() == 3);
     assert_eq!(
         history(&editor),
-        [
-            "[feature] Grow the feature",
-            "Start the feature",
-            "[origin/main v1] First"
-        ]
+        ["[feature] Grow the feature", "Start the feature", "[origin/main v1] First"]
     );
 
     press(&mut editor, "/");
     type_text(&mut editor, "grow");
     press(&mut editor, "RET");
-    wait_until(&mut editor, "the search", |editor| {
-        history(editor).len() == 1
-    });
+    wait_until(&mut editor, "the search", |editor| history(editor).len() == 1);
     assert_eq!(history(&editor), ["[feature] Grow the feature"]);
 }
 
@@ -921,17 +780,10 @@ fn a_commit_of_the_history_shows_its_message_files_and_diffs() {
     repository.write("src/new.rs", "fresh\n");
     repository.write("lib.rs", "one\ntwo\nthree\n");
     repository.git(&["add", "."]);
-    repository.git(&[
-        "commit",
-        "-q",
-        "-m",
-        "Add new\n\nWhy it was added.\nAnd more.",
-    ]);
+    repository.git(&["commit", "-q", "-m", "Add new\n\nWhy it was added.\nAnd more."]);
     let mut editor = status_buffer(&repository);
     press(&mut editor, "2");
-    wait_until(&mut editor, "the history", |editor| {
-        history(editor).len() == 3
-    });
+    wait_until(&mut editor, "the history", |editor| history(editor).len() == 3);
 
     press(&mut editor, "n");
     let selected = |editor: &Editor| editor.outline(0..100).unwrap().history.unwrap().selected;
@@ -965,42 +817,20 @@ fn a_commit_of_the_history_shows_its_message_files_and_diffs() {
          A src/new.rs  +1 −0\n@@ -0,0 +1 @@\n+fresh"
     );
     let extras = editor.line_extras(0..8);
-    let numbers: Vec<_> = extras
-        .iter()
-        .map(|extra| extra.number.as_deref().unwrap())
-        .collect();
-    assert_eq!(
-        numbers,
-        ["   ", "   ", "1 1", "2 2", "  3", "   ", "   ", "  1"]
-    );
+    let numbers: Vec<_> = extras.iter().map(|extra| extra.number.as_deref().unwrap()).collect();
+    assert_eq!(numbers, ["   ", "   ", "1 1", "2 2", "  3", "   ", "   ", "  1"]);
     let fills: Vec<_> = extras.iter().map(|extra| extra.fill).collect();
-    assert_eq!(
-        fills[..5],
-        [Some(Tone::Faint), None, None, None, Some(Tone::Success)]
-    );
+    assert_eq!(fills[..5], [Some(Tone::Faint), None, None, None, Some(Tone::Success)]);
     let plus = text.line_start(4).unwrap();
-    assert!(
-        editor
-            .decorations(plus..plus + 1)
-            .concat()
-            .iter()
-            .any(|span| span.face
-                == Face::Console(ConsoleStyle {
-                    color: Some(ConsoleColor::Indexed(2)),
-                    ..ConsoleStyle::default()
-                }))
-    );
+    assert!(editor.decorations(plus..plus + 1).concat().iter().any(|span| span.face
+        == Face::Console(ConsoleStyle {
+            color: Some(ConsoleColor::Indexed(2)),
+            ..ConsoleStyle::default()
+        })));
 
     // Point's file is the one selected beside the diff.
     assert_eq!(side(&editor).selected, Some(4));
-    let moves = [
-        ("n", 1),
-        ("n", 6),
-        ("p", 1),
-        ("N", 5),
-        ("M-p", 0),
-        ("M-n", 5),
-    ];
+    let moves = [("n", 1), ("n", 6), ("p", 1), ("N", 5), ("M-p", 0), ("M-n", 5)];
     for (keys, line) in moves {
         press(&mut editor, keys);
         assert_eq!(editor.window_buffer().point_line(), line, "after {keys}");
@@ -1024,10 +854,7 @@ fn a_commit_of_the_history_shows_its_message_files_and_diffs() {
 
     editor.switch_to_buffer(&format!("Commit {}", short_head(&repository)));
     press(&mut editor, "RET");
-    assert_eq!(
-        editor.window_buffer().path(),
-        Some(repository.0.join("lib.rs").as_path())
-    );
+    assert_eq!(editor.window_buffer().path(), Some(repository.0.join("lib.rs").as_path()));
     assert_eq!(editor.window_buffer().point_line(), 2);
 }
 
@@ -1060,18 +887,9 @@ fn the_log_of_a_file_shows_its_commits_and_opens_them_at_the_file() {
     assert!(String::from_utf8_lossy(&text.bytes_in(0..text.len())).contains("\n+two"));
 
     press(&mut editor, "q");
-    let clear = editor
-        .outline(0..100)
-        .unwrap()
-        .history
-        .unwrap()
-        .file
-        .unwrap()
-        .action;
+    let clear = editor.outline(0..100).unwrap().history.unwrap().file.unwrap().action;
     editor.run_action(&clear);
-    wait_until(&mut editor, "every file's history", |editor| {
-        history(editor).len() == 3
-    });
+    wait_until(&mut editor, "every file's history", |editor| history(editor).len() == 3);
 }
 
 #[test]
@@ -1100,11 +918,8 @@ fn blame_names_each_lines_commit_and_steps_back_past_it() {
     press(&mut editor, "C-g");
     assert_eq!(editor.window_buffer().name(), "lib.rs (blame)");
 
-    let numbers: Vec<String> = editor
-        .line_extras(0..3)
-        .into_iter()
-        .map(|extra| extra.number.unwrap())
-        .collect();
+    let numbers: Vec<String> =
+        editor.line_extras(0..3).into_iter().map(|extra| extra.number.unwrap()).collect();
     assert!(numbers[0].starts_with(&format!("{first} Test ")), "{numbers:?}");
     assert!(numbers[1].starts_with(&format!("{grow} Test ")), "{numbers:?}");
     assert!(numbers[2].trim().starts_with("Not committed"), "{numbers:?}");
@@ -1181,9 +996,7 @@ fn the_history_tab_lists_the_selected_commits_files_and_opens_it_at_one() {
     let mut editor = status_buffer(&repository);
     press(&mut editor, "2");
     let newest = ["v Files 2", "M ./kept.rs +1 -0", "A src/new.rs +1 -0"];
-    wait_until(&mut editor, "the newest commit's files", |editor| {
-        rows(editor) == newest
-    });
+    wait_until(&mut editor, "the newest commit's files", |editor| rows(editor) == newest);
     let row_at_point = |editor: &Editor| rows(editor)[editor.window_buffer().point_line()].clone();
     assert_eq!(row_at_point(&editor), "M ./kept.rs +1 -0");
 
@@ -1192,33 +1005,22 @@ fn the_history_tab_lists_the_selected_commits_files_and_opens_it_at_one() {
         rows(editor) == ["v Files 1", "M ./lib.rs +1 -0"]
     });
     press(&mut editor, "p");
-    wait_until(&mut editor, "the newest commit's files again", |editor| {
-        rows(editor) == newest
-    });
+    wait_until(&mut editor, "the newest commit's files again", |editor| rows(editor) == newest);
     // The keys that move by lines move through the history too, not through the files.
     press(&mut editor, "C-n");
     wait_until(&mut editor, "the files of the commit before", |editor| {
         rows(editor) == ["v Files 1", "M ./lib.rs +1 -0"]
     });
     press(&mut editor, "<up>");
-    wait_until(&mut editor, "the newest commit's files again", |editor| {
-        rows(editor) == newest
-    });
+    wait_until(&mut editor, "the newest commit's files again", |editor| rows(editor) == newest);
     press(&mut editor, "s");
-    assert!(
-        editor
-            .echo()
-            .is_some_and(|said| said.contains("1 shows them"))
-    );
+    assert!(editor.echo().is_some_and(|said| said.contains("1 shows them")));
 
     press(&mut editor, "M-n");
     assert_eq!(row_at_point(&editor), "A src/new.rs +1 -0");
     press(&mut editor, "RET");
     wait_for_commit(&mut editor);
-    assert_eq!(
-        editor.window_buffer().name(),
-        format!("Commit {}", short_head(&repository))
-    );
+    assert_eq!(editor.window_buffer().name(), format!("Commit {}", short_head(&repository)));
     let buffer = editor.window_buffer();
     let text = buffer.text().snapshot();
     let line = text.line_range(buffer.point_line()).unwrap();
@@ -1226,16 +1028,11 @@ fn the_history_tab_lists_the_selected_commits_files_and_opens_it_at_one() {
 }
 
 fn wait_for_commit(editor: &mut Editor) {
-    wait_until(editor, "the commit", |editor| {
-        editor.window_buffer().mode() == "Git Commit"
-    });
+    wait_until(editor, "the commit", |editor| editor.window_buffer().mode() == "Git Commit");
 }
 
 fn short_head(repository: &Repository) -> String {
-    repository
-        .git(&["rev-parse", "--short=7", "HEAD"])
-        .trim()
-        .to_owned()
+    repository.git(&["rev-parse", "--short=7", "HEAD"]).trim().to_owned()
 }
 
 fn candidates(editor: &Editor) -> Vec<String> {
@@ -1245,12 +1042,8 @@ fn candidates(editor: &Editor) -> Vec<String> {
         .candidates()
         .iter()
         .map(|candidate| {
-            let verb = candidate
-                .verb
-                .map_or(String::new(), |verb| format!("{verb} "));
-            let tag = candidate
-                .tag
-                .map_or(String::new(), |tag| format!(" [{tag}]"));
+            let verb = candidate.verb.map_or(String::new(), |verb| format!("{verb} "));
+            let tag = candidate.tag.map_or(String::new(), |tag| format!(" [{tag}]"));
             format!("{verb}{}{tag} · {}", candidate.label, candidate.annotation)
         })
         .collect()
@@ -1271,29 +1064,17 @@ fn branches_are_switched_to_or_created_from_a_base_they_remember() {
     press(&mut editor, "b");
     assert_eq!(
         candidates(&editor),
-        [
-            "main [current] · ",
-            "origin/main · remote",
-            "origin/other · remote"
-        ]
+        ["main [current] · ", "origin/main · remote", "origin/other · remote"]
     );
     type_text(&mut editor, "topic");
-    assert_eq!(
-        candidates(&editor),
-        [format!("Create topic · from main · {}", main_id.trim())]
-    );
+    assert_eq!(candidates(&editor), [format!("Create topic · from main · {}", main_id.trim())]);
     press(&mut editor, "TAB");
     assert!(candidates(&editor)[0].starts_with("Create topic · from origin/main · "));
     press(&mut editor, "RET");
     wait_until(&mut editor, "the new branch", |_| {
         repository.git(&["branch", "--show-current"]).trim() == "topic"
     });
-    assert_eq!(
-        repository
-            .git(&["config", "branch.topic.remacs-base"])
-            .trim(),
-        "origin/main"
-    );
+    assert_eq!(repository.git(&["config", "branch.topic.remacs-base"]).trim(), "origin/main");
     wait_until(&mut editor, "its base", |editor| {
         facts(editor).contains(&"Base: origin/main · Up to date".to_owned())
     });
@@ -1306,9 +1087,7 @@ fn branches_are_switched_to_or_created_from_a_base_they_remember() {
         repository.git(&["branch", "--show-current"]).trim() == "other"
     });
     assert_eq!(
-        repository
-            .git(&["rev-parse", "--abbrev-ref", "other@{upstream}"])
-            .trim(),
+        repository.git(&["rev-parse", "--abbrev-ref", "other@{upstream}"]).trim(),
         "origin/other"
     );
 }
@@ -1369,10 +1148,7 @@ fn a_commit_message_has_a_subject_and_a_description() {
     }
     press(&mut editor, "TAB M-< C-SPC M-> C-w");
     press(&mut editor, "C-c C-c");
-    assert_eq!(
-        editor.echo().as_deref(),
-        Some("The commit message is empty")
-    );
+    assert_eq!(editor.echo().as_deref(), Some("The commit message is empty"));
     assert!(editor.minibuffer().is_some());
 
     press(&mut editor, "M-a");
@@ -1430,9 +1206,7 @@ fn a_rebase_replays_the_commits_as_chosen() {
         editor.echo().as_deref(),
         Some(&*format!(
             "{} has nothing before it to fold into",
-            repository
-                .git(&["rev-parse", "--short", "feature~2"])
-                .trim()
+            repository.git(&["rev-parse", "--short", "feature~2"]).trim()
         ))
     );
     assert!(editor.minibuffer().is_some());
@@ -1445,10 +1219,7 @@ fn a_rebase_replays_the_commits_as_chosen() {
     wait_until(&mut editor, "the rebase", |_| {
         repository.git(&["log", "--format=%s", "main..feature"]) == "B\n"
     });
-    assert_eq!(
-        repository.git(&["log", "-1", "--format=%B"]).trim(),
-        "B\n\nC"
-    );
+    assert_eq!(repository.git(&["log", "-1", "--format=%B"]).trim(), "B\n\nC");
     assert!(!repository.0.join("A.rs").exists());
     assert!(repository.0.join("main.rs").exists());
 }
@@ -1468,11 +1239,7 @@ fn a_merge_brings_the_base_in() {
     assert_eq!(minibuffer.candidates()[0].annotation, "Move main on");
     press(&mut editor, "RET");
     wait_until(&mut editor, "the merge", |_| {
-        repository
-            .git(&["log", "-1", "--format=%P"])
-            .split_whitespace()
-            .count()
-            == 2
+        repository.git(&["log", "-1", "--format=%P"]).split_whitespace().count() == 2
     });
     wait_until(&mut editor, "the base caught up", |editor| {
         facts(editor).contains(&"Base: main · Up to date".to_owned())
@@ -1501,10 +1268,7 @@ fn the_branch_is_pushed_to_its_upstream_or_gets_one() {
 
     press(&mut editor, "P");
     let prompt = editor.minibuffer().unwrap().prompt();
-    assert_eq!(
-        prompt.title,
-        Some(("Push `main`".to_owned(), "1 commit".to_owned()))
-    );
+    assert_eq!(prompt.title, Some(("Push `main`".to_owned(), "1 commit".to_owned())));
     assert_eq!(prompt.items.len(), 1);
     press(&mut editor, "u");
     assert!(editor.minibuffer().is_none());
@@ -1514,15 +1278,10 @@ fn the_branch_is_pushed_to_its_upstream_or_gets_one() {
 
     repository.git(&["switch", "-q", "-c", "topic"]);
     commit(&repository, "topic.rs", "t\n", "Topic work");
-    wait_until(&mut editor, "the new branch", |editor| {
-        facts(editor)[0].starts_with("Head: topic")
-    });
+    wait_until(&mut editor, "the new branch", |editor| facts(editor)[0].starts_with("Head: topic"));
     press(&mut editor, "P");
     let first = &editor.minibuffer().unwrap().candidates()[0];
-    assert_eq!(
-        (first.label.as_str(), first.annotation.as_str()),
-        ("origin/topic", "new upstream")
-    );
+    assert_eq!((first.label.as_str(), first.annotation.as_str()), ("origin/topic", "new upstream"));
     press(&mut editor, "RET");
     wait_until(&mut editor, "the new upstream", |_| {
         output(git(&repository.0).args(["rev-parse", "--abbrev-ref", "topic@{upstream}"]))
@@ -1545,13 +1304,7 @@ fn a_diverged_branch_is_pulled_by_rebase_or_merge() {
 
     press(&mut editor, "F");
     let note = |editor: &Editor| {
-        let (_, chain) = editor
-            .minibuffer()
-            .unwrap()
-            .completions()
-            .outcome
-            .clone()
-            .unwrap();
+        let (_, chain) = editor.minibuffer().unwrap().completions().outcome.clone().unwrap();
         chain.note.unwrap()
     };
     assert_eq!(
@@ -1559,10 +1312,7 @@ fn a_diverged_branch_is_pulled_by_rebase_or_merge() {
         "Your commit is replayed on top of the incoming one. History stays linear."
     );
     press(&mut editor, "m");
-    assert_eq!(
-        note(&editor),
-        "A merge commit joins your 1 commit and the incoming one."
-    );
+    assert_eq!(note(&editor), "A merge commit joins your 1 commit and the incoming one.");
     press(&mut editor, "TAB RET");
     assert_eq!(
         editor.echo().as_deref(),
@@ -1630,17 +1380,10 @@ fn a_rebase_stopped_at_a_conflict_is_resolved_and_continued() {
     let input = editor.minibuffer().unwrap().input();
     assert_eq!(input.contents(0..input.text().len()), "tob");
     press(&mut editor, "C-g");
-    assert!(
-        fs::read_to_string(repository.0.join("lib.rs"))
-            .unwrap()
-            .contains("<<<<<<<")
-    );
+    assert!(fs::read_to_string(repository.0.join("lib.rs")).unwrap().contains("<<<<<<<"));
 
     press(&mut editor, "t");
-    assert_eq!(
-        fs::read_to_string(repository.0.join("lib.rs")).unwrap(),
-        "feature\n"
-    );
+    assert_eq!(fs::read_to_string(repository.0.join("lib.rs")).unwrap(), "feature\n");
     wait_until(&mut editor, "the resolution", |editor| {
         rows(editor).contains(&"✓ ./lib.rs +1 -1".to_owned())
     });
@@ -1670,29 +1413,20 @@ fn a_merge_conflict_keeps_both_sides_or_is_aborted() {
     assert_eq!(facts(&editor)[0], "Head: feature · merge in progress");
     go_to_row(&mut editor, "U ./lib.rs");
     press(&mut editor, "b");
-    assert_eq!(
-        fs::read_to_string(repository.0.join("lib.rs")).unwrap(),
-        "feature\nmain\n"
-    );
+    assert_eq!(fs::read_to_string(repository.0.join("lib.rs")).unwrap(), "feature\nmain\n");
 
     press(&mut editor, "C-c C-k");
     press(&mut editor, "y");
     wait_until(&mut editor, "the merge aborted", |editor| {
         editor.outline(0..100).unwrap().banner.is_none()
     });
-    assert_eq!(
-        fs::read_to_string(repository.0.join("lib.rs")).unwrap(),
-        "feature\n"
-    );
+    assert_eq!(fs::read_to_string(repository.0.join("lib.rs")).unwrap(), "feature\n");
 }
 
 /// The stash prompt's file count and what the changes are.
 fn stash_note(editor: &Editor) -> (String, String) {
     let minibuffer = editor.minibuffer().unwrap();
-    (
-        minibuffer.note().unwrap_or_default().to_owned(),
-        minibuffer.subject().to_owned(),
-    )
+    (minibuffer.note().unwrap_or_default().to_owned(), minibuffer.subject().to_owned())
 }
 
 /// The selected stash's files, as `M lib.rs`.
@@ -1714,9 +1448,7 @@ fn stash_list(repository: &Repository) -> String {
 
 /// Waits for a job to say it is done.
 fn wait_for_echo(editor: &mut Editor, expected: &str) {
-    wait_until(editor, expected, |editor| {
-        editor.echo().as_deref() == Some(expected)
-    });
+    wait_until(editor, expected, |editor| editor.echo().as_deref() == Some(expected));
 }
 
 #[test]
@@ -1725,27 +1457,20 @@ fn changes_are_stashed_with_a_message_and_applied_or_popped() {
     repository.write("lib.rs", "two\n");
     repository.write("new.md", "idea\n");
     let mut editor = status_buffer(&repository);
-    wait_until(&mut editor, "the changes", |editor| {
-        listed(editor).len() == 4
-    });
+    wait_until(&mut editor, "the changes", |editor| listed(editor).len() == 4);
 
     press(&mut editor, "z");
     assert_eq!(stash_note(&editor), ("1 file".into(), "1 unstaged".into()));
     assert!(editor.minibuffer().unwrap().candidates().is_empty());
     press(&mut editor, "M-u");
-    assert_eq!(
-        stash_note(&editor),
-        ("2 files".into(), "1 unstaged · 1 untracked".into())
-    );
+    assert_eq!(stash_note(&editor), ("2 files".into(), "1 unstaged · 1 untracked".into()));
     type_text(&mut editor, "parked work");
     press(&mut editor, "RET");
     wait_for_echo(&mut editor, "Stashed the changes");
     assert_eq!(repository.short_status(), "");
     assert_eq!(stash_list(&repository), "On main: parked work\n");
 
-    wait_until(&mut editor, "the stash", |editor| {
-        rows(editor) == ["> Stashes 1"]
-    });
+    wait_until(&mut editor, "the stash", |editor| rows(editor) == ["> Stashes 1"]);
     press(&mut editor, "z");
     assert_eq!(candidates(&editor), ["stash@{0} · On main: parked work"]);
     assert_eq!(stash_files(&editor), ["M lib.rs", "? new.md"]);
@@ -1770,10 +1495,7 @@ fn changes_are_stashed_with_a_message_and_applied_or_popped() {
         ]
     );
     press(&mut editor, "TAB");
-    assert_eq!(
-        rows(&editor),
-        ["v Stashes 1", "stash@{0} On main: parked work"]
-    );
+    assert_eq!(rows(&editor), ["v Stashes 1", "stash@{0} On main: parked work"]);
 
     press(&mut editor, "z");
     press(&mut editor, "TAB");
@@ -1801,16 +1523,11 @@ fn a_stash_is_dropped_after_asking_or_becomes_a_branch() {
     repository.write("kept.rs", "changed\n");
     repository.git(&["stash", "push", "-q", "-m", "second"]);
     let mut editor = status_buffer(&repository);
-    wait_until(&mut editor, "the stashes", |editor| {
-        rows(editor) == ["> Stashes 2"]
-    });
+    wait_until(&mut editor, "the stashes", |editor| rows(editor) == ["> Stashes 2"]);
     press(&mut editor, "TAB");
     go_to_row(&mut editor, "stash@{0} On main: second");
     press(&mut editor, "k");
-    assert_eq!(
-        editor.minibuffer().unwrap().dialog().unwrap().title,
-        "Drop `stash@{0}`?"
-    );
+    assert_eq!(editor.minibuffer().unwrap().dialog().unwrap().title, "Drop `stash@{0}`?");
     press(&mut editor, "y");
     wait_for_echo(&mut editor, "Dropped stash@{0}");
     assert_eq!(stash_list(&repository), "On main: first\n");
@@ -1835,10 +1552,7 @@ fn open_buffers_follow_discards_and_branch_switches_without_auto_revert() {
     repository.git(&["switch", "-q", "main"]);
     repository.write("lib.rs", "changed\n");
     let mut editor = editor();
-    let settings = [(
-        PathBuf::from("files.toml"),
-        "auto-revert = false\n".to_owned(),
-    )];
+    let settings = [(PathBuf::from("files.toml"), "auto-revert = false\n".to_owned())];
     editor.set_settings(Settings::from_files(settings));
     editor.visit_file(&repository.0.join("kept.rs")).unwrap();
     editor.visit_file(&repository.0.join("lib.rs")).unwrap();
@@ -1854,9 +1568,7 @@ fn open_buffers_follow_discards_and_branch_switches_without_auto_revert() {
 
     go_to_row(&mut editor, "M ./lib.rs +1 -1");
     press(&mut editor, "k y");
-    wait_until(&mut editor, "lib.rs read again", |editor| {
-        contents(editor, "lib.rs") == "one\n"
-    });
+    wait_until(&mut editor, "lib.rs read again", |editor| contents(editor, "lib.rs") == "one\n");
 
     press(&mut editor, "b");
     type_text(&mut editor, "other");

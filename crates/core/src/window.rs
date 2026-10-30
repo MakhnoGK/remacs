@@ -46,18 +46,9 @@ impl Layout {
     fn stacked(&self, along: Axis) -> usize {
         match self {
             Layout::Window(_) => 1,
-            Layout::Split {
-                axis,
-                first,
-                second,
-                ..
-            } => {
+            Layout::Split { axis, first, second, .. } => {
                 let (first, second) = (first.stacked(along), second.stacked(along));
-                if *axis == along {
-                    first + second
-                } else {
-                    first.max(second)
-                }
+                if *axis == along { first + second } else { first.max(second) }
             }
         }
     }
@@ -66,12 +57,7 @@ impl Layout {
     pub(crate) fn share(&self, window: WindowId, along: Axis) -> Option<f32> {
         match self {
             Layout::Window(id) => (*id == window).then_some(1.0),
-            Layout::Split {
-                axis,
-                ratio,
-                first,
-                second,
-            } => {
+            Layout::Split { axis, ratio, first, second } => {
                 let same = *axis == along;
                 first
                     .share(window, along)
@@ -100,27 +86,15 @@ impl Layout {
         min: f32,
         extent: f32,
     ) -> Option<bool> {
-        let Layout::Split {
-            axis,
-            ratio,
-            first,
-            second,
-        } = self
-        else {
+        let Layout::Split { axis, ratio, first, second } = self else {
             return (*self == Layout::Window(window)).then_some(false);
         };
         let same = *axis == along;
-        let (first_extent, second_extent) = if same {
-            (extent * *ratio, extent * (1.0 - *ratio))
-        } else {
-            (extent, extent)
-        };
+        let (first_extent, second_extent) =
+            if same { (extent * *ratio, extent * (1.0 - *ratio)) } else { (extent, extent) };
         let (in_first, inner) = match first.resize_in(window, along, delta, min, first_extent) {
             Some(resized) => (true, resized),
-            None => (
-                false,
-                second.resize_in(window, along, delta, min, second_extent)?,
-            ),
+            None => (false, second.resize_in(window, along, delta, min, second_extent)?),
         };
         if inner || !same {
             return Some(inner);
@@ -142,13 +116,7 @@ impl Layout {
     }
 
     fn set_ratio_in(&mut self, index: &mut usize, new: f32, min: f32) -> bool {
-        let Layout::Split {
-            axis,
-            ratio,
-            first,
-            second,
-        } = self
-        else {
+        let Layout::Split { axis, ratio, first, second } = self else {
             return false;
         };
         if *index == 0 {
@@ -163,13 +131,7 @@ impl Layout {
 
     /// Gives the windows stacked along each axis equal room, like Emacs `balance-windows`.
     pub(crate) fn balance(&mut self) {
-        if let Layout::Split {
-            axis,
-            ratio,
-            first,
-            second,
-        } = self
-        {
+        if let Layout::Split { axis, ratio, first, second } = self {
             let (before, after) = (first.stacked(*axis), second.stacked(*axis));
             *ratio = before as f32 / (before + after) as f32;
             first.balance();
@@ -266,10 +228,7 @@ impl Windows {
 
     /// The windows but the selected one that show `buffer`.
     pub fn showing(&self, buffer: BufferId) -> impl Iterator<Item = WindowId> {
-        let showing = self
-            .others
-            .iter()
-            .filter(move |window| window.buffer == buffer);
+        let showing = self.others.iter().filter(move |window| window.buffer == buffer);
         showing.map(|window| window.id)
     }
 
@@ -280,11 +239,7 @@ impl Windows {
         let selected = self.selected();
         self.layout.split(selected, axis, new);
         self.recent.insert(1, new);
-        self.others.push(Window {
-            id: new,
-            buffer,
-            viewport,
-        });
+        self.others.push(Window { id: new, buffer, viewport });
         new
     }
 
@@ -349,14 +304,8 @@ mod tests {
         assert!(layout.resize(first, Axis::Columns, 1.0, 0.1));
         assert!((ratio(layout) - 0.9).abs() < 1e-6, "up to the minimum");
         assert!(!layout.resize(first, Axis::Columns, 0.1, 0.1));
-        assert!(
-            !layout.resize(first, Axis::Rows, 0.1, 0.1),
-            "no split along it"
-        );
-        assert!(
-            !layout.resize(top, Axis::Rows, 0.1, 0.6),
-            "no room for both"
-        );
+        assert!(!layout.resize(first, Axis::Rows, 0.1, 0.1), "no split along it");
+        assert!(!layout.resize(top, Axis::Rows, 0.1, 0.6), "no room for both");
         assert_eq!(layout.share(top, Axis::Rows), Some(0.25));
     }
 
@@ -385,10 +334,7 @@ mod tests {
         assert_eq!(ratio(layout), 0.5);
         for window in layout.windows().into_iter().filter(|&id| id != first) {
             let share = layout.share(window, Axis::Rows).unwrap();
-            assert!(
-                (share - 1.0 / 3.0).abs() < 1e-6,
-                "{window:?} of {below_top:?}"
-            );
+            assert!((share - 1.0 / 3.0).abs() < 1e-6, "{window:?} of {below_top:?}");
         }
     }
 }

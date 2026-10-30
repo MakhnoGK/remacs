@@ -40,12 +40,7 @@ impl FileIndexes {
         Arc::clone(self.indexes.entry(root.to_path_buf()).or_insert_with(|| {
             let ignored = Arc::new(Ignored::new(root, settings));
             let cache = cache.map(|dir| dir.join(format!("files-{:x}", settings.key())));
-            Arc::new(FileIndex::start(
-                root.to_path_buf(),
-                cache,
-                notifier,
-                ignored,
-            ))
+            Arc::new(FileIndex::start(root.to_path_buf(), cache, notifier, ignored))
         }))
     }
 
@@ -88,13 +83,7 @@ impl FileIndex {
     ) -> Self {
         let listing = Arc::default();
         let (messages, received) = mpsc::channel();
-        let worker = Worker {
-            root,
-            cache,
-            listing: Arc::clone(&listing),
-            notifier,
-            ignored,
-        };
+        let worker = Worker { root, cache, listing: Arc::clone(&listing), notifier, ignored };
         let events = messages.clone();
         thread::Builder::new()
             .name("file-index".into())
@@ -183,10 +172,8 @@ impl Worker {
     /// `scanned` once the files come from a scan, not the cache.
     fn publish(&self, files: Vec<String>, scanned: bool) -> Arc<Vec<String>> {
         let files = Arc::new(files);
-        *self.listing.lock().expect("index lock is never poisoned") = Listing {
-            files: Arc::clone(&files),
-            scanned,
-        };
+        *self.listing.lock().expect("index lock is never poisoned") =
+            Listing { files: Arc::clone(&files), scanned };
         (self.notifier)();
         files
     }
@@ -278,38 +265,34 @@ impl Tree {
             max_file_depth: usize::MAX,
             files_at_depth: Vec::new(),
         });
-        ignored
-            .walker(&root.join(directory))
-            .max_depth(max_depth)
-            .build_parallel()
-            .run(|| {
-                Box::new(|entry| {
-                    let Ok(entry) = entry else {
-                        return WalkState::Continue;
-                    };
-                    let Some(kind) = entry.file_type() else {
-                        return WalkState::Continue;
-                    };
-                    let Ok(relative) = entry.path().strip_prefix(root) else {
-                        return WalkState::Continue;
-                    };
-                    let depth = relative.components().count();
-                    let mut walk = walk.lock().expect("walker threads do not panic");
-                    if kind.is_dir() {
-                        if depth >= walk.max_file_depth {
-                            return WalkState::Skip;
-                        }
-                        walk.tree.directories.entry(path_key(relative)).or_default();
-                    } else if kind.is_file() && entry.depth() > 0 {
-                        let parent = relative.parent().map(path_key).unwrap_or_default();
-                        let name = entry.file_name().to_string_lossy().into_owned();
-                        if !walk.add_file(parent, name, depth) {
-                            return WalkState::Quit;
-                        }
+        ignored.walker(&root.join(directory)).max_depth(max_depth).build_parallel().run(|| {
+            Box::new(|entry| {
+                let Ok(entry) = entry else {
+                    return WalkState::Continue;
+                };
+                let Some(kind) = entry.file_type() else {
+                    return WalkState::Continue;
+                };
+                let Ok(relative) = entry.path().strip_prefix(root) else {
+                    return WalkState::Continue;
+                };
+                let depth = relative.components().count();
+                let mut walk = walk.lock().expect("walker threads do not panic");
+                if kind.is_dir() {
+                    if depth >= walk.max_file_depth {
+                        return WalkState::Skip;
                     }
-                    WalkState::Continue
-                })
-            });
+                    walk.tree.directories.entry(path_key(relative)).or_default();
+                } else if kind.is_file() && entry.depth() > 0 {
+                    let parent = relative.parent().map(path_key).unwrap_or_default();
+                    let name = entry.file_name().to_string_lossy().into_owned();
+                    if !walk.add_file(parent, name, depth) {
+                        return WalkState::Quit;
+                    }
+                }
+                WalkState::Continue
+            })
+        });
         walk.into_inner().expect("walker threads do not panic").tree
     }
 
@@ -323,9 +306,7 @@ impl Tree {
         changes
             .directories
             .iter()
-            .fold(false, |changed, directory| {
-                self.rescan(root, ignored, directory) | changed
-            })
+            .fold(false, |changed, directory| self.rescan(root, ignored, directory) | changed)
     }
 
     /// Lists `directory` again, walking subdirectories that appeared in it. Directories not
@@ -342,18 +323,11 @@ impl Tree {
         files.sort();
         let mut changed = *old_files != files;
         let known: BTreeSet<String> = self.subdirectories(directory).cloned().collect();
-        for gone in known
-            .iter()
-            .filter(|key| !listing.directories.contains_key(*key))
-        {
+        for gone in known.iter().filter(|key| !listing.directories.contains_key(*key)) {
             self.remove_subtree(gone);
             changed = true;
         }
-        for added in listing
-            .directories
-            .keys()
-            .filter(|key| !known.contains(*key))
-        {
+        for added in listing.directories.keys().filter(|key| !known.contains(*key)) {
             let remaining = MAX_FILES.saturating_sub(self.file_count);
             let subtree = Self::walk(root, ignored, added, None, remaining);
             self.file_count += subtree.file_count;
@@ -367,9 +341,7 @@ impl Tree {
     }
 
     fn subdirectories<'a>(&'a self, directory: &'a str) -> impl Iterator<Item = &'a String> {
-        self.directories
-            .keys()
-            .filter(move |key| parent_key(key) == Some(directory))
+        self.directories.keys().filter(move |key| parent_key(key) == Some(directory))
     }
 
     fn remove_subtree(&mut self, directory: &str) {
@@ -391,11 +363,7 @@ impl Tree {
             .iter()
             .flat_map(|(directory, names)| {
                 names.iter().map(move |name| {
-                    if directory.is_empty() {
-                        name.clone()
-                    } else {
-                        format!("{directory}/{name}")
-                    }
+                    if directory.is_empty() { name.clone() } else { format!("{directory}/{name}") }
                 })
             })
             .collect();
@@ -448,9 +416,7 @@ impl CappedWalk {
 
     fn drop_level(&mut self, depth: usize) {
         self.max_file_depth = depth - 1;
-        self.tree
-            .directories
-            .retain(|key, _| Path::new(key).components().count() < depth - 1);
+        self.tree.directories.retain(|key, _| Path::new(key).components().count() < depth - 1);
         self.tree.file_count -= self.files_at_depth[depth];
         self.files_at_depth.truncate(depth);
         while self.files_at_depth.last() == Some(&0) {
@@ -490,10 +456,7 @@ mod tests {
         let tree = Tree::walk(&root, &ignored, "", None, 10);
 
         assert!(tree.truncated);
-        assert_eq!(
-            tree.files(),
-            ["ui.toml", "notes/todo.md", ".config/remacs/config/ui.toml"]
-        );
+        assert_eq!(tree.files(), ["ui.toml", "notes/todo.md", ".config/remacs/config/ui.toml"]);
         assert_eq!(tree.file_count, 3);
         let _ = fs::remove_dir_all(&root);
     }

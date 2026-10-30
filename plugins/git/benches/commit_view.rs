@@ -49,11 +49,7 @@ impl Repository {
     }
 
     fn git(&self, args: &[&str]) {
-        let status = Command::new("git")
-            .current_dir(&self.0)
-            .args(args)
-            .status()
-            .unwrap();
+        let status = Command::new("git").current_dir(&self.0).args(args).status().unwrap();
         assert!(status.success(), "git {args:?}");
     }
 }
@@ -77,13 +73,8 @@ fn wait_until(editor: &mut Editor, what: &str, done: impl Fn(&Editor) -> bool) {
 #[divan::bench(args = [3000], sample_count = 50)]
 fn side_column(bencher: Bencher, files: usize) {
     let repository = Repository::new(files);
-    let mut editor = Editor::new(&[
-        &EditingPlugin,
-        &MinibufferPlugin,
-        &FilesPlugin,
-        &DiredPlugin,
-        &GitPlugin,
-    ]);
+    let mut editor =
+        Editor::new(&[&EditingPlugin, &MinibufferPlugin, &FilesPlugin, &DiredPlugin, &GitPlugin]);
     editor.viewport.set_height(40);
     editor.visit_file(&repository.0.join("lib.rs")).unwrap();
     editor.run_command("git-status");
@@ -96,8 +87,6 @@ fn side_column(bencher: Bencher, files: usize) {
     for key in parse_sequence("M-RET").unwrap() {
         editor.handle_key(key);
     }
-    wait_until(&mut editor, "the commit", |editor| {
-        editor.window_buffer().mode() == "Git Commit"
-    });
+    wait_until(&mut editor, "the commit", |editor| editor.window_buffer().mode() == "Git Commit");
     bencher.bench_local(|| black_box(editor.text_controls()));
 }

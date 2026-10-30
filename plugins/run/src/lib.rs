@@ -155,10 +155,9 @@ impl Plugin for RunPlugin {
             registry.keymap.bind(keys, command);
         }
         registry.menu_items.extend_from_slice(MENU_ITEMS);
-        registry.minor_keymaps.push(MinorKeymap {
-            active: menu::is_shown,
-            keymap: keymap(MENU_BINDINGS),
-        });
+        registry
+            .minor_keymaps
+            .push(MinorKeymap { active: menu::is_shown, keymap: keymap(MENU_BINDINGS) });
         registry.minor_keymaps.push(MinorKeymap {
             active: |editor| {
                 editor.buffer_has_keys() && editor.buffer().local::<Console>().is_some()

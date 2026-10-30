@@ -17,10 +17,7 @@ pub(crate) struct Sources {
 
 impl Sources {
     pub fn new(original: Original) -> Self {
-        Self {
-            original: Arc::new(original),
-            added: AddBuffer::default(),
-        }
+        Self { original: Arc::new(original), added: AddBuffer::default() }
     }
 
     pub fn format(&self) -> Format {
@@ -60,10 +57,9 @@ impl Sources {
     /// Offset within `piece` of its `rank`-th newline.
     pub fn nth_newline_in(&self, piece: &Piece, rank: usize) -> usize {
         let offset_in_piece = match piece.source {
-            SourceKind::Original => self
-                .original
-                .nth_newline_in(piece.range(), rank)
-                .map(|offset| offset - piece.start),
+            SourceKind::Original => {
+                self.original.nth_newline_in(piece.range(), rank).map(|offset| offset - piece.start)
+            }
             SourceKind::Added { .. } => newline::nth(self.bytes(piece), rank),
         };
         offset_in_piece.expect("piece newline count matches its bytes")

@@ -46,11 +46,8 @@ pub fn settings(editor: &Editor) -> TerminalSettings {
 
 /// Every terminal, oldest first.
 pub fn all(editor: &Editor) -> Vec<&Terminal> {
-    let mut all: Vec<&Terminal> = editor
-        .buffers()
-        .iter()
-        .filter_map(Buffer::local::<Terminal>)
-        .collect();
+    let mut all: Vec<&Terminal> =
+        editor.buffers().iter().filter_map(Buffer::local::<Terminal>).collect();
     all.sort_by_key(|terminal| terminal.id);
     all
 }
@@ -70,11 +67,7 @@ pub fn running(editor: &Editor) -> Vec<String> {
 }
 
 pub fn find(editor: &Editor, id: u64) -> Option<&Terminal> {
-    editor
-        .buffers()
-        .iter()
-        .filter_map(Buffer::local::<Terminal>)
-        .find(|terminal| terminal.id == id)
+    editor.buffers().iter().filter_map(Buffer::local::<Terminal>).find(|terminal| terminal.id == id)
 }
 
 pub fn find_mut(editor: &mut Editor, id: u64) -> Option<&mut Terminal> {
@@ -90,20 +83,13 @@ pub fn buffer_name(editor: &Editor, id: u64) -> Option<String> {
     editor
         .buffers()
         .iter()
-        .find(|buffer| {
-            buffer
-                .local::<Terminal>()
-                .is_some_and(|terminal| terminal.id == id)
-        })
+        .find(|buffer| buffer.local::<Terminal>().is_some_and(|terminal| terminal.id == id))
         .map(|buffer| buffer.name().to_owned())
 }
 
 /// The terminal shown in the window, if one is.
 pub fn in_window(editor: &Editor) -> Option<u64> {
-    editor
-        .window_buffer()
-        .local::<Terminal>()
-        .map(|terminal| terminal.id)
+    editor.window_buffer().local::<Terminal>().map(|terminal| terminal.id)
 }
 
 /// The terminal in the panel, while the panel shows.
@@ -117,10 +103,7 @@ pub fn in_panel(editor: &Editor) -> Option<u64> {
 /// The terminal the keys go to: the panel's while it has them, else the window's.
 pub fn keyed(editor: &Editor) -> Option<u64> {
     if editor.pane_focused() {
-        return editor
-            .pane_has_keys(PANE)
-            .then(|| in_panel(editor))
-            .flatten();
+        return editor.pane_has_keys(PANE).then(|| in_panel(editor)).flatten();
     }
     if editor.minibuffer().is_some() {
         return None;
@@ -130,9 +113,7 @@ pub fn keyed(editor: &Editor) -> Option<u64> {
 
 /// The terminal commands act on: the one with the keys, else the panel's.
 pub fn current(editor: &Editor) -> Option<u64> {
-    keyed(editor)
-        .or_else(|| in_window(editor))
-        .or_else(|| in_panel(editor))
+    keyed(editor).or_else(|| in_window(editor)).or_else(|| in_panel(editor))
 }
 
 /// Whether terminal `id` is on screen, so what it prints is seen.
@@ -148,12 +129,8 @@ pub fn create(editor: &mut Editor, placement: Placement) -> u64 {
     let state = terminals(editor);
     state.next_id += 1;
     let id = state.next_id;
-    let mut terminal = Terminal::new(
-        id,
-        configured_shell(&settings),
-        settings.args.clone(),
-        directory,
-    );
+    let mut terminal =
+        Terminal::new(id, configured_shell(&settings), settings.args.clone(), directory);
     terminal.start(&settings, editor.notifier());
     add(editor, terminal, placement);
     id
@@ -162,13 +139,9 @@ pub fn create(editor: &mut Editor, placement: Placement) -> u64 {
 /// Starts terminal `terminal` in a buffer of its own and shows it.
 pub fn add(editor: &mut Editor, terminal: Terminal, placement: Placement) {
     let id = terminal.id;
-    let mut buffer = Buffer::new(
-        terminal.buffer_name(),
-        Text::default(),
-        editor.mode_for(None),
-    )
-    .with_directory(terminal.directory.clone())
-    .read_only();
+    let mut buffer = Buffer::new(terminal.buffer_name(), Text::default(), editor.mode_for(None))
+        .with_directory(terminal.directory.clone())
+        .read_only();
     buffer.set_local(terminal);
     match placement {
         Placement::Panel => {
@@ -247,11 +220,7 @@ pub fn restore_window(editor: &mut Editor) {
         }
         None => {
             let mode = editor.mode_for(None);
-            editor.add_buffer(Buffer::new(
-                remacs_core::SCRATCH_BUFFER,
-                Text::default(),
-                mode,
-            ));
+            editor.add_buffer(Buffer::new(remacs_core::SCRATCH_BUFFER, Text::default(), mode));
         }
     }
 }
@@ -298,9 +267,9 @@ fn start_directory(editor: &Editor, start: StartDirectory) -> PathBuf {
     match start {
         StartDirectory::Project => project_root(&default_directory(editor)),
         StartDirectory::File => default_directory(editor),
-        StartDirectory::Home => std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("/")),
+        StartDirectory::Home => {
+            std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/"))
+        }
     }
 }
 

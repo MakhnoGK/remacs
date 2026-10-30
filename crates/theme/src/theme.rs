@@ -106,14 +106,7 @@ impl Theme {
     fn shown_glass(&self) -> Glass {
         let mut glass = self.glass;
         if cfg!(not(target_os = "macos")) {
-            let Glass {
-                surface,
-                note,
-                modal,
-                pill,
-                pane,
-                ..
-            } = &mut glass;
+            let Glass { surface, note, modal, pill, pane, .. } = &mut glass;
             for tint in [surface, note, modal, pill, pane] {
                 *tint = tint.over(self.colors.bg_main);
             }
@@ -132,11 +125,7 @@ pub fn install(theme: &Theme) {
 
 pub fn appearance() -> Appearance {
     ensure_theme();
-    if LIGHT_APPEARANCE.load(Ordering::Relaxed) {
-        Appearance::Light
-    } else {
-        Appearance::Dark
-    }
+    if LIGHT_APPEARANCE.load(Ordering::Relaxed) { Appearance::Light } else { Appearance::Dark }
 }
 
 /// The built-in themes' names and those of the user's files in `dir`, sorted.
@@ -156,8 +145,7 @@ pub fn names(dir: Option<&Path>) -> Vec<String> {
 }
 
 fn user_file(name: &str, dir: Option<&Path>) -> Option<PathBuf> {
-    dir.map(|dir| dir.join(format!("{name}.toml")))
-        .filter(|path| path.is_file())
+    dir.map(|dir| dir.join(format!("{name}.toml"))).filter(|path| path.is_file())
 }
 
 fn built_in_table(name: &str) -> Result<Table, ThemeError> {
@@ -165,11 +153,7 @@ fn built_in_table(name: &str) -> Result<Table, ThemeError> {
         Some((_, text)) => toml::from_str(text).map_err(|error| error.message().to_owned()),
         None => Err(format!("there is no theme {name}")),
     };
-    parsed.map_err(|message| ThemeError {
-        file: None,
-        line: None,
-        message,
-    })
+    parsed.map_err(|message| ThemeError { file: None, line: None, message })
 }
 
 /// The theme's whole table, what it inherits merged under its own.
@@ -177,16 +161,9 @@ fn resolve(name: &str, dir: Option<&Path>, depth: usize) -> Result<Table, ThemeE
     let Some(path) = user_file(name, dir) else {
         return built_in_table(name);
     };
-    let error = |line, message| ThemeError {
-        file: Some(path.clone()),
-        line,
-        message,
-    };
+    let error = |line, message| ThemeError { file: Some(path.clone()), line, message };
     if depth == MAX_INHERITANCE {
-        return Err(error(
-            None,
-            format!("inherits more than {MAX_INHERITANCE} themes deep"),
-        ));
+        return Err(error(None, format!("inherits more than {MAX_INHERITANCE} themes deep")));
     }
     let text = fs::read_to_string(&path).map_err(|read| error(None, read.to_string()))?;
     let mut own: Table = toml::from_str(&text).map_err(|parse| {
@@ -221,11 +198,7 @@ fn merged(mut under: Table, over: Table) -> Table {
 }
 
 fn from_table(table: Table, file: Option<PathBuf>) -> Result<Theme, ThemeError> {
-    let error = |message| ThemeError {
-        file: file.clone(),
-        line: None,
-        message,
-    };
+    let error = |message| ThemeError { file: file.clone(), line: None, message };
     let theme: Theme = Value::Table(table)
         .try_into()
         .map_err(|parse: toml::de::Error| error(parse.message().to_owned()))?;
@@ -234,10 +207,7 @@ fn from_table(table: Table, file: Option<PathBuf>) -> Result<Theme, ThemeError> 
     }
     for (name, ink) in [("ink", theme.ink), ("shadow", theme.shadow)] {
         if !(0.0..=4.0).contains(&ink.strength) {
-            return Err(error(format!(
-                "{name}.strength {} is outside 0..=4",
-                ink.strength
-            )));
+            return Err(error(format!("{name}.strength {} is outside 0..=4", ink.strength)));
         }
     }
     Ok(theme)
@@ -302,10 +272,7 @@ mod tests {
                     "paper.toml",
                     "name = \"Paper\"\nappearance = \"light\"\n[colors]\nkeyword = \"#123456\"\n",
                 ),
-                (
-                    "night.toml",
-                    "name = \"Night\"\n[glass]\nregion = \"#11223344\"\n",
-                ),
+                ("night.toml", "name = \"Night\"\n[glass]\nregion = \"#11223344\"\n"),
             ],
         );
         let paper = Theme::load("paper", Some(&dir)).unwrap();
@@ -324,10 +291,7 @@ mod tests {
         let dir = themes_dir(
             "inherits",
             &[
-                (
-                    "base.toml",
-                    "name = \"Base\"\n[colors]\nstring = \"#00ff00\"\n",
-                ),
+                ("base.toml", "name = \"Base\"\n[colors]\nstring = \"#00ff00\"\n"),
                 ("child.toml", "inherits = \"base\"\nname = \"Child\"\n"),
                 ("modus-operandi.toml", "opacity = 0.5\n"),
                 ("loop.toml", "inherits = \"loop-too\"\n"),
@@ -335,10 +299,7 @@ mod tests {
             ],
         );
         let child = Theme::load("child", Some(&dir)).unwrap();
-        assert_eq!(
-            (child.name.as_str(), child.colors.string),
-            ("Child", Rgb(0x00ff00))
-        );
+        assert_eq!((child.name.as_str(), child.colors.string), ("Child", Rgb(0x00ff00)));
         let changed = Theme::load(LIGHT, Some(&dir)).unwrap();
         assert_eq!(changed.opacity, 0.5);
         assert_eq!(changed.colors, Theme::built_in(LIGHT).colors);
@@ -359,11 +320,9 @@ mod tests {
             ],
         );
         let message = |name| Theme::load(name, Some(&dir)).unwrap_err().to_string();
-        for (name, part) in [
-            ("unknown", "keywords"),
-            ("alpha", "not a color"),
-            ("opacity", "outside"),
-        ] {
+        for (name, part) in
+            [("unknown", "keywords"), ("alpha", "not a color"), ("opacity", "outside")]
+        {
             assert!(message(name).contains(part), "{}", message(name));
         }
         let syntax = message("syntax");
@@ -375,27 +334,15 @@ mod tests {
     #[test]
     fn lists_built_in_themes_and_the_users() {
         let dir = themes_dir("names", &[("paper.toml", ""), ("notes.txt", "")]);
-        assert_eq!(
-            names(Some(&dir)),
-            ["modus-operandi", "modus-vivendi", "paper"]
-        );
+        assert_eq!(names(Some(&dir)), ["modus-operandi", "modus-vivendi", "paper"]);
         fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
     fn inks_scale_the_alpha_asked_for() {
-        let ink = Ink {
-            color: Rgb(0x000000),
-            strength: 0.5,
-        };
+        let ink = Ink { color: Rgb(0x000000), strength: 0.5 };
         install(&Theme::built_in(LIGHT));
-        glass::put_inks_in_place(
-            ink,
-            Ink {
-                strength: 4.0,
-                ..ink
-            },
-        );
+        glass::put_inks_in_place(ink, Ink { strength: 4.0, ..ink });
         assert_eq!(glass::ink(0x40), 0x00000020);
         assert_eq!(glass::shadow(0x80), 0x000000ff);
         install(&Theme::built_in(DEFAULT));

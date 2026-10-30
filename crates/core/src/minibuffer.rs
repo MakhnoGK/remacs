@@ -132,8 +132,7 @@ impl PromptChoice {
 
     fn next(&self) {
         if !self.values.is_empty() {
-            self.selected
-                .set((self.selected.get() + 1) % self.values.len());
+            self.selected.set((self.selected.get() + 1) % self.values.len());
         }
     }
 }
@@ -156,12 +155,7 @@ pub struct PromptOption {
 impl PromptOption {
     /// A chip lit while `state` is on, always shown.
     pub fn chip(key: char, label: &str, state: &Rc<Cell<bool>>) -> Self {
-        Self {
-            key,
-            labels: vec![label.into()],
-            state: Rc::clone(state),
-            ..Self::default()
-        }
+        Self { key, labels: vec![label.into()], state: Rc::clone(state), ..Self::default() }
     }
 
     pub fn is_switch(&self) -> bool {
@@ -271,11 +265,7 @@ impl Minibuffer {
     }
 
     pub(crate) fn question(question: String, on_answer: AnswerHandler) -> Self {
-        let prompt = Prompt {
-            label: question,
-            hints: QUESTION_HINTS,
-            ..Prompt::default()
-        };
+        let prompt = Prompt { label: question, hints: QUESTION_HINTS, ..Prompt::default() };
         Self::new(prompt, None, on_answer)
     }
 
@@ -418,11 +408,7 @@ impl Minibuffer {
             .map(|buffer| buffer.contents(0..buffer.text().len()))
             .unwrap_or_default();
         let description = description.trim_end();
-        if description.is_empty() {
-            subject
-        } else {
-            format!("{subject}\n\n{description}")
-        }
+        if description.is_empty() { subject } else { format!("{subject}\n\n{description}") }
     }
 
     pub fn is_question(&self) -> bool {
@@ -445,18 +431,12 @@ impl Minibuffer {
 
     /// The completions' label if they give one, else the prompt's.
     pub fn label(&self) -> &str {
-        self.completions
-            .label
-            .as_deref()
-            .unwrap_or(&self.prompt.label)
+        self.completions.label.as_deref().unwrap_or(&self.prompt.label)
     }
 
     /// The completions' subject if they give one, else the prompt's.
     pub fn subject(&self) -> &str {
-        self.completions
-            .subject
-            .as_deref()
-            .unwrap_or(&self.prompt.subject)
+        self.completions.subject.as_deref().unwrap_or(&self.prompt.subject)
     }
 
     pub fn completions(&self) -> &Completions {
@@ -481,10 +461,7 @@ impl Minibuffer {
 
     /// The choice `key` picks the next value of.
     pub(crate) fn choice_for_key(&self, key: Key) -> Option<usize> {
-        self.prompt
-            .choices
-            .iter()
-            .position(|choice| Key::parse(choice.key) == Some(key))
+        self.prompt.choices.iter().position(|choice| Key::parse(choice.key) == Some(key))
     }
 
     pub(crate) fn next_choice(&self, index: usize) {
@@ -511,8 +488,7 @@ impl Minibuffer {
 
     /// Indices of the candidates on screen; the selection is always among them.
     pub fn visible(&self) -> Range<usize> {
-        self.selection
-            .visible(self.candidates().len(), VISIBLE_CANDIDATES)
+        self.selection.visible(self.candidates().len(), VISIBLE_CANDIDATES)
     }
 
     pub fn select(&mut self, index: usize) {
@@ -549,9 +525,7 @@ impl Minibuffer {
             let default = self.prompt.default.as_ref().filter(|_| input.is_empty());
             default
                 .and_then(|default| {
-                    self.candidates()
-                        .iter()
-                        .position(|candidate| &candidate.value == default)
+                    self.candidates().iter().position(|candidate| &candidate.value == default)
                 })
                 .or(self.completions.selected)
                 .unwrap_or(0)
@@ -654,9 +628,6 @@ mod quoting_tests {
                 ("?".to_owned(), false),
             ]
         );
-        assert_eq!(
-            quoted_parts("C:\\ is not quoted"),
-            [("C:\\ is not quoted".to_owned(), false)]
-        );
+        assert_eq!(quoted_parts("C:\\ is not quoted"), [("C:\\ is not quoted".to_owned(), false)]);
     }
 }
