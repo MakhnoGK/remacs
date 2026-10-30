@@ -1,25 +1,25 @@
-use std::mem;
+mod banner;
+mod history;
+mod rows;
 
 use gpui::{
-    AnyElement, BorderStyle, Bounds, Context, Div, FontWeight, IntoElement, MouseButton,
-    MouseDownEvent, ParentElement, PathBuilder, Pixels, Point, ScrollWheelEvent, Window, canvas,
-    div, point, prelude::*, px, quad, rgb, rgba, size, svg,
+    AnyElement, Context, Div, IntoElement, MouseButton, MouseDownEvent, Pixels, div, prelude::*,
+    px, rgba,
 };
-use remacs_core::{
-    Banner, BannerButton, BannerPart, Button, Code, CommitRow, DiffRow, Fact, FactValue, GraphNode,
-    GraphRow, History, Outline, OutlineRow, RefChip, RefKind, TextSide, Tone, ToolbarButton,
-};
-use remacs_theme::{color, font, glass};
+use remacs_core::{Code, Outline, OutlineRow, TextSide};
+use remacs_theme::{font, glass};
 
-use crate::assets::{BRANCH_ICON, CHEVRON_DOWN_ICON, CHEVRON_ICON};
+use banner::render_banner;
+pub use banner::render_toolbar;
+use history::{render_beside_rows, render_history};
+pub use rows::ref_chip;
+use rows::{render_facts, render_rows};
+
 use crate::conflict_view::render_conflict;
 use crate::editor_view::EditorView;
 use crate::highlights::Highlights;
 use crate::table_view::{LIST_BOTTOM, clickable};
-use crate::widgets::{
-    Scrolled, fade_scrolled, icon, kbd, line_counts, over, scrolled_by, segment, segmented, shadow,
-    state_letter, tone_color,
-};
+use crate::widgets::{Scrolled, StyleExt, fade_scrolled, over, scrolled_by, shadow};
 
 const PANE_TOP: f32 = 56.0;
 const BANNER_TOP: f32 = 52.0;
@@ -80,13 +80,11 @@ pub fn fitting_rows(
 /// How many of `rows`, from the first, fit in `room` pixels.
 pub fn fitting_rows_in(rows: &[OutlineRow], room: f32) -> usize {
     let mut used = 0.0;
-    for index in 0..rows.len() {
+    let past_room = (0..rows.len()).find(|&index| {
         used += row_height(rows, index);
-        if used > room {
-            return index.max(1);
-        }
-    }
-    rows.len()
+        used > room
+    });
+    past_room.map_or(rows.len(), |index| index.max(1))
 }
 
 /// The height `rows[index]` takes in the pane, the gap after it and a diff's frame
@@ -110,22 +108,44 @@ pub fn row_height(rows: &[OutlineRow], index: usize) -> f32 {
     height
 }
 
+/// The room between the top of the panes and the bottom of the window.
+fn panes_height(window_height: Pixels, has_banner: bool) -> f32 {
+    (window_height / px(1.0)) - pane_top(has_banner) - LIST_BOTTOM
+}
+
 fn rows_height(window_height: Pixels, fact_count: usize, has_banner: bool) -> f32 {
     let facts = if fact_count == 0 {
         0.0
     } else {
         FACTS_TOP + FACT_HEIGHT * fact_count as f32 + FACTS_BOTTOM
     };
-    (window_height / px(1.0)) - pane_top(has_banner) - LIST_BOTTOM - 2.0 * PANE_PADDING - facts
+    panes_height(window_height, has_banner) - 2.0 * PANE_PADDING - facts
 }
 
 /// The room under the tabs of the column at the right, for its rows or its commits.
 pub fn beside_height(window_height: Pixels, has_banner: bool) -> f32 {
-    (window_height / px(1.0))
-        - pane_top(has_banner)
-        - LIST_BOTTOM
-        - HISTORY_HEADER_HEIGHT
-        - HISTORY_HEADER_GAP
+    panes_height(window_height, has_banner) - HISTORY_HEADER_HEIGHT - HISTORY_HEADER_GAP
+}
+
+/// Whether a window this wide has room for the history beside the pane.
+pub fn fits_history(window_width: Pixels) -> bool {
+    fits_beside(window_width, PANE_WIDTH)
+}
+
+/// Whether a pane `width` wide leaves room beside it for the history or the text.
+pub fn fits_beside(window_width: Pixels, width: f32) -> bool {
+    window_width >= px(2.0 * PANE_SIDE + width + HISTORY_GAP + MIN_HISTORY_WIDTH)
+}
+
+/// How many commits fit under the history's header in a window this tall.
+pub fn fitting_commits(window_height: Pixels, has_banner: bool) -> usize {
+    let commits = beside_height(window_height, has_banner) / COMMIT_HEIGHT;
+    commits.floor().max(0.0) as usize
+}
+
+/// Where the text starts, past a side column `width` wide.
+pub fn text_side_end(width: f32) -> Pixels {
+    px(PANE_SIDE + width + HISTORY_GAP)
 }
 
 /// Whether the outline's rows and its history go on beyond what is shown, and how far
@@ -149,70 +169,43 @@ pub fn render_outline(
     code_faces: &dyn Fn(&Code) -> Highlights,
     cx: &mut Context<EditorView>,
 ) -> impl IntoElement {
-    let Outline {
-        facts,
-        rows,
-        toggle,
-        activate,
-        history,
-        conflict,
-        banner,
-        tabs,
-        side,
-        ..
-    } = outline;
-    let has_banner = banner.is_some();
-    let banner = banner.map(|banner| render_banner(banner, cx));
-    let rows: Vec<(Div, bool)> = rows
-        .into_iter()
-        .enumerate()
-        .map(|(index, row)| {
-            let line = first_line + index;
-            let is_diff = matches!(row, OutlineRow::Diff(_));
-            let is_heading = matches!(row, OutlineRow::Heading { .. });
-            let body = row_body(row, line == point_line);
-            let body = if is_heading {
-                body.on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |view, _: &MouseDownEvent, _, cx| {
-                        cx.stop_propagation();
-                        view.click_heading(line, toggle, cx);
-                    }),
-                )
-            } else {
-                clicks(body, line, activate, cx)
-            };
-            (body, is_diff)
-        })
-        .collect();
-    let children = framed(rows);
-    let (pane, side) = match side {
+    let (toggle, activate) = (outline.toggle, outline.activate);
+    let has_banner = outline.banner.is_some();
+    let banner = outline.banner.map(|banner| render_banner(banner, cx));
+    let lines = (first_line..).zip(outline.rows);
+    let rows = render_rows(lines, Some(point_line), |row, line, is_heading| {
+        row.on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |view, event: &MouseDownEvent, _, cx| {
+                cx.stop_propagation();
+                if is_heading {
+                    view.click_heading(line, toggle, cx);
+                } else {
+                    view.click_row(line, event.click_count, activate, cx);
+                }
+            }),
+        )
+    });
+    let conflict = outline.conflict;
+    let conflict = conflict.map(|conflict| render_conflict(conflict, code_faces, cx));
+    let (pane, side) = match outline.side {
         Some(mut side) => {
-            side.facts = facts;
-            let beside = match conflict {
-                Some(conflict) => render_conflict(conflict, code_faces, cx),
-                None => render_beside_rows(tabs, children, scrolled.rows, scrolled.rows_shift, cx),
-            };
+            side.facts = outline.facts;
+            let (scrolled, shift) = (scrolled.rows, scrolled.rows_shift);
+            let beside = conflict
+                .unwrap_or_else(|| render_beside_rows(outline.tabs, rows, scrolled, shift, cx));
             let pane = side_pane(side, PANE_WIDTH, window_height, has_banner, cx);
             (pane, Some(beside))
         }
         None => {
-            let facts = (!facts.is_empty()).then(|| render_facts(facts, cx));
-            let side = match conflict {
-                Some(conflict) => Some(render_conflict(conflict, code_faces, cx)),
-                None => history.map(|history| {
-                    let (scrolled, shift) = (scrolled.history, scrolled.history_shift);
-                    render_history(history, tabs, scrolled, shift, cx)
-                }),
-            };
-            let pane = pane_column(
-                facts,
-                children,
-                scrolled.rows,
-                scrolled.rows_shift,
-                PANE_WIDTH,
-            );
-            (pane, side)
+            let facts = render_facts(outline.facts, cx);
+            let side = conflict.or_else(|| {
+                let (scrolled, shift) = (scrolled.history, scrolled.history_shift);
+                let history = outline.history;
+                history.map(|history| render_history(history, outline.tabs, scrolled, shift, cx))
+            });
+            let (scrolled, shift) = (scrolled.rows, scrolled.rows_shift);
+            (pane_column(facts, rows, scrolled, shift, PANE_WIDTH), side)
         }
     };
     let panes = div()
@@ -228,6 +221,32 @@ pub fn render_outline(
     div().absolute().inset_0().children(banner).child(panes)
 }
 
+/// Children in a row, centered across it, that keeps its size: `height` tall, padded
+/// `padding_x` at the sides and rounded by `radius`.
+pub(crate) fn chip_frame(height: f32, padding_x: f32, radius: f32) -> Div {
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .h(px(height))
+        .px(px(padding_x))
+        .rounded(px(radius))
+}
+
+/// `row` with the selection's background, lifted, while it is selected.
+pub(crate) fn lift_selected(row: Div, selected: bool) -> Div {
+    row.when(selected, |row| {
+        row.bg(rgba(glass::selection()))
+            .shadow(vec![shadow(glass::shadow(0x73), 1.0, 3.0, 0.0)])
+    })
+}
+
+/// `rows` in a column, moved up by `shift` pixels.
+fn shifted(rows: Vec<AnyElement>, shift: f32) -> Div {
+    let column = div().flex().flex_col().gap(px(ROW_GAP)).children(rows);
+    scrolled_by(column, shift)
+}
+
 /// A pane `width` wide: `facts` over `rows`, the rows moved up by `shift` pixels.
 fn pane_column(
     facts: Option<Div>,
@@ -236,10 +255,7 @@ fn pane_column(
     shift: f32,
     width: f32,
 ) -> Div {
-    let rows = scrolled_by(
-        div().flex().flex_col().gap(px(ROW_GAP)).children(rows),
-        shift,
-    );
+    let under = over(glass::pane(), glass::window_tint());
     div()
         .flex()
         .flex_col()
@@ -249,17 +265,12 @@ fn pane_column(
         .gap(px(ROW_GAP))
         .overflow_hidden()
         .bg(rgba(glass::pane()))
-        .border_1()
-        .border_color(rgba(glass::pane_border()))
+        .bordered(glass::pane_border())
         .rounded(px(12.0))
         .font_family(font::ui())
         .text_size(px(font::ui_size()))
         .children(facts)
-        .child(fade_scrolled(
-            rows,
-            scrolled,
-            over(glass::pane(), glass::window_tint()),
-        ))
+        .child(fade_scrolled(shifted(rows, shift), scrolled, under))
 }
 
 /// The column a plugin puts at the left of a buffer drawn as text, `width` wide, in a
@@ -290,33 +301,20 @@ fn side_pane(
     has_banner: bool,
     cx: &mut Context<EditorView>,
 ) -> Div {
-    let TextSide {
-        facts,
-        rows,
-        actions,
-        selected,
-    } = side;
-    let fact_count = facts.len();
-    let facts = (!facts.is_empty()).then(|| render_facts(facts, cx));
-    let first = first_shown(&rows, fact_count, has_banner, height, selected);
+    let (rows, actions, fact_count) = (side.rows, side.actions, side.facts.len());
+    let first = first_shown(&rows, fact_count, has_banner, height, side.selected);
     let shown = fitting_rows(&rows[first..], fact_count, has_banner, height);
     let scrolled = Scrolled {
         above: first > 0,
         below: first + shown < rows.len(),
     };
-    let rows: Vec<(Div, bool)> = (first..first + shown)
-        .map(|index| {
-            let row = rows[index].clone();
-            let is_diff = matches!(row, OutlineRow::Diff(_));
-            let body = row_body(row, Some(index) == selected);
-            let body = match actions[index].clone() {
-                Some(action) => clickable(body, action, cx),
-                None => body,
-            };
-            (body, is_diff)
-        })
-        .collect();
-    pane_column(facts, framed(rows), scrolled, 0.0, width)
+    let facts = render_facts(side.facts, cx);
+    let shown_rows = (first..).zip(rows[first..first + shown].iter().cloned());
+    let rows = render_rows(shown_rows, side.selected, |row, index, _| {
+        let action = actions[index].clone();
+        row.when_some(action, |row, action| clickable(row, action, cx))
+    });
+    pane_column(facts, rows, scrolled, 0.0, width)
 }
 
 /// The first of `rows` shown under `fact_count` facts in a window `height` tall: the
@@ -340,833 +338,11 @@ fn first_shown(
     first
 }
 
-/// Where the text starts, past a side column `width` wide.
-pub fn text_side_end(width: f32) -> Pixels {
-    px(PANE_SIDE + width + HISTORY_GAP)
-}
-
-/// What is in progress across the top: its name and refs, the step, the commit applied,
-/// how far the conflicts are, and the buttons to go on.
-fn render_banner(banner: Banner, cx: &mut Context<EditorView>) -> Div {
-    let Banner {
-        title,
-        parts,
-        step,
-        commit,
-        state: (state, state_tone),
-        buttons,
-    } = banner;
-    let parts = parts.into_iter().map(|part| match part {
-        BannerPart::Chip(chip) => ref_chip(chip),
-        BannerPart::Word(word) => div().text_color(rgb(color::fg_dim())).child(word),
-    });
-    let buttons: Vec<Div> = buttons
-        .into_iter()
-        .map(|button| render_banner_button(button, cx))
-        .collect();
-    div()
-        .absolute()
-        .top(px(BANNER_TOP))
-        .left(px(PANE_SIDE))
-        .right(px(PANE_SIDE))
-        .h(px(BANNER_HEIGHT))
-        .flex()
-        .items_center()
-        .gap(px(10.0))
-        .pl(px(14.0))
-        .pr(px(8.0))
-        .rounded(px(10.0))
-        .bg(rgba(color::warning() << 8 | 0x1a))
-        .border_1()
-        .border_color(rgba(color::warning() << 8 | 0x52))
-        .font_family(font::ui())
-        .text_size(px(font::ui_size()))
-        .text_color(rgb(color::fg_body()))
-        .whitespace_nowrap()
-        .child(
-            svg()
-                .path(BRANCH_ICON)
-                .flex_none()
-                .size(px(16.0))
-                .text_color(rgb(color::warning())),
-        )
-        .child(
-            div()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(rgb(color::fg_main()))
-                .child(title),
-        )
-        .children(parts)
-        .children(step.map(|step| {
-            div()
-                .px(px(8.0))
-                .py(px(2.0))
-                .rounded(px(5.0))
-                .bg(rgba(color::warning() << 8 | 0x29))
-                .text_size(px(font::status_size()))
-                .text_color(rgb(color::fg_on_warning()))
-                .child(step)
-        }))
-        .children(commit.map(|(id, subject)| {
-            div()
-                .flex()
-                .min_w_0()
-                .items_center()
-                .gap(px(10.0))
-                .child(
-                    div()
-                        .flex_none()
-                        .font_family(font::mono())
-                        .text_size(px(font::status_size()))
-                        .text_color(rgb(color::fg_faint()))
-                        .child(id),
-                )
-                .child(div().min_w_0().truncate().child(subject))
-        }))
-        .child(div().flex_1())
-        .child(
-            div()
-                .flex_none()
-                .text_size(px(font::status_size()))
-                .text_color(rgb(tone_color(state_tone, color::fg_dim())))
-                .child(state),
-        )
-        .children(buttons)
-}
-
-/// Danger for one that throws work away, Accent for the one to press next; a disabled
-/// one cannot be pressed.
-fn render_banner_button(button: BannerButton, cx: &mut Context<EditorView>) -> Div {
-    let BannerButton {
-        label,
-        tone,
-        enabled,
-        action,
-    } = button;
-    let (background, border, text) = match tone {
-        _ if !enabled => (glass::disabled(), glass::ink(0x14), color::fg_muted()),
-        Tone::Danger => (
-            glass::control(),
-            color::error() << 8 | 0x4d,
-            color::fg_flagged(),
-        ),
-        Tone::Accent => (
-            glass::selection(),
-            color::accent() << 8 | 0x73,
-            color::fg_main(),
-        ),
-        _ => (glass::control(), glass::control_border(), color::fg_main()),
-    };
-    let element = div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .h(px(28.0))
-        .px(px(12.0))
-        .rounded(px(7.0))
-        .bg(rgba(background))
-        .border_1()
-        .border_color(rgba(border))
-        .text_size(px(font::status_size()))
-        .text_color(rgb(text))
-        .when(enabled, |element| {
-            element.shadow(vec![shadow(glass::shadow(0x80), 1.0, 2.0, 0.0)])
-        })
-        .child(label);
-    if enabled {
-        clickable(element, action, cx)
-    } else {
-        element
-    }
-}
-
-/// Buttons at the right of the title bar, with a badge for what each would move.
-pub fn render_toolbar(buttons: Vec<ToolbarButton>, cx: &mut Context<EditorView>) -> Div {
-    let buttons: Vec<Div> = buttons
-        .into_iter()
-        .map(|button| {
-            let ToolbarButton {
-                icon: button_icon,
-                label,
-                count,
-                enabled,
-                action,
-            } = button;
-            let text = if enabled {
-                color::fg_body()
-            } else {
-                color::fg_muted()
-            };
-            let element = div()
-                .flex()
-                .items_center()
-                .gap(px(6.0))
-                .h(px(26.0))
-                .px(px(10.0))
-                .rounded(px(7.0))
-                .bg(rgba(glass::control()))
-                .border_1()
-                .border_color(rgba(glass::control_border()))
-                .shadow(vec![shadow(glass::shadow(0x99), 1.0, 2.0, 0.0)])
-                .font_family(font::ui())
-                .text_size(px(font::status_size()))
-                .text_color(rgb(text))
-                .child(icon(button_icon, text))
-                .child(label)
-                .children(count.filter(|_| enabled).map(|count| {
-                    div()
-                        .px(px(5.0))
-                        .rounded(px(4.0))
-                        .bg(rgba(glass::selection()))
-                        .font_family(font::mono())
-                        .text_size(px(font::small_size()))
-                        .line_height(px(16.0))
-                        .text_color(rgb(color::fg_main()))
-                        .child(count.to_string())
-                }));
-            if enabled {
-                clickable(element, action, cx)
-            } else {
-                element
-            }
-        })
-        .collect();
-    div()
-        .absolute()
-        .top(px(9.0))
-        .right(px(14.0))
-        .flex()
-        .gap(px(8.0))
-        .children(buttons)
-}
-
-/// Whether a window this wide has room for the history beside the pane.
-pub fn fits_history(window_width: Pixels) -> bool {
-    fits_beside(window_width, PANE_WIDTH)
-}
-
-/// Whether a pane `width` wide leaves room beside it for the history or the text.
-pub fn fits_beside(window_width: Pixels, width: f32) -> bool {
-    window_width >= px(2.0 * PANE_SIDE + width + HISTORY_GAP + MIN_HISTORY_WIDTH)
-}
-
-/// How many commits fit under the history's header in a window this tall.
-pub fn fitting_commits(window_height: Pixels, has_banner: bool) -> usize {
-    (beside_height(window_height, has_banner) / COMMIT_HEIGHT)
-        .floor()
-        .max(0.0) as usize
-}
-
-/// The tabs atop the column at the right; a click on one switches to it.
-fn tabs_header(tabs: Vec<Button>, cx: &mut Context<EditorView>) -> Div {
-    div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(12.0))
-        .h(px(HISTORY_HEADER_HEIGHT))
-        .pl(px(12.0))
-        .pr(px(4.0))
-        .child(
-            segmented().children(
-                tabs.into_iter()
-                    .map(|tab| clickable(segment(&tab.label, tab.selected), tab.action, cx)),
-            ),
-        )
-}
-
-/// An outline's rows at the right under its tabs, moved up by `shift` pixels.
-fn render_beside_rows(
-    tabs: Vec<Button>,
-    rows: Vec<AnyElement>,
-    scrolled: Scrolled,
-    shift: f32,
-    cx: &mut Context<EditorView>,
-) -> Div {
-    let rows = scrolled_by(
-        div().flex().flex_col().gap(px(ROW_GAP)).children(rows),
-        shift,
-    );
-    div()
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_w_0()
-        .gap(px(HISTORY_HEADER_GAP))
-        .overflow_hidden()
-        .font_family(font::ui())
-        .text_size(px(font::ui_size()))
-        .child(tabs_header(tabs, cx))
-        .child(fade_scrolled(
-            rows,
-            scrolled,
-            rgba(glass::window_tint()).into(),
-        ))
-}
-
-fn render_history(
-    history: History,
-    tabs: Vec<Button>,
-    scrolled: Scrolled,
-    shift: f32,
-    cx: &mut Context<EditorView>,
-) -> Div {
-    let History {
-        search,
-        file,
-        commits,
-        selected,
-        empty,
-        ..
-    } = history;
-    let lanes = commits
-        .iter()
-        .flat_map(|commit| {
-            let graph = &commit.graph;
-            let edges = graph.upper.iter().chain(&graph.lower);
-            edges
-                .flat_map(|edge| [edge.from, edge.to])
-                .chain([graph.lane])
-        })
-        .max()
-        .map_or(1, |lane| lane + 1)
-        .min(MAX_LANES);
-    let indent = (FIRST_LANE_X + LANE_WIDTH * (lanes - 1) as f32 + 28.0).max(MIN_COMMIT_INDENT);
-    let search_hint = match search {
-        Some(search) => div()
-            .text_color(rgb(color::fg_alt()))
-            .child(format!("“{search}”")),
-        None => div().child("Search history"),
-    };
-    let header = tabs_header(tabs, cx)
-        .children(file.map(|file| clickable(file_chip(file.label), file.action, cx)))
-        .child(div().flex_1())
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(6.0))
-                .px(px(8.0))
-                .text_size(px(font::status_size()))
-                .text_color(rgb(color::fg_faint()))
-                .child(kbd("/", false))
-                .child(search_hint),
-        );
-    let list = if commits.is_empty() {
-        div()
-            .pl(px(12.0))
-            .pt(px(8.0))
-            .text_color(rgb(color::fg_faint()))
-            .child(empty)
-    } else {
-        let commits = div().flex().flex_col().children(
-            commits
-                .into_iter()
-                .enumerate()
-                .map(|(index, commit)| render_commit(commit, indent, selected == Some(index), cx)),
-        );
-        fade_scrolled(
-            scrolled_by(commits, shift),
-            scrolled,
-            rgba(glass::window_tint()).into(),
-        )
-    };
-    div()
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_w_0()
-        .gap(px(HISTORY_HEADER_GAP))
-        .overflow_hidden()
-        .font_family(font::ui())
-        .text_size(px(font::ui_size()))
-        .on_scroll_wheel(cx.listener(move |view, event: &ScrollWheelEvent, _, cx| {
-            cx.stop_propagation();
-            view.scroll_history(event, cx);
-        }))
-        .child(header)
-        .child(list)
-}
-
-/// The file a history shows the commits of, with what clears it.
-fn file_chip(path: String) -> Div {
-    div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(6.0))
-        .h(px(22.0))
-        .px(px(8.0))
-        .rounded(px(6.0))
-        .bg(rgba(glass::chip()))
-        .font_family(font::mono())
-        .text_size(px(font::small_size()))
-        .text_color(rgb(color::fg_body()))
-        .child(div().max_w(px(220.0)).truncate().child(path))
-        .child(div().text_color(rgb(color::fg_faint())).child("×"))
-}
-
-fn render_commit(
-    commit: CommitRow,
-    indent: f32,
-    selected: bool,
-    cx: &mut Context<EditorView>,
-) -> Div {
-    let CommitRow {
-        graph,
-        refs,
-        subject,
-        author,
-        date,
-        id,
-        open,
-    } = commit;
-    let row = div()
-        .relative()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(12.0))
-        .h(px(COMMIT_HEIGHT))
-        .pl(px(indent))
-        .pr(px(12.0))
-        .rounded(px(8.0))
-        .when(selected, |row| row.bg(rgba(glass::selection())))
-        .whitespace_nowrap();
-    clickable(row, open, cx)
-        .child(
-            canvas(
-                |_, _, _| {},
-                move |bounds, _, window, _| {
-                    paint_graph(&graph, bounds, window);
-                },
-            )
-            .absolute()
-            .left_0()
-            .top_0()
-            .w(px(indent))
-            .h(px(COMMIT_HEIGHT)),
-        )
-        .child(
-            div()
-                .flex()
-                .flex_1()
-                .min_w_0()
-                .items_center()
-                .gap(px(6.0))
-                .overflow_hidden()
-                .text_color(rgb(color::fg_main()))
-                .children(refs.into_iter().map(ref_chip))
-                .child(div().min_w_0().truncate().child(subject)),
-        )
-        .child(
-            div()
-                .flex_none()
-                .w(px(112.0))
-                .truncate()
-                .text_size(px(font::status_size()))
-                .text_color(rgb(color::fg_dim()))
-                .child(author),
-        )
-        .child(
-            div()
-                .flex_none()
-                .w(px(84.0))
-                .text_right()
-                .text_size(px(font::status_size()))
-                .text_color(rgb(color::fg_faint()))
-                .child(date),
-        )
-        .child(
-            div()
-                .flex_none()
-                .w(px(64.0))
-                .text_right()
-                .font_family(font::mono())
-                .text_size(px(font::status_size()))
-                .text_color(rgb(color::fg_line_number()))
-                .child(id),
-        )
-}
-
-/// The lines through a commit's row, curving where they change lanes, and its node.
-fn paint_graph(graph: &GraphRow, bounds: Bounds<Pixels>, window: &mut Window) {
-    let x = |lane: usize| bounds.left() + px(FIRST_LANE_X + LANE_WIDTH * lane as f32);
-    let top = bounds.top();
-    let middle = top + px(COMMIT_HEIGHT / 2.0);
-    let bottom = top + px(COMMIT_HEIGHT);
-    for (edges, from_y, to_y) in [(&graph.upper, top, middle), (&graph.lower, middle, bottom)] {
-        for edge in edges
-            .iter()
-            .filter(|edge| edge.from.max(edge.to) < MAX_LANES)
-        {
-            let start = point(x(edge.from), from_y);
-            let end = point(x(edge.to), to_y);
-            let mut path = PathBuilder::stroke(px(GRAPH_STROKE));
-            path.move_to(start);
-            if edge.from == edge.to {
-                path.line_to(end);
-            } else {
-                let bend = (to_y - from_y) * 0.6;
-                path.cubic_bezier_to(
-                    end,
-                    point(start.x, from_y + bend),
-                    point(end.x, to_y - bend),
-                );
-            }
-            if let Ok(path) = path.build() {
-                window.paint_path(path, rgb(color::graph(edge.color)));
-            }
-        }
-    }
-    if graph.lane >= MAX_LANES {
-        return;
-    }
-    let center = point(x(graph.lane), middle);
-    let lane_color = color::graph(graph.color);
-    match graph.node {
-        GraphNode::Head => {
-            paint_dot(window, center, 6.0, color::bg_main(), lane_color);
-            paint_dot(window, center, 1.5, lane_color, lane_color);
-        }
-        GraphNode::Merge => paint_dot(window, center, 5.5, color::bg_main(), lane_color),
-        GraphNode::Commit => paint_dot(window, center, 4.5, lane_color, color::bg_main()),
-    }
-}
-
-/// A circle of `radius` to the middle of its ring, as SVG strokes it.
-fn paint_dot(window: &mut Window, center: Point<Pixels>, radius: f32, fill: u32, ring: u32) {
-    let outer = px(radius + GRAPH_STROKE / 2.0);
-    let bounds = Bounds::new(
-        point(center.x - outer, center.y - outer),
-        size(outer * 2.0, outer * 2.0),
-    );
-    window.paint_quad(quad(
-        bounds,
-        outer,
-        rgb(fill),
-        px(GRAPH_STROKE),
-        rgb(ring),
-        BorderStyle::Solid,
-    ));
-}
-
-fn render_facts(facts: Vec<Fact>, cx: &mut Context<EditorView>) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .flex_none()
-        .pt(px(FACTS_TOP))
-        .px(px(4.0))
-        .pb(px(10.0))
-        .mb(px(6.0))
-        .border_b_1()
-        .border_color(rgba(glass::ink(0x0f)))
-        .children(facts.into_iter().map(|fact| {
-            let value = match fact.value {
-                FactValue::Ref(chip) => ref_chip(chip),
-                FactValue::Code(text) => div()
-                    .flex_none()
-                    .font_family(font::mono())
-                    .text_size(px(font::status_size()))
-                    .text_color(rgb(color::fg_body()))
-                    .child(text),
-            };
-            let (note_size, note_color) = if fact.note_is_title {
-                (font::ui_size(), color::fg_body())
-            } else {
-                (font::status_size(), color::fg_dim())
-            };
-            div()
-                .flex()
-                .items_center()
-                .gap(px(10.0))
-                .h(px(FACT_HEIGHT))
-                .px(px(6.0))
-                .whitespace_nowrap()
-                .child(
-                    div()
-                        .flex_none()
-                        .w(px(64.0))
-                        .text_size(px(font::status_size()))
-                        .text_color(rgb(color::fg_faint()))
-                        .child(fact.label),
-                )
-                .child(value)
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .text_size(px(note_size))
-                        .text_color(rgb(note_color))
-                        .child(fact.note),
-                )
-                .children(fact.buttons.into_iter().map(|button| {
-                    clickable(
-                        div()
-                            .flex()
-                            .flex_none()
-                            .items_center()
-                            .h(px(24.0))
-                            .px(px(10.0))
-                            .rounded(px(6.0))
-                            .border_1()
-                            .border_color(rgba(glass::control_border()))
-                            .bg(rgba(glass::control()))
-                            .text_size(px(font::status_size()))
-                            .shadow(vec![shadow(glass::shadow(0x80), 1.0, 2.0, 0.0)])
-                            .child(button.label),
-                        button.action,
-                        cx,
-                    )
-                }))
-        }))
-}
-
-/// A branch or tag, colored by what it is.
-pub fn ref_chip(chip: RefChip) -> Div {
-    let (background, foreground, border) = match chip.kind {
-        RefKind::Head => (
-            rgba(color::accent() << 8 | 0x33),
-            color::fg_ref_head(),
-            rgba(color::accent() << 8 | 0x73),
-        ),
-        RefKind::Main => (
-            rgba(color::keyword() << 8 | 0x29),
-            color::fg_ref_main(),
-            rgba(0x00000000),
-        ),
-        RefKind::Branch => (
-            rgba(color::type_name() << 8 | 0x24),
-            color::fg_ref_branch(),
-            rgba(0x00000000),
-        ),
-        RefKind::Remote => (
-            rgba(0x00000000),
-            color::fg_ref_remote(),
-            rgba(glass::ink(0x29)),
-        ),
-        RefKind::Tag => (rgba(glass::chip()), color::fg_body(), rgba(0x00000000)),
-    };
-    div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .h(px(20.0))
-        .px(px(7.0))
-        .rounded(px(5.0))
-        .border_1()
-        .border_color(border)
-        .bg(background)
-        .font_family(font::mono())
-        .text_size(px(font::small_size()))
-        .text_color(rgb(foreground))
-        .child(chip.name)
-}
-
-fn render_heading(title: &str, count: usize, open: bool, tone: Tone, selected: bool) -> Div {
-    let count_color = match tone {
-        Tone::Faint => color::fg_line_number(),
-        tone => tone_color(tone, color::fg_line_number()),
-    };
-    div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(8.0))
-        .h(px(HEADING_HEIGHT))
-        .px(px(10.0))
-        .rounded(px(8.0))
-        .when(selected, |heading| heading.bg(rgba(glass::selection())))
-        .text_size(px(font::small_size()))
-        .text_color(rgb(if selected {
-            color::fg_alt()
-        } else {
-            color::fg_faint()
-        }))
-        .child(
-            svg()
-                .path(if open {
-                    CHEVRON_DOWN_ICON
-                } else {
-                    CHEVRON_ICON
-                })
-                .flex_none()
-                .size(px(10.0))
-                .text_color(rgb(color::fg_faint())),
-        )
-        .child(
-            div()
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(title.to_uppercase()),
-        )
-        .child(div().text_color(rgb(count_color)).child(count.to_string()))
-}
-
-fn row_frame(selected: bool) -> Div {
-    div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(10.0))
-        .h(px(ROW_HEIGHT))
-        .px(px(10.0))
-        .rounded(px(8.0))
-        .whitespace_nowrap()
-        .when(selected, |row| {
-            row.bg(rgba(glass::selection())).shadow(vec![shadow(
-                glass::shadow(0x73),
-                1.0,
-                3.0,
-                0.0,
-            )])
-        })
-}
-
-fn clicks(row: Div, line: usize, activate: &'static str, cx: &mut Context<EditorView>) -> Div {
-    row.on_mouse_down(
-        MouseButton::Left,
-        cx.listener(move |view, event: &MouseDownEvent, _, cx| {
-            cx.stop_propagation();
-            view.click_row(line, event.click_count, activate, cx);
-        }),
-    )
-}
-
-fn diff_frame(lines: Vec<AnyElement>) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .flex_none()
-        .ml(px(DIFF_INDENT))
-        .mr(px(4.0))
-        .mt(px(2.0))
-        .mb(px(6.0))
-        .py(px(4.0))
-        .rounded(px(8.0))
-        .overflow_hidden()
-        .bg(rgba(glass::well()))
-        .border_1()
-        .border_color(rgba(glass::ink(0x0f)))
-        .font_family(font::mono())
-        .text_size(px(font::status_size()))
-        .line_height(px(DIFF_LINE_HEIGHT))
-        .children(lines)
-}
-
-/// `row` as drawn, without what a click on it does; a diff line belongs in a diff's frame.
-fn row_body(row: OutlineRow, selected: bool) -> Div {
-    match row {
-        OutlineRow::Diff(diff) => diff_line(diff, selected),
-        OutlineRow::Heading {
-            title,
-            count,
-            open,
-            tone,
-        } => render_heading(&title, count, open, tone, selected),
-        OutlineRow::File {
-            state,
-            name,
-            directory,
-            lines,
-            note,
-            ..
-        } => row_frame(selected)
-            .child(state_letter(Some(state), selected).w(px(12.0)))
-            .child(div().flex_none().font_family(font::mono()).child(name))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .text_size(px(font::status_size()))
-                    .text_color(rgb(if selected {
-                        color::fg_alt()
-                    } else {
-                        color::fg_faint()
-                    }))
-                    .child(directory),
-            )
-            .map(|row| match note {
-                Some((note, tone)) => row.child(
-                    div()
-                        .flex_none()
-                        .text_size(px(font::status_size()))
-                        .text_color(rgb(tone_color(tone, color::fg_dim())))
-                        .child(note),
-                ),
-                None => row.children(lines.map(|lines| line_counts(lines, selected))),
-            }),
-        OutlineRow::Item { name, description } => row_frame(selected)
-            .child(
-                div()
-                    .flex_none()
-                    .font_family(font::mono())
-                    .text_size(px(font::status_size()))
-                    .text_color(rgb(if selected {
-                        color::fg_alt()
-                    } else {
-                        color::fg_dim()
-                    }))
-                    .child(name),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .text_color(rgb(color::fg_body()))
-                    .child(description),
-            ),
-    }
-}
-
-/// The rows, each told whether it is a diff line, with each run of diff lines in a frame.
-fn framed(rows: Vec<(Div, bool)>) -> Vec<AnyElement> {
-    let mut children = Vec::new();
-    let mut diff_block = Vec::new();
-    for (row, is_diff) in rows {
-        if is_diff {
-            diff_block.push(row.into_any_element());
-            continue;
-        }
-        if !diff_block.is_empty() {
-            children.push(diff_frame(mem::take(&mut diff_block)).into_any_element());
-        }
-        children.push(row.into_any_element());
-    }
-    if !diff_block.is_empty() {
-        children.push(diff_frame(diff_block).into_any_element());
-    }
-    children
-}
-
-fn diff_line(diff: DiffRow, selected: bool) -> Div {
-    let (prefix, text, foreground, background) = match diff {
-        DiffRow::Hunk(text) => ("", text, color::docstring(), Some(rgba(glass::ink(0x0a)))),
-        DiffRow::Context(text) => ("", text, color::fg_kbd(), None),
-        DiffRow::Added(text) => ("+", text, color::fg_added(), Some(rgba(glass::added()))),
-        DiffRow::Removed(text) => ("-", text, color::fg_removed(), Some(rgba(glass::removed()))),
-    };
-    div()
-        .flex()
-        .flex_none()
-        .h(px(DIFF_LINE_HEIGHT))
-        .whitespace_nowrap()
-        .overflow_hidden()
-        .text_color(rgb(foreground))
-        .when_some(background, |row, background| row.bg(background))
-        .when(selected, |row| row.bg(rgba(glass::selection())))
-        .child(div().flex_none().w(px(16.0)).text_center().child(prefix))
-        .child(text)
-}
-
 #[cfg(test)]
 mod tests {
     use std::time::Instant;
 
-    use remacs_core::FileState;
+    use remacs_core::{FileState, Tone};
 
     use super::*;
 
@@ -1186,9 +362,7 @@ mod tests {
             note: None,
             open: false,
         };
-        std::iter::once(heading)
-            .chain((0..files).map(file))
-            .collect()
+        [heading].into_iter().chain((0..files).map(file)).collect()
     }
 
     #[test]
@@ -1200,18 +374,14 @@ mod tests {
         assert_eq!(first_shown(&rows, 3, false, height, Some(fit - 1)), 0);
         for selected in [fit, 1500, 3000] {
             let first = first_shown(&rows, 3, false, height, Some(selected));
-            assert_eq!(
-                first + fitting_rows(&rows[first..], 3, false, height),
-                selected + 1
-            );
+            let shown = fitting_rows(&rows[first..], 3, false, height);
+            assert_eq!(first + shown, selected + 1);
         }
         let start = Instant::now();
         for _ in 0..100 {
             std::hint::black_box(first_shown(&rows, 3, false, height, Some(3000)));
         }
-        eprintln!(
-            "first_shown, last of 3000 rows: {:?}",
-            start.elapsed() / 100
-        );
+        let elapsed = start.elapsed() / 100;
+        eprintln!("first_shown, last of 3000 rows: {elapsed:?}");
     }
 }

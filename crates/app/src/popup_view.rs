@@ -1,8 +1,9 @@
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::ops::Range;
 
 use gpui::{
-    AnyElement, Div, ElementId, HighlightStyle, IntoElement, ParentElement, Pixels, Point,
-    ScrollHandle, Stateful, StyledText, div, prelude::*, px, rgb, rgba,
+    AnyElement, Div, ElementId, FontWeight, HighlightStyle, IntoElement, ParentElement, Pixels,
+    Point, ScrollHandle, Stateful, StyledText, div, prelude::*, px, rgb, rgba,
 };
 use remacs_core::{Candidate, Code, DocBlock, Documentation, Face, Note, Popup, SymbolKind};
 use remacs_theme::{color, font, glass};
@@ -10,7 +11,8 @@ use remacs_theme::{color, font, glass};
 use crate::code_wrap::{wrap_code, wrapped_offset};
 use crate::highlights::{Highlights, combine, face_style};
 use crate::minibuffer_view::{matches_in, secondary_color};
-use crate::widgets::{glass_surface, hsla, icon, kbd, shadow};
+use crate::outline_view::{chip_frame, lift_selected};
+use crate::widgets::{StyleExt, glass_surface, hsla, icon, key_caps};
 
 const LIST_WIDTH: f32 = 440.0;
 /// Of documentation beside the list, which grows wider with its code.
@@ -59,20 +61,23 @@ const NOTE_SOURCE_LINE_HEIGHT: f32 = 16.0;
 const CHIP_PADDING: f32 = 5.0;
 const CHIP_RADIUS: f32 = 4.0;
 
-/// Horizontal room around a documentation panel's code: the panel's padding and border,
-/// and those of the signature's box and of a code block's.
+/// How wide a documentation panel is at least, and the horizontal room around its code:
+/// the panel's padding and border, and those of the signature's box and of a code block's.
 struct CodeInsets {
+    min_width: f32,
     panel: f32,
     signature: f32,
     block: f32,
 }
 
 const HOVER_INSETS: CodeInsets = CodeInsets {
+    min_width: HOVER_WIDTH,
     panel: 2.0 * (1.0 + HOVER_PADDING),
     signature: 2.0 * (1.0 + HOVER_SIGNATURE_PADDING_X),
     block: 2.0 * CODE_BLOCK_PADDING_X,
 };
 const DOCUMENTATION_INSETS: CodeInsets = CodeInsets {
+    min_width: DOCUMENTATION_WIDTH,
     panel: 2.0 * (1.0 + DOCUMENTATION_PADDING_X),
     signature: 0.0,
     block: 2.0 * CODE_BLOCK_PADDING_X,
@@ -97,23 +102,31 @@ impl Placement {
             .max(px(WINDOW_MARGIN))
     }
 
-    fn room_below(&self) -> Pixels {
-        self.window_height - self.line_bottom - px(POPUP_GAP + WINDOW_MARGIN)
-    }
-
-    fn room_above(&self) -> Pixels {
-        self.line_top - self.area_top - px(POPUP_GAP + WINDOW_MARGIN)
-    }
-
-    /// Positioned below the line, or above it.
-    fn place(&self, popup: Div, below: bool) -> Div {
-        if below {
-            popup.top(self.line_bottom + px(POPUP_GAP)).items_start()
+    /// The room below the line, or above it.
+    fn room(&self, below: bool) -> Pixels {
+        let (top, bottom) = if below {
+            (self.line_bottom, self.window_height)
         } else {
-            popup
-                .bottom(self.window_height - self.line_top + px(POPUP_GAP))
-                .items_end()
+            (self.area_top, self.line_top)
+        };
+        bottom - top - px(POPUP_GAP + WINDOW_MARGIN)
+    }
+
+    /// At most `max_width`, and no wider than the window.
+    fn max_width(&self, max_width: Pixels) -> Pixels {
+        max_width.min(self.window_width - px(2.0 * WINDOW_MARGIN))
+    }
+
+    /// `panels` with their left edge at `left`, below the line or above it.
+    fn place(&self, left: Pixels, below: bool, panels: Div) -> AnyElement {
+        let panels = panels.absolute().left(left).flex();
+        if below {
+            panels.top(self.line_bottom + px(POPUP_GAP)).items_start()
+        } else {
+            let bottom = self.window_height - self.line_top + px(POPUP_GAP);
+            panels.bottom(bottom).items_end()
         }
+        .into_any_element()
     }
 }
 
@@ -159,14 +172,12 @@ impl DocumentationScroll {
     pub fn update<'a>(&mut self, popups: impl IntoIterator<Item = &'a Popup>) {
         let shown = popups.into_iter().find_map(|popup| {
             let documentation = popup.documentation.as_ref()?;
+            let signature = documentation.signature.as_ref();
             let key = DocumentationKey {
                 anchor: popup.anchor,
                 container: documentation.container.clone(),
                 kind: documentation.kind.clone(),
-                signature: documentation
-                    .signature
-                    .as_ref()
-                    .map(|code| code.text.clone()),
+                signature: signature.map(|code| code.text.clone()),
             };
             Some((key, popup.documentation_pages))
         });
@@ -200,87 +211,78 @@ pub fn render_popup(popup: &Popup, placement: Placement, view: &PopupView) -> An
     }
 }
 
-/// Above the line, their messages in line with the anchor, or below when they fit there
-/// and not above, or there is more room; leaves the text after the anchor in view. Longer
-/// than the room, they scroll.
-fn render_notes(notes: &[Note], placement: &Placement, view: &PopupView) -> AnyElement {
-    let width = view
-        .notes_max_width
-        .min(placement.window_width - px(2.0 * WINDOW_MARGIN));
-    let text_width = width - px(NOTES_INSETS_X);
-    let code_chars = chip_chars(text_width, view);
-    let height = notes_height(notes, text_width, code_chars, view).min(view.notes_max_height);
-    let (below, above) = (placement.room_below(), placement.room_above());
-    let fits_above = above >= height || above >= below;
+/// An id for an element showing `contents`, which a change of them changes.
+fn content_id(name: &'static str, contents: impl IntoIterator<Item = impl Hash>) -> ElementId {
     let mut hasher = DefaultHasher::new();
-    for note in notes {
-        (&note.message, &note.source).hash(&mut hasher);
+    for content in contents {
+        content.hash(&mut hasher);
     }
-    let body = div()
-        // New notes start at the top.
-        .id(ElementId::from(("notes", hasher.finish())))
+    ElementId::from((name, hasher.finish()))
+}
+
+/// A column that scrolls, giving way first when its panel is short of room.
+fn scrolling_column(id: ElementId) -> Stateful<Div> {
+    div()
+        .id(id)
         .flex()
         .flex_col()
         .flex_shrink()
         .min_h_0()
         .overflow_y_scroll()
-        .children(notes.iter().enumerate().map(|(index, note)| {
-            div()
-                .flex()
-                .flex_none()
-                .gap(px(NOTE_ICON_GAP))
-                .px(px(NOTE_PADDING_X))
-                .py(px(NOTE_PADDING_Y))
-                .when(index > 0, |note| {
-                    note.border_t_1()
-                        .border_color(rgba(glass::note_separator()))
-                })
-                .child(
-                    div()
-                        .flex()
-                        .flex_none()
-                        .pt(px(4.0))
-                        .child(icon(note.icon, color::fg_main())),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .min_w_0()
-                        .gap(px(NOTE_LINE_GAP))
-                        .children(note.message.lines().map(|line| {
-                            render_text_line(line, code_chars, &NOTE_CHIP)
-                                .text_size(px(font::ui_size()))
-                                .line_height(px(NOTE_LINE_HEIGHT))
-                        }))
-                        .when(!note.source.is_empty(), |text| {
-                            text.child(
-                                div()
-                                    .text_size(px(font::small_size()))
-                                    .line_height(px(NOTE_SOURCE_LINE_HEIGHT))
-                                    .text_color(rgb(color::fg_note_source()))
-                                    .child(note.source.clone()),
-                            )
-                        }),
-                )
-        }));
+}
+
+/// Above the line, their messages in line with the anchor, or below when they fit there
+/// and not above, or there is more room; leaves the text after the anchor in view. Longer
+/// than the room, they scroll.
+fn render_notes(notes: &[Note], placement: &Placement, view: &PopupView) -> AnyElement {
+    let width = placement.max_width(view.notes_max_width);
+    let text_width = width - px(NOTES_INSETS_X);
+    let code_chars = chip_chars(text_width, view);
+    let height = notes_height(notes, text_width, code_chars, view).min(view.notes_max_height);
+    let (below, above) = (placement.room(true), placement.room(false));
+    let fits_above = above >= height || above >= below;
+    // New notes start at the top.
+    let contents = notes.iter().map(|note| (&note.message, &note.source));
+    let id = content_id("notes", contents);
+    let notes = notes.iter().enumerate();
+    let notes = notes.map(|(index, note)| render_note(note, index > 0, code_chars));
     let panel = panel()
         .bg(rgba(glass::note()))
         .border_color(rgba(glass::note_border()))
         .max_w(width)
-        .max_h(if fits_above { above } else { below }.min(view.notes_max_height))
+        .max_h(placement.room(!fits_above).min(view.notes_max_height))
         .overflow_hidden()
         .p(px(NOTES_PADDING))
-        .child(body);
-    let container = div()
-        .absolute()
-        .left(placement.left(NOTES_INSET, width.into()))
+        .child(scrolling_column(id).children(notes));
+    let left = placement.left(NOTES_INSET, width.into());
+    placement.place(left, !fits_above, div().flex_col().child(panel))
+}
+
+/// The note's icon by its message and source, `ruled` off from the note before it.
+fn render_note(note: &Note, ruled: bool, code_chars: usize) -> Div {
+    let lines = note.message.lines().map(|line| {
+        render_text_line(line, code_chars, &NOTE_CHIP)
+            .text_size(px(font::ui_size()))
+            .line_height(px(NOTE_LINE_HEIGHT))
+    });
+    let source = (!note.source.is_empty()).then(|| {
+        div()
+            .text(font::small_size(), color::fg_note_source())
+            .line_height(px(NOTE_SOURCE_LINE_HEIGHT))
+            .child(note.source.clone())
+    });
+    let rule = rgba(glass::note_separator());
+    let note_icon = div().flex().flex_none().pt(px(4.0));
+    let text = div().flex().flex_col().min_w_0().gap(px(NOTE_LINE_GAP));
+    div()
         .flex()
-        .flex_col()
-        .font_family(font::ui())
-        .text_color(rgb(color::fg_main()))
-        .child(panel);
-    placement.place(container, !fits_above).into_any_element()
+        .flex_none()
+        .gap(px(NOTE_ICON_GAP))
+        .px(px(NOTE_PADDING_X))
+        .py(px(NOTE_PADDING_Y))
+        .when(ruled, |note| note.border_t_1().border_color(rule))
+        .child(note_icon.child(icon(note.icon, color::fg_main())))
+        .child(text.children(lines).children(source))
 }
 
 /// Colors of code quoted in a line of text.
@@ -305,29 +307,20 @@ const DOCUMENTATION_CHIP: ChipColors = ChipColors {
 /// line, is broken into pieces that fit.
 fn render_text_line(line: &str, code_chars: usize, chip: &ChipColors) -> Div {
     let (background, text_color) = ((chip.background)(), (chip.text)());
-    div()
-        .flex()
-        .flex_wrap()
-        .items_center()
-        .children(line_pieces(line, code_chars).into_iter().map(|piece| {
-            match piece {
-                Piece::Word(word) => div().max_w_full().child(word.to_owned()),
-                Piece::Code { text, first, last } => div()
-                    .flex_none()
-                    .whitespace_nowrap()
-                    .when(first, |chip| {
-                        chip.pl(px(CHIP_PADDING)).rounded_l(px(CHIP_RADIUS))
-                    })
-                    .when(last, |chip| {
-                        chip.pr(px(CHIP_PADDING)).rounded_r(px(CHIP_RADIUS))
-                    })
-                    .bg(rgba(background))
-                    .font_family(font::mono())
-                    .text_size(px(font::status_size()))
-                    .text_color(rgb(text_color))
-                    .child(text.to_owned()),
-            }
-        }))
+    let (padding, radius) = (px(CHIP_PADDING), px(CHIP_RADIUS));
+    let pieces = line_pieces(line, code_chars).into_iter();
+    let pieces = pieces.map(|piece| match piece {
+        Piece::Word(word) => div().max_w_full().child(word.to_owned()),
+        Piece::Code { text, first, last } => div()
+            .flex_none()
+            .whitespace_nowrap()
+            .when(first, |chip| chip.pl(padding).rounded_l(radius))
+            .when(last, |chip| chip.pr(padding).rounded_r(radius))
+            .bg(rgba(background))
+            .mono_status(text_color)
+            .child(text.to_owned()),
+    });
+    div().flex().flex_wrap().items_center().children(pieces)
 }
 
 /// Characters of quoted code that fit on a line of text `text_width` wide.
@@ -339,29 +332,22 @@ fn chip_chars(text_width: Pixels, view: &PopupView) -> usize {
 /// About how tall the notes are drawn with messages `text_width` wide, known before they
 /// are laid out, to choose the side of the line with room for them.
 fn notes_height(notes: &[Note], text_width: Pixels, code_chars: usize, view: &PopupView) -> Pixels {
-    let notes_height: f32 = notes
-        .iter()
-        .map(|note| {
-            let lines: usize = note
-                .message
-                .lines()
-                .map(|line| {
-                    let widths = line_pieces(line, code_chars)
-                        .into_iter()
-                        .map(|piece| piece.width(view.ui_char_width, view.small_mono_width));
-                    wrapped_lines(widths, text_width)
-                })
-                .sum();
-            let source = if note.source.is_empty() {
-                0.0
-            } else {
-                NOTE_LINE_GAP + NOTE_SOURCE_LINE_HEIGHT
-            };
-            let gaps = lines.saturating_sub(1) as f32 * NOTE_LINE_GAP;
-            1.0 + 2.0 * NOTE_PADDING_Y + lines as f32 * NOTE_LINE_HEIGHT + gaps + source
-        })
-        .sum();
-    px(notes_height + 2.0 * (1.0 + NOTES_PADDING))
+    let line_count = |line: &str| {
+        let pieces = line_pieces(line, code_chars).into_iter();
+        let widths = pieces.map(|piece| piece.width(view.ui_char_width, view.small_mono_width));
+        wrapped_lines(widths, text_width)
+    };
+    let note_height = |note: &Note| {
+        let lines: usize = note.message.lines().map(line_count).sum();
+        let source = if note.source.is_empty() {
+            0.0
+        } else {
+            NOTE_LINE_GAP + NOTE_SOURCE_LINE_HEIGHT
+        };
+        let gaps = lines.saturating_sub(1) as f32 * NOTE_LINE_GAP;
+        1.0 + 2.0 * NOTE_PADDING_Y + lines as f32 * NOTE_LINE_HEIGHT + gaps + source
+    };
+    px(notes.iter().map(note_height).sum::<f32>() + 2.0 * (1.0 + NOTES_PADDING))
 }
 
 /// Lines that pieces as wide as `widths` take, each wrapped where the next one would go
@@ -417,32 +403,23 @@ fn line_pieces(line: &str, code_chars: usize) -> Vec<Piece<'_>> {
             if index % 2 == 0 {
                 return part.split_inclusive(' ').map(Piece::Word).collect();
             }
-            let texts: Vec<&str> = part
-                .split_inclusive(' ')
-                .flat_map(|word| chunks(word, code_chars))
-                .collect();
+            let words = part.split_inclusive(' ');
+            let texts: Vec<&str> = words.flat_map(|word| chunks(word, code_chars)).collect();
             let count = texts.len();
-            texts
-                .into_iter()
-                .enumerate()
-                .map(|(piece, text)| Piece::Code {
-                    text,
-                    first: piece == 0,
-                    last: piece + 1 == count,
-                })
-                .collect()
+            let piece = |(index, text)| Piece::Code {
+                text,
+                first: index == 0,
+                last: index + 1 == count,
+            };
+            texts.into_iter().enumerate().map(piece).collect()
         })
         .collect()
 }
 
 /// `text` in pieces of `chars` characters, the last one shorter.
 fn chunks(text: &str, chars: usize) -> Vec<&str> {
-    let mut starts: Vec<usize> = text
-        .char_indices()
-        .step_by(chars.max(1))
-        .map(|(start, _)| start)
-        .collect();
-    starts.push(text.len());
+    let starts = text.char_indices().map(|(start, _)| start);
+    let starts: Vec<usize> = starts.step_by(chars.max(1)).chain([text.len()]).collect();
     starts
         .windows(2)
         .map(|pair| &text[pair[0]..pair[1]])
@@ -457,90 +434,55 @@ fn render_hover(
     placement: &Placement,
     view: &PopupView,
 ) -> AnyElement {
-    let hints = popup.hints;
-    let (below, above) = (placement.room_below(), placement.room_above());
+    let (below, above) = (placement.room(true), placement.room(false));
     let fits_below = if popup.above {
         above < px(ABOVE_ENOUGH_ROOM) && below > above
     } else {
         below >= px(HOVER_ENOUGH_ROOM) || below >= above
     };
-    let room = if fits_below { below } else { above };
-    let max_width = view
-        .max_width
-        .min(placement.window_width - px(2.0 * WINDOW_MARGIN));
-    let (width, documentation) = fit(
-        documentation,
-        &HOVER_INSETS,
-        px(HOVER_WIDTH),
-        max_width,
-        view,
-    );
+    let max_width = placement.max_width(view.max_width);
+    let (width, documentation, code_chars) = fit(documentation, &HOVER_INSETS, max_width, view);
     let has_header = !documentation.container.is_empty() || !documentation.kind.is_empty();
     let signature = documentation.signature.as_ref().map(|signature| {
-        code_box("documentation-signature", 0, signature, view)
-            .flex_none()
+        signature_box(signature, font::LINE_HEIGHT, view)
             .px(px(HOVER_SIGNATURE_PADDING_X))
             .py(px(8.0))
             .rounded(px(8.0))
             .bg(rgba(glass::field()))
-            .border_1()
-            .border_color(rgba(glass::ink(0x0f)))
-            .text_size(px(font::mono_size()))
-            .line_height(px(font::LINE_HEIGHT))
+            .bordered(glass::ink(0x0f))
             .into_any_element()
     });
+    let (container, kind) = (documentation.container.clone(), documentation.kind.clone());
+    let header = div()
+        .flex()
+        .flex_none()
+        .justify_between()
+        .gap(px(12.0))
+        .text(font::small_size(), color::fg_dim())
+        .child(div().min_w_0().truncate().child(container))
+        .child(div().flex_none().child(kind));
     let panel = panel()
         .w(width)
-        .max_h(room.min(view.max_height))
+        .max_h(placement.room(fits_below).min(view.max_height))
         .overflow_hidden()
         .pt(px(14.0))
         .px(px(HOVER_PADDING))
         .pb(px(12.0))
         .gap(px(10.0))
-        .when(has_header, |panel| {
-            panel.child(
-                div()
-                    .flex()
-                    .flex_none()
-                    .justify_between()
-                    .gap(px(12.0))
-                    .text_size(px(font::small_size()))
-                    .text_color(rgb(color::fg_dim()))
-                    .child(
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .child(documentation.container.clone()),
-                    )
-                    .child(div().flex_none().child(documentation.kind.clone())),
-            )
-        })
+        .when(has_header, |panel| panel.child(header))
         .when(!documentation.is_empty(), |panel| {
             // A signature's popup leaves the scroll position to other documentation shown.
             if popup.above && documentation.blocks.is_empty() {
                 return panel.children(signature);
             }
-            let code_chars = chip_chars(width - px(HOVER_INSETS.panel), view);
-            panel.child(render_body(
-                signature,
-                &documentation.blocks,
-                10.0,
-                code_chars,
-                view,
-            ))
+            let blocks = &documentation.blocks;
+            panel.child(render_body(signature, blocks, 10.0, code_chars, view))
         })
-        .when(!hints.is_empty(), |panel| {
-            panel.child(render_hints(hints).gap(px(18.0)).pt(px(10.0)))
+        .when(!popup.hints.is_empty(), |panel| {
+            panel.child(render_hints(popup.hints).gap(px(18.0)).pt(px(10.0)))
         });
-    let container = div()
-        .absolute()
-        .left(placement.left(HOVER_INSET, width.into()))
-        .flex()
-        .flex_col()
-        .font_family(font::ui())
-        .text_color(rgb(color::fg_main()))
-        .child(panel);
-    placement.place(container, fits_below).into_any_element()
+    let left = placement.left(HOVER_INSET, width.into());
+    placement.place(left, fits_below, div().flex_col().child(panel))
 }
 
 /// The list below the line, or above it when it does not fit; the documentation beside
@@ -549,54 +491,29 @@ fn render_list_popup(popup: &Popup, placement: &Placement, view: &PopupView) -> 
     let rows = popup.rows.len() as f32;
     let list_height =
         rows * ROW_HEIGHT + (rows - 1.0).max(0.0) * ROW_GAP + 2.0 * (LIST_PADDING + 1.0);
-    let below = placement.room_below() >= px(list_height);
+    let below = placement.room(true) >= px(list_height);
     let list_left = placement.left(LABEL_INSET, LIST_WIDTH);
-    let room = if below {
-        placement.room_below()
-    } else {
-        placement.room_above()
-    };
     let list_right = list_left + px(LIST_WIDTH + PANEL_GAP);
     let room_right = placement.window_width - px(WINDOW_MARGIN) - list_right;
     let room_left = list_left - px(PANEL_GAP + WINDOW_MARGIN);
-    let max_width = view
-        .max_width
-        .min(room_right.max(room_left).max(px(DOCUMENTATION_WIDTH)));
+    let room_beside = room_right.max(room_left).max(px(DOCUMENTATION_WIDTH));
+    let max_width = view.max_width.min(room_beside);
     let documentation = popup.documentation.as_ref().map(|documentation| {
-        let (width, documentation) = fit(
-            documentation,
-            &DOCUMENTATION_INSETS,
-            px(DOCUMENTATION_WIDTH),
-            max_width,
-            view,
-        );
-        let code_chars = chip_chars(width - px(DOCUMENTATION_INSETS.panel), view);
-        let panel =
-            render_documentation(&documentation, popup.hints, room, code_chars, view).w(width);
-        (width, panel.into_any_element())
+        let (width, documentation, code_chars) =
+            fit(documentation, &DOCUMENTATION_INSETS, max_width, view);
+        let room = placement.room(below);
+        let panel = render_documentation(&documentation, popup.hints, room, code_chars, view);
+        (width, panel.w(width).into_any_element())
     });
+    let list = render_list(popup, view);
     let (left, children) = match documentation {
-        Some((width, documentation)) if width > room_right => (
-            list_left - width - px(PANEL_GAP),
-            vec![documentation, render_list(popup, view)],
-        ),
-        documentation => (
-            list_left,
-            [render_list(popup, view)]
-                .into_iter()
-                .chain(documentation.map(|(_, panel)| panel))
-                .collect(),
-        ),
+        Some((width, panel)) if width > room_right => {
+            (list_left - width - px(PANEL_GAP), vec![panel, list])
+        }
+        Some((_, panel)) => (list_left, vec![list, panel]),
+        None => (list_left, vec![list]),
     };
-    let container = div()
-        .absolute()
-        .left(left)
-        .flex()
-        .gap(px(PANEL_GAP))
-        .font_family(font::ui())
-        .text_color(rgb(color::fg_main()))
-        .children(children);
-    placement.place(container, below).into_any_element()
+    placement.place(left, below, div().gap(px(PANEL_GAP)).children(children))
 }
 
 /// Takes the mouse, so the wheel scrolls the popup and not the buffer behind it.
@@ -606,6 +523,8 @@ fn panel() -> Div {
         .flex()
         .flex_col()
         .flex_none()
+        .font_family(font::ui())
+        .text_color(rgb(color::fg_main()))
 }
 
 fn render_list(popup: &Popup, view: &PopupView) -> AnyElement {
@@ -621,69 +540,40 @@ fn render_list(popup: &Popup, view: &PopupView) -> AnyElement {
 }
 
 fn render_row(row: &Candidate, swatch: Option<u32>, selected: bool) -> impl IntoElement {
-    let secondary = secondary_color(selected);
-    let label = StyledText::new(row.label.clone()).with_highlights(matches_in(
-        &row.matches,
-        0..row.label.len(),
-        selected,
-    ));
-    div()
-        .flex()
-        .flex_none()
-        .items_center()
+    let label_matches = matches_in(&row.matches, 0..row.label.len(), selected);
+    let label = StyledText::new(row.label.clone()).with_highlights(label_matches);
+    let badge = match (swatch, row.kind) {
+        (Some(color), _) => render_swatch(color),
+        (None, Some(kind)) => render_badge(kind),
+        (None, None) => div().flex_none().w(px(BADGE_SIZE)),
+    };
+    let detail = row.detail.clone().map(|detail| {
+        div()
+            .flex_none()
+            .max_w(px(DETAIL_MAX_WIDTH))
+            .truncate()
+            .status_text(secondary_color(selected))
+            .child(detail.into_owned())
+    });
+    // The label takes the row's text size; the badge and the detail set their own.
+    lift_selected(chip_frame(ROW_HEIGHT, ROW_PADDING, 6.0), selected)
         .gap(px(BADGE_GAP))
-        .h(px(ROW_HEIGHT))
-        .px(px(ROW_PADDING))
-        .rounded(px(6.0))
-        .when(selected, |row| {
-            row.bg(rgba(glass::selection())).shadow(vec![shadow(
-                glass::shadow(0x73),
-                1.0,
-                3.0,
-                0.0,
-            )])
-        })
         .font_family(font::mono())
-        .child(match (swatch, row.kind) {
-            (Some(color), _) => render_swatch(color).into_any_element(),
-            (None, Some(kind)) => render_badge(kind).into_any_element(),
-            (None, None) => div().flex_none().w(px(BADGE_SIZE)).into_any_element(),
-        })
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .text_size(px(font::mono_size()))
-                .child(label),
-        )
-        .when_some(row.detail.clone(), |row, detail| {
-            row.child(
-                div()
-                    .flex_none()
-                    .max_w(px(DETAIL_MAX_WIDTH))
-                    .truncate()
-                    .text_size(px(font::status_size()))
-                    .text_color(rgb(secondary))
-                    .child(detail.into_owned()),
-            )
-        })
+        .text_size(px(font::mono_size()))
+        .child(badge)
+        .child(div().fill_truncated().child(label))
+        .children(detail)
 }
 
 /// The color, `0xRRGGBBAA`, in place of the kind's badge; outlined, so white and
 /// translucent colors show on any glass.
-fn render_swatch(color: u32) -> impl IntoElement {
-    div()
-        .flex_none()
-        .size(px(BADGE_SIZE))
-        .rounded(px(5.0))
-        .bg(rgba(color))
-        .border_1()
-        .border_color(rgba(color::fg_dim() << 8 | 0x40))
+fn render_swatch(color: u32) -> Div {
+    let badge = div().flex_none().size(px(BADGE_SIZE)).rounded(px(5.0));
+    badge.bg(rgba(color)).bordered(color::fg_dim() << 8 | 0x40)
 }
 
 /// A letter on a tint of the color code of its kind takes, like `f` for a field.
-fn render_badge(kind: SymbolKind) -> impl IntoElement {
+fn render_badge(kind: SymbolKind) -> Div {
     let (letter, tint) = match kind {
         SymbolKind::Function => ("λ", color::function()),
         SymbolKind::Method => ("m", color::function()),
@@ -706,8 +596,7 @@ fn render_badge(kind: SymbolKind) -> impl IntoElement {
         .size(px(BADGE_SIZE))
         .rounded(px(5.0))
         .bg(rgba(tint << 8 | 0x24))
-        .text_size(px(font::small_size()))
-        .text_color(rgb(tint))
+        .text(font::small_size(), tint)
         .child(letter)
 }
 
@@ -724,49 +613,34 @@ fn render_documentation(
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
         .join(" · ");
-    let signature = documentation.signature.as_ref().map(|signature| {
-        code_box("documentation-signature", 0, signature, view)
-            .flex_none()
-            .text_size(px(font::mono_size()))
-            .line_height(px(BODY_LINE_HEIGHT))
-            .into_any_element()
-    });
+    let title_text = div().flex_none().text(font::small_size(), color::fg_dim());
+    let title = (!title.is_empty()).then(|| title_text.child(title));
+    let signature = documentation.signature.as_ref();
+    let signature = signature.map(|code| signature_box(code, BODY_LINE_HEIGHT, view));
+    let blocks = &documentation.blocks;
     panel()
         .max_h(room.min(view.max_height))
         .overflow_hidden()
         .px(px(DOCUMENTATION_PADDING_X))
         .py(px(12.0))
         .gap(px(8.0))
-        .when(!title.is_empty(), |panel| {
-            panel.child(
-                div()
-                    .flex_none()
-                    .text_size(px(font::small_size()))
-                    .text_color(rgb(color::fg_dim()))
-                    .child(title),
-            )
-        })
+        .children(title)
         .when(!documentation.is_empty(), |panel| {
-            panel.child(render_body(
-                signature,
-                &documentation.blocks,
-                8.0,
-                code_chars,
-                view,
-            ))
+            let signature = signature.map(IntoElement::into_any_element);
+            panel.child(render_body(signature, blocks, 8.0, code_chars, view))
         })
         .when(!hints.is_empty(), |panel| panel.child(render_hints(hints)))
 }
 
-/// The documentation with its code wrapped to fit `max_width`, and how wide it is drawn:
-/// as wide as its widest code, from `min_width` up to `max_width`.
+/// The documentation with its code wrapped to fit `max_width`, how wide it is drawn: as
+/// wide as its widest code, from the insets' `min_width` up to `max_width`, and how many
+/// characters of quoted code fit on a line of its text.
 fn fit(
     documentation: &Documentation,
     insets: &CodeInsets,
-    min_width: Pixels,
     max_width: Pixels,
     view: &PopupView,
-) -> (Pixels, Documentation) {
+) -> (Pixels, Documentation, usize) {
     let mut widest = px(0.0);
     let mut fit_code = |code: &Code, inset: f32, char_width: Pixels| {
         let room = max_width - px(insets.panel + inset);
@@ -774,26 +648,20 @@ fn fit(
         let longest = text.lines().map(|line| line.chars().count()).max();
         let width = char_width * longest.unwrap_or(0) as f32 + px(insets.panel + inset);
         widest = widest.max(width.ceil());
-        let emphasis = code.emphasis.as_ref().map(|range| {
-            wrapped_offset(&code.text, &text, range.start)
-                ..wrapped_offset(&code.text, &text, range.end)
-        });
+        let offset = |at| wrapped_offset(&code.text, &text, at);
+        let emphasis = code.emphasis.as_ref();
+        let emphasis = emphasis.map(|range| offset(range.start)..offset(range.end));
         Code {
             emphasis,
             ..Code::new(text, code.mode)
         }
     };
-    let signature = documentation
-        .signature
-        .as_ref()
-        .map(|code| fit_code(code, insets.signature, view.mono_width));
-    let blocks = documentation
-        .blocks
-        .iter()
+    let signature = documentation.signature.as_ref();
+    let signature = signature.map(|code| fit_code(code, insets.signature, view.mono_width));
+    let code_width = view.small_mono_width;
+    let blocks = (documentation.blocks.iter())
         .map(|block| match block {
-            DocBlock::Code(code) => {
-                DocBlock::Code(fit_code(code, insets.block, view.small_mono_width))
-            }
+            DocBlock::Code(code) => DocBlock::Code(fit_code(code, insets.block, code_width)),
             block => block.clone(),
         })
         .collect();
@@ -803,24 +671,30 @@ fn fit(
         signature,
         blocks,
     };
-    (widest.max(min_width).min(max_width), fitted)
+    let width = widest.max(px(insets.min_width)).min(max_width);
+    (width, fitted, chip_chars(width - px(insets.panel), view))
+}
+
+/// The signature's code in a box that keeps its height, lines `line_height` tall.
+fn signature_box(signature: &Code, line_height: f32, view: &PopupView) -> Stateful<Div> {
+    code_box("documentation-signature", 0, signature, view)
+        .flex_none()
+        .text_size(px(font::mono_size()))
+        .line_height(px(line_height))
 }
 
 /// Code as it was wrapped; a line still longer than the box scrolls sideways. `index` tells
 /// boxes of the same code apart, which keep where they were scrolled to.
 fn code_box(name: &'static str, index: usize, code: &Code, view: &PopupView) -> Stateful<Div> {
-    let mut hasher = DefaultHasher::new();
-    (index, &code.text).hash(&mut hasher);
-    let mut code_box = div()
-        .id(ElementId::from((name, hasher.finish())))
-        .flex()
-        .overflow_x_scroll();
+    let id = content_id(name, [(index, &code.text)]);
+    let mut code_box = div().id(id).flex().overflow_x_scroll();
     // So a vertical wheel over code scrolls the documentation, not the code sideways.
     code_box.style().restrict_scroll_to_axis = Some(true);
+    let code = div().flex_none().child(render_code(code, view));
     code_box
         .whitespace_nowrap()
         .font_family(font::mono())
-        .child(div().flex_none().child(render_code(code, view)))
+        .child(code)
 }
 
 /// The signature and the blocks; gives way first when the panel is short of room, so the
@@ -836,30 +710,19 @@ fn render_body(
     let mut blocks = blocks.iter().enumerate().peekable();
     while let Some((index, block)) = blocks.next() {
         let section = match block {
-            DocBlock::Heading(heading) => div()
-                .flex()
-                .flex_none()
-                .flex_col()
-                .gap(px(2.0))
-                .child(render_heading(heading))
-                .children(
-                    blocks
-                        .next_if(|(_, next)| !matches!(next, DocBlock::Heading(_)))
-                        .map(|(index, next)| render_block(index, next, code_chars, view)),
-                )
-                .into_any_element(),
+            DocBlock::Heading(heading) => {
+                let next = blocks.next_if(|(_, next)| !matches!(next, DocBlock::Heading(_)));
+                let next = next.map(|(index, next)| render_block(index, next, code_chars, view));
+                let section = div().flex().flex_none().flex_col().gap(px(2.0));
+                let section = section.child(render_heading(heading)).children(next);
+                section.into_any_element()
+            }
             block => render_block(index, block, code_chars, view),
         };
         sections.push(section);
     }
-    div()
-        .id("documentation-body")
-        .flex()
-        .flex_col()
-        .flex_shrink()
-        .min_h_0()
+    scrolling_column("documentation-body".into())
         .gap(px(gap))
-        .overflow_y_scroll()
         .track_scroll(view.scroll)
         .children(sections)
 }
@@ -869,7 +732,7 @@ fn render_code(code: &Code, view: &PopupView) -> StyledText {
     let mut faces = (view.code_faces)(code);
     if let Some(emphasis) = &code.emphasis {
         let emphasized = HighlightStyle {
-            font_weight: Some(gpui::FontWeight::BOLD),
+            font_weight: Some(FontWeight::BOLD),
             ..face_style(Face::Highlight)
         };
         faces = combine(&[faces, vec![(emphasis.clone(), emphasized)]]);
@@ -882,7 +745,7 @@ fn render_heading(heading: &str) -> impl IntoElement {
     div()
         .flex_none()
         .text_size(px(font::status_size()))
-        .font_weight(gpui::FontWeight::SEMIBOLD)
+        .font_weight(FontWeight::SEMIBOLD)
         .child(StyledText::new(text).with_highlights(code))
 }
 
@@ -898,9 +761,8 @@ fn render_block(index: usize, block: &DocBlock, code_chars: usize, view: &PopupV
             };
             paragraph
                 .flex_none()
-                .text_size(px(font::ui_size()))
+                .text(font::ui_size(), color::fg_body())
                 .line_height(px(BODY_LINE_HEIGHT))
-                .text_color(rgb(color::fg_body()))
                 .into_any_element()
         }
         DocBlock::Code(code) => code_box("documentation-code", index, code, view)
@@ -909,15 +771,14 @@ fn render_block(index: usize, block: &DocBlock, code_chars: usize, view: &PopupV
             .py(px(6.0))
             .rounded(px(6.0))
             .bg(rgba(glass::field()))
-            .text_size(px(font::status_size()))
+            .status_text(color::fg_alt())
             .line_height(px(18.0))
-            .text_color(rgb(color::fg_alt()))
             .into_any_element(),
     }
 }
 
 /// The text without its backticks, and the ranges they quoted as code.
-fn code_spans(text: &str) -> (String, Vec<(std::ops::Range<usize>, HighlightStyle)>) {
+fn code_spans(text: &str) -> (String, Vec<(Range<usize>, HighlightStyle)>) {
     let style = HighlightStyle {
         color: Some(hsla(color::fg_alt())),
         background_color: Some(rgba(glass::ink(0x12)).into()),
@@ -936,6 +797,9 @@ fn code_spans(text: &str) -> (String, Vec<(std::ops::Range<usize>, HighlightStyl
 }
 
 fn render_hints(hints: &'static [(&'static str, &'static str)]) -> Div {
+    let hints = hints
+        .iter()
+        .map(|&(keys, action)| div().row(6.0).children(key_caps(keys)).child(action));
     div()
         .flex()
         .flex_none()
@@ -943,21 +807,17 @@ fn render_hints(hints: &'static [(&'static str, &'static str)]) -> Div {
         .pt(px(8.0))
         .border_t_1()
         .border_color(rgba(glass::ink(0x0f)))
-        .text_size(px(font::status_size()))
-        .text_color(rgb(color::fg_dim()))
-        .children(hints.iter().map(|&(keys, action)| {
-            div()
-                .flex()
-                .items_center()
-                .gap(px(6.0))
-                .children(keys.split_whitespace().map(|key| kbd(key, false)))
-                .child(action)
-        }))
+        .status_text(color::fg_dim())
+        .children(hints)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn code(text: &str, first: bool, last: bool) -> Piece<'_> {
+        Piece::Code { text, first, last }
+    }
 
     #[test]
     fn code_spans_lose_their_backticks() {
@@ -973,23 +833,11 @@ mod tests {
             line_pieces("find `SOme` in `a b`", 8),
             [
                 Piece::Word("find "),
-                Piece::Code {
-                    text: "SOme",
-                    first: true,
-                    last: true,
-                },
+                code("SOme", true, true),
                 Piece::Word(" "),
                 Piece::Word("in "),
-                Piece::Code {
-                    text: "a ",
-                    first: true,
-                    last: false,
-                },
-                Piece::Code {
-                    text: "b",
-                    first: false,
-                    last: true,
-                },
+                code("a ", true, false),
+                code("b", false, true),
             ]
         );
     }
@@ -1005,13 +853,11 @@ mod tests {
 
     #[test]
     fn code_longer_than_a_line_breaks_into_pieces_that_fit() {
-        let texts: Vec<_> = line_pieces("`ab abcdefg`", 3)
-            .into_iter()
-            .map(|piece| match piece {
-                Piece::Code { text, .. } => text,
-                Piece::Word(word) => word,
-            })
-            .collect();
+        let text = |piece| match piece {
+            Piece::Code { text, .. } | Piece::Word(text) => text,
+        };
+        let pieces = line_pieces("`ab abcdefg`", 3);
+        let texts: Vec<_> = pieces.into_iter().map(text).collect();
         assert_eq!(texts, ["ab ", "abc", "def", "g"]);
     }
 }
