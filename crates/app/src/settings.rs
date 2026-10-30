@@ -77,11 +77,9 @@ pub fn read_settings(system: Appearance) -> ReadSettings {
         }
     }
     let code_font = ui.font.code_font();
-    let code_family = SharedString::from(Arc::clone(&code_font.family));
-    let ui_family = SharedString::from(ui.ui_font.family.clone());
     set_family_weights(vec![
-        (code_family, FontWeight(code_font.weight)),
-        (ui_family, FontWeight(ui.ui_font.weight.value())),
+        (SharedString::from(Arc::clone(&code_font.family)), FontWeight(code_font.weight)),
+        (SharedString::from(ui.ui_font.family.clone()), FontWeight(ui.ui_font.weight.value())),
     ]);
     font::set_code(code_font);
     font::set_ui(&ui.ui_font.family, ui.ui_font.size);

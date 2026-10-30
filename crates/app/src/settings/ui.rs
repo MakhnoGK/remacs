@@ -124,10 +124,7 @@ impl Section for UiSettings {
 }
 
 fn non_empty(name: &str, value: &str) -> Result<(), String> {
-    if value.trim().is_empty() {
-        return Err(format!("{name} is empty"));
-    }
-    Ok(())
+    if value.trim().is_empty() { Err(format!("{name} is empty")) } else { Ok(()) }
 }
 
 /// A value left out, `None`, is not checked.

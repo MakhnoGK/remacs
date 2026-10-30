@@ -254,13 +254,12 @@ fn arc(code: u32, width: Pixels, height: Pixels) -> Piece {
     let thickness = light(width);
     let x = center(width, thickness);
     let y = center(height, thickness);
+    let (right, bottom) = (x + thickness, y + thickness);
     let (origin, extent, corner) = match code {
         0x256D => (point(x, y), size(width - x, height - y), Corner::TopLeft),
-        0x256E => (point(px(0.0), y), size(x + thickness, height - y), Corner::TopRight),
-        0x256F => {
-            (point(px(0.0), px(0.0)), size(x + thickness, y + thickness), Corner::BottomRight)
-        }
-        _ => (point(x, px(0.0)), size(width - x, y + thickness), Corner::BottomLeft),
+        0x256E => (point(px(0.0), y), size(right, height - y), Corner::TopRight),
+        0x256F => (point(px(0.0), px(0.0)), size(right, bottom), Corner::BottomRight),
+        _ => (point(x, px(0.0)), size(width - x, bottom), Corner::BottomLeft),
     };
     Piece::Arc { bounds: Bounds::new(origin, extent), corner, thickness }
 }
@@ -361,13 +360,8 @@ fn sextant(code: u32, width: Pixels, height: Pixels, out: &mut Vec<Piece>) {
     for bit in 0..6 {
         if sixths >> bit & 1 == 1 {
             let (column, row) = ((bit % 2) as f32, (bit / 2) as f32);
-            let piece = fill(
-                width * (column * 0.5),
-                height * (row / 3.0),
-                width * 0.5,
-                height * (1.0 / 3.0),
-            );
-            push(out, piece);
+            let (x, y) = (width * (column * 0.5), height * (row / 3.0));
+            push(out, fill(x, y, width * 0.5, height * (1.0 / 3.0)));
         }
     }
 }
@@ -575,14 +569,9 @@ mod tests {
         let pieces = pieces_of("▀▛");
         // ▛'s upper half joins ▀ beside it; its lower left quarter stays apart.
         assert_eq!(pieces.len(), 2);
-        assert_eq!(
-            bounds(&pieces[0]),
-            Bounds::new(point(px(0.0), px(0.0)), size(WIDTH * 2.0, HEIGHT * 0.5))
-        );
-        assert_eq!(
-            bounds(&pieces[1]),
-            Bounds::new(point(WIDTH, HEIGHT * 0.5), size(WIDTH * 0.5, HEIGHT * 0.5))
-        );
+        let rect = |x, y, width, height| Bounds::new(point(x, y), size(width, height));
+        assert_eq!(bounds(&pieces[0]), rect(px(0.0), px(0.0), WIDTH * 2.0, HEIGHT * 0.5));
+        assert_eq!(bounds(&pieces[1]), rect(WIDTH, HEIGHT * 0.5, WIDTH * 0.5, HEIGHT * 0.5));
     }
 
     #[test]

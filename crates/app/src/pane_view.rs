@@ -47,13 +47,8 @@ pub fn screen_bounds(window: Size<Pixels>, height: f32) -> Bounds<Pixels> {
     let top =
         window.height - px(PANE_BOTTOM + height) + px(1.0 + TOOLBAR_HEIGHT + 1.0 + SCREEN_TOP);
     let left = px(PANE_SIDE + 1.0 + SCREEN_SIDE);
-    Bounds {
-        origin: point(left, top),
-        size: size(
-            window.width - left * 2.0,
-            px(height - 2.0 - TOOLBAR_HEIGHT - 1.0 - SCREEN_TOP - SCREEN_BOTTOM),
-        ),
-    }
+    let inner_height = px(height - 2.0 - TOOLBAR_HEIGHT - 1.0 - SCREEN_TOP - SCREEN_BOTTOM);
+    Bounds::new(point(left, top), size(window.width - left * 2.0, inner_height))
 }
 
 /// `screen` is the screen of a pane whose body is one, drawn by the caller.
@@ -74,13 +69,9 @@ pub fn render_pane(
             .flex_1()
             .min_h_0()
             .children(columns.iter().map(|column| render_column(column, rows_fit, cx))),
-        PaneBody::Screen(_) => div()
-            .flex_1()
-            .min_h_0()
-            .pt(px(SCREEN_TOP))
-            .px(px(SCREEN_SIDE))
-            .pb(px(SCREEN_BOTTOM))
-            .children(screen),
+        PaneBody::Screen(_) => {
+            div().flex_1().min_h_0().pad(SCREEN_TOP, SCREEN_SIDE, SCREEN_BOTTOM).children(screen)
+        }
     };
     let border = if focused { color::accent() << 8 | 0x80 } else { glass::ink(0x1f) };
     let ring = shadow(color::accent() << 8 | 0x14, 0.0, 0.0, 3.0);
@@ -90,8 +81,7 @@ pub fn render_pane(
         .right(px(PANE_SIDE))
         .bottom(px(PANE_BOTTOM))
         .h(px(pane.height))
-        .flex()
-        .flex_col()
+        .column()
         .rounded_fill(12.0, glass::pane())
         .bordered(border)
         .when(focused, |pane| pane.shadow(vec![ring]))
@@ -116,30 +106,21 @@ fn render_toolbar(pane: &Pane, chrome: &PaneChrome, cx: &mut Context<EditorView>
         .border_color(rgba(glass::ink(0x12)))
         .whitespace_nowrap()
         .children(switch.map(|switch| switch.mr(px(4.0))));
+    let title = div().font_weight(FontWeight::SEMIBOLD).text(font::ui_size(), color::fg_main());
     let toolbar = match pane.tabs.as_ref() {
         Some(tabs) => {
             let switch = if chrome.switch.is_empty() { 0.0 } else { SWITCH_WIDTH };
             let room = f32::from(chrome.window_width) - 2.0 * PANE_SIDE - switch - TOOLBAR_RIGHT;
-            toolbar
-                .child(render_tabs(tabs.clone(), room, cx))
-                .child(div().flex_1())
-                .child(subtitle)
-                .child(state)
-                .child(separator())
+            toolbar.child(render_tabs(tabs.clone(), room, cx)).child(div().flex_1())
         }
         None => toolbar
             .when(chrome.switch.is_empty(), |toolbar| toolbar.pl(px(14.0)))
-            .child(
-                div()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text(font::ui_size(), color::fg_main())
-                    .child(pane.title.clone()),
-            )
-            .child(subtitle)
-            .child(state)
-            .child(div().flex_1()),
+            .child(title.child(pane.title.clone())),
     };
-    toolbar.children(pane.buttons.iter().map(|button| render_button(button.clone(), cx)))
+    // Chips leave the room between them and the state; a title, between the state and buttons.
+    let end = if pane.tabs.is_some() { separator() } else { div().flex_1() };
+    let buttons = pane.buttons.iter().map(|button| render_button(button.clone(), cx));
+    toolbar.child(subtitle).child(state).child(end).children(buttons)
 }
 
 fn render_switch(chrome: &PaneChrome, cx: &mut Context<EditorView>) -> Div {
@@ -158,15 +139,10 @@ fn render_switch(chrome: &PaneChrome, cx: &mut Context<EditorView>) -> Div {
 
 fn render_state((state, tone): (String, Tone)) -> Div {
     let state_color = tone_color(tone, color::fg_dim());
-    div()
-        .row(6.0)
-        .bar(20.0, 8.0)
-        .ml(px(4.0))
-        .rounded_fill(6.0, (state_color << 8) | 0x29)
-        .mono()
-        .text(font::small_size(), state_color)
-        .child(div().size(px(7.0)).rounded_full().bg(rgb(state_color)))
-        .child(state)
+    let pill =
+        div().row(6.0).bar(20.0, 8.0).ml(px(4.0)).rounded_fill(6.0, (state_color << 8) | 0x29);
+    let dot = div().size(px(7.0)).rounded_full().bg(rgb(state_color));
+    pill.mono().text(font::small_size(), state_color).child(dot).child(state)
 }
 
 fn separator() -> Div {
@@ -212,29 +188,16 @@ fn render_column(column: &PaneColumn, rows_fit: usize, cx: &mut Context<EditorVi
     // Keeps the selected row in view.
     let first = selected.map_or(0, |selected| (selected + 1).saturating_sub(rows_fit));
     let body = if rows.is_empty() {
-        div().child(
-            div()
-                .m(px(14.0))
-                .p(px(14.0))
-                .rounded(px(8.0))
-                .bordered(glass::ink(0x1f))
-                .border_dashed()
-                .line_height(px(18.0))
-                .text_color(rgb(color::fg_faint()))
-                .child(empty.clone()),
-        )
+        let dashed = div().m(px(14.0)).p(px(14.0)).rounded(px(8.0)).bordered(glass::ink(0x1f));
+        let note = dashed.border_dashed().line_height(px(18.0)).text_color(rgb(color::fg_faint()));
+        div().child(note.child(empty.clone()))
     } else {
-        div().flex().flex_col().children(
-            rows.iter()
-                .enumerate()
-                .skip(first)
-                .take(rows_fit)
-                .map(|(index, row)| render_row(row, focused && selected == Some(index), cx)),
-        )
+        let fit = rows.iter().enumerate().skip(first).take(rows_fit);
+        let rows = fit.map(|(index, row)| render_row(row, focused && selected == Some(index), cx));
+        div().column().children(rows)
     };
     div()
-        .flex()
-        .flex_col()
+        .column()
         .min_w_0()
         .overflow_hidden()
         .border_r_1()
@@ -248,24 +211,13 @@ fn render_column(column: &PaneColumn, rows_fit: usize, cx: &mut Context<EditorVi
 }
 
 fn render_row(row: &PaneRow, selected: bool, cx: &mut Context<EditorView>) -> Div {
-    let &PaneRow {
-        depth,
-        open,
-        ref name,
-        ref kind,
-        ref value,
-        ref detail,
-        ref tag,
-        tone,
-        current,
-        ref action,
-    } = row;
-    let name_color = match tone {
+    let PaneRow { name, kind, value, detail, .. } = row;
+    let name_color = match row.tone {
         Tone::Faint => color::fg_placeholder(),
         _ if value.is_some() => color::function(),
         _ => color::fg_body(),
     };
-    let expander = match open {
+    let expander = match row.open {
         Some(true) => "▾",
         Some(false) => "▸",
         None => "",
@@ -277,18 +229,18 @@ fn render_row(row: &PaneRow, selected: bool, cx: &mut Context<EditorView>) -> Di
         .flex_none()
         .h(px(ROW_HEIGHT))
         .mx(px(6.0))
-        .pl(px(4.0 + INDENT * depth as f32))
+        .pl(px(4.0 + INDENT * row.depth as f32))
         .pr(px(8.0))
         .rounded(px(6.0))
         .whitespace_nowrap()
         .overflow_hidden()
         .mono()
         .text_size(px(font::status_size()))
-        .when(selected, |row| row.bg(rgba(glass::selection())))
-        .when(current && !selected, |row| row.bg(rgba(glass::ink(0x0f))))
+        .when(selected, |element| element.bg(rgba(glass::selection())))
+        .when(row.current && !selected, |element| element.bg(rgba(glass::ink(0x0f))))
         .child(div().flex_none().w(px(12.0)).text(10.0, lit_or_faint(selected)).child(expander))
         .child(text(name_color, name.clone()))
-        .when(!kind.is_empty(), |row| row.child(text(color::fg_faint(), kind.clone())))
+        .when(!kind.is_empty(), |element| element.child(text(color::fg_faint(), kind.clone())))
         .children(value.as_ref().map(|value| {
             div()
                 .flex()
@@ -297,24 +249,23 @@ fn render_row(row: &PaneRow, selected: bool, cx: &mut Context<EditorView>) -> Di
                 .child(div().text_color(rgb(color::fg_faint())).child("="))
                 .child(div().truncate().text_color(rgb(value_color(value))).child(value.clone()))
         }))
-        .children(tag.as_ref().map(|(tag, tone)| {
+        .children(row.tag.as_ref().map(|(tag, tone)| {
             text(tone_color(*tone, color::fg_dim()), tag.clone())
                 .px(px(6.0))
                 .rounded(px(4.0))
                 .text_size(px(font::small_size()))
         }))
-        .when(!detail.is_empty(), |row| {
-            row.child(
+        .when(!detail.is_empty(), |element| {
+            element.child(
                 text(lit_or_faint(selected), detail.clone())
                     .ml_auto()
                     .pl(px(8.0))
                     .text_size(px(font::small_size())),
             )
         });
-    match action {
-        Some(action) => clickable(element.cursor_pointer(), action.clone(), cx),
-        None => element,
-    }
+    element.when_some(row.action.clone(), |element, action| {
+        clickable(element.cursor_pointer(), action, cx)
+    })
 }
 
 /// Strings, numbers and the rest told apart, as the code shows them.

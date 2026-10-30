@@ -2,9 +2,9 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use gpui::{
-    BoxShadow, Context, Div, Font, FontFeatures, FontWeight, HighlightStyle, Hsla,
+    App, BoxShadow, Context, Div, Font, FontFeatures, FontWeight, HighlightStyle, Hsla,
     InteractiveElement, IntoElement, MouseButton, MouseDownEvent, ParentElement, Rgba, Styled,
-    StyledText, Svg, TextRun, canvas, div, fill, linear_color_stop, linear_gradient, point,
+    StyledText, Svg, TextRun, Window, canvas, div, fill, linear_color_stop, linear_gradient, point,
     prelude::FluentBuilder, px, rgb, rgba, svg, transparent_black,
 };
 use remacs_core::{FileState, Icon, LineCounts, ListItem, Mark, Tone, quoted_parts};
@@ -207,17 +207,14 @@ pub fn edge_fade(edge: Edge, size: f32, under: Hsla) -> impl IntoElement {
     // Only Metal mixes (ADR 0038); elsewhere surfaces are opaque, so a gradient over the
     // content looks the same.
     let over_content = gradient(under, under.opacity(0.0));
-    let fade = canvas(
-        |_, _, _| {},
-        move |bounds, _, window, _| {
-            if cfg!(target_os = "macos") {
-                window.paint_fade(bounds, amount, under);
-            } else {
-                window.paint_quad(fill(bounds, over_content));
-            }
-        },
-    )
-    .absolute();
+    let paint = move |bounds, _, window: &mut Window, _: &mut App| {
+        if cfg!(target_os = "macos") {
+            window.paint_fade(bounds, amount, under);
+        } else {
+            window.paint_quad(fill(bounds, over_content));
+        }
+    };
+    let fade = canvas(|_, _, _| {}, paint).absolute();
     match edge {
         Edge::Top => fade.left_0().right_0().h(px(size)).top_0(),
         Edge::Bottom => fade.left_0().right_0().h(px(size)).bottom_0(),
@@ -289,12 +286,9 @@ fn lift() -> Vec<BoxShadow> {
 /// A check for a marked row, a `D` for one flagged for deletion.
 pub fn mark_badge(mark: Mark) -> Div {
     let badge = div().row(0.0).flex_none().justify_center().rounded(px(4.0)).shadow(lift());
+    let check = || svg_icon(CHECK_ICON, 10.0, color::bg_main());
     match mark {
-        Mark::Marked => badge.size(px(14.0)).bg(rgb(color::accent())).child(svg_icon(
-            CHECK_ICON,
-            10.0,
-            color::bg_main(),
-        )),
+        Mark::Marked => badge.size(px(14.0)).bg(rgb(color::accent())).child(check()),
         Mark::Flagged => badge
             .size(px(16.0))
             .bg(rgb(color::bg_danger()))
@@ -342,14 +336,8 @@ pub fn line_counts(lines: LineCounts, selected: bool) -> Div {
     let count = |text: String, text_color| div().text_color(rgb(text_color)).child(text);
     let added = (lines.added > 0).then(|| count(format!("+{}", lines.added), added));
     let removed = (lines.removed > 0).then(|| count(format!("−{}", lines.removed), removed));
-    div()
-        .flex()
-        .flex_none()
-        .gap(px(10.0))
-        .mono()
-        .text_size(px(font::status_size()))
-        .children(added)
-        .children(removed)
+    let counts = div().flex().flex_none().gap(px(10.0)).mono().text_size(px(font::status_size()));
+    counts.children(added).children(removed)
 }
 
 /// Rows of `items` `row_height` tall, at most `max` of them and a line saying how many
@@ -376,14 +364,8 @@ pub fn list_items(items: Vec<ListItem>, max: usize, row_height: f32) -> Vec<Div>
         let label = label.fill_truncated().text(font::mono_size(), color::fg_kbd());
         row.child(label).child(detail.child(item.detail))
     });
-    let more = (hidden > 0).then(|| {
-        div()
-            .px(px(10.0))
-            .py(px(4.0))
-            .status_text(color::fg_dim())
-            .child(format!("and {hidden} more"))
-    });
-    rows.chain(more).collect()
+    let more = div().px(px(10.0)).py(px(4.0)).status_text(color::fg_dim());
+    rows.chain((hidden > 0).then(|| more.child(format!("and {hidden} more")))).collect()
 }
 
 /// A sunken strip of `segment`s, one of them selected.
@@ -395,14 +377,8 @@ pub fn segment(label: &str, selected: bool) -> Div {
     let selected_look = |segment: Div| {
         segment.bg(rgba(glass::segment())).text_color(rgb(color::fg_main())).shadow(lift())
     };
-    div()
-        .row(0.0)
-        .bar(24.0, 10.0)
-        .rounded(px(6.0))
-        .ui()
-        .status_text(color::fg_dim())
-        .when(selected, selected_look)
-        .child(label.to_owned())
+    let plain = div().row(0.0).bar(24.0, 10.0).rounded(px(6.0)).ui().status_text(color::fg_dim());
+    plain.when(selected, selected_look).child(label.to_owned())
 }
 
 /// A setting's chip, lit while it is on, with the key that switches it.
@@ -413,11 +389,8 @@ pub fn option_chip(label: &str, key: &str, on: bool) -> Div {
 /// A choice's chip: its label and value, which a click changes.
 pub fn choice_chip(label: &str, value: &str) -> Div {
     let value = div().mono().text_color(rgb(color::fg_main())).child(value.to_owned());
-    toggle_chip(&format!("{label}:"), false).child(value).child(svg_icon(
-        CHEVRON_DOWN_ICON,
-        10.0,
-        color::fg_kbd(),
-    ))
+    let chevron = svg_icon(CHEVRON_DOWN_ICON, 10.0, color::fg_kbd());
+    toggle_chip(&format!("{label}:"), false).child(value).child(chevron)
 }
 
 /// A setting's chip, lit and checked while it is on.
@@ -540,12 +513,8 @@ pub fn shadow(color: u32, y: f32, blur: f32, spread: f32) -> BoxShadow {
 }
 
 pub fn modified_dot() -> impl IntoElement {
-    div().flex_none().size(px(7.0)).rounded_full().bg(rgb(color::warning())).shadow(vec![shadow(
-        color::warning() << 8 | 0x2e,
-        0.0,
-        0.0,
-        2.0,
-    )])
+    let glow = vec![shadow(color::warning() << 8 | 0x2e, 0.0, 0.0, 2.0)];
+    div().flex_none().size(px(7.0)).rounded_full().bg(rgb(color::warning())).shadow(glow)
 }
 
 /// A translucent floating bar over the bottom of the window, like the status pill.

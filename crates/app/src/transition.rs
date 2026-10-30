@@ -63,12 +63,9 @@ impl Presence {
     }
 
     fn visibility(&self, now: Instant, duration: Duration) -> f32 {
-        let Some((since, from)) = self.change else {
+        let Some((since, from)) = self.change.filter(|_| !duration.is_zero()) else {
             return self.rest();
         };
-        if duration.is_zero() {
-            return self.rest();
-        }
         let step = now.saturating_duration_since(since).as_secs_f32() / duration.as_secs_f32();
         if self.shown { (from + step).min(1.0) } else { (from - step).max(0.0) }
     }
@@ -98,10 +95,7 @@ impl<T> Retained<T> {
     /// Takes the surface as described at `now`, none when it is not shown.
     pub fn update(&mut self, current: Option<T>, now: Instant, duration: Duration) {
         self.visibility = self.presence.advance(current.is_some(), now, duration);
-        self.last = match self.visibility {
-            Some(_) => current.or(self.last.take()),
-            None => None,
-        };
+        self.last = self.visibility.and(current.or(self.last.take()));
     }
 
     /// For a surface owned elsewhere while shown, which hands it over once it closed:
@@ -114,10 +108,7 @@ impl<T> Retained<T> {
         duration: Duration,
     ) {
         self.visibility = self.presence.advance(shown, now, duration);
-        self.last = match self.visibility {
-            Some(_) if !shown => closed.or(self.last.take()),
-            _ => None,
-        };
+        self.last = self.visibility.filter(|_| !shown).and(closed.or(self.last.take()));
     }
 
     /// What to draw of it as it goes; nothing while it is shown or once it is gone.
@@ -127,15 +118,12 @@ impl<T> Retained<T> {
 
     /// How it is drawn as it comes, is, or goes; none once it is gone.
     pub fn look(&self, transition: Transition) -> Option<Look> {
-        let visibility = self.visibility?;
-        Some(Look::new(visibility, transition, !self.presence.shown))
+        Some(Look::new(self.visibility?, transition, !self.presence.shown))
     }
 
     /// The surface last taken, as it comes, is, or goes.
     pub fn shown(&self, transition: Transition) -> Option<Shown<'_, T>> {
-        let content = self.last.as_ref()?;
-        let look = self.look(transition)?;
-        Some(Shown { content, look })
+        Some(Shown { content: self.last.as_ref()?, look: self.look(transition)? })
     }
 
     pub fn is_changing(&self) -> bool {
@@ -159,14 +147,8 @@ impl Look {
     /// the time.
     pub fn new(visibility: f32, transition: Transition, leaving: bool) -> Self {
         let distance = transition.slide * (1.0 - ease_out_cubic(visibility));
-        Self {
-            opacity: ease_out_quad(visibility),
-            offset: match transition.from {
-                Side::Above => -distance,
-                Side::Below => distance,
-            },
-            leaving,
-        }
+        let offset = if transition.from == Side::Above { -distance } else { distance };
+        Self { opacity: ease_out_quad(visibility), offset, leaving }
     }
 
     /// Fading as this one does, in place.

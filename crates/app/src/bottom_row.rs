@@ -91,12 +91,9 @@ pub fn fit_hints(hints: Hints, show: bool, side_room: f32, window: &Window) -> F
     let widths: Vec<Pixels> =
         hints.iter().map(|&(keys, label)| hint_width(keys, label, window)).collect();
     let pill_width = |items: &[Pixels], extra: Option<Pixels>| {
-        let count = items.len() + usize::from(extra.is_some());
-        let gaps = PILL_ITEM_GAP * count.saturating_sub(1) as f32;
-        items
-            .iter()
-            .chain(extra.as_ref())
-            .fold(px(2.0 * PILL_INSET + gaps), |sum, &width| sum + width)
+        let all = items.iter().chain(extra.as_ref());
+        let gaps = PILL_ITEM_GAP * all.clone().count().saturating_sub(1) as f32;
+        all.fold(px(2.0 * PILL_INSET + gaps), |sum, &width| sum + width)
     };
     let all = pill_width(&widths, None);
     if all <= room {
@@ -116,13 +113,8 @@ pub fn fit_hints(hints: Hints, show: bool, side_room: f32, window: &Window) -> F
 /// The row, its three slots side by side; the middle one stays centered while the
 /// status fits its side.
 pub fn render_row(echo: Option<AnyElement>, hints: Option<Div>, status: AnyElement) -> Div {
-    div()
-        .absolute()
-        .left(px(SIDE))
-        .right(px(SIDE))
-        .bottom(px(BOTTOM))
-        .row(GAP)
-        .child(div().flex_1().min_w_0().flex().children(echo))
+    let row = div().absolute().left(px(SIDE)).right(px(SIDE)).bottom(px(BOTTOM)).row(GAP);
+    row.child(div().flex_1().min_w_0().flex().children(echo))
         .child(div().flex_none().flex().children(hints))
         .child(div().flex_1().flex().justify_end().child(status))
 }
@@ -163,7 +155,8 @@ pub fn render_message_echo(
         MessageKind::Error => color::error() << 8 | 0x66,
         _ => glass::pill_border(),
     };
-    let label = div().fill_truncated().text_color(rgb(color::fg_body()));
+    let label = div().fill_truncated().text_color(rgb(color::fg_body())).child(text);
+    let item = pill_item(MARK_GAP).min_w_0().children(kind_mark(message.kind)).child(label);
     pill()
         .min_w_0()
         .border_color(rgba(border))
@@ -171,12 +164,7 @@ pub fn render_message_echo(
         .ui()
         .cursor_pointer()
         .on_press(cx, |view, cx| view.toggle_message_open(cx))
-        .child(
-            pill_item(MARK_GAP)
-                .min_w_0()
-                .children(kind_mark(message.kind))
-                .child(label.child(text)),
-        )
+        .child(item)
         .when_some(whole_key, |pill, key| {
             pill.child(pill_separator().flex_none())
                 .child(pill_item(ITEM_GAP).flex_none().children(key_caps(key)))
@@ -220,8 +208,7 @@ pub fn render_hints_list(fitted: &FittedHints, title: &str) -> Option<impl IntoE
     let list = glass_surface(glass::HINT_RADIUS)
         .w(px(LIST_WIDTH))
         .p(px(6.0))
-        .flex()
-        .flex_col()
+        .column()
         .gap(px(1.0))
         .ui()
         .status_text(color::fg_body())
@@ -262,8 +249,7 @@ pub fn render_message_card(
         .id("echo-message")
         .max_h(px(CARD_LINE_HEIGHT * lines as f32 + 20.0))
         .overflow_y_scroll()
-        .px(px(14.0))
-        .py(px(10.0))
+        .pad(10.0, 14.0, 10.0)
         .mono_status(color::fg_body())
         .line_height(px(CARD_LINE_HEIGHT))
         .child(message.text.clone());
@@ -302,8 +288,7 @@ pub fn render_prefix_keys(
             let label = match binding {
                 Binding::Command(command) => div().text_color(rgb(color::fg_body())).child(command),
                 _ => {
-                    let mut sequence = pending.to_vec();
-                    sequence.push(key);
+                    let sequence = [pending.as_slice(), &[key]].concat();
                     div()
                         .text_color(rgb(color::fg_directory()))
                         .child(format!("{} …", describe_sequence(&sequence)))
@@ -319,15 +304,10 @@ pub fn render_prefix_keys(
     }
     let rows = entries.len().div_ceil(columns).max(1);
     let mut entries = entries.into_iter();
-    let column = |entries: Vec<Div>| {
-        div().flex_1().min_w_0().flex().flex_col().gap(px(2.0)).children(entries)
-    };
-    let grid = div()
-        .flex()
-        .gap(px(24.0))
-        .px(px(16.0))
-        .py(px(12.0))
-        .children((0..columns).map(|_| column(entries.by_ref().take(rows).collect())));
+    let column =
+        |entries: Vec<Div>| div().flex_1().min_w_0().column().gap(px(2.0)).children(entries);
+    let filled = (0..columns).map(|_| column(entries.by_ref().take(rows).collect()));
+    let grid = div().flex().gap(px(24.0)).px(px(16.0)).py(px(12.0)).children(filled);
     let title = div()
         .row(10.0)
         .children(pending.iter().map(|key| kbd(&key.to_string(), true)))
@@ -357,8 +337,7 @@ fn card() -> Div {
         .absolute()
         .left(px(SIDE))
         .bottom(px(ABOVE_ROW))
-        .flex()
-        .flex_col()
+        .column()
         .overflow_hidden()
         .ui()
 }
@@ -377,12 +356,7 @@ fn card_heading(title: Div) -> Div {
 
 /// The bottom line of a card, `height` tall, its keys `gap` apart.
 fn card_footer(gap: f32, height: f32, padding: f32) -> Div {
-    div()
-        .row(gap)
-        .bar(height, padding)
-        .border_t_1()
-        .border_color(rgba(glass::ink(0x12)))
-        .status_text(color::fg_dim())
+    div().row(gap).bar(height, padding).top_border(glass::ink(0x12)).status_text(color::fg_dim())
 }
 
 fn section_heading(title: &str) -> Div {
@@ -403,14 +377,11 @@ fn chip_width(label: &str, window: &Window) -> Pixels {
 }
 
 fn hint_width(keys: &str, label: &str, window: &Window) -> Pixels {
-    let caps: Vec<&str> = keys.split_whitespace().collect();
-    let caps_width = caps.iter().fold(px(0.0), |sum, cap| {
-        sum + text_width(cap, theme_font::mono(), theme_font::small_size(), window)
-            + px(2.0 * KEY_CAP_INSET)
-    });
-    px(2.0 * ITEM_PADDING + ITEM_GAP * caps.len() as f32)
-        + caps_width
-        + text_width(label, theme_font::ui(), theme_font::status_size(), window)
+    let label = text_width(label, theme_font::ui(), theme_font::status_size(), window);
+    keys.split_whitespace().fold(px(2.0 * ITEM_PADDING) + label, |sum, cap| {
+        let cap_width = text_width(cap, theme_font::mono(), theme_font::small_size(), window);
+        sum + cap_width + px(2.0 * KEY_CAP_INSET + ITEM_GAP)
+    })
 }
 
 fn text_width(text: &str, family: impl Into<SharedString>, size: f32, window: &Window) -> Pixels {

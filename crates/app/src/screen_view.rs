@@ -75,30 +75,18 @@ pub fn render_screen(
         return root.child(render_notice(notice));
     }
     let runs = rows.iter().enumerate().flat_map(|(row, line)| render_row(row, line, cell));
-    let cells = div()
-        .absolute()
-        .inset_0()
-        .mono()
-        .text_size(cell.font_size)
-        .line_height(cell.height)
-        .text_color(rgb(color::fg_body()))
-        .children(runs)
-        .children(cursor.map(|cursor| render_cursor(cursor, &rows, cell)));
-    let padded = div()
-        .absolute()
-        .top(inset.y)
-        .bottom(inset.y)
-        .left(inset.x)
-        .right(inset.x)
-        .child(cells)
-        .children(render_marks(&rows, cell, inset.x, tip, cx));
+    let cursor = cursor.map(|cursor| render_cursor(cursor, &rows, cell));
+    let font = div().mono().text_size(cell.font_size).line_height(cell.height);
+    let cells = font.absolute().inset_0().text_color(rgb(color::fg_body())).children(runs);
+    let marks = render_marks(&rows, cell, inset.x, tip, cx);
+    let padded = div().absolute().top(inset.y).bottom(inset.y).left(inset.x).right(inset.x);
     let fade = f32::from(inset.y + cell.height);
     let flashed = div()
         .absolute()
         .inset_0()
         .rounded_fill(10.0, glass::ink(0x0f))
         .bordered(color::warning() << 8 | 0x66);
-    root.child(padded)
+    root.child(padded.child(cells.children(cursor)).children(marks))
         .when(above, |root| root.child(edge_fade(Edge::Top, fade, under)))
         .children(banner.map(render_banner))
         .children(search.map(render_search))
@@ -108,19 +96,13 @@ pub fn render_screen(
 fn render_row(row: usize, line: &ScreenRow, cell: Cell) -> Vec<Div> {
     let top = cell.height * row as f32;
     let mut column = 0;
-    let mut drawn = Vec::with_capacity(line.runs.len());
-    for run in &line.runs {
+    let runs = line.runs.iter().filter_map(|run| {
         let left = cell.width * column as f32;
         column += run.cells;
-        if run.text.trim().is_empty()
-            && run.face.background.is_none()
-            && run.face.highlight.is_none()
-        {
-            continue;
-        }
-        drawn.push(render_run(run, left, top, cell));
-    }
-    drawn
+        let plain = run.face.background.is_none() && run.face.highlight.is_none();
+        (!plain || !run.text.trim().is_empty()).then(|| render_run(run, left, top, cell))
+    });
+    runs.collect()
 }
 
 fn render_run(run: &CellRun, left: Pixels, top: Pixels, cell: Cell) -> Div {
@@ -132,12 +114,9 @@ fn render_run(run: &CellRun, left: Pixels, top: Pixels, cell: Cell) -> Div {
     let paint = move |bounds: Bounds<Pixels>, _, window: &mut Window, _: &mut _| {
         paint_pieces(&pieces, bounds.origin, text, window)
     };
-    div()
-        .absolute()
-        .left(left)
-        .top(top)
-        .w(cell.width * run.cells as f32)
-        .h(cell.height)
+    let placed =
+        div().absolute().left(left).top(top).w(cell.width * run.cells as f32).h(cell.height);
+    placed
         .whitespace_nowrap()
         .text_color(text)
         .when_some(background, |run, background| run.bg(background))
@@ -155,10 +134,9 @@ fn render_run(run: &CellRun, left: Pixels, top: Pixels, cell: Cell) -> Div {
 fn paint_pieces(pieces: &[Piece], origin: Point<Pixels>, color: Hsla, window: &mut Window) {
     let at = |bounds: Bounds<Pixels>| Bounds::new(origin + bounds.origin, bounds.size);
     for &piece in pieces {
-        let path = match piece {
+        let (mut path, points, count) = match piece {
             Piece::Fill { bounds, alpha } => {
-                let shade = Hsla { a: color.a * alpha, ..color };
-                window.paint_quad(fill(at(bounds), shade));
+                window.paint_quad(fill(at(bounds), Hsla { a: color.a * alpha, ..color }));
                 continue;
             }
             Piece::Dot(bounds) => {
@@ -192,17 +170,12 @@ fn paint_pieces(pieces: &[Piece], origin: Point<Pixels>, color: Hsla, window: &m
                 continue;
             }
             Piece::Line { from, to, thickness } => {
-                let mut path = PathBuilder::stroke(thickness);
-                path.move_to(origin + from);
-                path.line_to(origin + to);
-                path
+                (PathBuilder::stroke(thickness), [from, to, to], 2)
             }
-            Piece::Triangle(points) => {
-                let mut path = PathBuilder::fill();
-                path.add_polygon(&points.map(|point| origin + point), true);
-                path
-            }
+            Piece::Triangle(points) => (PathBuilder::fill(), points, 3),
         };
+        // A line's two points stay open; a triangle's three close.
+        path.add_polygon(&points.map(|point| origin + point)[..count], count == 3);
         if let Ok(path) = path.build() {
             window.paint_path(path, color);
         }
@@ -322,10 +295,7 @@ fn render_mark(
     let top = cell.height * row as f32;
     let tone = if mark.exit.is_some() { color::error() << 8 | 0xcc } else { glass::ink(0x4d) };
     let hover = move |on_plate: bool| {
-        move |view: &mut EditorView,
-              hovered: &bool,
-              _: &mut Window,
-              cx: &mut Context<EditorView>| {
+        move |view: &mut EditorView, hovered: &bool, _: &mut Window, cx: &mut Context<_>| {
             view.hover_command_mark(hovered.then_some((row, on_plate)), cx);
         }
     };
@@ -396,8 +366,7 @@ fn render_notice(notice: ScreenNotice) -> Div {
         .child(notice.title);
     let detail = div().mono_status(color::fg_dim()).line_height(px(18.0)).child(notice.detail);
     let card = div()
-        .flex()
-        .flex_col()
+        .column()
         .gap(px(8.0))
         .max_w(px(560.0))
         .p(px(18.0))
@@ -437,13 +406,8 @@ fn render_search(search: ScreenSearch) -> Div {
         None => "no match".to_owned(),
     };
     let caret = div().ml(px(1.0)).w(px(8.0)).h(px(17.0)).rounded(px(1.0)).bg(rgb(color::fg_main()));
-    let input = div()
-        .flex()
-        .items_center()
-        .mono()
-        .text_color(rgb(color::fg_main()))
-        .child(search.input)
-        .child(caret);
+    let input =
+        div().row(0.0).mono().text_color(rgb(color::fg_main())).child(search.input).child(caret);
     let hints = search
         .hints
         .iter()
@@ -469,17 +433,12 @@ mod tests {
     use super::*;
 
     fn row(runs: &[&str]) -> ScreenRow {
-        ScreenRow {
-            runs: runs
-                .iter()
-                .map(|text| CellRun {
-                    text: (*text).to_owned(),
-                    cells: text.chars().count(),
-                    face: CellFace::default(),
-                })
-                .collect(),
-            ..ScreenRow::default()
-        }
+        let run = |text: &&str| CellRun {
+            text: text.to_string(),
+            cells: text.chars().count(),
+            face: CellFace::default(),
+        };
+        ScreenRow { runs: runs.iter().map(run).collect(), ..ScreenRow::default() }
     }
 
     #[test]

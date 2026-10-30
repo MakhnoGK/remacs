@@ -50,9 +50,8 @@ pub fn render_tabs(tabs: Tabs, width: f32, cx: &mut Context<EditorView>) -> Div 
         .filter_map(|(tab, shown)| shown.then(|| render_tab(tab, cx)))
         .collect();
     let add_button = div()
-        .flex()
+        .row(0.0)
         .flex_none()
-        .items_center()
         .justify_center()
         .size(px(CHIP_HEIGHT))
         .rounded(px(7.0))
@@ -108,14 +107,13 @@ fn render_tab(tab: Tab, cx: &mut Context<EditorView>) -> Div {
     clickable(chip, action, cx)
 }
 
+/// A dot `size` pixels across in `fill`, ringed by `ring`, with alpha.
+fn dot(size: f32, fill: u32, ring: u32) -> Div {
+    div().size(px(size)).rounded_full().bg(rgb(fill)).border_2().border_color(rgba(ring))
+}
+
 fn running_dot() -> Div {
-    div()
-        .flex_none()
-        .size(px(7.0))
-        .rounded_full()
-        .bg(rgb(color::vc_added()))
-        .border_2()
-        .border_color(rgba(color::vc_added() << 8 | 0x2e))
+    dot(7.0, color::vc_added(), color::vc_added() << 8 | 0x2e).flex_none()
 }
 
 fn exit_badge(code: i32) -> Div {
@@ -124,25 +122,13 @@ fn exit_badge(code: i32) -> Div {
     } else {
         (color::error() << 8 | 0x38, color::fg_flagged())
     };
-    div()
-        .row(0.0)
-        .bar(16.0, 4.0)
-        .rounded_fill(4.0, background)
-        .text(10.0, text)
-        .child(code.to_string())
+    let badge = div().row(0.0).bar(16.0, 4.0).rounded_fill(4.0, background);
+    badge.text(10.0, text).child(code.to_string())
 }
 
 /// New output, or the bell, since the chip's buffer was last shown.
 fn corner_dot(tone: u32) -> Div {
-    div()
-        .absolute()
-        .top(px(-3.0))
-        .right(px(-3.0))
-        .size(px(8.0))
-        .rounded_full()
-        .bg(rgb(tone))
-        .border_2()
-        .border_color(rgba(color::bg_main() << 8 | 0xf2))
+    dot(8.0, tone, color::bg_main() << 8 | 0xf2).absolute().top(px(-3.0)).right(px(-3.0))
 }
 
 fn render_overflow(hidden: usize, list: &'static str, cx: &mut Context<EditorView>) -> Div {

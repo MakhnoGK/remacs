@@ -49,12 +49,8 @@ pub fn to_key(keystroke: &Keystroke, option_is_meta: bool) -> Option<Key> {
     // Control or Command, and on named keys.
     modifiers.meta &= option_is_meta || keystroke.key_char.is_none();
     let name = keystroke.key.as_str();
-    let code = NAMED_KEYS
-        .iter()
-        .find(|(named, _)| *named == name)
-        .map(|&(_, code)| code)
-        .or_else(|| function_key(name).map(KeyCode::Function));
-    match code {
+    let named = NAMED_KEYS.iter().find(|(named, _)| *named == name).map(|&(_, code)| code);
+    match named.or_else(|| function_key(name).map(KeyCode::Function)) {
         Some(code) => Some(Key::new(modifiers, code)),
         None => char_key(name, modifiers),
     }

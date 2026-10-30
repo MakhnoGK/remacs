@@ -125,12 +125,10 @@ impl Glide {
         duration: Duration,
         max_distance: f32,
     ) -> f32 {
-        if target != self.target {
-            if duration.is_zero() {
-                self.place(target);
-            } else {
-                self.head_for(target, now, duration, max_distance);
-            }
+        if target != self.target && duration.is_zero() {
+            self.place(target);
+        } else if target != self.target {
+            self.head_for(target, now, duration, max_distance);
         }
         if let Some(animation) = self.animation {
             let progress = animation.progress(now, duration);

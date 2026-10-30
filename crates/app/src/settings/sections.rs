@@ -53,7 +53,7 @@ settings_sections! {
         pub size: f32 = CodeFont::default().size,
         /// Times the size.
         pub line_height: f32 = 1.7,
-        pub weight: Weight = Weight::default(),
+        pub weight: Weight = Weight::REGULAR,
         pub strokes: Strokes = Strokes::default(),
         pub ligatures: bool = CodeFont::default().ligatures,
     }
@@ -62,7 +62,7 @@ settings_sections! {
     pub struct UiFontSettings {
         pub family: String = font::DEFAULT_UI.to_owned(),
         pub size: f32 = font::DEFAULT_UI_SIZE,
-        pub weight: Weight = Weight::default(),
+        pub weight: Weight = Weight::REGULAR,
     }
 
     /// How ⌘= and ⌘-, or ⌘ with the wheel, size the window buffer's text.
@@ -253,13 +253,9 @@ pub enum Weight {
     Number(f32),
 }
 
-impl Default for Weight {
-    fn default() -> Self {
-        Weight::Named(WeightName::Regular)
-    }
-}
-
 impl Weight {
+    const REGULAR: Self = Weight::Named(WeightName::Regular);
+
     pub fn value(self) -> f32 {
         match self {
             Weight::Number(weight) => weight,
@@ -346,10 +342,7 @@ impl GlassSettings {
 
     /// Of the desktop behind the window.
     pub fn window_blur(&self) -> u32 {
-        match self.window_background() {
-            WindowBackgroundAppearance::Opaque => 0,
-            _ => self.blur,
-        }
+        if self.window_background() == WindowBackgroundAppearance::Opaque { 0 } else { self.blur }
     }
 }
 

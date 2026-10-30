@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use gpui::{FontStyle, FontWeight, HighlightStyle, UnderlineStyle, px, rgba};
+use gpui::{FontStyle, FontWeight, HighlightStyle, Hsla, UnderlineStyle, px, rgba};
 use remacs_core::{ConsoleColor, ConsoleStyle, Face};
 use remacs_theme::syntax::{self, Style};
 use remacs_theme::{color, glass};
@@ -16,10 +16,6 @@ pub type Highlights = Vec<(Range<usize>, HighlightStyle)>;
 
 pub fn face_style(face: Face) -> HighlightStyle {
     let underline = |color: u32| swatch_style(color << 8 | 0xff, UNDERLINE_THICKNESS);
-    let background = |color: u32| HighlightStyle {
-        background_color: Some(rgba(color).into()),
-        ..Default::default()
-    };
     match face {
         Face::Keyword => syntax_style(color::keyword(), syntax::keyword()),
         Face::Type => syntax_style(color::type_name(), syntax::type_name()),
@@ -57,13 +53,14 @@ pub fn face_style(face: Face) -> HighlightStyle {
 /// A line under text naming a color, `0xRRGGBBAA`, in it.
 pub fn swatch_style(color: u32, thickness: f32) -> HighlightStyle {
     HighlightStyle {
-        underline: Some(UnderlineStyle {
-            thickness: px(thickness),
-            color: Some(rgba(color).into()),
-            wavy: false,
-        }),
+        underline: Some(underline_style(thickness, Some(rgba(color).into()))),
         ..Default::default()
     }
+}
+
+/// A straight line `thickness` pixels thick, in the text's color without `color`.
+fn underline_style(thickness: f32, color: Option<Hsla>) -> UnderlineStyle {
+    UnderlineStyle { thickness: px(thickness), color, wavy: false }
 }
 
 fn syntax_style(color: u32, style: Style) -> HighlightStyle {
@@ -76,11 +73,7 @@ fn text_style(color: Option<u32>, bold: bool, italic: bool, underline: bool) -> 
         color: color.map(hsla),
         font_weight: bold.then_some(FontWeight::BOLD),
         font_style: italic.then_some(FontStyle::Italic),
-        underline: underline.then(|| UnderlineStyle {
-            thickness: px(1.0),
-            color: None,
-            wavy: false,
-        }),
+        underline: underline.then(|| underline_style(1.0, None)),
         ..Default::default()
     }
 }
@@ -118,7 +111,12 @@ pub fn console_color(color: ConsoleColor) -> u32 {
 }
 
 pub fn region_style() -> HighlightStyle {
-    HighlightStyle { background_color: Some(rgba(glass::region()).into()), ..Default::default() }
+    background(glass::region())
+}
+
+/// A background of `color`, with alpha.
+fn background(color: u32) -> HighlightStyle {
+    HighlightStyle { background_color: Some(rgba(color).into()), ..Default::default() }
 }
 
 /// Merges layers into one list; later layers draw over earlier ones.

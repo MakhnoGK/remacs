@@ -27,13 +27,9 @@ pub fn set_menus(editor: &Editor, cx: &mut App) {
                 }
                 for item in group {
                     let action = RunCommand { name: item.command.into() };
-                    if let Some(keystroke) = item.key_equivalent {
-                        bindings.push(KeyBinding::new(
-                            &keystroke,
-                            action.clone(),
-                            Some(DISPLAY_ONLY),
-                        ));
-                    }
+                    bindings.extend(item.key_equivalent.map(|keystroke| {
+                        KeyBinding::new(&keystroke, action.clone(), Some(DISPLAY_ONLY))
+                    }));
                     items.push(MenuItem::action(item.title, action));
                 }
             }

@@ -70,20 +70,14 @@ pub fn render_table(
             RowCursor { selected: line == point_line, column: point_column, region, composition };
         render_row(row, columns, at_point, line, activate, cx)
     });
-    let rows = scrolled_by(
-        div().flex().flex_col().gap(px(ROW_GAP)).children(rows),
-        ROW_PITCH * scrolled_past,
-    )
-    .m(px(-SHADOW_ROOM))
-    .p(px(SHADOW_ROOM));
-    let list = div()
+    let shadow_room = |clip: Div| clip.m(px(-SHADOW_ROOM)).p(px(SHADOW_ROOM));
+    let rows = div().column().gap(px(ROW_GAP)).children(rows);
+    let rows = shadow_room(scrolled_by(rows, ROW_PITCH * scrolled_past));
+    let list = shadow_room(div())
         .flex_1()
         .min_w_0()
-        .m(px(-SHADOW_ROOM))
-        .p(px(SHADOW_ROOM))
         .overflow_hidden()
-        .flex()
-        .flex_col()
+        .column()
         .gap(px(SECTION_GAP))
         .child(render_bar(crumbs, sort, notice, cx))
         .child(render_header(columns))
@@ -122,18 +116,15 @@ fn render_bar(
     notice: Option<Notice>,
     cx: &mut Context<EditorView>,
 ) -> Div {
-    let crumb_count = crumbs.len();
-    let crumbs: Vec<AnyElement> = crumbs
-        .into_iter()
-        .enumerate()
-        .flat_map(|(index, crumb)| {
-            let chevron = (index + 1 < crumb_count).then(|| {
-                svg_icon(CHEVRON_ICON, 10.0, color::fg_muted()).flex_none().into_any_element()
-            });
-            [Some(render_crumb(crumb, cx)), chevron]
-        })
-        .flatten()
-        .collect();
+    let mut path = Vec::new();
+    for (index, crumb) in crumbs.into_iter().enumerate() {
+        if index > 0 {
+            path.push(
+                svg_icon(CHEVRON_ICON, 10.0, color::fg_muted()).flex_none().into_any_element(),
+            );
+        }
+        path.push(render_crumb(crumb, cx));
+    }
     let options: Vec<Div> = sort
         .into_iter()
         .map(|option| clickable(segment(&option.label, option.selected), option.action, cx))
@@ -144,7 +135,7 @@ fn render_bar(
         .h(px(BAR_HEIGHT))
         .pl(px(8.0))
         .pr(px(4.0))
-        .child(div().row(2.0).min_w_0().children(crumbs))
+        .child(div().row(2.0).min_w_0().children(path))
         .child(div().flex_1())
         .when(!options.is_empty(), |bar| bar.child(sort_label).child(segmented().children(options)))
         .children(notice.map(render_notice))
@@ -154,6 +145,9 @@ fn render_bar(
 fn render_notice(notice: Notice) -> Div {
     let notice_kbd =
         |key| kbd(key, false).bg(rgba(glass::field())).text_color(rgb(color::fg_on_warning()));
+    let keys = notice.keys.iter().map(|&(keys, label)| {
+        div().row(6.0).ml(px(4.0)).children(keys.split_whitespace().map(notice_kbd)).child(label)
+    });
     div()
         .row(8.0)
         .flex_none()
@@ -166,13 +160,7 @@ fn render_notice(notice: Notice) -> Div {
         .status_text(color::fg_on_warning())
         .child(modified_dot())
         .child(notice.label)
-        .children(notice.keys.iter().map(|&(keys, label)| {
-            div()
-                .row(6.0)
-                .ml(px(4.0))
-                .children(keys.split_whitespace().map(notice_kbd))
-                .child(label)
-        }))
+        .children(keys)
 }
 
 fn render_crumb(crumb: Button, cx: &mut Context<EditorView>) -> AnyElement {
@@ -202,14 +190,12 @@ pub fn clickable(element: Div, action: Action, cx: &mut Context<EditorView>) -> 
 }
 
 fn render_header(columns: &[Column]) -> Div {
-    div()
-        .row(CELL_GAP)
-        .bar(HEADER_HEIGHT, 12.0)
-        .ui()
-        .font_weight(FontWeight::SEMIBOLD)
+    let header =
+        div().row(CELL_GAP).bar(HEADER_HEIGHT, 12.0).ui().font_weight(FontWeight::SEMIBOLD);
+    header
         .text(font::small_size(), color::fg_faint())
-        .child(div().flex_none().w(px(MARK_WIDTH)))
-        .child(div().flex_none().w(px(ICON_WIDTH)))
+        .child(slot(MARK_WIDTH))
+        .child(slot(ICON_WIDTH))
         .children(columns.iter().map(|column| cell(column).child(column.title.to_uppercase())))
 }
 
@@ -275,20 +261,14 @@ fn render_row(
             .child(text)
     });
     let cells: Vec<_> = cells.collect();
+    let lifted = vec![shadow(glass::shadow(0x73), 1.0, 3.0, 0.0)];
     div()
         .row(CELL_GAP)
         .flex_none()
         .bar(ROW_HEIGHT, 12.0)
         .rounded(px(8.0))
         .when_some(mark_tint.filter(|_| !highlighted), |row, tint| row.bg(rgba(tint << 8 | 0x14)))
-        .when(highlighted, |row| {
-            row.bg(rgba(glass::selection())).shadow(vec![shadow(
-                glass::shadow(0x73),
-                1.0,
-                3.0,
-                0.0,
-            )])
-        })
+        .when(highlighted, |row| row.bg(rgba(glass::selection())).shadow(lifted))
         .on_mouse_down(
             MouseButton::Left,
             cx.listener(move |view, event: &MouseDownEvent, _, cx| {
@@ -296,22 +276,14 @@ fn render_row(
                 view.click_row(line, event.click_count, activate, cx);
             }),
         )
-        .child(
-            div()
-                .flex()
-                .flex_none()
-                .justify_center()
-                .w(px(MARK_WIDTH))
-                .children(row.mark.map(mark_badge)),
-        )
-        .child(
-            div()
-                .flex()
-                .flex_none()
-                .w(px(ICON_WIDTH))
-                .children(row.icon.map(|row_icon| icon(row_icon, icon_color))),
-        )
+        .child(slot(MARK_WIDTH).flex().justify_center().children(row.mark.map(mark_badge)))
+        .child(slot(ICON_WIDTH).flex().children(row.icon.map(|kind| icon(kind, icon_color))))
         .children(cells)
+}
+
+/// A fixed slot `width` wide, e.g. for a row's mark or icon.
+fn slot(width: f32) -> Div {
+    div().flex_none().w(px(width))
 }
 
 /// The first cell as a text field, tinted once edited and lit with the cursor at
@@ -335,13 +307,9 @@ fn render_field(
         }
         None => div().child(StyledText::new(display.text).with_highlights(highlights)),
     };
-    let input = div()
-        .row(0.0)
-        .flex_1()
-        .min_w_0()
-        .h(px(24.0))
-        .ml(px(-7.0))
-        .px(px(6.0))
+    let ring = vec![shadow(color::accent() << 8 | 0x33, 0.0, 0.0, 3.0)];
+    let input = div().row(0.0).flex_1().min_w_0().h(px(24.0)).ml(px(-7.0)).px(px(6.0));
+    let input = input
         .overflow_hidden()
         .whitespace_nowrap()
         .rounded_fill(6.0, glass::field())
@@ -354,12 +322,7 @@ fn render_field(
                 .bg(rgba(color::warning() << 8 | 0x14))
         })
         .when(at_point.is_some(), |input| {
-            input.border_color(rgba(color::accent() << 8 | 0xbf)).shadow(vec![shadow(
-                color::accent() << 8 | 0x33,
-                0.0,
-                0.0,
-                3.0,
-            )])
+            input.border_color(rgba(color::accent() << 8 | 0xbf)).shadow(ring)
         })
         .child(content);
     div().row(CELL_GAP).flex_1().min_w_0().child(input).children(field.original.map(|original| {
