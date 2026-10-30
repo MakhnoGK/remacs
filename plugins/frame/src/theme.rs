@@ -20,11 +20,7 @@ pub fn select_theme(editor: &mut Editor) -> CommandResult {
     };
     let themes = themes_dir(&home);
     let candidates: Vec<Candidate> = std::iter::once(SYSTEM.to_owned())
-        .chain(
-            names(Some(&themes))
-                .into_iter()
-                .filter(|name| name != SYSTEM),
-        )
+        .chain(names(Some(&themes)).into_iter().filter(|name| name != SYSTEM))
         .map(|name| {
             let annotation = match name.as_str() {
                 SYSTEM => "Light or dark as macOS is, the themes in ui.toml".to_owned(),

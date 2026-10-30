@@ -109,14 +109,8 @@ pub fn branch(editor: &mut Editor) -> CommandResult {
             git_job(["switch", local])
         } else if let Some(remote) = answer.strip_prefix(REMOTE) {
             let local = remote.split_once('/').map_or(remote, |(_, name)| name);
-            let exists = branches
-                .iter()
-                .any(|branch| branch.is_local() && branch.short == local);
-            if exists {
-                git_job(["switch", local])
-            } else {
-                git_job(["switch", "--track", remote])
-            }
+            let exists = branches.iter().any(|branch| branch.is_local() && branch.short == local);
+            if exists { git_job(["switch", local]) } else { git_job(["switch", "--track", remote]) }
         } else {
             let base = bases[base.get()].clone();
             create_job(answer, base, switch.get(), track.get())
@@ -139,11 +133,7 @@ fn completions(
             let local = branch.is_local();
             Candidate {
                 label: branch.short.clone(),
-                annotation: if local {
-                    track_note(&branch.track)
-                } else {
-                    "remote".into()
-                },
+                annotation: if local { track_note(&branch.track) } else { "remote".into() },
                 tag: (local && Some(branch.short.as_str()) == current).then_some("current"),
                 group: Some("Matching branches".into()),
                 icon: Some(if local { Icon::Branch } else { Icon::Remote }),
@@ -234,10 +224,7 @@ fn read_branches(root: &Path) -> Result<Vec<Branch>, String> {
             if name.starts_with(REMOTE) && name.ends_with("/HEAD") {
                 return None;
             }
-            let short = name
-                .strip_prefix(LOCAL)
-                .or_else(|| name.strip_prefix(REMOTE))?
-                .to_owned();
+            let short = name.strip_prefix(LOCAL).or_else(|| name.strip_prefix(REMOTE))?.to_owned();
             Some(Branch {
                 short,
                 id: fields.next()?.to_owned(),

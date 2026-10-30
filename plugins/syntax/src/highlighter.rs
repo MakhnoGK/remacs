@@ -68,17 +68,9 @@ pub(crate) struct Highlighter {
 impl Highlighter {
     pub fn new(language: &Language, queries: &[&str]) -> Result<Self, QueryError> {
         let query = Query::new(language, &queries.concat())?;
-        let paints = query
-            .capture_names()
-            .iter()
-            .map(|name| paint_for(name))
-            .collect();
+        let paints = query.capture_names().iter().map(|name| paint_for(name)).collect();
         let format_string = query.capture_index_for_name(FORMAT_STRING_CAPTURE);
-        Ok(Self {
-            query,
-            paints,
-            format_string,
-        })
+        Ok(Self { query, paints, format_string })
     }
 
     /// Faces for `range`, sorted and non-overlapping. As in tree-sitter-highlight, a node
@@ -104,11 +96,7 @@ impl Highlighter {
             // A `_`-named capture is only read by predicates: it must not take the node's face
             // from a pattern before, like `println`'s from its macro call's.
             if let Some((paint, needed)) = self.paints[capture.index as usize] {
-                let paint = if needed > level {
-                    Paint::Inherit
-                } else {
-                    paint
-                };
+                let paint = if needed > level { Paint::Inherit } else { paint };
                 captures.push((node, pattern, paint));
             }
         }
@@ -120,10 +108,7 @@ impl Highlighter {
             }
             same_node
         });
-        flatten(
-            captures.into_iter().map(|(range, _, face)| (range, face)),
-            range,
-        )
+        flatten(captures.into_iter().map(|(range, _, face)| (range, face)), range)
     }
 }
 
@@ -153,9 +138,8 @@ fn paint_for(capture_name: &str) -> Option<(Paint, u8)> {
         return Some((Paint::Plain, 1));
     }
     Some(
-        face_for(capture_name).map_or((Paint::Inherit, 1), |(face, level)| {
-            (Paint::Face(face), level)
-        }),
+        face_for(capture_name)
+            .map_or((Paint::Inherit, 1), |(face, level)| (Paint::Face(face), level)),
     )
 }
 
@@ -164,11 +148,7 @@ fn placeholders(string: &[u8]) -> impl Iterator<Item = Range<usize>> {
     let mut offset = 0;
     std::iter::from_fn(move || {
         loop {
-            let open = offset
-                + string
-                    .get(offset..)?
-                    .iter()
-                    .position(|&byte| byte == b'{')?;
+            let open = offset + string.get(offset..)?.iter().position(|&byte| byte == b'{')?;
             if string.get(open + 1) == Some(&b'{') {
                 offset = open + 2;
                 continue;
@@ -228,10 +208,7 @@ impl<'a> TextProvider<&'a [u8]> for Chunks<'a> {
     type I = std::vec::IntoIter<&'a [u8]>;
 
     fn text(&mut self, node: Node) -> Self::I {
-        self.0
-            .chunks(node.byte_range())
-            .collect::<Vec<_>>()
-            .into_iter()
+        self.0.chunks(node.byte_range()).collect::<Vec<_>>().into_iter()
     }
 }
 

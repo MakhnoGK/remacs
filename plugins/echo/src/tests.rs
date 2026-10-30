@@ -27,19 +27,8 @@ fn lists_every_message_with_its_command_and_follows_new_ones() {
     editor.set_message("first");
     press(&mut editor, "C-h e");
     assert_eq!(editor.window_buffer().name(), MESSAGES_BUFFER);
-    let lines: Vec<String> = shown_text(&editor)
-        .lines()
-        .map(|line| line[8..].to_owned())
-        .collect();
-    assert_eq!(
-        lines,
-        [
-            "  —  first",
-            "  —  went wrong",
-            "     second line",
-            "  —  first  ×2",
-        ]
-    );
+    let lines: Vec<String> = shown_text(&editor).lines().map(|line| line[8..].to_owned()).collect();
+    assert_eq!(lines, ["  —  first", "  —  went wrong", "     second line", "  —  first  ×2",]);
     let last_start = shown_text(&editor).rfind("\n").map(|end| {
         let text = shown_text(&editor);
         text[..end].rfind('\n').map_or(0, |start| start + 1)
@@ -66,11 +55,7 @@ fn colors_errors_and_dims_the_columns() {
             .iter()
             .any(|span| span.range == (error..error + 6) && matches!(span.face, Face::Console(_)))
     );
-    assert!(
-        faces
-            .iter()
-            .any(|span| span.range.start == 0 && span.face == Face::Comment)
-    );
+    assert!(faces.iter().any(|span| span.range.start == 0 && span.face == Face::Comment));
 }
 
 #[test]
@@ -78,10 +63,7 @@ fn keys_in_messages_clear_it_and_close_it() {
     let mut editor = editor();
     editor.set_message("one");
     press(&mut editor, "C-h e");
-    assert_eq!(
-        editor.text_controls().map(|controls| controls.hints.len()),
-        Some(2)
-    );
+    assert_eq!(editor.text_controls().map(|controls| controls.hints.len()), Some(2));
     press(&mut editor, "C-c C-k");
     editor.refresh();
     assert_eq!(shown_text(&editor), "");
@@ -135,8 +117,5 @@ fn describes_a_command_with_its_keys() {
     editor.type_text("view-echo-area-messages");
     editor.exit_minibuffer(false).unwrap();
     let text = editor.message().unwrap().text.clone();
-    assert!(
-        text.starts_with("view-echo-area-messages is bound to C-h e\n"),
-        "{text}"
-    );
+    assert!(text.starts_with("view-echo-area-messages is bound to C-h e\n"), "{text}");
 }

@@ -39,9 +39,7 @@ static ALLOCATOR: PeakHeap = PeakHeap;
 fn main() -> std::io::Result<()> {
     let mut args = std::env::args().skip(1);
     let kind = args.next().unwrap_or_else(|| "latin1".into());
-    let size_mib: usize = args
-        .next()
-        .map_or(1024, |size| size.parse().expect("size in MiB"));
+    let size_mib: usize = args.next().map_or(1024, |size| size.parse().expect("size in MiB"));
     let path = format!("target/open-{kind}-{size_mib}m.txt");
     let path = Path::new(&path);
     if !path.exists() {
@@ -90,10 +88,9 @@ fn generate(path: &Path, kind: &str, target_len: usize) -> std::io::Result<()> {
                     _ => character as u8,
                 })
                 .collect(),
-            "utf16" => format!("line {line}: café €\n")
-                .encode_utf16()
-                .flat_map(u16::to_le_bytes)
-                .collect(),
+            "utf16" => {
+                format!("line {line}: café €\n").encode_utf16().flat_map(u16::to_le_bytes).collect()
+            }
             "binary" => (0..4096)
                 .map(|_| {
                     seed ^= seed << 13;

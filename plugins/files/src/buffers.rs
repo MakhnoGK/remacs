@@ -30,10 +30,7 @@ fn read_buffer(editor: &mut Editor, other_window: bool) -> CommandResult {
         } else {
             "Switch to buffer…"
         },
-        default: editor
-            .buffers()
-            .get(1)
-            .map(|buffer| buffer.name().to_owned()),
+        default: editor.buffers().get(1).map(|buffer| buffer.name().to_owned()),
         count: Count::Total,
         hints: &[("↵", "Switch"), ("C-x k", "Kill buffer"), ("C-g", "Cancel")],
         ..Prompt::default()
@@ -60,17 +57,11 @@ impl Default for KillBufferPrompt {
 }
 
 fn prompts_for_buffer(editor: &Editor) -> bool {
-    editor
-        .find_plugin_state::<KillBufferPrompt>()
-        .is_none_or(|prompt| prompt.0)
+    editor.find_plugin_state::<KillBufferPrompt>().is_none_or(|prompt| prompt.0)
 }
 
 pub fn close_buffer_title(editor: &Editor) -> &'static str {
-    if prompts_for_buffer(editor) {
-        "Close Buffer…"
-    } else {
-        "Close Buffer"
-    }
+    if prompts_for_buffer(editor) { "Close Buffer…" } else { "Close Buffer" }
 }
 
 /// Kills a buffer, asking first if it has unsaved changes; inside a buffer prompt it kills
@@ -80,11 +71,7 @@ pub fn kill_buffer(editor: &mut Editor) -> CommandResult {
         if minibuffer.prompt().category != BUFFER_CATEGORY {
             return Err("Command attempted to use minibuffer while in minibuffer".into());
         }
-        let name = minibuffer
-            .selected_candidate()
-            .ok_or("No buffer selected")?
-            .value
-            .clone();
+        let name = minibuffer.selected_candidate().ok_or("No buffer selected")?.value.clone();
         if has_unsaved_changes(editor, &name) {
             return Err(format!("Buffer {name} modified; kill it with C-x k").into());
         }

@@ -438,9 +438,7 @@ esac
 ];
 
 fn stripped(text: &str) -> String {
-    text.split_inclusive('\n')
-        .map(|line| line.trim_start_matches([' ', '\t']))
-        .collect()
+    text.split_inclusive('\n').map(|line| line.trim_start_matches([' ', '\t'])).collect()
 }
 
 pub(crate) fn editor_with(name: &str, mode: &'static str, text: &str) -> Editor {
@@ -457,10 +455,7 @@ fn contents(editor: &Editor) -> String {
 #[test]
 fn every_indent_query_compiles() {
     for indents in INDENTS {
-        let grammar = GRAMMARS
-            .iter()
-            .find(|grammar| grammar.mode == indents.mode)
-            .unwrap();
+        let grammar = GRAMMARS.iter().find(|grammar| grammar.mode == indents.mode).unwrap();
         let query =
             tree_sitter::Query::new(&grammar.language().unwrap(), &indents.queries.join("\n"))
                 .unwrap_or_else(|error| panic!("{}: {error}", indents.mode));
@@ -524,9 +519,7 @@ fn breaking_a_line_indents_the_new_one_by_the_syntax() {
 
     let typed_at = |name: &str, mode: &'static str, text: &str, at: &str| {
         let mut editor = editor_with(name, mode, text);
-        editor
-            .buffer_mut()
-            .set_point(text.find(at).unwrap() + at.len());
+        editor.buffer_mut().set_point(text.find(at).unwrap() + at.len());
         editor.run_command("newline");
         editor.buffer_mut().insert("x");
         contents(&editor)
@@ -536,18 +529,11 @@ fn breaking_a_line_indents_the_new_one_by_the_syntax() {
         "fn f() {\n    if a {\n        x\n    }\n}\n"
     );
     // The mapping after `- ` lines up with its first key.
-    assert_eq!(
-        typed_at("a.yaml", YAML, "- a: 1\n  b: 2\n", "1"),
-        "- a: 1\n  x\n  b: 2\n"
-    );
+    assert_eq!(typed_at("a.yaml", YAML, "- a: 1\n  b: 2\n", "1"), "- a: 1\n  x\n  b: 2\n");
 
     // The line left goes to its level too.
     assert_eq!(
-        typed(
-            "main.rs",
-            RUST,
-            "fn f() {\n    if a {\n        b();\n        }"
-        ),
+        typed("main.rs", RUST, "fn f() {\n    if a {\n        b();\n        }"),
         "fn f() {\n    if a {\n        b();\n    }\n    x"
     );
     assert_eq!(

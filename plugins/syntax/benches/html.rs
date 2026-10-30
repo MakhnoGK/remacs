@@ -24,9 +24,7 @@ const GRAMMARS: &[Grammar] = &[
     Grammar {
         mode: "JavaScript",
         language: Source::Built(tree_sitter_javascript::LANGUAGE),
-        highlights: &[include_str!(
-            "../../languages/queries/ecmascript/highlights.scm"
-        )],
+        highlights: &[include_str!("../../languages/queries/ecmascript/highlights.scm")],
     },
     Grammar {
         mode: "CSS",
@@ -54,18 +52,8 @@ const TEMPLATE_INJECTIONS: &str = r#"
   arguments: (template_string (string_fragment) @injection.content))
 "#;
 const INJECTIONS: &[Injections] = &[
-    Injections {
-        host: "HTML",
-        query: HTML_INJECTIONS,
-        documents: true,
-        servers: true,
-    },
-    Injections {
-        host: "JavaScript",
-        query: TEMPLATE_INJECTIONS,
-        documents: false,
-        servers: false,
-    },
+    Injections { host: "HTML", query: HTML_INJECTIONS, documents: true, servers: true },
+    Injections { host: "JavaScript", query: TEMPLATE_INJECTIONS, documents: false, servers: false },
 ];
 static SYNTAX: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS, INJECTIONS);
 
@@ -109,11 +97,7 @@ fn parsed_editor() -> (Editor, mpsc::Receiver<()>) {
     editor.set_notifier(Arc::new(move || {
         let _ = notify.lock().unwrap().send(());
     }));
-    editor.add_buffer(Buffer::new(
-        "page.html",
-        Text::from(source.as_str()),
-        "HTML",
-    ));
+    editor.add_buffer(Buffer::new("page.html", Text::from(source.as_str()), "HTML"));
     let marker = source.find(MARKER).unwrap();
     editor.window_buffer_mut().set_point(marker);
     for _ in 0..2000 {
@@ -144,9 +128,7 @@ fn edit_and_reparse(bencher: Bencher) {
 fn edit_in_an_attribute_and_reparse(bencher: Bencher) {
     let (mut editor, notified) = parsed_editor();
     let source = page();
-    let style = source[..source.find(MARKER).unwrap()]
-        .rfind("padding")
-        .unwrap();
+    let style = source[..source.find(MARKER).unwrap()].rfind("padding").unwrap();
     editor.window_buffer_mut().set_point(style);
     bencher.bench_local(|| {
         editor.window_buffer_mut().insert("x");

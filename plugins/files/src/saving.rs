@@ -86,11 +86,7 @@ pub fn save_buffers_kill_terminal(editor: &mut Editor) -> CommandResult {
             return quit_ending_programs(editor);
         }
         editor.ask_y_or_n("Modified buffers exist; exit anyway?", |editor, yes| {
-            if yes {
-                quit_ending_programs(editor)
-            } else {
-                Ok(())
-            }
+            if yes { quit_ending_programs(editor) } else { Ok(()) }
         })
     })
 }
@@ -102,10 +98,7 @@ fn quit_ending_programs(editor: &mut Editor) -> CommandResult {
         return Ok(());
     }
     let names: Vec<String> = running.iter().map(|name| quote(name)).collect();
-    let question = format!(
-        "Programs run in {}; kill them and exit anyway?",
-        names.join(", ")
-    );
+    let question = format!("Programs run in {}; kill them and exit anyway?", names.join(", "));
     editor.ask_y_or_n(question, |editor, yes| {
         if yes {
             session::quit(editor);
@@ -130,17 +123,14 @@ fn offer_to_save(
         .find(|buffer| buffer.name() == name)
         .and_then(|buffer| buffer.path())
         .map_or_else(|| name.clone(), abbreviate_home);
-    editor.ask_y_or_n(
-        format!("Save file {}?", quote(&path)),
-        move |editor, yes| {
-            if yes {
-                return save_unless_superseded(editor, name, |editor| {
-                    offer_to_save(editor, names, then)
-                });
-            }
-            offer_to_save(editor, names, then)
-        },
-    )
+    editor.ask_y_or_n(format!("Save file {}?", quote(&path)), move |editor, yes| {
+        if yes {
+            return save_unless_superseded(editor, name, |editor| {
+                offer_to_save(editor, names, then)
+            });
+        }
+        offer_to_save(editor, names, then)
+    })
 }
 
 /// Saves, first asking if the file changed on disk or went away since it was read or
@@ -167,15 +157,9 @@ fn save_unless_superseded(
         return then(editor);
     }
     let question = if path.exists() {
-        format!(
-            "{} changed on disk; save over it?",
-            quote(&abbreviate_home(path))
-        )
+        format!("{} changed on disk; save over it?", quote(&abbreviate_home(path)))
     } else {
-        format!(
-            "{} was deleted; save it again?",
-            quote(&abbreviate_home(path))
-        )
+        format!("{} was deleted; save it again?", quote(&abbreviate_home(path)))
     };
     editor.ask_y_or_n(question, move |editor, yes| {
         if yes {
@@ -186,9 +170,7 @@ fn save_unless_superseded(
 }
 
 fn save(editor: &mut Editor, name: &str) -> CommandResult {
-    let buffer = editor
-        .buffer_named_mut(name)
-        .ok_or_else(|| format!("No buffer named {name}"))?;
+    let buffer = editor.buffer_named_mut(name).ok_or_else(|| format!("No buffer named {name}"))?;
     buffer.save()?;
     let path = buffer.path().map(|path| path.display().to_string());
     editor.set_done(format!("Wrote {}", path.unwrap_or_default()));

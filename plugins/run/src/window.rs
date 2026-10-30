@@ -42,9 +42,7 @@ pub struct Window {
 pub fn window_root(editor: &Editor) -> Option<PathBuf> {
     let window = editor.find_plugin_state::<Window>()?;
     let (name, root) = window.root.as_ref()?;
-    (name == editor.window_buffer().name())
-        .then(|| root.clone())
-        .flatten()
+    (name == editor.window_buffer().name()).then(|| root.clone()).flatten()
 }
 
 pub fn update(editor: &mut Editor) {
@@ -77,10 +75,7 @@ fn update_entry_points(editor: &mut Editor) {
     else {
         return;
     };
-    let file_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or_default();
+    let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
     let mode = buffer.mode();
     if !may_have_entry_points(mode, file_name) {
         return;
@@ -109,23 +104,11 @@ fn update_entry_points(editor: &mut Editor) {
     }
     editor.plugin_state::<Window>().stale = None;
     let buffer = editor.window_buffer_mut();
-    let slot = buffer
-        .local::<Scanning>()
-        .map(|scanning| Arc::clone(&scanning.slot))
-        .unwrap_or_default();
+    let slot =
+        buffer.local::<Scanning>().map(|scanning| Arc::clone(&scanning.slot)).unwrap_or_default();
     let text = buffer.text().snapshot();
-    buffer.set_local(Scanning {
-        slot: Arc::clone(&slot),
-        text: text.clone(),
-        root: root.clone(),
-    });
-    let request = Request {
-        path,
-        mode,
-        text,
-        root,
-        slot,
-    };
+    buffer.set_local(Scanning { slot: Arc::clone(&slot), text: text.clone(), root: root.clone() });
+    let request = Request { path, mode, text, root, slot };
     let notifier = editor.notifier();
     editor.plugin_state::<Scanner>().send(request, notifier);
 }
@@ -133,20 +116,13 @@ fn update_entry_points(editor: &mut Editor) {
 /// Takes the window buffer's entry points the scanner found since the last call.
 fn take_scan(editor: &mut Editor) {
     let buffer = editor.window_buffer_mut();
-    let Some(scan) = buffer.local::<Scanning>().and_then(|scanning| {
-        scanning
-            .slot
-            .lock()
-            .expect("scan slots are never poisoned")
-            .take()
-    }) else {
+    let Some(scan) = buffer
+        .local::<Scanning>()
+        .and_then(|scanning| scanning.slot.lock().expect("scan slots are never poisoned").take())
+    else {
         return;
     };
-    buffer.set_local(EntryPoints {
-        text: scan.text,
-        root: scan.root,
-        points: scan.points,
-    });
+    buffer.set_local(EntryPoints { text: scan.text, root: scan.root, points: scan.points });
 }
 
 /// The window buffer's entry points, as last found.

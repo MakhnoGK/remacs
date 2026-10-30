@@ -21,15 +21,10 @@ pub(crate) fn list_problems(editor: &mut Editor) -> CommandResult {
         return Ok(());
     }
     let buffer = editor.window_buffer();
-    let state = buffer
-        .local::<BufferDiagnostics>()
-        .ok_or("Nothing checks this buffer")?;
+    let state = buffer.local::<BufferDiagnostics>().ok_or("Nothing checks this buffer")?;
     let point = buffer.point();
-    let next = state
-        .list
-        .iter()
-        .find(|diagnostic| diagnostic.range.start >= point)
-        .or(state.list.first());
+    let next =
+        state.list.iter().find(|diagnostic| diagnostic.range.start >= point).or(state.list.first());
     let prompt = Prompt {
         label: "Problems".into(),
         category: PROBLEM_CATEGORY,
@@ -115,11 +110,7 @@ fn step(editor: &mut Editor, forward: bool) -> CommandResult {
 
 /// Moves to the next problem at least as severe as `least`, wrapping around.
 fn go_to_next(editor: &mut Editor, forward: bool, least: Severity) -> CommandResult {
-    let missing = if least == Severity::Info {
-        "No problems"
-    } else {
-        "No errors or warnings"
-    };
+    let missing = if least == Severity::Info { "No problems" } else { "No errors or warnings" };
     let buffer = editor.window_buffer();
     let point = buffer.point();
     let state = buffer.local::<BufferDiagnostics>().ok_or(missing)?;
@@ -129,15 +120,9 @@ fn go_to_next(editor: &mut Editor, forward: bool, least: Severity) -> CommandRes
         .filter(|diagnostic| diagnostic.severity >= least)
         .map(|diagnostic| diagnostic.range.start);
     let target = if forward {
-        starts
-            .clone()
-            .find(|&start| start > point)
-            .or(starts.next())
+        starts.clone().find(|&start| start > point).or(starts.next())
     } else {
-        starts
-            .clone()
-            .rfind(|&start| start < point)
-            .or(starts.next_back())
+        starts.clone().rfind(|&start| start < point).or(starts.next_back())
     };
     go_to(editor, target.ok_or(missing)?);
     Ok(())
@@ -152,9 +137,7 @@ fn go_to(editor: &mut Editor, offset: usize) {
 }
 
 fn is_listing(editor: &Editor) -> bool {
-    editor
-        .minibuffer()
-        .is_some_and(|minibuffer| minibuffer.prompt().category == PROBLEM_CATEGORY)
+    editor.minibuffer().is_some_and(|minibuffer| minibuffer.prompt().category == PROBLEM_CATEGORY)
 }
 
 /// One row per problem: its message, source and `line:column` as the annotation.
@@ -174,11 +157,7 @@ fn problem_candidates(editor: &Editor, input: &str) -> Completions {
                 label: diagnostic.summary().to_owned(),
                 icon: Some(diagnostic.severity.icon()),
                 detail: (!diagnostic.source.is_empty()).then(|| diagnostic.source.clone().into()),
-                annotation: format!(
-                    "{}:{}",
-                    text.line_of(start) + 1,
-                    text.char_column(start) + 1
-                ),
+                annotation: format!("{}:{}", text.line_of(start) + 1, text.char_column(start) + 1),
                 group: Some(group.clone()),
                 ..Candidate::new(start.to_string())
             }
@@ -189,10 +168,7 @@ fn problem_candidates(editor: &Editor, input: &str) -> Completions {
 
 /// `buffer.rs  ·  src/`
 fn group_title(buffer: &Buffer) -> String {
-    let directory = buffer
-        .path()
-        .and_then(Path::parent)
-        .and_then(Path::file_name);
+    let directory = buffer.path().and_then(Path::parent).and_then(Path::file_name);
     match directory {
         Some(directory) => format!("{}  ·  {}/", buffer.name(), directory.display()),
         None => buffer.name().to_owned(),

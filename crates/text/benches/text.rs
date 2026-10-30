@@ -47,9 +47,7 @@ fn key_with_hook_snapshots(bencher: Bencher) {
 }
 
 fn lines(count: usize) -> String {
-    (0..count)
-        .map(|line| format!("    let value_{line} = compute({line}, \"text\");\n"))
-        .collect()
+    (0..count).map(|line| format!("    let value_{line} = compute({line}, \"text\");\n")).collect()
 }
 
 /// Saving a text of `len` bytes, as C-x C-s does on the main thread.

@@ -78,11 +78,7 @@ impl BufferDiagnostics {
             .into_iter()
             .zip(mem::take(&mut self.reporters))
             .filter(|&(_, reporter)| reporter != checker)
-            .chain(
-                diagnostics
-                    .into_iter()
-                    .map(|diagnostic| (diagnostic, checker)),
-            )
+            .chain(diagnostics.into_iter().map(|diagnostic| (diagnostic, checker)))
             .collect();
         merged
             .sort_by_key(|(diagnostic, _)| (diagnostic.range.start, Reverse(diagnostic.severity)));
@@ -96,9 +92,8 @@ impl BufferDiagnostics {
         offset: usize,
     ) -> impl Iterator<Item = (Range<usize>, &'a Diagnostic)> {
         // An empty range at a line's end marks the character before it.
-        let candidates = self
-            .list
-            .partition_point(|diagnostic| diagnostic.range.start <= offset + 1);
+        let candidates =
+            self.list.partition_point(|diagnostic| diagnostic.range.start <= offset + 1);
         self.list[..candidates]
             .iter()
             .map(|diagnostic| (marked_range(text, &diagnostic.range), diagnostic))
@@ -106,10 +101,7 @@ impl BufferDiagnostics {
     }
 
     pub fn count(&self, severity: Severity) -> usize {
-        self.list
-            .iter()
-            .filter(|diagnostic| diagnostic.severity == severity)
-            .count()
+        self.list.iter().filter(|diagnostic| diagnostic.severity == severity).count()
     }
 }
 
@@ -131,9 +123,7 @@ pub fn publish(
             reporters: Vec::new(),
         });
     }
-    let state = buffer
-        .local_mut::<BufferDiagnostics>()
-        .expect("the state was just set");
+    let state = buffer.local_mut::<BufferDiagnostics>().expect("the state was just set");
     state.rebase(current);
     state.replace(checker, diagnostics);
 }
@@ -165,9 +155,7 @@ pub(crate) fn underline(buffer: &Buffer, bounds: Range<usize>) -> Vec<Span> {
         return Vec::new();
     };
     let text = buffer.text();
-    let candidates = state
-        .list
-        .partition_point(|diagnostic| diagnostic.range.start <= bounds.end);
+    let candidates = state.list.partition_point(|diagnostic| diagnostic.range.start <= bounds.end);
     let marked: Vec<_> = state.list[..candidates]
         .iter()
         .filter(|diagnostic| diagnostic.range.end >= bounds.start)
@@ -183,10 +171,8 @@ fn marked_range(text: &Snapshot, range: &Range<usize>) -> Range<usize> {
     if !range.is_empty() {
         return range;
     }
-    let at_line_end = text
-        .chunks(range.start..range.start + 1)
-        .next()
-        .is_none_or(|chunk| chunk[0] == b'\n');
+    let at_line_end =
+        text.chunks(range.start..range.start + 1).next().is_none_or(|chunk| chunk[0] == b'\n');
     if at_line_end {
         text.previous_char_boundary(range.start)..range.start
     } else {
@@ -216,10 +202,7 @@ fn flatten(marked: &[(Range<usize>, Severity)], bounds: Range<usize>) -> Vec<Spa
         let face = severity.face();
         match spans.last_mut() {
             Some(last) if last.face == face && last.range.end == start => last.range.end = end,
-            _ => spans.push(Span {
-                range: start..end,
-                face,
-            }),
+            _ => spans.push(Span { range: start..end, face }),
         }
     }
     spans
@@ -254,23 +237,12 @@ mod tests {
 
     #[test]
     fn the_most_severe_overlapping_problem_shows() {
-        let marked = [
-            (0..10, Severity::Info),
-            (2..4, Severity::Error),
-            (3..6, Severity::Warning),
-        ];
-        let spans: Vec<_> = flatten(&marked, 1..8)
-            .into_iter()
-            .map(|span| (span.range, span.face))
-            .collect();
+        let marked = [(0..10, Severity::Info), (2..4, Severity::Error), (3..6, Severity::Warning)];
+        let spans: Vec<_> =
+            flatten(&marked, 1..8).into_iter().map(|span| (span.range, span.face)).collect();
         assert_eq!(
             spans,
-            [
-                (1..2, Face::Info),
-                (2..4, Face::Error),
-                (4..6, Face::Warning),
-                (6..8, Face::Info),
-            ]
+            [(1..2, Face::Info), (2..4, Face::Error), (4..6, Face::Warning), (6..8, Face::Info),]
         );
     }
 }

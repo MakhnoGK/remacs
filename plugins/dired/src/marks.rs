@@ -93,11 +93,7 @@ fn set_at_point(editor: &mut Editor, mark: Option<Mark>) -> CommandResult {
 
 /// `..` stays unmarked: it is never acted on.
 fn set_mark(listing: &mut Listing, line: usize, mark: Option<Mark>) {
-    let Some(entry) = listing
-        .entries
-        .get(line)
-        .filter(|entry| entry.name != PARENT)
-    else {
+    let Some(entry) = listing.entries.get(line).filter(|entry| entry.name != PARENT) else {
         return;
     };
     match mark {

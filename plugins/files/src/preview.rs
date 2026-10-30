@@ -36,11 +36,7 @@ impl FilePreview {
 
     /// Shows the file at `path` in the window.
     pub fn visit(&mut self, editor: &mut Editor, path: &Path) -> io::Result<()> {
-        if !editor
-            .buffers()
-            .iter()
-            .any(|buffer| buffer.path() == Some(path))
-        {
+        if !editor.buffers().iter().any(|buffer| buffer.path() == Some(path)) {
             self.opened.push(path.to_path_buf());
         }
         editor.visit_file(path)

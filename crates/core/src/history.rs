@@ -3,6 +3,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::push_new;
+
 const MAX_ANSWERS: usize = 100;
 
 /// Answers given to the minibuffer, newest first, by completion category; kept in a file
@@ -24,11 +26,7 @@ impl History {
         let earlier = read(&path).map_err(|error| describe(&path, &error))?;
         for (category, answers) in earlier {
             let kept = self.answers.entry(category).or_default();
-            for answer in answers {
-                if !kept.contains(&answer) {
-                    kept.push(answer);
-                }
-            }
+            push_new(kept, answers);
             kept.truncate(MAX_ANSWERS);
         }
         self.file = Some(path);
@@ -57,9 +55,7 @@ fn read(path: &Path) -> io::Result<BTreeMap<String, Vec<String>>> {
 
 /// Through a temporary file, so that a crash never leaves half a history.
 fn write(path: &Path, answers: &BTreeMap<String, Vec<String>>) -> io::Result<()> {
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
-    }
+    path.parent().map_or(Ok(()), fs::create_dir_all)?;
     let temporary = path.with_extension("json.tmp");
     fs::write(&temporary, serde_json::to_vec_pretty(answers)?)?;
     fs::rename(temporary, path)

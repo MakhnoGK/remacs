@@ -34,12 +34,7 @@ pub struct Mirror {
 impl Mirror {
     pub fn new(mode: &'static str, buffer: Snapshot, ranges: Vec<Range<usize>>) -> Self {
         let text = Text::from(blank_outside(&buffer, 0..buffer.len(), &ranges).as_str());
-        Self {
-            mode,
-            ranges,
-            basis: buffer,
-            text,
-        }
+        Self { mode, ranges, basis: buffer, text }
     }
 
     /// Mirrors `buffer` with the code now at `ranges`; the edit since the last call is
@@ -71,9 +66,7 @@ impl Mirror {
 
     /// Whether `range` is in the code.
     pub fn holds(&self, range: &Range<usize>) -> bool {
-        self.ranges
-            .iter()
-            .any(|code| code.start <= range.start && range.end <= code.end)
+        self.ranges.iter().any(|code| code.start <= range.start && range.end <= code.end)
     }
 }
 
@@ -84,10 +77,7 @@ fn shifted(ranges: &[Range<usize>], edit: Edit) -> Vec<Range<usize>> {
         _ if offset > edit.start => edit.start,
         _ => offset,
     };
-    ranges
-        .iter()
-        .map(|range| moved(range.start)..moved(range.end))
-        .collect()
+    ranges.iter().map(|range| moved(range.start)..moved(range.end)).collect()
 }
 
 #[cfg(test)]
@@ -114,10 +104,7 @@ mod tests {
 
         buffer.insert(0, "<b>x</b>");
         let moved = style(code + 8..code + 14);
-        assert_eq!(
-            contents(&mirror.update(&buffer.snapshot(), moved)).trim(),
-            "a{b:0}"
-        );
+        assert_eq!(contents(&mirror.update(&buffer.snapshot(), moved)).trim(), "a{b:0}");
     }
 
     #[test]

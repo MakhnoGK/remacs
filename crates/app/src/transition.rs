@@ -63,18 +63,11 @@ impl Presence {
     }
 
     fn visibility(&self, now: Instant, duration: Duration) -> f32 {
-        let Some((since, from)) = self.change else {
+        let Some((since, from)) = self.change.filter(|_| !duration.is_zero()) else {
             return self.rest();
         };
-        if duration.is_zero() {
-            return self.rest();
-        }
         let step = now.saturating_duration_since(since).as_secs_f32() / duration.as_secs_f32();
-        if self.shown {
-            (from + step).min(1.0)
-        } else {
-            (from - step).max(0.0)
-        }
+        if self.shown { (from + step).min(1.0) } else { (from - step).max(0.0) }
     }
 }
 
@@ -94,11 +87,7 @@ pub struct Retained<T> {
 
 impl<T> Default for Retained<T> {
     fn default() -> Self {
-        Self {
-            presence: Presence::default(),
-            visibility: None,
-            last: None,
-        }
+        Self { presence: Presence::default(), visibility: None, last: None }
     }
 }
 
@@ -106,10 +95,7 @@ impl<T> Retained<T> {
     /// Takes the surface as described at `now`, none when it is not shown.
     pub fn update(&mut self, current: Option<T>, now: Instant, duration: Duration) {
         self.visibility = self.presence.advance(current.is_some(), now, duration);
-        self.last = match self.visibility {
-            Some(_) => current.or(self.last.take()),
-            None => None,
-        };
+        self.last = self.visibility.and(current.or(self.last.take()));
     }
 
     /// For a surface owned elsewhere while shown, which hands it over once it closed:
@@ -122,10 +108,7 @@ impl<T> Retained<T> {
         duration: Duration,
     ) {
         self.visibility = self.presence.advance(shown, now, duration);
-        self.last = match self.visibility {
-            Some(_) if !shown => closed.or(self.last.take()),
-            _ => None,
-        };
+        self.last = self.visibility.filter(|_| !shown).and(closed.or(self.last.take()));
     }
 
     /// What to draw of it as it goes; nothing while it is shown or once it is gone.
@@ -135,15 +118,12 @@ impl<T> Retained<T> {
 
     /// How it is drawn as it comes, is, or goes; none once it is gone.
     pub fn look(&self, transition: Transition) -> Option<Look> {
-        let visibility = self.visibility?;
-        Some(Look::new(visibility, transition, !self.presence.shown))
+        Some(Look::new(self.visibility?, transition, !self.presence.shown))
     }
 
     /// The surface last taken, as it comes, is, or goes.
     pub fn shown(&self, transition: Transition) -> Option<Shown<'_, T>> {
-        let content = self.last.as_ref()?;
-        let look = self.look(transition)?;
-        Some(Shown { content, look })
+        Some(Shown { content: self.last.as_ref()?, look: self.look(transition)? })
     }
 
     pub fn is_changing(&self) -> bool {
@@ -167,22 +147,13 @@ impl Look {
     /// the time.
     pub fn new(visibility: f32, transition: Transition, leaving: bool) -> Self {
         let distance = transition.slide * (1.0 - ease_out_cubic(visibility));
-        Self {
-            opacity: ease_out_quad(visibility),
-            offset: match transition.from {
-                Side::Above => -distance,
-                Side::Below => distance,
-            },
-            leaving,
-        }
+        let offset = if transition.from == Side::Above { -distance } else { distance };
+        Self { opacity: ease_out_quad(visibility), offset, leaving }
     }
 
     /// Fading as this one does, in place.
     pub fn in_place(self) -> Self {
-        Self {
-            offset: 0.0,
-            ..self
-        }
+        Self { offset: 0.0, ..self }
     }
 
     /// `surface`, laid out over the whole view as surfaces are, drawn as this look says.
@@ -197,15 +168,8 @@ impl Look {
     }
 
     fn layer(self, layer: Div, surface: impl IntoElement) -> AnyElement {
-        let layer = layer
-            .top(px(self.offset))
-            .opacity(self.opacity)
-            .child(surface);
-        if self.leaving {
-            inert(layer).into_any_element()
-        } else {
-            layer.into_any_element()
-        }
+        let layer = layer.top(px(self.offset)).opacity(self.opacity).child(surface);
+        if self.leaving { inert(layer).into_any_element() } else { layer.into_any_element() }
     }
 }
 
@@ -222,26 +186,17 @@ mod tests {
     use super::*;
 
     const DURATION: Duration = Duration::from_millis(80);
-    const SLIDE: Transition = Transition {
-        duration: DURATION,
-        slide: 10.0,
-        from: Side::Below,
-    };
+    const SLIDE: Transition = Transition { duration: DURATION, slide: 10.0, from: Side::Below };
 
     #[test]
     fn comes_in_over_the_duration_and_rests() {
         let mut presence = Presence::default();
         let start = Instant::now();
         assert_eq!(presence.advance(true, start, DURATION), Some(0.0));
-        let halfway = presence
-            .advance(true, start + DURATION / 2, DURATION)
-            .unwrap();
+        let halfway = presence.advance(true, start + DURATION / 2, DURATION).unwrap();
         assert!((halfway - 0.5).abs() < 1e-3, "{halfway}");
         assert!(presence.is_changing());
-        assert_eq!(
-            presence.advance(true, start + DURATION, DURATION),
-            Some(1.0)
-        );
+        assert_eq!(presence.advance(true, start + DURATION, DURATION), Some(1.0));
         assert!(!presence.is_changing());
     }
 

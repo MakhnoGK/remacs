@@ -30,9 +30,7 @@ struct Shared {
 }
 
 fn lock(shared: &Mutex<Shared>) -> MutexGuard<'_, Shared> {
-    shared
-        .lock()
-        .expect("no thread panics holding the shared state")
+    shared.lock().expect("no thread panics holding the shared state")
 }
 
 /// The Node process that formats with prettier: one for all projects, each with its own
@@ -57,47 +55,34 @@ impl Worker {
         let shared = Arc::new(Mutex::new(Shared::default()));
         let writer_shared = Arc::clone(&shared);
         let writer_notifier = Arc::clone(&notifier);
-        thread::Builder::new()
-            .name("prettier writer".into())
-            .spawn(move || {
-                write_all(
-                    BufWriter::new(stdin),
-                    queued,
-                    &writer_shared,
-                    &writer_notifier,
-                )
-            })?;
+        thread::Builder::new().name("prettier writer".into()).spawn(move || {
+            write_all(BufWriter::new(stdin), queued, &writer_shared, &writer_notifier)
+        })?;
         let reader_shared = Arc::clone(&shared);
-        thread::Builder::new()
-            .name("prettier reader".into())
-            .spawn(move || {
-                for line in BufReader::new(stdout).lines() {
-                    let Ok(line) = line else { break };
-                    if let Ok(answer) = serde_json::from_str(&line) {
-                        answered(&reader_shared, answer);
-                        notifier();
-                    }
+        thread::Builder::new().name("prettier reader".into()).spawn(move || {
+            for line in BufReader::new(stdout).lines() {
+                let Ok(line) = line else { break };
+                if let Ok(answer) = serde_json::from_str(&line) {
+                    answered(&reader_shared, answer);
+                    notifier();
                 }
-                let mut shared = lock(&reader_shared);
-                for id in mem::take(&mut shared.sent).into_keys() {
-                    let stopped = Failure::Failed("prettier stopped".into());
-                    shared.formatted.push((id, Err(stopped)));
-                }
-                drop(shared);
-                notifier();
-                let _ = child.wait();
-            })?;
+            }
+            let mut shared = lock(&reader_shared);
+            for id in mem::take(&mut shared.sent).into_keys() {
+                let stopped = Failure::Failed("prettier stopped".into());
+                shared.formatted.push((id, Err(stopped)));
+            }
+            drop(shared);
+            notifier();
+            let _ = child.wait();
+        })?;
         Ok(Self { jobs, shared })
     }
 
     /// `Err` when the process has stopped, so a new one is needed.
     pub fn send(&self, request: Request) -> Result<(), ()> {
-        let job = Job {
-            id: request.id,
-            path: request.path,
-            text: request.text,
-            range: request.range,
-        };
+        let job =
+            Job { id: request.id, path: request.path, text: request.text, range: request.range };
         self.jobs.send(job).map_err(drop)
     }
 
@@ -122,15 +107,10 @@ fn write_all(
             continue;
         };
         let utf16 = |offset: usize| text.get(..offset).unwrap_or(&text).encode_utf16().count();
-        let range = job
-            .range
-            .map(|range| [utf16(range.start), utf16(range.end)]);
+        let range = job.range.map(|range| [utf16(range.start), utf16(range.end)]);
         let line = json!({ "id": job.id, "path": job.path, "text": text, "range": range });
         lock(shared).sent.insert(job.id, text);
-        if writeln!(stdin, "{line}")
-            .and_then(|()| stdin.flush())
-            .is_err()
-        {
+        if writeln!(stdin, "{line}").and_then(|()| stdin.flush()).is_err() {
             break;
         }
     }

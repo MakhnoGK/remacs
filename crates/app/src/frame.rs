@@ -1,7 +1,7 @@
 #[cfg(target_os = "macos")]
 use std::ffi::{CStr, CString};
 
-use gpui::{AnyWindowHandle, App, WindowAppearance};
+use gpui::{AnyWindowHandle, App, Window, WindowAppearance};
 #[cfg(target_os = "macos")]
 use objc2::runtime::AnyObject;
 #[cfg(target_os = "macos")]
@@ -19,6 +19,9 @@ pub fn act(requests: Vec<FrameRequest>, window: AnyWindowHandle, cx: &mut App) {
         return;
     }
     cx.defer(move |cx| {
+        let in_window = |cx: &mut App, act: fn(&Window)| {
+            let _ = window.update(cx, |_, window, _| act(window));
+        };
         for request in requests {
             match request {
                 #[cfg(target_os = "macos")]
@@ -34,15 +37,9 @@ pub fn act(requests: Vec<FrameRequest>, window: AnyWindowHandle, cx: &mut App) {
                 FrameRequest::Hide => cx.hide(),
                 FrameRequest::HideOthers => cx.hide_other_apps(),
                 FrameRequest::ShowAll => cx.unhide_other_apps(),
-                FrameRequest::Minimize => {
-                    let _ = window.update(cx, |_, window, _| window.minimize_window());
-                }
-                FrameRequest::Zoom => {
-                    let _ = window.update(cx, |_, window, _| window.zoom_window());
-                }
-                FrameRequest::ToggleFullScreen => {
-                    let _ = window.update(cx, |_, window, _| window.toggle_fullscreen());
-                }
+                FrameRequest::Minimize => in_window(cx, Window::minimize_window),
+                FrameRequest::Zoom => in_window(cx, Window::zoom_window),
+                FrameRequest::ToggleFullScreen => in_window(cx, Window::toggle_fullscreen),
                 // The view's own, done before.
                 FrameRequest::TextSize(_) => {}
             }
@@ -64,11 +61,7 @@ pub fn set_appearance(appearance: Option<Appearance>) {
     // appearance means the system's.
     unsafe {
         let appearance: *mut AnyObject = match name {
-            Some(name) => {
-                let name: *mut AnyObject =
-                    msg_send![class!(NSString), stringWithUTF8String: name.as_ptr()];
-                msg_send![class!(NSAppearance), appearanceNamed: name]
-            }
+            Some(name) => msg_send![class!(NSAppearance), appearanceNamed: ns_string(name)],
             None => std::ptr::null_mut(),
         };
         let application: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
@@ -87,8 +80,7 @@ pub fn system_appearance() -> Appearance {
     // SAFETY: NSUserDefaults is thread-safe; the key is a NUL-terminated UTF-8 string, and
     // a missing value is nil, which `stringForKey:` returns as such.
     let dark = unsafe {
-        let key: *mut AnyObject =
-            msg_send![class!(NSString), stringWithUTF8String: c"AppleInterfaceStyle".as_ptr()];
+        let key = ns_string(c"AppleInterfaceStyle");
         let defaults: *mut AnyObject = msg_send![class!(NSUserDefaults), standardUserDefaults];
         let style: *mut AnyObject = msg_send![defaults, stringForKey: key];
         !style.is_null() && {
@@ -96,11 +88,7 @@ pub fn system_appearance() -> Appearance {
             CStr::from_ptr(utf8) == c"Dark"
         }
     };
-    if dark {
-        Appearance::Dark
-    } else {
-        Appearance::Light
-    }
+    if dark { Appearance::Dark } else { Appearance::Light }
 }
 
 /// Whether the desktop is light or dark now, as its settings portal says, which gpui
@@ -141,25 +129,22 @@ pub fn appearance_of(window: WindowAppearance) -> Appearance {
 /// that a `cargo run` build shows them too; gpui has none.
 #[cfg(target_os = "macos")]
 fn show_about_panel() {
-    let options = [
-        (
-            c"ApplicationVersion",
-            CString::new(VERSION).unwrap_or_default(),
-        ),
-        (c"Version", CString::new(COMMIT).unwrap_or_default()),
-    ];
     // SAFETY: called on the main thread, as every gpui callback is; NSApplication exists
     // once gpui runs; the panel's option keys are the strings given, and every string is
     // NUL-terminated UTF-8.
     unsafe {
-        let ns_string = |text: &CStr| -> *mut AnyObject {
-            msg_send![class!(NSString), stringWithUTF8String: text.as_ptr()]
-        };
         let dictionary: *mut AnyObject = msg_send![class!(NSMutableDictionary), dictionary];
-        for (key, value) in &options {
-            let _: () = msg_send![dictionary, setObject: ns_string(value), forKey: ns_string(key)];
+        for (key, value) in [(c"ApplicationVersion", VERSION), (c"Version", COMMIT)] {
+            let value = ns_string(&CString::new(value).unwrap_or_default());
+            let _: () = msg_send![dictionary, setObject: value, forKey: ns_string(key)];
         }
         let application: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
         let _: () = msg_send![application, orderFrontStandardAboutPanelWithOptions: dictionary];
     }
+}
+
+#[cfg(target_os = "macos")]
+fn ns_string(text: &CStr) -> *mut AnyObject {
+    // SAFETY: `text` is NUL-terminated; what is not UTF-8 gives nil.
+    unsafe { msg_send![class!(NSString), stringWithUTF8String: text.as_ptr()] }
 }

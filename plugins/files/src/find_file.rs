@@ -45,9 +45,7 @@ fn start_reading_file_name(editor: &mut Editor, other_window: bool) -> CommandRe
 pub fn project_files(editor: &mut Editor, root: &Path) -> Arc<FileIndex> {
     let notifier = editor.notifier();
     let cache = editor.project_cache_dir(root);
-    editor
-        .plugin_state::<FileIndexes>()
-        .get_or_start(root, cache, notifier)
+    editor.plugin_state::<FileIndexes>().get_or_start(root, cache, notifier)
 }
 
 fn read_file_name(
@@ -58,12 +56,7 @@ fn read_file_name(
     other_window: bool,
 ) -> CommandResult {
     let prompt = Prompt {
-        label: if other_window {
-            "Find file in other window"
-        } else {
-            "Find file"
-        }
-        .into(),
+        label: if other_window { "Find file in other window" } else { "Find file" }.into(),
         category: FILE_CATEGORY,
         directory: with_slash(&abbreviate_home(&root)),
         initial_input,
@@ -90,11 +83,7 @@ fn read_file_name(
             )
         },
         move |editor, answer| {
-            let path = if is_absolute(&answer) {
-                expand_home(&answer)
-            } else {
-                root.join(&answer)
-            };
+            let path = if is_absolute(&answer) { expand_home(&answer) } else { root.join(&answer) };
             if path.is_dir() {
                 let input = with_slash(&abbreviate_home(&path));
                 return read_file_name(editor, root, index, input, other_window);
@@ -130,21 +119,14 @@ fn project_candidates(editor: &Editor, root: &Path, files: &[String], input: &st
             let file = &files[index];
             let path = root.join(file);
             Candidate {
-                matches: query
-                    .score_and_ranges(file)
-                    .map(|(_, ranges)| ranges)
-                    .unwrap_or_default(),
+                matches: query.score_and_ranges(file).map(|(_, ranges)| ranges).unwrap_or_default(),
                 icon: Some(Icon::File),
                 tag: visited.contains(path.as_path()).then_some("open"),
                 ..Candidate::new(file.clone())
             }
         })
         .collect();
-    Completions {
-        candidates,
-        total,
-        ..Completions::default()
-    }
+    Completions { candidates, total, ..Completions::default() }
 }
 
 /// Entries of the directory typed so far, matching the name being typed.
@@ -170,18 +152,10 @@ pub fn directory_candidates(input: &str) -> Completions {
         .into_iter()
         .map(|matched| {
             let (name, is_directory) = matched.item;
-            let label = if is_directory {
-                format!("{name}/")
-            } else {
-                name
-            };
+            let label = if is_directory { format!("{name}/") } else { name };
             Candidate {
                 matches: matched.ranges,
-                icon: Some(if is_directory {
-                    Icon::Directory
-                } else {
-                    Icon::File
-                }),
+                icon: Some(if is_directory { Icon::Directory } else { Icon::File }),
                 label: label.clone(),
                 ..Candidate::new(format!("{typed_directory}{label}"))
             }

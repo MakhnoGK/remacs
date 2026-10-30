@@ -29,11 +29,8 @@ const UNFINISHED: &str = ".installing";
 /// Releases looked through for a tool's latest, in a repository that releases several.
 const RELEASES_PER_PAGE: usize = 100;
 /// Prints a file's SHA-256 first; Arch keeps Perl's `shasum` off `PATH`.
-pub(crate) const SHA256: (&str, &[&str]) = if cfg!(target_os = "macos") {
-    ("shasum", &["-a", "256"])
-} else {
-    ("sha256sum", &[])
-};
+pub(crate) const SHA256: (&str, &[&str]) =
+    if cfg!(target_os = "macos") { ("shasum", &["-a", "256"]) } else { ("sha256sum", &[]) };
 
 pub enum Event {
     /// The release to install was found.
@@ -94,9 +91,7 @@ impl Job {
 
     pub fn check(tool: &'static Tool, place: Place, notifier: Notifier) -> Self {
         Self::spawn(JobKind::Check, notifier, move |_, _| {
-            Ok(Event::Latest {
-                version: find_version(tool, None, &place)?,
-            })
+            Ok(Event::Latest { version: find_version(tool, None, &place)? })
         })
     }
 
@@ -125,11 +120,7 @@ impl Job {
                 report(last);
             })
             .expect("spawning a tool thread");
-        Self {
-            kind,
-            events,
-            cancelled,
-        }
+        Self { kind, events, cancelled }
     }
 
     pub fn try_event(&self) -> Option<Event> {
@@ -203,12 +194,7 @@ pub fn run_env(tool: &Tool, version_dir: &Path, installer: &Installer) -> Vec<(S
     let Source::Package { package, .. } = tool.source else {
         return Vec::new();
     };
-    installer.run_env(&Vars {
-        dir: version_dir,
-        package,
-        version: "",
-        program: tool.program,
-    })
+    installer.run_env(&Vars { dir: version_dir, package, version: "", program: tool.program })
 }
 
 fn install(
@@ -235,9 +221,7 @@ fn install(
     if !force && program.is_file() && !target.join(UNFINISHED).exists() {
         return Ok(Event::Installed { version });
     }
-    report(Event::Found {
-        version: version.clone(),
-    });
+    report(Event::Found { version: version.clone() });
     fs::create_dir_all(&home).map_err(|error| error.to_string())?;
     match (release, installer, tool.source) {
         (Some(release), _, _) => {
@@ -248,12 +232,7 @@ fn install(
             let _ = fs::remove_dir_all(&target);
             fs::create_dir_all(&target).map_err(|error| error.to_string())?;
             fs::write(target.join(UNFINISHED), "").map_err(|error| error.to_string())?;
-            let vars = Vars {
-                dir: &target,
-                package,
-                version: &version,
-                program: tool.program,
-            };
+            let vars = Vars { dir: &target, package, version: &version, program: tool.program };
             let installed = installer.install(&vars, with, cancelled).and_then(|()| {
                 if program.is_file() {
                     Ok(())
@@ -327,12 +306,7 @@ fn find_version(tool: &Tool, version: Option<&str>, place: &Place) -> Result<Str
 
 /// `version`'s release of `tool`, else its latest.
 fn release(tool: &Tool, version: Option<&str>, api: &str) -> Result<Release, String> {
-    let Source::GitHub {
-        repository,
-        tag_prefix,
-        ..
-    } = tool.source
-    else {
+    let Source::GitHub { repository, tag_prefix, .. } = tool.source else {
         unreachable!("only GitHub tools have releases");
     };
     let releases = format!("{api}/repos/{repository}/releases");
@@ -435,11 +409,7 @@ pub fn run(
         }
         if let Some(status) = child.try_wait().map_err(|error| error.to_string())? {
             let stderr = stderr.map_or_else(Vec::new, |reader| reader.join().unwrap_or_default());
-            return Ok(Output {
-                status,
-                stdout: Vec::new(),
-                stderr,
-            });
+            return Ok(Output { status, stdout: Vec::new(), stderr });
         }
         tick();
         thread::sleep(POLL_INTERVAL);
@@ -447,10 +417,7 @@ pub fn run(
 }
 
 fn check_digest(asset: &Asset, file: &Path) -> Result<(), String> {
-    let Some(expected) = asset
-        .digest
-        .as_deref()
-        .and_then(|digest| digest.strip_prefix("sha256:"))
+    let Some(expected) = asset.digest.as_deref().and_then(|digest| digest.strip_prefix("sha256:"))
     else {
         return Ok(());
     };
@@ -497,12 +464,7 @@ fn unpack(kind: Archive, archive: &Path, into: &Path, program: &str) -> Result<(
         Archive::TarXz => tar("-xJf"),
         Archive::Gzip => {
             let file = lone_program().map_err(|error| error.to_string())?;
-            Command::new("gunzip")
-                .arg("-c")
-                .arg(archive)
-                .stdin(Stdio::null())
-                .stdout(file)
-                .output()
+            Command::new("gunzip").arg("-c").arg(archive).stdin(Stdio::null()).stdout(file).output()
         }
         Archive::Program => {
             drop(lone_program().map_err(|error| error.to_string())?);
@@ -515,10 +477,7 @@ fn unpack(kind: Archive, archive: &Path, into: &Path, program: &str) -> Result<(
     if output.status.success() {
         return Ok(());
     }
-    Err(format!(
-        "could not unpack: {}",
-        String::from_utf8_lossy(&output.stderr).trim()
-    ))
+    Err(format!("could not unpack: {}", String::from_utf8_lossy(&output.stderr).trim()))
 }
 
 fn make_executable(program: &Path, tool: &Tool) -> Result<(), String> {

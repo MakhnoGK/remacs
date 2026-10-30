@@ -63,10 +63,7 @@ impl Versions {
 
     /// Asks every program again, e.g. after one was upgraded.
     pub(crate) fn forget(&self) {
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clear();
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).clear();
     }
 }
 
@@ -97,19 +94,14 @@ fn major_version(program: &Program, root: &Path, timeout: Duration) -> Option<u6
     };
     let mut stdout = Vec::new();
     child.stdout.take()?.read_to_end(&mut stdout).ok()?;
-    status
-        .success()
-        .then(|| first_number(&String::from_utf8_lossy(&stdout)))
-        .flatten()
+    status.success().then(|| first_number(&String::from_utf8_lossy(&stdout))).flatten()
 }
 
 /// The first number in `text`, as in `Version 5.7.2` or `clangd version 18.1.3`.
 fn first_number(text: &str) -> Option<u64> {
     let start = text.find(|c: char| c.is_ascii_digit())?;
     let digits = &text[start..];
-    let end = digits
-        .find(|c: char| !c.is_ascii_digit())
-        .unwrap_or(digits.len());
+    let end = digits.find(|c: char| !c.is_ascii_digit()).unwrap_or(digits.len());
     digits[..end].parse().ok()
 }
 
@@ -131,16 +123,10 @@ mod tests {
         let path = std::env::temp_dir().join(format!("remacs-stuck-{}", std::process::id()));
         std::fs::write(&path, "#!/bin/sh\nexec sleep 30\n").unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let program = Program {
-            path: path.clone(),
-            env: Vec::new(),
-        };
+        let program = Program { path: path.clone(), env: Vec::new() };
         let started = Instant::now();
         let root = std::env::temp_dir();
-        assert_eq!(
-            major_version(&program, &root, Duration::from_millis(200)),
-            None
-        );
+        assert_eq!(major_version(&program, &root, Duration::from_millis(200)), None);
         assert!(started.elapsed() < Duration::from_secs(5));
         std::fs::remove_file(&path).unwrap();
     }

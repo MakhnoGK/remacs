@@ -22,11 +22,7 @@ const FIX_ALL_KIND: &str = "source.fixAll";
 pub enum Request {
     /// The actions for `range`: the active region, else point; with `kind`, only those
     /// of that kind or its subkinds, like `source.fixAll.eslint` of `source.fixAll`.
-    List {
-        id: u64,
-        range: Range<usize>,
-        kind: Option<&'static str>,
-    },
+    List { id: u64, range: Range<usize>, kind: Option<&'static str> },
     /// Carry out action `index` of list `id`, in the order delivered.
     Apply { id: u64, index: usize },
 }
@@ -76,10 +72,7 @@ pub(crate) fn update(editor: &mut Editor) {
     if mem::replace(&mut state(editor).seen_commands, count) == count {
         return;
     }
-    if !editor
-        .last_command()
-        .is_some_and(|command| OWN_COMMANDS.contains(&command))
-    {
+    if !editor.last_command().is_some_and(|command| OWN_COMMANDS.contains(&command)) {
         let state = state(editor);
         state.menu = None;
         state.awaited = None;
@@ -136,11 +129,7 @@ pub fn deliver(editor: &mut Editor, id: u64, actions: Vec<Action>) {
     };
     state.awaited = None;
     if actions.is_empty() {
-        let message = if fixing {
-            "Nothing to fix"
-        } else {
-            "No code actions at point"
-        };
+        let message = if fixing { "Nothing to fix" } else { "No code actions at point" };
         return editor.set_message(message);
     }
     if fixing && actions.len() == 1 {
@@ -150,12 +139,7 @@ pub fn deliver(editor: &mut Editor, id: u64, actions: Vec<Action>) {
     }
     let mut actions: Vec<_> = actions.into_iter().enumerate().collect();
     actions.sort_by_key(|(_, action)| !action.preferred);
-    state.menu = Some(Menu {
-        id,
-        actions,
-        selection: Selection::default(),
-        point,
-    });
+    state.menu = Some(Menu { id, actions, selection: Selection::default(), point });
 }
 
 /// Point moved by the mouse hides the popup.
@@ -164,11 +148,7 @@ fn shown_menu(editor: &Editor) -> Option<&Menu> {
         return None;
     }
     let point = editor.window_buffer().point();
-    editor
-        .find_plugin_state::<State>()?
-        .menu
-        .as_ref()
-        .filter(|menu| menu.point == point)
+    editor.find_plugin_state::<State>()?.menu.as_ref().filter(|menu| menu.point == point)
 }
 
 /// Whether the popup's keys are active.
@@ -206,13 +186,8 @@ pub(crate) fn previous(editor: &mut Editor) -> CommandResult {
 fn step(editor: &mut Editor, forward: bool) -> CommandResult {
     let menu = state(editor).menu.as_mut().ok_or("No code actions")?;
     let selected = menu.selection.selected();
-    let index = if forward {
-        selected + 1
-    } else {
-        selected.saturating_sub(1)
-    };
-    menu.selection
-        .select(index, menu.actions.len(), VISIBLE_ROWS);
+    let index = if forward { selected + 1 } else { selected.saturating_sub(1) };
+    menu.selection.select(index, menu.actions.len(), VISIBLE_ROWS);
     Ok(())
 }
 

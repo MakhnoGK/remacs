@@ -69,11 +69,7 @@ pub enum CommitLine {
     /// A file's header: its state, path and lines changed.
     File(usize),
     /// A hunk's header, or with `line`, a line of it.
-    Diff {
-        file: usize,
-        hunk: usize,
-        line: Option<usize>,
-    },
+    Diff { file: usize, hunk: usize, line: Option<usize> },
     /// In place of the hunks of a file that has none to show.
     NoDiff(usize),
 }
@@ -167,18 +163,11 @@ fn show(editor: &mut Editor, root: &Path, commit: Commit, file: Option<&Path>) {
     let changed = changed_parts(&commit, &lines, &numbers);
     let focus = file
         .and_then(|file| commit.files.iter().position(|(path, _)| path == file))
-        .and_then(|file| {
-            lines
-                .iter()
-                .position(|line| *line == CommitLine::File(file))
-        });
+        .and_then(|file| lines.iter().position(|line| *line == CommitLine::File(file)));
     let largest = numbers.iter().flat_map(|&(old, new)| [old, new]).flatten();
     let digits = largest.max().unwrap_or(0).to_string().len();
-    let modes = commit
-        .files
-        .iter()
-        .map(|(path, _)| editor.mode_for(Some(&root.join(path))))
-        .collect();
+    let modes =
+        commit.files.iter().map(|(path, _)| editor.mode_for(Some(&root.join(path)))).collect();
     let name = format!("Commit {}", short(&commit.id));
     let mut buffer = Buffer::new(name, Text::from(text.as_str()), COMMIT_MODE)
         .with_directory(root.to_path_buf())
@@ -250,13 +239,8 @@ fn subjects(root: &Path, ids: &[&str]) -> Vec<(String, String)> {
     if ids.is_empty() {
         return Vec::new();
     }
-    let printed = output(
-        git(root)
-            .args(["show", "-s", "--format=%H%x00%s"])
-            .args(ids)
-            .arg("--"),
-    )
-    .unwrap_or_default();
+    let printed = output(git(root).args(["show", "-s", "--format=%H%x00%s"]).args(ids).arg("--"))
+        .unwrap_or_default();
     let known: HashMap<String, String> = String::from_utf8_lossy(&printed)
         .lines()
         .filter_map(|line| {
@@ -264,14 +248,7 @@ fn subjects(root: &Path, ids: &[&str]) -> Vec<(String, String)> {
             Some((id.to_owned(), subject.to_owned()))
         })
         .collect();
-    ids.iter()
-        .map(|id| {
-            (
-                (*id).to_owned(),
-                known.get(*id).cloned().unwrap_or_default(),
-            )
-        })
-        .collect()
+    ids.iter().map(|id| ((*id).to_owned(), known.get(*id).cloned().unwrap_or_default())).collect()
 }
 
 type Numbers = Vec<(Option<usize>, Option<usize>)>;
@@ -296,11 +273,7 @@ fn layout(commit: &Commit) -> (Vec<CommitLine>, Numbers, String) {
                 &mut texts,
                 Some(diff),
                 CommitLine::NoDiff(index),
-                |hunk, line| CommitLine::Diff {
-                    file: index,
-                    hunk,
-                    line,
-                },
+                |hunk, line| CommitLine::Diff { file: index, hunk, line },
             ),
         }
     }
@@ -393,16 +366,11 @@ fn highlight_file(
         if placed.is_empty() {
             continue;
         }
-        let spans = highlighters
-            .iter()
-            .find_map(|highlight| highlight(mode, &code))
-            .unwrap_or_default();
+        let spans =
+            highlighters.iter().find_map(|highlight| highlight(mode, &code)).unwrap_or_default();
         let mut first = 0;
         for (hunk, line, bytes) in placed {
-            while spans
-                .get(first)
-                .is_some_and(|span| span.range.end <= bytes.start)
-            {
+            while spans.get(first).is_some_and(|span| span.range.end <= bytes.start) {
                 first += 1;
             }
             faces[hunk][line] = spans[first..]
@@ -435,23 +403,13 @@ pub fn decorate(buffer: &Buffer, range: Range<usize>) -> Vec<Span> {
         match kind {
             CommitLine::File(_) => spans.push(Span {
                 range: bytes,
-                face: style(ConsoleStyle {
-                    bold: true,
-                    ..ConsoleStyle::default()
-                }),
+                face: style(ConsoleStyle { bold: true, ..ConsoleStyle::default() }),
             }),
             CommitLine::Diff { line: None, .. } | CommitLine::NoDiff(_) => spans.push(Span {
                 range: bytes,
-                face: style(ConsoleStyle {
-                    dim: true,
-                    ..ConsoleStyle::default()
-                }),
+                face: style(ConsoleStyle { dim: true, ..ConsoleStyle::default() }),
             }),
-            CommitLine::Diff {
-                file,
-                hunk,
-                line: Some(index),
-            } => {
+            CommitLine::Diff { file, hunk, line: Some(index) } => {
                 let sign = match view.numbers[line] {
                     (Some(_), None) => Some(REMOVED_SIGN),
                     (None, Some(_)) => Some(ADDED_SIGN),
@@ -476,10 +434,7 @@ pub fn decorate(buffer: &Buffer, range: Range<usize>) -> Vec<Span> {
         .into_iter()
         .filter_map(|span| {
             let shown = span.range.start.max(range.start)..span.range.end.min(range.end);
-            (shown.start < shown.end).then_some(Span {
-                range: shown,
-                face: span.face,
-            })
+            (shown.start < shown.end).then_some(Span { range: shown, face: span.face })
         })
         .collect()
 }
@@ -493,18 +448,14 @@ fn changed_parts(
     numbers: &[(Option<usize>, Option<usize>)],
 ) -> HashMap<usize, Range<usize>> {
     let code = |line: usize| match lines[line] {
-        CommitLine::Diff {
-            file,
-            hunk,
-            line: Some(index),
-        } => &commit.files[file].1.hunks[hunk].lines[index][1..],
+        CommitLine::Diff { file, hunk, line: Some(index) } => {
+            &commit.files[file].1.hunks[hunk].lines[index][1..]
+        }
         _ => "",
     };
     let run_end = |from: usize, side: (bool, bool)| {
         let is_side = |at: &usize| (numbers[*at].0.is_some(), numbers[*at].1.is_some()) == side;
-        (from..lines.len())
-            .find(|at| !is_side(at))
-            .unwrap_or(lines.len())
+        (from..lines.len()).find(|at| !is_side(at)).unwrap_or(lines.len())
     };
     let mut changed = HashMap::new();
     let mut line = 0;
@@ -540,10 +491,7 @@ fn changed_between(old: &str, new: &str) -> Option<(Range<usize>, Range<usize>)>
             .sum::<usize>()
     };
     let start = shared(&mut old.chars(), &mut new.chars());
-    let end = shared(
-        &mut old[start..].chars().rev(),
-        &mut new[start..].chars().rev(),
-    );
+    let end = shared(&mut old[start..].chars().rev(), &mut new[start..].chars().rev());
     let real = |part: &str| part.chars().any(char::is_alphanumeric);
     (real(&old[..start]) || real(&old[old.len() - end..]))
         .then(|| (start..old.len() - end, start..new.len() - end))
@@ -613,16 +561,8 @@ pub fn controls(editor: &Editor) -> Option<TextControls> {
 fn side(view: &CommitView, point_line: usize) -> TextSide {
     let (rows, actions) = view.side_rows.clone();
     let first_file = rows.len() - view.commit.files.len();
-    let selected = view
-        .lines
-        .get(point_line)
-        .map(|line| first_file + line.file());
-    TextSide {
-        facts: facts(view),
-        rows,
-        actions,
-        selected,
-    }
+    let selected = view.lines.get(point_line).map(|line| first_file + line.file());
+    TextSide { facts: facts(view), rows, actions, selected }
 }
 
 type SideRows = (Rc<[OutlineRow]>, Rc<[Option<Action>]>);
@@ -677,9 +617,8 @@ fn side_rows(commit: &Commit, folded: bool) -> SideRows {
 
 fn facts(view: &CommitView) -> Vec<Fact> {
     let commit = &view.commit;
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| since.as_secs() as i64);
+    let now =
+        SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs() as i64);
     let mut facts = vec![
         Fact {
             label: "Commit",
@@ -719,10 +658,7 @@ fn short(id: &str) -> String {
 
 /// Folds or unfolds the commit's message beside its diff.
 pub fn toggle(editor: &mut Editor) -> CommandResult {
-    let view = editor
-        .window_buffer_mut()
-        .local_mut::<CommitView>()
-        .ok_or(NOT_A_COMMIT_BUFFER)?;
+    let view = editor.window_buffer_mut().local_mut::<CommitView>().ok_or(NOT_A_COMMIT_BUFFER)?;
     if view.commit.body.is_empty() {
         return Err("The message is only its subject, shown beside Commit".into());
     }
@@ -733,10 +669,7 @@ pub fn toggle(editor: &mut Editor) -> CommandResult {
 
 /// Puts point on the header of the commit's `file`, at the top of the window.
 fn go_to_file(editor: &mut Editor, file: usize) -> CommandResult {
-    let view = editor
-        .window_buffer()
-        .local::<CommitView>()
-        .ok_or(NOT_A_COMMIT_BUFFER)?;
+    let view = editor.window_buffer().local::<CommitView>().ok_or(NOT_A_COMMIT_BUFFER)?;
     let line = (view.lines.iter())
         .position(|line| *line == CommitLine::File(file))
         .ok_or("No such file")?;
@@ -797,13 +730,9 @@ pub fn move_to_line<L>(
     let point_line = buffer.point_line();
     let lines = lines_of(buffer)?;
     let target = if forward {
-        (lines.iter().skip(point_line + 1))
-            .position(wanted)
-            .map(|at| point_line + 1 + at)
+        (lines.iter().skip(point_line + 1)).position(wanted).map(|at| point_line + 1 + at)
     } else {
-        lines[..point_line.min(lines.len())]
-            .iter()
-            .rposition(wanted)
+        lines[..point_line.min(lines.len())].iter().rposition(wanted)
     };
     go_to(editor, target.ok_or(none)?);
     Ok(())
@@ -861,10 +790,7 @@ pub fn open_file(editor: &mut Editor) -> CommandResult {
         view.commit.id.clone()
     };
     let root = view.root.clone();
-    let name = format!(
-        "{} @ {id}",
-        path.file_name().unwrap_or(path.as_os_str()).display()
-    );
+    let name = format!("{} @ {id}", path.file_name().unwrap_or(path.as_os_str()).display());
     let path = path.clone();
     if editor.switch_to_buffer(&name) {
         go_to_line(editor, target);
@@ -878,13 +804,8 @@ pub fn open_file(editor: &mut Editor) -> CommandResult {
         editor,
         format!("Reading {name}…"),
         move || {
-            output(
-                git(&read_root)
-                    .arg("show")
-                    .arg(OsStr::from_bytes(&spec))
-                    .arg("--"),
-            )
-            .map_err(|error| format!("git show: {error}"))
+            output(git(&read_root).arg("show").arg(OsStr::from_bytes(&spec)).arg("--"))
+                .map_err(|error| format!("git show: {error}"))
         },
         move |editor, contents| {
             // Opened again while it was read.
@@ -923,10 +844,7 @@ mod tests {
     fn fake_highlighter() -> CodeHighlighter {
         Rc::new(|_, code: &str| {
             let span = |range, face| Span { range, face };
-            Some(vec![
-                span(0..3, Face::Keyword),
-                span(8..14.min(code.len()), Face::Comment),
-            ])
+            Some(vec![span(0..3, Face::Keyword), span(8..14.min(code.len()), Face::Comment)])
         })
     }
 

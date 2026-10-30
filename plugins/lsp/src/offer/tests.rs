@@ -58,10 +58,7 @@ fn project(home: &Path, name: &str) -> PathBuf {
 
 fn editor(home: &Path, lsp_toml: &str) -> Editor {
     let mut editor = Editor::new(&[&MinibufferPlugin, &ToolsPlugin, &PLUGIN]);
-    editor.set_settings(Settings::from_files([(
-        PathBuf::from("lsp.toml"),
-        lsp_toml.to_owned(),
-    )]));
+    editor.set_settings(Settings::from_files([(PathBuf::from("lsp.toml"), lsp_toml.to_owned())]));
     keep_tools_in(&mut editor, home);
     keep_offers_in(&mut editor, home);
     editor
@@ -89,10 +86,7 @@ fn a_project_is_offered_the_servers_remacs_can_download_once() {
     open(&mut editor, remacs.join("src/main.rs"), "Fundamental");
     assert_eq!(
         offered(&editor),
-        Some((
-            "Download `downloadable`?".to_owned(),
-            vec!["downloadable".to_owned()]
-        )),
+        Some(("Download `downloadable`?".to_owned(), vec!["downloadable".to_owned()])),
         "the server remacs cannot download is passed over in silence"
     );
     editor.answer_question(false);
@@ -125,19 +119,13 @@ fn a_project_lacking_all_of_a_group_chooses_one() {
     open(&mut editor, notes.join("README.md"), "Markdown");
     let minibuffer = editor.minibuffer().expect("a choice is offered");
     assert_eq!(minibuffer.dialog().map(|dialog| dialog.title), None);
-    let choices: Vec<_> = minibuffer
-        .candidates()
-        .iter()
-        .map(|candidate| candidate.value.clone())
-        .collect();
+    let choices: Vec<_> =
+        minibuffer.candidates().iter().map(|candidate| candidate.value.clone()).collect();
     assert_eq!(choices, ["first", "second"]);
     editor.cancel_minibuffer();
 
     open(&mut editor, notes.join("CHANGES.md"), "Markdown");
-    assert!(
-        editor.minibuffer().is_none(),
-        "the group is asked about once"
-    );
+    assert!(editor.minibuffer().is_none(), "the group is asked about once");
 }
 
 #[test]
@@ -151,11 +139,7 @@ fn a_server_downloaded_when_offered_starts_for_the_file() {
     editor.answer_question(true);
     let started = Instant::now();
     while document::window_servers(&editor) != ["downloadable"] {
-        assert!(
-            started.elapsed() < Duration::from_secs(300),
-            "{:?}",
-            editor.echo()
-        );
+        assert!(started.elapsed() < Duration::from_secs(300), "{:?}", editor.echo());
         thread::sleep(Duration::from_millis(100));
         editor.refresh();
     }

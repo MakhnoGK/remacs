@@ -30,12 +30,7 @@ pub struct NavigationSettings {
 
 impl Default for NavigationSettings {
     fn default() -> Self {
-        Self {
-            history_size: 100,
-            jump_lines: 10,
-            avy_keys: "asdfghjkl".into(),
-            avy_timeout: 500,
-        }
+        Self { history_size: 100, jump_lines: 10, avy_keys: "asdfghjkl".into(), avy_timeout: 500 }
     }
 }
 
@@ -52,10 +47,7 @@ impl Section for NavigationSettings {
             Err("jump-lines is 0".into())
         } else if keys.len() < 2 || keys.len() != self.avy_keys.chars().count() {
             Err("avy-keys needs two characters or more, each once".into())
-        } else if keys
-            .iter()
-            .any(|key| key.is_whitespace() || key.is_control())
-        {
+        } else if keys.iter().any(|key| key.is_whitespace() || key.is_control()) {
             Err("avy-keys has a space or a control character".into())
         } else if self.avy_timeout > 5000 {
             Err("avy-timeout is over 5000".into())

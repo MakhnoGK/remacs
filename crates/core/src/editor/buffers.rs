@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use remacs_text::{Text, UTF_8};
 
 use super::{Editor, SCRATCH_BUFFER};
-use crate::buffer::{Buffer, FileEdits};
+use crate::buffer::{Buffer, BufferId, FileEdits};
 
 impl Editor {
     /// The buffer commands act on: the minibuffer input, or a message's description,
@@ -45,6 +45,14 @@ impl Editor {
         self.buffers.iter_mut().find(|buffer| buffer.name() == name)
     }
 
+    pub(super) fn buffer_named(&self, name: &str) -> Option<&Buffer> {
+        self.buffers.iter().find(|buffer| buffer.name() == name)
+    }
+
+    pub(super) fn buffer_with_id_mut(&mut self, id: BufferId) -> Option<&mut Buffer> {
+        self.buffers.iter_mut().find(|buffer| buffer.id() == id)
+    }
+
     /// Shows the buffer visiting `path`, opening it first if needed; a missing file
     /// becomes an empty buffer that creates it on save.
     pub fn visit_file(&mut self, path: &Path) -> io::Result<()> {
@@ -73,25 +81,23 @@ impl Editor {
     /// `set-visited-file-name`; saving is up to the caller.
     pub fn set_visited_file(&mut self, path: &Path) -> io::Result<()> {
         let path = path.canonicalize().or_else(|_| std::path::absolute(path))?;
-        if let Some(other) = self.buffers[1..]
-            .iter()
-            .find(|buffer| buffer.path() == Some(&path))
-        {
-            let message = format!(
-                "Buffer {} is already visiting {}",
-                other.name(),
-                path.display()
-            );
+        if let Some(other) = self.buffers[1..].iter().find(|buffer| buffer.path() == Some(&path)) {
+            let message = format!("Buffer {} is already visiting {}", other.name(), path.display());
             return Err(io::Error::new(io::ErrorKind::AlreadyExists, message));
         }
-        let name = file_buffer_name(&path);
-        if name != self.buffers[0].name() {
-            let name = self.unique_name(&name);
-            self.buffers[0].set_name(name);
-        }
-        let mode = self.mode_for_file(&path, self.buffers[0].text());
-        self.buffers[0].set_file(path, mode);
+        self.set_buffer_file(0, path);
         Ok(())
+    }
+
+    /// Makes the buffer at `index` visit `path`, renamed after it.
+    fn set_buffer_file(&mut self, index: usize, path: PathBuf) {
+        let name = file_buffer_name(&path);
+        if name != self.buffers[index].name() {
+            let name = self.unique_name(&name);
+            self.buffers[index].set_name(name);
+        }
+        let mode = self.mode_for_file(&path, self.buffers[index].text());
+        self.buffers[index].set_file(path, mode);
     }
 
     /// Files moved since the last call, from and to, for backends such as language
@@ -103,27 +109,15 @@ impl Editor {
     /// Makes buffers visiting `from`, or files under it, visit them at `to`, renamed
     /// after them, as Emacs does after `dired-rename-file`.
     pub fn file_moved(&mut self, from: &Path, to: &Path) {
-        self.moved_files
-            .push((from.to_path_buf(), to.to_path_buf()));
+        self.moved_files.push((from.to_path_buf(), to.to_path_buf()));
         for index in 0..self.buffers.len() {
-            let Some(rest) = self.buffers[index]
-                .path()
-                .and_then(|path| path.strip_prefix(from).ok())
+            let Some(rest) =
+                self.buffers[index].path().and_then(|path| path.strip_prefix(from).ok())
             else {
                 continue;
             };
-            let path = if rest.as_os_str().is_empty() {
-                to.to_path_buf()
-            } else {
-                to.join(rest)
-            };
-            let mode = self.mode_for_file(&path, self.buffers[index].text());
-            let name = file_buffer_name(&path);
-            if name != self.buffers[index].name() {
-                let name = self.unique_name(&name);
-                self.buffers[index].set_name(name);
-            }
-            self.buffers[index].set_file(path, mode);
+            let path = if rest.as_os_str().is_empty() { to.to_path_buf() } else { to.join(rest) };
+            self.set_buffer_file(index, path);
         }
     }
 
@@ -141,9 +135,7 @@ impl Editor {
     }
 
     pub fn switch_to_buffer(&mut self, name: &str) -> bool {
-        self.buffer_index(name)
-            .inspect(|&index| self.select_buffer(index))
-            .is_some()
+        self.buffer_index(name).inspect(|&index| self.select_buffer(index)).is_some()
     }
 
     /// Removes a buffer; the window falls back to the next most recent one, or `*scratch*`.
@@ -154,8 +146,7 @@ impl Editor {
         let killed = self.buffers.remove(index).id();
         if self.buffers.is_empty() {
             let mode = self.mode_for(None);
-            self.buffers
-                .push(Buffer::new(SCRATCH_BUFFER, Text::default(), mode));
+            self.buffers.push(Buffer::new(SCRATCH_BUFFER, Text::default(), mode));
         }
         if index == 0 {
             self.viewport.first_line = self.buffers[0].window_start;
@@ -178,11 +169,7 @@ impl Editor {
     /// Index of the buffer visiting `path`, opened as the least recent one if needed.
     pub(super) fn find_file(&mut self, path: &Path) -> io::Result<usize> {
         let path = path.canonicalize().or_else(|_| std::path::absolute(path))?;
-        if let Some(index) = self
-            .buffers
-            .iter()
-            .position(|buffer| buffer.path() == Some(&path))
-        {
+        if let Some(index) = self.buffers.iter().position(|buffer| buffer.path() == Some(&path)) {
             self.sync_with_disk(index);
             return Ok(index);
         }
@@ -285,42 +272,32 @@ impl Editor {
 }
 
 fn file_buffer_name(path: &Path) -> String {
-    path.file_name().map_or_else(
-        || path.display().to_string(),
-        |name| name.to_string_lossy().into_owned(),
-    )
+    path.file_name()
+        .map_or_else(|| path.display().to_string(), |name| name.to_string_lossy().into_owned())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::editor::tests::{buffer_names, buffer_text, temp_dir};
 
     #[test]
     fn buffers_are_most_recent_first_with_unique_names() {
         let mut editor = Editor::new(&[]);
         editor.add_buffer(Buffer::new("a", Text::default(), "Fundamental"));
         editor.add_buffer(Buffer::new("a", Text::default(), "Fundamental"));
-        let names = |editor: &Editor| -> Vec<String> {
-            editor
-                .buffers()
-                .iter()
-                .map(|buffer| buffer.name().to_owned())
-                .collect()
-        };
-        assert_eq!(names(&editor), ["a<2>", "a", SCRATCH_BUFFER]);
+        assert_eq!(buffer_names(&editor), ["a<2>", "a", SCRATCH_BUFFER]);
         assert!(editor.switch_to_buffer(SCRATCH_BUFFER));
-        assert_eq!(names(&editor), [SCRATCH_BUFFER, "a<2>", "a"]);
+        assert_eq!(buffer_names(&editor), [SCRATCH_BUFFER, "a<2>", "a"]);
         assert!(editor.kill_buffer(SCRATCH_BUFFER));
         assert!(editor.kill_buffer("a<2>") && editor.kill_buffer("a"));
-        assert_eq!(names(&editor), [SCRATCH_BUFFER]);
+        assert_eq!(buffer_names(&editor), [SCRATCH_BUFFER]);
     }
 
     #[test]
     fn a_binary_file_opens_read_only_and_one_not_utf8_says_how_it_was_read() {
         let mut editor = Editor::new(&[]);
-        let directory =
-            std::env::temp_dir().join(format!("remacs-encodings-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).unwrap();
+        let directory = temp_dir("encodings");
         let mut visit = |name: &str, contents: &[u8]| {
             let path = directory.join(name);
             std::fs::write(&path, contents).unwrap();
@@ -339,9 +316,7 @@ mod tests {
 
     #[test]
     fn only_regular_files_open_and_others_are_refused_without_blocking() {
-        let directory =
-            std::env::temp_dir().join(format!("remacs-file-types-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).unwrap();
+        let directory = temp_dir("file-types");
         let fifo = directory.join("pipe");
         let fifo_name = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
         // SAFETY: a valid NUL-terminated path.
@@ -352,11 +327,7 @@ mod tests {
         std::os::unix::fs::symlink(&file, &link).unwrap();
 
         let mut editor = Editor::new(&[]);
-        for refused in [
-            fifo.as_path(),
-            Path::new("/dev/zero"),
-            Path::new("/dev/null"),
-        ] {
+        for refused in [fifo.as_path(), "/dev/zero".as_ref(), "/dev/null".as_ref()] {
             let error = editor.visit_file(refused).unwrap_err();
             assert_eq!(error.kind(), io::ErrorKind::InvalidInput, "{refused:?}");
             assert!(error.to_string().ends_with("is not a regular file"));
@@ -385,11 +356,7 @@ mod tests {
             .collect();
         assert_eq!(
             visited,
-            [
-                ("x<3>", "/ab/three.rs"),
-                ("two.rs", "/c/b/two.rs"),
-                ("renamed.rs", "/c/renamed.rs")
-            ]
+            [("x<3>", "/ab/three.rs"), ("two.rs", "/c/b/two.rs"), ("renamed.rs", "/c/renamed.rs")]
         );
     }
 
@@ -412,54 +379,39 @@ mod tests {
         editor.add_buffer(file("b.rs", "/remacs-test/old/b.rs"));
         editor.add_buffer(file("a.rs", "/remacs-test/a.rs"));
         editor.add_buffer(Buffer::new("new", Text::default(), "Fundamental"));
-        let error = editor
-            .set_visited_file(Path::new("/remacs-test/a.rs"))
-            .unwrap_err();
+        let mut visit = |path: &str| editor.set_visited_file(Path::new(path));
+        let error = visit("/remacs-test/a.rs").unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
-        editor
-            .set_visited_file(Path::new("/remacs-test/b.rs"))
-            .unwrap();
+        visit("/remacs-test/b.rs").unwrap();
         let buffer = editor.window_buffer();
         assert_eq!(buffer.name(), "b.rs<2>");
         assert_eq!(buffer.path(), Some(Path::new("/remacs-test/b.rs")));
 
-        assert_eq!(
-            editor.rename_buffer("a.rs", "a.rs").as_deref(),
-            Some("a.rs")
-        );
-        assert_eq!(
-            editor.rename_buffer("a.rs", "b.rs").as_deref(),
-            Some("b.rs<3>")
-        );
-        assert_eq!(editor.rename_buffer("missing", "c.rs"), None);
+        let mut rename = |name, new_name| editor.rename_buffer(name, new_name);
+        assert_eq!(rename("a.rs", "a.rs").as_deref(), Some("a.rs"));
+        assert_eq!(rename("a.rs", "b.rs").as_deref(), Some("b.rs<3>"));
+        assert_eq!(rename("missing", "c.rs"), None);
     }
 
     #[test]
     fn a_buffer_follows_its_file_on_disk_unless_it_has_edits_which_are_reported_once() {
-        let directory = std::env::temp_dir().join(format!("remacs-sync-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).unwrap();
+        let directory = temp_dir("sync");
         let path = directory.join("file.txt");
         std::fs::write(&path, "one").unwrap();
         let mut editor = Editor::new(&[]);
         editor.visit_file(&path).unwrap();
-        let contents = |editor: &Editor| {
-            let buffer = editor.window_buffer();
-            buffer.contents(0..buffer.text().len())
-        };
         std::fs::write(&path, "two, longer").unwrap();
         editor.sync_buffers_with_disk(|_| true);
-        assert_eq!(contents(&editor), "two, longer");
+        assert_eq!(buffer_text(&editor), "two, longer");
         assert!(editor.message().is_none());
 
         editor.window_buffer_mut().insert("edit ");
         std::fs::write(&path, "three, longer still").unwrap();
         editor.sync_buffers_with_disk(|_| true);
-        assert_eq!(contents(&editor), "edit two, longer");
+        assert_eq!(buffer_text(&editor), "edit two, longer");
         let message = editor.message().map(|message| message.text.clone());
-        assert_eq!(
-            message.as_deref(),
-            Some("file.txt: its file changed on disk; saving asks before writing over it")
-        );
+        let expected = "file.txt: its file changed on disk; saving asks before writing over it";
+        assert_eq!(message.as_deref(), Some(expected));
         editor.clear_message();
         editor.sync_buffers_with_disk(|_| true);
         assert!(editor.message().is_none(), "reported once");

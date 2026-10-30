@@ -102,16 +102,12 @@ pub fn parse_blame(printed: &[u8]) -> Blame {
             }),
             "filename" => set(&mut blame, commit, |commit| commit.path = value.into()),
             "previous" => set(&mut blame, commit, |commit| {
-                commit.previous = value
-                    .split_once(' ')
-                    .map(|(id, path)| (id.to_owned(), path.into()));
+                commit.previous =
+                    value.split_once(' ').map(|(id, path)| (id.to_owned(), path.into()));
             }),
             id if id.len() >= 40 && id.bytes().all(|byte| byte.is_ascii_hexdigit()) => {
-                let original = value
-                    .split(' ')
-                    .next()
-                    .and_then(|number| number.parse().ok())
-                    .unwrap_or(1);
+                let original =
+                    value.split(' ').next().and_then(|number| number.parse().ok()).unwrap_or(1);
                 let index = match indexes.get(id) {
                     Some(&index) => index,
                     None => {
@@ -152,14 +148,8 @@ fn blame_command(root: &Path) -> Command {
 pub fn blame(editor: &mut Editor) -> CommandResult {
     let buffer = editor.window_buffer();
     let path = buffer.path().ok_or("Not visiting a file")?.to_path_buf();
-    let root = path
-        .parent()
-        .and_then(working_tree)
-        .ok_or("Not in a Git working tree")?;
-    let relative = path
-        .strip_prefix(&root)
-        .map_err(|_| "Not in a Git working tree")?
-        .to_path_buf();
+    let root = path.parent().and_then(working_tree).ok_or("Not in a Git working tree")?;
+    let relative = path.strip_prefix(&root).map_err(|_| "Not in a Git working tree")?.to_path_buf();
     let snapshot = buffer.text().snapshot();
     let format = snapshot.format();
     if format.binary {
@@ -199,10 +189,8 @@ pub fn blame_previous(editor: &mut Editor) -> CommandResult {
     let view = buffer.local::<BlameView>().ok_or(NOT_A_BLAME_BUFFER)?;
     let point_line = buffer.point_line();
     let commit = view.commit_at(point_line).ok_or("Nothing here")?;
-    let (id, path) = commit
-        .previous
-        .clone()
-        .ok_or("The line is as the file's first commit made it")?;
+    let (id, path) =
+        commit.previous.clone().ok_or("The line is as the file's first commit made it")?;
     let line = view.blame.lines[point_line].1.saturating_sub(1);
     let (root, format) = (view.root.clone(), view.format);
     let read_root = root.clone();
@@ -227,9 +215,7 @@ pub fn blame_previous(editor: &mut Editor) -> CommandResult {
 pub fn open_commit(editor: &mut Editor) -> CommandResult {
     let buffer = editor.window_buffer();
     let view = buffer.local::<BlameView>().ok_or(NOT_A_BLAME_BUFFER)?;
-    let commit = view
-        .commit_at(buffer.point_line())
-        .ok_or("Nothing here")?;
+    let commit = view.commit_at(buffer.point_line()).ok_or("Nothing here")?;
     if commit.is_uncommitted() {
         return Err("Not committed yet".into());
     }
@@ -279,9 +265,7 @@ fn show(
         buffer.replace_text(text);
         buffer.set_local(view);
     } else {
-        let mut buffer = Buffer::new(name, text, mode)
-            .with_directory(directory)
-            .read_only();
+        let mut buffer = Buffer::new(name, text, mode).with_directory(directory).read_only();
         buffer.set_local(view);
         editor.add_buffer(buffer);
     }
@@ -293,9 +277,8 @@ pub fn line_extras(editor: &Editor, lines: Range<usize>) -> Vec<LineExtra> {
     let Some(view) = editor.window_buffer().local::<BlameView>() else {
         return Vec::new();
     };
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| since.as_secs() as i64);
+    let now =
+        SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs() as i64);
     lines
         .filter_map(|line| {
             let &(commit, _) = view.blame.lines.get(line)?;
@@ -324,11 +307,7 @@ fn annotation(commit: &BlameCommit, author_width: usize, now: i64) -> String {
         author.pop();
         author.push('…');
     }
-    format!(
-        "{} {author:<author_width$} {}",
-        short(&commit.id),
-        ago(now - commit.time)
-    )
+    format!("{} {author:<author_width$} {}", short(&commit.id), ago(now - commit.time))
 }
 
 pub fn controls(editor: &Editor) -> Option<TextControls> {
@@ -376,10 +355,7 @@ filename lib.rs
         assert_eq!(blame.lines, [(0, 1), (0, 2), (1, 7)]);
         assert_eq!(blame.commits[0].author, "Ann");
         assert_eq!(blame.commits[0].time, 100);
-        assert_eq!(
-            blame.commits[0].previous,
-            Some(("b".repeat(40), PathBuf::from("old.rs")))
-        );
+        assert_eq!(blame.commits[0].previous, Some(("b".repeat(40), PathBuf::from("old.rs"))));
         assert_eq!(blame.commits[1].path, PathBuf::from("lib.rs"));
         assert_eq!(blame.commits[1].previous, None);
     }

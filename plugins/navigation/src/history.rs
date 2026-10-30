@@ -116,21 +116,13 @@ fn record(editor: &mut Editor, by_command: bool) {
 }
 
 pub(crate) fn navigate_back(editor: &mut Editor) -> CommandResult {
-    navigate(
-        editor,
-        |history| &mut history.back,
-        |history| &mut history.forward,
-    )
-    .ok_or_else(|| "At the start of the navigation history".into())
+    navigate(editor, |history| &mut history.back, |history| &mut history.forward)
+        .ok_or_else(|| "At the start of the navigation history".into())
 }
 
 pub(crate) fn navigate_forward(editor: &mut Editor) -> CommandResult {
-    navigate(
-        editor,
-        |history| &mut history.forward,
-        |history| &mut history.back,
-    )
-    .ok_or_else(|| "At the end of the navigation history".into())
+    navigate(editor, |history| &mut history.forward, |history| &mut history.back)
+        .ok_or_else(|| "At the end of the navigation history".into())
 }
 
 /// Goes to the latest place of `from` that can still be shown, leaving where point was on
@@ -160,10 +152,7 @@ fn show(editor: &mut Editor, place: &Place) -> bool {
     let shown = match &place.path {
         // A file deleted or renamed since would open as a new, empty one.
         Some(path) => {
-            let open = editor
-                .buffers()
-                .iter()
-                .any(|buffer| buffer.path() == Some(path));
+            let open = editor.buffers().iter().any(|buffer| buffer.path() == Some(path));
             (open || path.exists()) && editor.visit_file(path).is_ok()
         }
         None => editor.switch_to_buffer(&place.buffer),
@@ -174,11 +163,8 @@ fn show(editor: &mut Editor, place: &Place) -> bool {
     let buffer = editor.window_buffer_mut();
     let text = buffer.text();
     let offset = place.offset.min(text.len());
-    let offset = if text.is_char_boundary(offset) {
-        offset
-    } else {
-        text.previous_char_boundary(offset)
-    };
+    let offset =
+        if text.is_char_boundary(offset) { offset } else { text.previous_char_boundary(offset) };
     buffer.set_point(offset);
     buffer.deactivate_mark();
     let line = buffer.point_line();

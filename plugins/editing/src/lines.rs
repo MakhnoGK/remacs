@@ -98,13 +98,8 @@ fn align(lines: &mut [String], regex: &Regex, every_match: bool) {
             .zip(&searched_from)
             .map(|(line, &from)| {
                 // An empty match, as `\b` gives, would be found again after its padding.
-                let found = regex
-                    .find_at(line, from)
-                    .filter(|found| !found.is_empty())?;
-                let text_end = from
-                    + line[from..found.start()]
-                        .trim_end_matches([' ', '\t'])
-                        .len();
+                let found = regex.find_at(line, from).filter(|found| !found.is_empty())?;
+                let text_end = from + line[from..found.start()].trim_end_matches([' ', '\t']).len();
                 Some((text_end, found.start(), found.end()))
             })
             .collect();
@@ -150,10 +145,8 @@ fn edit_lines(editor: &mut Editor, edit: impl FnOnce(&mut Vec<String>)) -> Comma
     }
     let removed = before - lines.len();
     if removed > 0 {
-        editor.set_message(format!(
-            "Deleted {removed} line{}",
-            if removed == 1 { "" } else { "s" }
-        ));
+        editor
+            .set_message(format!("Deleted {removed} line{}", if removed == 1 { "" } else { "s" }));
     }
     Ok(())
 }

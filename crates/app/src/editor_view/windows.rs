@@ -3,14 +3,14 @@ use std::iter;
 use std::mem;
 
 use gpui::{
-    AnyElement, Bounds, Context, Div, MouseButton, MouseDownEvent, Pixels, Point, Window, div,
-    point, prelude::*, px, rgb, rgba,
+    Along, AnyElement, Bounds, Context, Div, Pixels, Point, Window, div, point, prelude::*, px,
+    rgba,
 };
 use remacs_core::{Axis, Layout, WindowId};
 use remacs_theme::{color, font, glass};
 
 use super::screen::full_screen_bounds;
-use super::{Divider, EditorView, ROW_MARGIN};
+use super::{Divider, EditorView, ROW_MARGIN, placed};
 use crate::bottom_row::Hints;
 use crate::changes_view::render_changes;
 use crate::outline_view::{
@@ -19,7 +19,7 @@ use crate::outline_view::{
 use crate::table_view::{
     LIST_BOTTOM, ROW_PITCH, ROWS_TOP, TableCursor, down_to_the_row, fits_preview, render_table,
 };
-use crate::widgets::Scrolled;
+use crate::widgets::{PressExt, Scrolled, StyleExt};
 
 /// What a window is drawn as, and what of it goes elsewhere: its header's toolbar, its
 /// keys for the bottom row, its popups.
@@ -108,13 +108,8 @@ impl EditorView {
         for &window in windows {
             self.editor.display_window(window);
             let name = self.editor.window_buffer().name();
-            if self.editor.is_screen(name) {
-                let name = name.to_owned();
-                if window == selected {
-                    owners.insert(name, window);
-                } else {
-                    owners.entry(name).or_insert(window);
-                }
+            if self.editor.is_screen(name) && (window == selected || !owners.contains_key(name)) {
+                owners.insert(name.to_owned(), window);
             }
             self.editor.end_display();
         }
@@ -129,63 +124,48 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) -> WindowParts {
         let window_name = self.editor.window_buffer().name().to_owned();
-        self.window_state.showing_screen = self.editor.is_screen(&window_name);
-        let frame_size = self.window_state.frame.size;
-        let reserved = self.window_state.reserved;
+        let showing_screen = self.editor.is_screen(&window_name);
+        self.window_state.showing_screen = showing_screen;
+        let (frame_size, reserved) = (self.window_state.frame.size, self.window_state.reserved);
         // Tables and outlines are laid out in the window above the pane, leaving under them
         // room for the bottom row, which rides on the pane.
         let rows_area_height = frame_size.height - reserved;
         let first_line = self.editor.viewport.first_line;
-        let table_rows = ((rows_area_height - px(ROWS_TOP) - px(LIST_BOTTOM)) / px(ROW_PITCH))
-            .floor()
-            .max(1.0) as usize;
+        let table_height = rows_area_height - px(ROWS_TOP) - px(LIST_BOTTOM);
+        let table_rows = (table_height / px(ROW_PITCH)).floor().max(1.0) as usize;
         // One row more than fits is partly scrolled in; another tells whether there are
         // rows below.
-        let table = (!self.window_state.showing_screen)
+        let table = (!showing_screen)
             .then(|| self.editor.table(first_line..first_line + table_rows + 2))
             .flatten();
-        let outline = match table {
-            Some(_) => None,
-            None if self.window_state.showing_screen => None,
-            None => {
-                let lines = max_outline_lines(rows_area_height);
-                self.render_outline(lines, rows_area_height, window, cx)
-            }
+        let outline = if table.is_some() || showing_screen {
+            None
+        } else {
+            let lines = max_outline_lines(rows_area_height);
+            self.render_outline(lines, rows_area_height, window, cx)
         };
         self.window_state.showing_rows = table.is_some() || outline.is_some();
-        let mut toolbar = None;
-        let mut tabbed = false;
-        let mut text_shown = false;
+        let (mut toolbar, mut tabbed, mut text_shown) = (None, false, false);
         self.window_state.text_left = px(0.0);
         self.window_state.number_width = None;
         let (body, hints, popups) = match (table, outline) {
-            _ if self.window_state.showing_screen => {
+            _ if showing_screen => {
                 let controls = self.editor.text_controls().unwrap_or_default();
                 tabbed = controls.tabs.is_some();
                 toolbar = self.render_header_controls(controls.tabs, controls.buttons, cx);
                 let bounds = full_screen_bounds(frame_size, reserved, self.screen_fills);
-                let owner = screen_owners.get(&window_name).copied();
-                let body = if owner.is_some_and(|owner| owner != self.editor.displayed_window()) {
-                    owner.map(|owner| render_shown_elsewhere(owner, cx))
-                } else {
-                    let offset = self.window_state.frame.origin;
-                    let under = rgba(glass::window_tint()).into();
-                    self.render_screen_in(&window_name, bounds, offset, under, window, cx)
+                let body = match screen_owners.get(&window_name) {
+                    Some(&owner) if owner != self.editor.displayed_window() => {
+                        Some(render_shown_elsewhere(owner, cx))
+                    }
+                    _ => {
+                        let offset = self.window_state.frame.origin;
+                        let under = rgba(glass::window_tint()).into();
+                        self.render_screen_in(&window_name, bounds, offset, under, window, cx)
+                    }
                 };
-                let body = body.map_or_else(
-                    || div().into_any_element(),
-                    |screen| {
-                        div()
-                            .absolute()
-                            .left(bounds.origin.x)
-                            .top(bounds.origin.y)
-                            .w(bounds.size.width)
-                            .h(bounds.size.height)
-                            .child(screen)
-                            .into_any_element()
-                    },
-                );
-                (body, controls.hints, Vec::new())
+                let body = body.map_or_else(div, |screen| placed(bounds).child(screen));
+                (body.into_any_element(), controls.hints, Vec::new())
             }
             (None, Some((body, hints, outline_toolbar))) => {
                 toolbar = outline_toolbar;
@@ -207,9 +187,8 @@ impl EditorView {
                 };
                 table.rows.truncate(table_rows + 1);
                 let hints = table.hints;
-                let fits = fits_preview(frame_size.width);
                 let side = match (table.changes.take(), table.preview.take()) {
-                    _ if !fits => None,
+                    _ if !fits_preview(frame_size.width) => None,
                     (Some(changes), _) => Some(render_changes(changes, cx)),
                     (None, preview) => preview.map(|preview| self.render_preview(preview)),
                 };
@@ -224,12 +203,9 @@ impl EditorView {
                 }
                 let row_lift = self.row_lift();
                 self.side_row_lift = Some(row_lift);
-                let side = side.map(|side| {
-                    if cornered {
-                        down_to_the_row(side, row_lift - reserved)
-                    } else {
-                        side
-                    }
+                let side = side.map(|side| match cornered {
+                    true => down_to_the_row(side, row_lift - reserved),
+                    false => side,
                 });
                 let buffer = self.editor.window_buffer();
                 let cursor = TableCursor {
@@ -247,10 +223,8 @@ impl EditorView {
             (None, None) => {
                 let mut controls = self.editor.text_controls().unwrap_or_default();
                 let side_width = self.diff.side_width;
-                let side = controls
-                    .side
-                    .take()
-                    .filter(|_| fits_beside(frame_size.width, side_width));
+                let side =
+                    (controls.side.take()).filter(|_| fits_beside(frame_size.width, side_width));
                 if side.is_some() {
                     self.window_state.text_left = text_side_end(side_width) - px(ROW_MARGIN);
                 }
@@ -260,27 +234,23 @@ impl EditorView {
                     let side = render_text_side(side, side_width, rows_area_height, cx);
                     above_pane(side, rows_area_height)
                 });
-                let body = div()
-                    .absolute()
-                    .inset_0()
-                    .child(body)
-                    .children(side)
-                    .into_any_element();
+                let body = div().absolute().inset_0().child(body).children(side);
                 if !controls.toolbar.is_empty() {
                     toolbar = Some(render_toolbar(controls.toolbar, cx).into_any_element());
                 }
                 text_shown = true;
-                (body, controls.hints, popups)
+                (body.into_any_element(), controls.hints, popups)
             }
         };
-        WindowParts {
-            body,
-            toolbar,
-            tabbed,
-            hints,
-            popups,
-            text_shown,
-        }
+        WindowParts { body, toolbar, tabbed, hints, popups, text_shown }
+    }
+}
+
+/// The direction a split's windows follow each other in.
+pub(super) fn along(axis: Axis) -> gpui::Axis {
+    match axis {
+        Axis::Rows => gpui::Axis::Vertical,
+        Axis::Columns => gpui::Axis::Horizontal,
     }
 }
 
@@ -294,44 +264,19 @@ pub(super) fn lay_out(
 ) {
     match layout {
         Layout::Window(window) => areas.push((*window, bounds)),
-        Layout::Split {
-            axis,
-            ratio,
-            first,
-            second,
-        } => {
-            let Bounds { origin, size } = bounds;
-            let (first_bounds, second_bounds) = match axis {
-                Axis::Rows => {
-                    let height = (size.height * *ratio).round();
-                    (
-                        Bounds::new(origin, gpui::size(size.width, height)),
-                        Bounds::new(
-                            point(origin.x, origin.y + height),
-                            gpui::size(size.width, size.height - height),
-                        ),
-                    )
-                }
-                Axis::Columns => {
-                    let width = (size.width * *ratio).round();
-                    (
-                        Bounds::new(origin, gpui::size(width, size.height)),
-                        Bounds::new(
-                            point(origin.x + width, origin.y),
-                            gpui::size(size.width - width, size.height),
-                        ),
-                    )
-                }
-            };
-            let at = match axis {
-                Axis::Rows => second_bounds.top(),
-                Axis::Columns => second_bounds.left(),
-            };
+        Layout::Split { axis, ratio, first, second } => {
+            let (Bounds { origin, size }, direction) = (bounds, along(*axis));
+            let length = (size.along(direction) * *ratio).round();
+            let first_bounds = Bounds::new(origin, size.apply_along(direction, |_| length));
+            let second_bounds = Bounds::new(
+                origin.apply_along(direction, |start| start + length),
+                size.apply_along(direction, |whole| whole - length),
+            );
             dividers.push(Divider {
                 split: dividers.len(),
                 axis: *axis,
                 bounds,
-                at,
+                at: second_bounds.origin.along(direction),
                 min: px(0.0),
             });
             lay_out(first, first_bounds, areas, dividers);
@@ -350,48 +295,31 @@ pub(super) fn render_dividers(
     (area_bottom, text_bottom): (Pixels, Pixels),
     cx: &mut Context<EditorView>,
 ) -> Vec<Div> {
-    let line = || div().bg(rgba(glass::ink(0x14)));
+    let line = |element: Div| element.bg(rgba(glass::ink(0x14)));
     dividers
         .iter()
         .flat_map(|&divider| {
             let Bounds { origin, size } = divider.bounds;
-            let below = (divider.axis == Axis::Columns
-                && divider.bounds.bottom() == area_bottom
-                && text_bottom > area_bottom)
-                .then(|| {
-                    line()
-                        .absolute()
-                        .left(divider.at - px(0.5))
-                        .top(area_bottom)
-                        .w(px(1.0))
-                        .h(text_bottom - area_bottom)
-                });
-            let line = line();
-            let strip = div().absolute().flex().items_center().justify_center();
+            let reaches_text = divider.bounds.bottom() == area_bottom && text_bottom > area_bottom;
+            let below = (divider.axis == Axis::Columns && reaches_text).then(|| {
+                let top_left = point(divider.at - px(0.5), area_bottom);
+                let bottom_right = point(divider.at + px(0.5), text_bottom);
+                line(placed(Bounds::from_corners(top_left, bottom_right)))
+            });
+            let direction = along(divider.axis);
+            let strip = placed(Bounds::new(
+                origin.apply_along(direction, |_| divider.at - grab / 2.0),
+                size.apply_along(direction, |_| grab),
+            ));
             let strip = match divider.axis {
-                Axis::Rows => strip
-                    .left(origin.x)
-                    .top(divider.at - grab / 2.0)
-                    .w(size.width)
-                    .h(grab)
-                    .cursor_row_resize()
-                    .child(line.w_full().h(px(1.0))),
-                Axis::Columns => strip
-                    .left(divider.at - grab / 2.0)
-                    .top(origin.y)
-                    .w(grab)
-                    .h(size.height)
-                    .cursor_col_resize()
-                    .child(line.h_full().w(px(1.0))),
+                Axis::Rows => strip.cursor_row_resize().child(line(div().w_full().h(px(1.0)))),
+                Axis::Columns => strip.cursor_col_resize().child(line(div().h_full().w(px(1.0)))),
             };
-            let strip = strip.occlude().on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |view, _: &MouseDownEvent, _, cx| {
-                    cx.stop_propagation();
-                    view.divider_drag = Some(divider);
-                    cx.notify();
-                }),
-            );
+            let strip = strip.flex().items_center().justify_center().occlude();
+            let strip = strip.on_press(cx, move |view, cx| {
+                view.divider_drag = Some(divider);
+                cx.notify();
+            });
             iter::once(strip).chain(below)
         })
         .collect()
@@ -399,35 +327,14 @@ pub(super) fn render_dividers(
 
 /// In place of a screen another window sizes; a click selects that window.
 fn render_shown_elsewhere(owner: WindowId, cx: &mut Context<EditorView>) -> AnyElement {
-    div()
-        .size_full()
-        .flex()
-        .items_center()
-        .justify_center()
-        .font_family(font::ui())
-        .text_size(px(font::ui_size()))
-        .text_color(rgb(color::fg_dim()))
-        .child("Shown in another window")
-        .on_mouse_down(
-            MouseButton::Left,
-            cx.listener(move |view, _: &MouseDownEvent, _, cx| {
-                cx.stop_propagation();
-                view.select_clicked(owner, cx);
-            }),
-        )
-        .into_any_element()
+    let notice = div().size_full().flex().items_center().justify_center().ui();
+    let notice = notice.text(font::ui_size(), color::fg_dim()).child("Shown in another window");
+    notice.on_press(cx, move |view, cx| view.select_clicked(owner, cx)).into_any_element()
 }
 
 /// Rows laid out in the top `height` of the window, clear of the pane under them.
 fn above_pane(rows: impl IntoElement, height: Pixels) -> AnyElement {
-    div()
-        .absolute()
-        .top_0()
-        .left_0()
-        .right_0()
-        .h(height)
-        .child(rows)
-        .into_any_element()
+    div().absolute().top_0().left_0().right_0().h(height).child(rows).into_any_element()
 }
 
 #[cfg(test)]
@@ -447,12 +354,7 @@ mod tests {
         editor.split_window(Axis::Columns);
         editor.split_window(Axis::Rows);
         let (mut areas, mut dividers) = (Vec::new(), Vec::new());
-        lay_out(
-            editor.layout(),
-            bounds(0.0, 0.0, 101.0, 50.0),
-            &mut areas,
-            &mut dividers,
-        );
+        lay_out(editor.layout(), bounds(0.0, 0.0, 101.0, 50.0), &mut areas, &mut dividers);
         assert_eq!(areas[0].0, editor.selected_window());
         let areas: Vec<_> = areas.into_iter().map(|(_, area)| area).collect();
         assert_eq!(

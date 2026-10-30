@@ -72,10 +72,7 @@ impl Default for Tools {
             settings_file: None,
             api: GITHUB_API.to_owned(),
             installers: installers::built_in(),
-            entries: DEBUG_ADAPTERS
-                .iter()
-                .map(|&tool| Entry::new(tool))
-                .collect(),
+            entries: DEBUG_ADAPTERS.iter().map(|&tool| Entry::new(tool)).collect(),
             waiters: Vec::new(),
         }
     }
@@ -103,10 +100,7 @@ impl Tools {
         self.entries = kept;
         for &tool in tools {
             let entry = match old.iter().position(|entry| entry.tool.name == tool.name) {
-                Some(index) => Entry {
-                    tool,
-                    ..old.swap_remove(index)
-                },
+                Some(index) => Entry { tool, ..old.swap_remove(index) },
                 None => Entry::new(tool),
             };
             self.entries.push(entry);
@@ -135,9 +129,7 @@ impl Tools {
     }
 
     fn entry_mut(&mut self, name: &str) -> Option<&mut Entry> {
-        self.entries
-            .iter_mut()
-            .find(|entry| entry.tool.name == name)
+        self.entries.iter_mut().find(|entry| entry.tool.name == name)
     }
 
     /// The version `tools.toml` asks for, else the one the tool must be, if any.
@@ -161,10 +153,7 @@ impl Tools {
     /// The tool's program, of one's own or installed, with its environment.
     pub fn installed_program(&self, name: &str) -> Option<Program> {
         if let Some(path) = self.own_program(name) {
-            return Some(Program {
-                path,
-                env: Vec::new(),
-            });
+            return Some(Program { path, env: Vec::new() });
         }
         let entry = self.entry(name)?;
         let version = entry.installed.as_deref()?;
@@ -172,11 +161,7 @@ impl Tools {
         let installer = self.installer(entry.tool);
         let path = dir.join(program_path(entry.tool, version, installer));
         let env = installer.map_or_else(Vec::new, |installer| {
-            run_env(
-                entry.tool,
-                &dir.join(entry.tool.home()).join(version),
-                installer,
-            )
+            run_env(entry.tool, &dir.join(entry.tool.home()).join(version), installer)
         });
         Some(Program { path, env })
     }
@@ -186,10 +171,7 @@ impl Tools {
     pub fn can_install(&self, tool: &Tool) -> bool {
         self.dir.is_some()
             && tool.builds_here()
-            && tool
-                .needs
-                .iter()
-                .all(|program| find_on_path(program).is_some())
+            && tool.needs.iter().all(|program| find_on_path(program).is_some())
             && match tool.source {
                 Source::GitHub { .. } => true,
                 Source::Package { .. } => self.installer(tool).is_some_and(Installer::can_run),
@@ -217,15 +199,11 @@ impl Tools {
             let versions = installed_versions(tool, &dir, self.installer(tool));
             let installed = match self.pinned(tool.name) {
                 Some(pinned) => versions.into_iter().find(|version| version == pinned),
-                None => versions
-                    .into_iter()
-                    .max_by_key(|version| version_key(version)),
+                None => versions.into_iter().max_by_key(|version| version_key(version)),
             };
             let entry = &mut self.entries[index];
-            entry.update = entry
-                .update
-                .take()
-                .filter(|update| is_newer(update, installed.as_deref()));
+            entry.update =
+                entry.update.take().filter(|update| is_newer(update, installed.as_deref()));
             entry.installed = installed;
         }
     }
@@ -242,10 +220,7 @@ impl Tools {
     fn sibling_installing(&self, tool: &Tool) -> bool {
         self.entries.iter().any(|entry| {
             entry.tool.home() == tool.home()
-                && entry
-                    .job
-                    .as_ref()
-                    .is_some_and(|job| job.kind == JobKind::Install)
+                && entry.job.as_ref().is_some_and(|job| job.kind == JobKind::Install)
         })
     }
 }
@@ -276,21 +251,14 @@ pub fn start_install(editor: &mut Editor, name: &str, version: Option<String>, f
         return;
     };
     if !tool.builds_here() {
-        fail(
-            editor,
-            name,
-            format!("no build for this system; install {name} on PATH"),
-        );
+        fail(editor, name, format!("no build for this system; install {name} on PATH"));
         return;
     }
     if tools.sibling_installing(tool) {
         return;
     }
     let entry = tools.entry_mut(name).expect("found");
-    entry.progress = Progress::Downloading {
-        version: version.clone(),
-        percent: None,
-    };
+    entry.progress = Progress::Downloading { version: version.clone(), percent: None };
     entry.job = Some(Job::install(entry.tool, version, force, place, notifier));
 }
 
@@ -320,10 +288,7 @@ pub fn check_updates(editor: &mut Editor) {
 }
 
 pub fn cancel(editor: &mut Editor, name: &str) {
-    if let Some(job) = tools(editor)
-        .entry(name)
-        .and_then(|entry| entry.job.as_ref())
-    {
+    if let Some(job) = tools(editor).entry(name).and_then(|entry| entry.job.as_ref()) {
         job.cancel();
     }
 }
@@ -362,18 +327,12 @@ fn finish_waiters(
         return;
     };
     let (done, waiting): (Vec<_>, _) =
-        std::mem::take(&mut tools.waiters)
-            .into_iter()
-            .partition(|(waiting_for, _)| {
-                tools
-                    .entry(waiting_for)
-                    .is_some_and(|entry| entry.tool.home() == home)
-            });
+        std::mem::take(&mut tools.waiters).into_iter().partition(|(waiting_for, _)| {
+            tools.entry(waiting_for).is_some_and(|entry| entry.tool.home() == home)
+        });
     tools.waiters = waiting;
-    let answered: Vec<_> = done
-        .into_iter()
-        .map(|(waiting_for, then)| (result(tools, waiting_for), then))
-        .collect();
+    let answered: Vec<_> =
+        done.into_iter().map(|(waiting_for, then)| (result(tools, waiting_for), then)).collect();
     for (result, then) in answered {
         then(editor, result);
     }
@@ -396,10 +355,8 @@ pub fn pick_up(editor: &mut Editor) -> bool {
             let name = entry.tool.name;
             match event {
                 Event::Found { version } => {
-                    entry.progress = Progress::Downloading {
-                        version: Some(version),
-                        percent: Some(0),
-                    }
+                    entry.progress =
+                        Progress::Downloading { version: Some(version), percent: Some(0) }
                 }
                 Event::Progress(percent) => {
                     if let Progress::Downloading { percent: shown, .. } = &mut entry.progress {
@@ -407,14 +364,8 @@ pub fn pick_up(editor: &mut Editor) -> bool {
                     }
                 }
                 Event::Installing => {
-                    if let Progress::Downloading {
-                        version: Some(version),
-                        ..
-                    } = &entry.progress
-                    {
-                        entry.progress = Progress::Installing {
-                            version: version.clone(),
-                        };
+                    if let Progress::Downloading { version: Some(version), .. } = &entry.progress {
+                        entry.progress = Progress::Installing { version: version.clone() };
                     }
                 }
                 Event::Installed { version } => {

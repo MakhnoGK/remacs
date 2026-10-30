@@ -69,11 +69,7 @@ fn load(editor: &mut Editor) -> Option<usize> {
             .lines()
             .next()
             .is_some_and(|first| first.trim_start_matches(';').trim() == "extends");
-        let source = if extends {
-            grammar.highlights.concat() + "\n" + &own
-        } else {
-            own
-        };
+        let source = if extends { grammar.highlights.concat() + "\n" + &own } else { own };
         // shortcut: a downloaded grammar's own queries are read once it is loaded and
         // queries are reloaded; reload them on load if anyone writes such queries.
         let Some(language) = grammar.language() else {

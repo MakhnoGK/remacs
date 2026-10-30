@@ -67,11 +67,7 @@ impl Session {
         editor
             .buffers()
             .iter()
-            .find(|buffer| {
-                buffer
-                    .local::<Console>()
-                    .is_some_and(|console| console.session == id)
-            })
+            .find(|buffer| buffer.local::<Console>().is_some_and(|console| console.session == id))
             .map(|buffer| buffer.name().to_owned())
     }
 }
@@ -140,26 +136,16 @@ pub fn running_consoles(editor: &Editor) -> Vec<String> {
 }
 
 pub fn get(editor: &Editor, id: u64) -> Option<&Session> {
-    editor
-        .find_plugin_state::<Sessions>()?
-        .list
-        .iter()
-        .find(|session| session.id == id)
+    editor.find_plugin_state::<Sessions>()?.list.iter().find(|session| session.id == id)
 }
 
 fn get_mut(editor: &mut Editor, id: u64) -> Option<&mut Session> {
-    sessions(editor)
-        .list
-        .iter_mut()
-        .find(|session| session.id == id)
+    sessions(editor).list.iter_mut().find(|session| session.id == id)
 }
 
 /// The session whose console is the window buffer.
 pub fn of_window(editor: &Editor) -> Option<u64> {
-    editor
-        .window_buffer()
-        .local::<Console>()
-        .map(|console| console.session)
+    editor.window_buffer().local::<Console>().map(|console| console.session)
 }
 
 /// Runs `configuration` of the project at `root` in its console, shown in the window,
@@ -206,11 +192,8 @@ fn run_in(
 ) -> CommandResult {
     let settings = sessions(editor).settings.clone();
     launch(&configuration, root, &settings)?;
-    let found = if compile {
-        find_compile(editor, root)
-    } else {
-        find(editor, root, &configuration.name)
-    };
+    let found =
+        if compile { find_compile(editor, root) } else { find(editor, root, &configuration.name) };
     let id = match found {
         Some(id) => {
             let session = get_mut(editor, id).expect("found");
@@ -247,10 +230,8 @@ fn run_in(
 }
 
 pub(crate) fn directory_name(root: &Path) -> String {
-    root.file_name().map_or_else(
-        || root.display().to_string(),
-        |name| name.to_string_lossy().into_owned(),
-    )
+    root.file_name()
+        .map_or_else(|| root.display().to_string(), |name| name.to_string_lossy().into_owned())
 }
 
 /// Shows the session's console and starts it, once the run going on, if any, has ended.
@@ -277,11 +258,7 @@ fn start(editor: &mut Editor, id: u64) -> CommandResult {
             let (root, configuration) = (session.root.clone(), session.configuration.clone());
             starter(editor, &root, &configuration, &launch)?
         }
-        None => Box::new(Process::start(
-            launch.clone(),
-            settings.output_backlog,
-            notifier,
-        )),
+        None => Box::new(Process::start(launch.clone(), settings.output_backlog, notifier)),
     };
     let session = get_mut(editor, id).ok_or("No such run")?;
     session.process = Some(process);
@@ -309,10 +286,7 @@ pub fn show(editor: &mut Editor, id: u64) {
     let Some(session) = get(editor, id) else {
         return;
     };
-    let settings = &editor
-        .find_plugin_state::<Sessions>()
-        .expect("has a session")
-        .settings;
+    let settings = &editor.find_plugin_state::<Sessions>().expect("has a session").settings;
     let cwd = launch(&session.configuration, &session.root, settings)
         .map_or_else(|_| session.root.clone(), |launch| launch.cwd);
     // A compile runs in a package, but tools like cargo print paths from the project root.
@@ -361,11 +335,7 @@ pub fn close_input(editor: &mut Editor, id: u64) -> CommandResult {
 /// Takes what the processes printed into their consoles and notes those that ended; a
 /// process whose console was killed is stopped.
 pub fn pick_up(editor: &mut Editor) {
-    let ids: Vec<u64> = sessions(editor)
-        .list
-        .iter()
-        .map(|session| session.id)
-        .collect();
+    let ids: Vec<u64> = sessions(editor).list.iter().map(|session| session.id).collect();
     let max_lines = sessions(editor).settings.console_lines;
     let backlog = sessions(editor).settings.output_backlog;
     for id in ids {
@@ -377,11 +347,7 @@ pub fn pick_up(editor: &mut Editor) {
         // At most a backlog at once: a program as fast as the drain would never end it.
         let events: Vec<Event> = get(editor, id)
             .and_then(|session| session.process.as_ref())
-            .map(|process| {
-                std::iter::from_fn(|| process.try_event())
-                    .take(backlog)
-                    .collect()
-            })
+            .map(|process| std::iter::from_fn(|| process.try_event()).take(backlog).collect())
             .unwrap_or_default();
         if events.len() == backlog {
             editor.refresh_after(Duration::ZERO);
@@ -405,11 +371,7 @@ fn exited(editor: &mut Editor, id: u64, name: &str, exit: Exit) {
     session.process = None;
     session.finished = Some(Instant::now());
     let stopped = session.state == State::Stopping;
-    session.state = if stopped {
-        State::Stopped
-    } else {
-        State::Exited(exit)
-    };
+    session.state = if stopped { State::Stopped } else { State::Exited(exit) };
     let rerun = session.rerun;
     if session.compile && !rerun {
         report_compile(editor, stopped, exit);
@@ -418,16 +380,12 @@ fn exited(editor: &mut Editor, id: u64, name: &str, exit: Exit) {
     match (stopped, exit) {
         (true, _) => console::append_note(buffer, "Process stopped", dim()),
         (false, Exit::Code(0)) => console::append_note(buffer, "Process exited with code 0", dim()),
-        (false, Exit::Code(code)) => console::append_note(
-            buffer,
-            &format!("Process exited with code {code}"),
-            colored(RED),
-        ),
-        (false, Exit::Signal(signal)) => console::append_note(
-            buffer,
-            &format!("Process ended by signal {signal}"),
-            colored(RED),
-        ),
+        (false, Exit::Code(code)) => {
+            console::append_note(buffer, &format!("Process exited with code {code}"), colored(RED))
+        }
+        (false, Exit::Signal(signal)) => {
+            console::append_note(buffer, &format!("Process ended by signal {signal}"), colored(RED))
+        }
         (false, Exit::NotStarted) => {}
     }
     if rerun && let Err(error) = start(editor, id) {

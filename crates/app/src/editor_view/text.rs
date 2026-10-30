@@ -3,8 +3,8 @@ use std::ops::{Range, RangeInclusive};
 use std::time::Instant;
 
 use gpui::{
-    AnyElement, Context, Div, MouseButton, MouseDownEvent, Pixels, StyledText, Window, div, font,
-    prelude::*, px, rgb, rgba, svg,
+    AnyElement, Bounds, Context, Div, Pixels, Point, StyledText, Window, div, font, point,
+    prelude::*, px, rgb, rgba, size, svg,
 };
 use remacs_core::{
     BreakpointIcon, Buffer, ChangedLines, Cursor, Face, GutterIcon, GutterMark, Icon, LineChange,
@@ -15,14 +15,15 @@ use remacs_theme::{color, font, glass};
 
 use super::{
     EditorView, FOOTER_FADE_HEIGHT, MeasuredFonts, Metrics, ROW_MARGIN, ROW_RADIUS, TEXT_TOP,
+    placed,
 };
 use crate::assets::{CHEVRON_DOWN_ICON, CHEVRON_ICON, EXECUTION_POINT_ICON, LOGPOINT_ICON};
 use crate::display_line::{DisplayLine, display_width, slice_line};
 use crate::highlights::{Highlights, combine, face_style, region_style, swatch_style};
 use crate::settings::{CursorHeight, FoldToggles, SwatchesSettings};
 use crate::widgets::{
-    Edge, SCROLL_FADE_SIZE, block_cursor, cursor_text_style, edge_fade, hollow_cursor, icon, over,
-    tone_color,
+    Edge, PressExt, SCROLL_FADE_SIZE, StyleExt, block_cursor, cursor_text_style, edge_fade,
+    hollow_cursor, icon, over, tone_color,
 };
 
 /// Minified files can hold megabytes on one line; lay out only what can be on screen.
@@ -48,13 +49,6 @@ const HS_TOGGLE_HIDING: &str = "hs-toggle-hiding";
 /// The gutter, over which the toggles of shown blocks appear.
 const GUTTER_GROUP: &str = "gutter";
 
-/// The fold toggles over the gutter, and the counts of lines hidden blocks hide after the
-/// text of the line each starts on.
-struct FoldControls {
-    toggles: AnyElement,
-    hidden: HashMap<usize, Div>,
-}
-
 fn gutter_padding(digit_width: Pixels) -> Pixels {
     digit_width * (NUMBER_GAP + FOLD_COLUMN + CHANGE_COLUMN + TEXT_GAP)
 }
@@ -72,37 +66,13 @@ impl EditorView {
     }
 
     pub(super) fn gutter_width(&self, metrics: Metrics) -> Pixels {
-        let digits = self
-            .editor
-            .window_buffer()
-            .text()
-            .line_count()
-            .to_string()
-            .len()
-            .max(self.window_state.number_width.unwrap_or(0));
-        let marks = if self.has_marks_column() {
-            px(MARKS_WIDTH)
-        } else {
-            px(0.0)
-        };
+        let digits = self.editor.window_buffer().text().line_count().to_string().len();
+        let digits = digits.max(self.window_state.number_width.unwrap_or(0));
+        // Some plugin may mark lines of the window buffer, so the gutter makes room for it.
+        let marks = self.editor.gutter_marks(0..0).map_or(px(0.0), |_| px(MARKS_WIDTH));
         marks
             + metrics.digit_width * digits.max(MIN_GUTTER_DIGITS) as f32
             + gutter_padding(metrics.digit_width)
-    }
-
-    /// Some plugin may mark lines of the window buffer, so the gutter makes room for it.
-    fn has_marks_column(&self) -> bool {
-        self.editor.gutter_marks(0..0).is_some()
-    }
-
-    /// Puts point on `line` and runs the command of its gutter mark.
-    fn click_gutter_mark(&mut self, line: usize, command: &'static str, cx: &mut Context<Self>) {
-        if self.editor.minibuffer().is_some() {
-            return;
-        }
-        self.editor.set_point_at(line, 0);
-        self.editor.run_command(command);
-        self.after_input(cx);
     }
 
     /// The part of `line` in the drawn columns, and the bytes of the buffer it shows.
@@ -131,10 +101,7 @@ impl EditorView {
     fn point_display_column(&self) -> usize {
         let buffer = self.editor.window_buffer();
         let text = buffer.text();
-        let line_start = text
-            .line_range(buffer.point_line())
-            .unwrap_or_default()
-            .start;
+        let line_start = text.line_range(buffer.point_line()).unwrap_or_default().start;
         display_width(text.chunks(line_start..buffer.point()).flatten().copied())
     }
 
@@ -146,22 +113,18 @@ impl EditorView {
         swatches: SwatchesSettings,
     ) -> Vec<Highlights> {
         let to_line = |offset: usize| offset.clamp(visible.start, visible.end) - visible.start;
+        let styled = |span: Span| {
+            let style = match span.face {
+                Face::Swatch(_) if !swatches.inline => return None,
+                Face::Swatch(color) => swatch_style(color, swatches.thickness),
+                face => face_style(face),
+            };
+            let range = to_line(span.range.start)..to_line(span.range.end);
+            Some((display_line.display_range(range), style))
+        };
         decorations
             .into_iter()
-            .map(|spans| {
-                spans
-                    .into_iter()
-                    .filter_map(|span| {
-                        let style = match span.face {
-                            Face::Swatch(_) if !swatches.inline => return None,
-                            Face::Swatch(color) => swatch_style(color, swatches.thickness),
-                            face => face_style(face),
-                        };
-                        let range = to_line(span.range.start)..to_line(span.range.end);
-                        Some((display_line.display_range(range), style))
-                    })
-                    .collect()
-            })
+            .map(|spans| spans.into_iter().filter_map(&styled).collect())
             .collect()
     }
 
@@ -189,13 +152,7 @@ impl EditorView {
         labels: Vec<TextLabel>,
         rectangle: Option<&(RangeInclusive<usize>, Range<usize>)>,
     ) -> (AnyElement, bool) {
-        let LineExtra {
-            band,
-            fill,
-            number,
-            note,
-            ..
-        } = extra.unwrap_or_default();
+        let LineExtra { band, fill, number, note, .. } = extra.unwrap_or_default();
         let fill_alpha = u32::from(self.diff.band_opacity) * 0xff / 100;
         let fill = fill.map(|tone| (tone_color(tone, color::fg_main()) << 8) | fill_alpha);
         let code_font = self.text_font();
@@ -226,10 +183,8 @@ impl EditorView {
         }
         let on_line = cursors.partition_point(|cursor| cursor.point < line_range.start)
             ..cursors.partition_point(|cursor| cursor.point <= line_range.end);
-        let points = cursors[on_line]
-            .iter()
-            .map(|cursor| cursor.point)
-            .chain(on_point.then(|| buffer.point()));
+        let points = cursors[on_line].iter().map(|cursor| cursor.point);
+        let points = points.chain(on_point.then(|| buffer.point()));
         let height = match self.cursor_height {
             CursorHeight::Line => row_height,
             CursorHeight::Font => metrics.glyph_height.min(row_height),
@@ -250,12 +205,8 @@ impl EditorView {
                 } else {
                     hollow_cursor()
                 };
-                let block = block
-                    .absolute()
-                    .left(left)
-                    .top((row_height - height) / 2.0)
-                    .w(metrics.char_width)
-                    .h(height);
+                let block = block.absolute().left(left).top((row_height - height) / 2.0);
+                let block = block.w(metrics.char_width).h(height);
                 if !(takes_text && point == buffer.point()) {
                     return block;
                 }
@@ -273,131 +224,62 @@ impl EditorView {
             .map(|label| {
                 let at = label.offset - visible.start;
                 let shown = display_line.display_range(at..at + 1).start;
-                let column = display_line.text[..shown].chars().count();
-                div()
-                    .absolute()
-                    .top_0()
-                    .left(metrics.char_width * column as f32)
-                    .h(row_height)
-                    .bg(rgb(color::accent()))
-                    .text_color(rgb(color::bg_main()))
-                    .child(label.text)
+                let left = metrics.char_width * display_line.text[..shown].chars().count() as f32;
+                let label_box = div().absolute().top_0().left(left).h(row_height);
+                label_box.bg(rgb(color::accent())).fg(color::bg_main()).child(label.text)
             })
             .collect();
-        let marks_width = if mark_slot.is_some() {
-            px(MARKS_WIDTH)
-        } else {
-            px(0.0)
-        };
+        let marks_width = mark_slot.as_ref().map_or(px(0.0), |_| px(MARKS_WIDTH));
         let scrolled_past = self.window_state.sideways.shown() - display_line.first_column() as f32;
         let (hidden_start, continues) = (display_line.has_hidden_start(), display_line.continues);
         let content = StyledText::new(display_line.text).with_highlights(combine(&layers));
-        let number_color = if is_current {
-            color::fg_main()
-        } else {
-            color::fg_line_number()
-        };
         // The text fades into what the row is drawn on.
-        let under = if is_current {
-            over(glass::line_highlight(), glass::window_tint())
-        } else {
-            rgba(glass::window_tint()).into()
+        let (number_color, under) = match is_current {
+            true => (color::fg_main(), over(glass::line_highlight(), glass::window_tint())),
+            false => (color::fg_line_number(), rgba(glass::window_tint()).into()),
         };
         // Over the text after point, which it does not move, with the cursor after it.
-        let marked = marked_at.and_then(|(left, under_cursor)| {
+        let marked = marked_at.and_then(|(left, covered)| {
             let text = self.composition.render_marked()?;
-            Some(
-                div()
-                    .absolute()
-                    .left(left)
-                    .h(row_height)
-                    .flex()
-                    .items_center()
-                    .bg(under)
-                    .child(text)
-                    .child(
-                        block_cursor()
-                            .w(metrics.char_width)
-                            .h(height)
-                            .child(under_cursor),
-                    ),
-            )
+            let cursor = block_cursor().w(metrics.char_width).h(height);
+            let marked = div().absolute().left(left).h(row_height).bg(under);
+            Some(marked.row(0.0).child(text).child(cursor.child(covered)))
         });
 
+        let note = note.map(|note| div().status_text(color::fg_faint()).child(note));
         let text = div().flex().child(content).children(folded);
-        let row = div()
-            .flex()
-            .flex_none()
-            .h(row_height)
-            .mx(px(ROW_MARGIN))
+        let text = text.children(note.map(|note| note.ml(metrics.char_width * 4.0)));
+        // Before the text, so that it is drawn under it.
+        let shifted = div().relative().text_size(px(code_font.size)).children(cursor).child(text);
+        let shifted = shifted.left(-metrics.char_width * scrolled_past.max(0.0));
+        let shifted = shifted.children(label_elements).children(marked);
+        let fade = |edge| edge_fade(edge, SCROLL_FADE_SIZE, under);
+        // Clear of the row's rounded end, which a fade would fill.
+        let clip = div().relative().flex_1().min_w_0().mr(px(ROW_RADIUS)).overflow_hidden();
+        let clip = clip.child(shifted).when(hidden_start, |clip| clip.child(fade(Edge::Left)));
+        let clip = clip.when(continues, |clip| clip.child(fade(Edge::Right)));
+        let number = (div().flex_none().w(gutter_width - marks_width).text_right())
+            .pr(gutter_padding(metrics.digit_width))
+            .text(code_font.line_number_size(), number_color)
+            .child(number.unwrap_or_else(|| (line + 1).to_string()));
+        let highlight = glass::line_highlight();
+        let current_bg = fill.map_or(rgba(highlight).into(), |fill| over(highlight, fill));
+        let row = div().flex().flex_none().h(row_height).mx(px(ROW_MARGIN)).line_height(row_height);
+        let row = row
             // Filled rows run together, like a diff's added lines.
             .when(fill.is_none(), |row| row.rounded(px(ROW_RADIUS)))
             .when_some(fill, |row, fill| row.bg(rgba(fill)))
-            .when(is_current, |row| {
-                row.bg(match fill {
-                    Some(fill) => over(glass::line_highlight(), fill),
-                    None => rgba(glass::line_highlight()).into(),
-                })
-            })
+            .when(is_current, |row| row.bg(current_bg))
             .when_some(band, |row, tone| {
                 let band = tone_color(tone, color::fg_main());
-                row.bg(rgba((band << 8) | 0x26))
-                    .border_1()
-                    .border_color(rgba((band << 8) | 0x4d))
+                row.bg(rgba((band << 8) | 0x26)).bordered((band << 8) | 0x4d)
             })
             .whitespace_nowrap()
-            .line_height(row_height)
             .children(mark_slot.map(|slot| {
-                slot.flex_none()
-                    .w(px(MARKS_WIDTH))
-                    .h(row_height)
-                    .flex()
-                    .items_center()
-                    .justify_center()
-            }))
-            .child(
-                div()
-                    .flex_none()
-                    .w(gutter_width - marks_width)
-                    .pr(gutter_padding(metrics.digit_width))
-                    .text_right()
-                    .text_size(px(code_font.line_number_size()))
-                    .text_color(rgb(number_color))
-                    .child(number.unwrap_or_else(|| (line + 1).to_string())),
-            )
-            .child(
-                div()
-                    .relative()
-                    .flex_1()
-                    .min_w_0()
-                    // Clear of the row's rounded end, which a fade would fill.
-                    .mr(px(ROW_RADIUS))
-                    .overflow_hidden()
-                    .child(
-                        div()
-                            .relative()
-                            .left(-metrics.char_width * scrolled_past.max(0.0))
-                            .text_size(px(code_font.size))
-                            // Before the text, so that it is drawn under it.
-                            .children(cursor)
-                            .child(text.children(note.map(|note| {
-                                div()
-                                    .ml(metrics.char_width * 4.0)
-                                    .text_size(px(font::status_size()))
-                                    .text_color(rgb(color::fg_faint()))
-                                    .child(note)
-                            })))
-                            .children(label_elements)
-                            .children(marked),
-                    )
-                    .when(hidden_start, |text| {
-                        text.child(edge_fade(Edge::Left, SCROLL_FADE_SIZE, under))
-                    })
-                    .when(continues, |text| {
-                        text.child(edge_fade(Edge::Right, SCROLL_FADE_SIZE, under))
-                    }),
-            );
-        (row.into_any_element(), continues)
+                let slot = slot.flex_none().w(px(MARKS_WIDTH)).h(row_height);
+                slot.flex().items_center().justify_center()
+            }));
+        (row.child(number).child(clip).into_any_element(), continues)
     }
 
     /// The gutter's mark slots for `lines`, mapped by line, when some plugin may mark the
@@ -418,36 +300,21 @@ impl EditorView {
                 let mut marks = by_line.remove(&line).unwrap_or_default();
                 marks.sort_by_key(|mark| mark.icon);
                 // A run mark gives way to a breakpoint; the execution point goes over both.
-                let execution = marks
-                    .iter()
-                    .position(|mark| mark.icon == GutterIcon::ExecutionPoint)
-                    .map(|index| marks.remove(index));
+                let execution =
+                    marks.iter().position(|mark| mark.icon == GutterIcon::ExecutionPoint);
+                let execution = execution.map(|index| marks.remove(index));
                 let shown = marks.pop();
-                let command = shown
-                    .as_ref()
-                    .map(|mark| mark.command)
-                    .or(empty_click)
-                    .or(execution.as_ref().map(|mark| mark.command));
-                let slot = div()
-                    .relative()
-                    .children(shown.map(|mark| gutter_glyph(mark.icon)))
-                    .children(execution.map(|_| {
-                        div()
-                            .absolute()
-                            .left(px(4.0))
-                            .top(px(5.0))
-                            .child(gutter_glyph(GutterIcon::ExecutionPoint))
-                    }));
-                let slot = match command {
-                    Some(command) => slot.cursor_pointer().on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |view, _: &MouseDownEvent, _, cx| {
-                            cx.stop_propagation();
-                            view.click_gutter_mark(line, command, cx);
-                        }),
-                    ),
-                    None => slot,
-                };
+                let command = shown.as_ref().map(|mark| mark.command).or(empty_click);
+                let command = command.or(execution.as_ref().map(|mark| mark.command));
+                let execution = execution.map(|_| {
+                    let arrow = div().absolute().left(px(4.0)).top(px(5.0));
+                    arrow.child(gutter_glyph(GutterIcon::ExecutionPoint))
+                });
+                let slot = div().relative().children(shown.map(|mark| gutter_glyph(mark.icon)));
+                let slot = slot.children(execution).when_some(command, |slot, command| {
+                    slot.cursor_pointer()
+                        .on_press(cx, move |view, cx| view.click_line(line, Some(command), cx))
+                });
                 (line, slot)
             })
             .collect();
@@ -456,30 +323,21 @@ impl EditorView {
 
     /// The controls of the blocks that start on the `drawn` lines, over a gutter that
     /// ends at `text_left`; a click on one shows or hides its block, as `hs-toggle-hiding`
-    /// on its line does.
+    /// on its line does. The toggles go over the gutter; the counts of lines hidden blocks
+    /// hide go after the text of the line each starts on.
     fn render_fold_controls(
         &self,
         drawn: &[usize],
         shown_lines: &ShownLines,
         (metrics, text_left): (Metrics, Pixels),
         cx: &mut Context<Self>,
-    ) -> FoldControls {
+    ) -> (AnyElement, HashMap<usize, Div>) {
         let row_height = px(self.text_font().line_height);
-        let gutter = div()
-            .absolute()
-            .top_0()
-            .left_0()
-            .w(text_left)
-            .h(row_height * drawn.len() as f32)
-            .group(GUTTER_GROUP);
-        let (Some(&first), Some(&last)) = (drawn.first(), drawn.last()) else {
-            return FoldControls {
-                toggles: gutter.into_any_element(),
-                hidden: HashMap::new(),
-            };
-        };
+        let gutter_size = size(text_left, row_height * drawn.len() as f32);
+        let gutter = placed(Bounds::new(Point::default(), gutter_size)).group(GUTTER_GROUP);
         let buffer = self.editor.window_buffer();
-        let starts: Vec<usize> = (self.editor.blocks(buffer, first..last + 1))
+        let starts: Vec<usize> = (drawn.first().zip(drawn.last()))
+            .and_then(|(&first, &last)| self.editor.blocks(buffer, first..last + 1))
             .unwrap_or_default()
             .into_iter()
             .filter(|block| !block.hidden.is_empty())
@@ -494,60 +352,34 @@ impl EditorView {
             if hidden.is_none() && !starts.contains(&line) {
                 continue;
             }
-            let clickable = |element: Div| {
-                element.cursor_pointer().on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |view, _: &MouseDownEvent, _, cx| {
-                        cx.stop_propagation();
-                        view.click_gutter_mark(line, HS_TOGGLE_HIDING, cx);
-                    }),
-                )
+            let clickable = |element: Div, cx: &mut Context<Self>| {
+                (element.cursor_pointer())
+                    .on_press(cx, move |view, cx| view.click_line(line, Some(HS_TOGGLE_HIDING), cx))
             };
             let always = hidden.is_some()
                 || self.folds.toggles == FoldToggles::Always
                 || point_line == Some(line);
-            let toggle = div()
-                .absolute()
-                .top(row_height * row as f32)
-                .left(text_left - digit_width * (TEXT_GAP + CHANGE_COLUMN + FOLD_COLUMN))
-                .w(digit_width * FOLD_COLUMN)
-                .h(row_height)
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(
-                    svg()
-                        .path(if hidden.is_some() {
-                            CHEVRON_ICON
-                        } else {
-                            CHEVRON_DOWN_ICON
-                        })
-                        .size(digit_width * FOLD_COLUMN)
-                        .text_color(rgb(color::fg_line_number())),
-                )
-                .when(!always, |toggle| {
-                    toggle
-                        .opacity(0.0)
-                        .group_hover(GUTTER_GROUP, |style| style.opacity(1.0))
+            let chevron = if hidden.is_some() { CHEVRON_ICON } else { CHEVRON_DOWN_ICON };
+            let origin = point(
+                text_left - digit_width * (TEXT_GAP + CHANGE_COLUMN + FOLD_COLUMN),
+                row_height * row as f32,
+            );
+            let bounds = Bounds::new(origin, size(digit_width * FOLD_COLUMN, row_height));
+            let chevron = svg().path(chevron).size(digit_width * FOLD_COLUMN);
+            let toggle = placed(bounds).flex().items_center().justify_center();
+            let toggle =
+                toggle.child(chevron.fg(color::fg_line_number())).when(!always, |toggle| {
+                    toggle.opacity(0.0).group_hover(GUTTER_GROUP, |style| style.opacity(1.0))
                 });
-            toggles.push(clickable(toggle));
-            let folded = hidden.map(|hidden| {
-                div()
-                    .ml(metrics.char_width * 2.0)
-                    .px(metrics.char_width * 0.5)
-                    .rounded(px(ROW_RADIUS))
-                    .bg(rgba(glass::line_highlight()))
-                    .text_color(rgb(color::fg_faint()))
-                    .child(format!("⋯ {hidden} lines"))
-            });
-            if let Some(folded) = folded {
-                counts.insert(line, clickable(folded));
+            toggles.push(clickable(toggle, cx));
+            if let Some(hidden) = hidden {
+                let folded = div().ml(metrics.char_width * 2.0).px(metrics.char_width * 0.5);
+                let folded = folded.rounded_fill(ROW_RADIUS, glass::line_highlight());
+                let folded = folded.fg(color::fg_faint()).child(format!("⋯ {hidden} lines"));
+                counts.insert(line, clickable(folded, cx));
             }
         }
-        FoldControls {
-            toggles: gutter.children(toggles).into_any_element(),
-            hidden: counts,
-        }
+        (gutter.children(toggles).into_any_element(), counts)
     }
 
     /// The window buffer's lines from the viewport on, with the popups placed over them.
@@ -561,18 +393,16 @@ impl EditorView {
         // Point stays above the footer fade; lines under it are drawn but not counted.
         let line_height = px(self.text_font().line_height);
         let text_height = frame.height - px(TEXT_TOP) - reserved;
-        let clear_rows = ((text_height - px(FOOTER_FADE_HEIGHT)) / line_height)
-            .floor()
-            .max(1.0) as usize;
+        let clear_rows =
+            ((text_height - px(FOOTER_FADE_HEIGHT)) / line_height).floor().max(1.0) as usize;
         let drawn_rows = (text_height / line_height).ceil() as usize;
         self.editor.viewport.set_height(clear_rows);
         // Only the top fade is over lines point can be on.
         self.editor.viewport.margins = (1, 0);
         let gutter_width = self.gutter_width(metrics);
-        let text_width = frame.width
-            - self.window_state.text_left
-            - px(2.0 * ROW_MARGIN + ROW_RADIUS)
-            - gutter_width;
+        let text_width =
+            frame.width - self.window_state.text_left - px(2.0 * ROW_MARGIN + ROW_RADIUS);
+        let text_width = text_width - gutter_width;
         self.editor.viewport.width = (text_width / metrics.char_width).floor().max(1.0) as usize;
         self.editor.viewport.column_margin = SIDE_MARGIN_COLUMNS;
         if !self.window_state.scrolled_sideways {
@@ -598,23 +428,14 @@ impl EditorView {
         };
         let mut mark_slots = self.render_mark_slots(first_line..last_line, cx);
         let text_left = px(ROW_MARGIN) + gutter_width;
-        let FoldControls {
-            toggles,
-            hidden: mut folded,
-        } = self.render_fold_controls(&drawn, &shown_lines, (metrics, text_left), cx);
-        let mut extras: HashMap<usize, LineExtra> = self
-            .editor
-            .line_extras(first_line..last_line)
-            .into_iter()
-            .map(|extra| (extra.line, extra))
-            .collect();
+        let (toggles, mut folded) =
+            self.render_fold_controls(&drawn, &shown_lines, (metrics, text_left), cx);
+        let extras = self.editor.line_extras(first_line..last_line).into_iter();
+        let mut extras: HashMap<_, _> = extras.map(|extra| (extra.line, extra)).collect();
         let mut labels: HashMap<usize, Vec<TextLabel>> = HashMap::new();
         let text = self.editor.window_buffer().text();
         for label in self.editor.text_labels(first_line..last_line) {
-            labels
-                .entry(text.line_of(label.offset))
-                .or_default()
-                .push(label);
+            labels.entry(text.line_of(label.offset)).or_default().push(label);
         }
         let shown: Vec<_> = drawn.iter().map(|&line| self.display_line(line)).collect();
         let visible: Vec<_> = shown.iter().map(|(_, visible)| visible.clone()).collect();
@@ -643,44 +464,21 @@ impl EditorView {
             })
             .unzip();
         self.window_state.more_on_right = continued.contains(&true);
-        let changes = self
-            .editor
-            .line_changes(first_line..last_line)
-            .into_iter()
-            .filter_map(|changed| {
+        let changes =
+            self.editor.line_changes(first_line..last_line).into_iter().filter_map(|changed| {
                 let shown = (first_line..last_line, &shown_lines, first_row);
-                render_line_change(
-                    changed,
-                    shown,
-                    (text_left, metrics.digit_width),
-                    line_height,
-                )
+                render_line_change(changed, shown, (text_left, metrics.digit_width), line_height)
             });
         let glass = rgba(glass::window_tint()).into();
-        let lines = div()
-            .relative()
-            .top(-line_height * top.fract())
-            .flex()
-            .flex_col()
-            .children(lines)
-            .children(changes)
-            .child(toggles);
-        let body = div()
-            .absolute()
-            .top(px(TEXT_TOP))
-            .left(self.window_state.text_left)
-            .right_0()
-            .bottom(reserved)
-            .overflow_hidden()
-            .child(lines)
-            .when(top > 0.0, |body| {
-                // Over the top margin's line.
-                body.child(edge_fade(Edge::Top, line_height.into(), glass))
-            })
-            .when(first_row + clear_rows < shown_lines.rows(), |body| {
-                body.child(edge_fade(Edge::Bottom, FOOTER_FADE_HEIGHT, glass))
-            })
-            .into_any_element();
+        let rows = div().relative().top(-line_height * top.fract()).column().children(lines);
+        let rows = rows.children(changes).child(toggles);
+        // Over the top margin's line.
+        let top_fade = (top > 0.0).then(|| edge_fade(Edge::Top, line_height.into(), glass));
+        let bottom_fade = (first_row + clear_rows < shown_lines.rows())
+            .then(|| edge_fade(Edge::Bottom, FOOTER_FADE_HEIGHT, glass));
+        let body = div().absolute().top(px(TEXT_TOP)).left(self.window_state.text_left).right_0();
+        let body = body.bottom(reserved).overflow_hidden().child(rows);
+        let body = body.children(top_fade).children(bottom_fade).into_any_element();
         (body, popups)
     }
 
@@ -693,30 +491,23 @@ impl EditorView {
         let shown = buffer.shown_lines();
         let (name, first_row) = (buffer.name(), shown.row_of(viewport.first_line));
         let hidden = buffer.text().line_count() - shown.rows();
-        if self.window_state.scrolled_hidden != hidden {
-            self.window_state.scrolled_hidden = hidden;
-            self.window_state.vertical.jump(first_row);
+        let state = &mut self.window_state;
+        if state.scrolled_hidden != hidden {
+            state.scrolled_hidden = hidden;
+            state.vertical.jump(first_row);
         }
-        if self.window_state.scrolled_buffer != name {
-            self.window_state.scrolled_buffer = name.to_owned();
-            self.window_state.vertical.jump(first_row);
-            self.window_state.sideways.jump(viewport.first_column);
-            self.window_state.history.place(0.0);
-            self.window_state.history_target = 0.0;
+        if state.scrolled_buffer != name {
+            state.scrolled_buffer = name.to_owned();
+            state.vertical.jump(first_row);
+            state.sideways.jump(viewport.first_column);
+            state.history.place(0.0);
+            state.history_target = 0.0;
         }
         let now = Instant::now();
         let duration = self.scroll.animation_duration();
-        let top = self
-            .window_state
-            .vertical
-            .advance(first_row, now, duration, screen_rows as f32);
-        self.window_state.sideways.advance(
-            viewport.first_column,
-            now,
-            duration,
-            viewport.width as f32,
-        );
-        if self.window_state.vertical.is_animating() || self.window_state.sideways.is_animating() {
+        let top = state.vertical.advance(first_row, now, duration, screen_rows as f32);
+        state.sideways.advance(viewport.first_column, now, duration, viewport.width as f32);
+        if state.vertical.is_animating() || state.sideways.is_animating() {
             window.request_animation_frame();
         }
         top
@@ -753,11 +544,7 @@ pub(super) fn cached_metrics(
         small_mono_width: advance(font::status_size(), 'm'),
         // 'n' is about as wide as a letter of text on average, spaces counted.
         ui_char_width: text_system
-            .advance(
-                text_system.resolve_font(&font(fonts.1.clone())),
-                px(fonts.2),
-                'n',
-            )
+            .advance(text_system.resolve_font(&font(fonts.1.clone())), px(fonts.2), 'n')
             .map_or(px(fonts.2 * 0.55), |advance| advance.width),
     };
     *cache = Some((fonts, metrics));
@@ -800,43 +587,30 @@ fn rectangle_columns(
 /// A gutter mark as drawn: run triangles and execution arrows are icons, breakpoints dots.
 fn gutter_glyph(mark: GutterIcon) -> AnyElement {
     let dot = || div().flex_none().size(px(12.0)).rounded_full();
+    let ring = |ring_color| dot().border(px(1.5)).border_color(rgb(ring_color));
     match mark {
         GutterIcon::Run => icon(Icon::Run, color::vc_added()).into_any_element(),
-        GutterIcon::ExecutionPoint => svg()
-            .path(EXECUTION_POINT_ICON)
-            .w(px(15.0))
-            .h(px(12.0))
-            .text_color(rgb(color::warning()))
-            .into_any_element(),
+        GutterIcon::ExecutionPoint => {
+            let arrow = svg().path(EXECUTION_POINT_ICON).w(px(15.0)).h(px(12.0));
+            arrow.fg(color::warning()).into_any_element()
+        }
         GutterIcon::Breakpoint(BreakpointIcon::Plain) => {
             dot().bg(rgb(color::error())).into_any_element()
         }
-        GutterIcon::Breakpoint(BreakpointIcon::Conditional) => dot()
-            .bg(rgb(color::error()))
-            .flex()
-            .items_center()
-            .justify_center()
-            .font_family(font::mono())
-            .text_size(px(9.0))
-            .font_weight(gpui::FontWeight::BOLD)
-            .text_color(rgb(color::fg_main()))
-            .child("?")
-            .into_any_element(),
-        GutterIcon::Breakpoint(BreakpointIcon::Log) => svg()
-            .path(LOGPOINT_ICON)
-            .size(px(12.0))
-            .text_color(rgb(color::error()))
-            .into_any_element(),
-        GutterIcon::Breakpoint(BreakpointIcon::Disabled) => dot()
-            .border(px(1.5))
-            .border_color(rgb(color::fg_dim()))
-            .into_any_element(),
-        GutterIcon::Breakpoint(BreakpointIcon::Unverified) => dot()
-            .border(px(1.5))
-            .border_dashed()
-            .border_color(rgb(color::error()))
-            .opacity(0.85)
-            .into_any_element(),
+        GutterIcon::Breakpoint(BreakpointIcon::Conditional) => {
+            let dot = dot().bg(rgb(color::error())).flex().items_center().justify_center();
+            let dot = dot.mono().text(9.0, color::fg_main()).font_weight(gpui::FontWeight::BOLD);
+            dot.child("?").into_any_element()
+        }
+        GutterIcon::Breakpoint(BreakpointIcon::Log) => {
+            svg().path(LOGPOINT_ICON).size(px(12.0)).fg(color::error()).into_any_element()
+        }
+        GutterIcon::Breakpoint(BreakpointIcon::Disabled) => {
+            ring(color::fg_dim()).into_any_element()
+        }
+        GutterIcon::Breakpoint(BreakpointIcon::Unverified) => {
+            ring(color::error()).border_dashed().opacity(0.85).into_any_element()
+        }
     }
 }
 
@@ -854,34 +628,25 @@ fn render_line_change(
     let top = |line: usize| line_height * row(line) as f32;
     let column_left = text_left - digit_width * (TEXT_GAP + CHANGE_COLUMN);
     let mark = if changed.lines.is_empty() {
-        div()
-            .top(top(changed.lines.start) - digit_width * (CHANGE_TICK_HEIGHT / 2.0))
-            .left(column_left)
-            .w(digit_width * CHANGE_COLUMN)
-            .h(digit_width * CHANGE_TICK_HEIGHT)
+        let tick = div().top(top(changed.lines.start) - digit_width * (CHANGE_TICK_HEIGHT / 2.0));
+        tick.left(column_left).w(digit_width * CHANGE_COLUMN).h(digit_width * CHANGE_TICK_HEIGHT)
     } else {
         let lines = changed.lines.start.max(shown.start)..changed.lines.end.min(shown.end);
         if lines.is_empty() {
             return None;
         }
         let rows = row(lines.end - 1) + 1 - row(lines.start);
-        div()
-            .top(top(lines.start) + px(CHANGE_BAR_GAP))
-            .left(column_left + digit_width * ((CHANGE_COLUMN - CHANGE_BAR_WIDTH) / 2.0))
-            .w(digit_width * CHANGE_BAR_WIDTH)
-            .h(line_height * rows as f32 - px(2.0 * CHANGE_BAR_GAP))
+        let bar =
+            div().top(top(lines.start) + px(CHANGE_BAR_GAP)).w(digit_width * CHANGE_BAR_WIDTH);
+        let bar = bar.left(column_left + digit_width * ((CHANGE_COLUMN - CHANGE_BAR_WIDTH) / 2.0));
+        bar.h(line_height * rows as f32 - px(2.0 * CHANGE_BAR_GAP))
     };
     let color = match changed.change {
         LineChange::Added => glass::vc_added_mark(),
         LineChange::Modified => glass::vc_modified_mark(),
         LineChange::Removed => glass::vc_removed_mark(),
     };
-    Some(
-        mark.absolute()
-            .rounded(px(2.0))
-            .bg(rgba(color))
-            .into_any_element(),
-    )
+    Some(mark.absolute().rounded(px(2.0)).bg(rgba(color)).into_any_element())
 }
 
 #[cfg(test)]
@@ -907,14 +672,8 @@ mod tests {
     fn rectangle_columns_stop_at_short_lines() {
         let buffer = buffer("abcdef\nab\n");
         let rectangle = (0..=1, 1..4);
-        assert_eq!(
-            rectangle_columns(&buffer, &rectangle, 0, &(0..6)),
-            Some(1..4)
-        );
-        assert_eq!(
-            rectangle_columns(&buffer, &rectangle, 1, &(7..9)),
-            Some(1..2)
-        );
+        assert_eq!(rectangle_columns(&buffer, &rectangle, 0, &(0..6)), Some(1..4));
+        assert_eq!(rectangle_columns(&buffer, &rectangle, 1, &(7..9)), Some(1..2));
         assert_eq!(rectangle_columns(&buffer, &rectangle, 2, &(10..10)), None);
         assert_eq!(rectangle_columns(&buffer, &(0..=1, 3..5), 1, &(7..9)), None);
     }
@@ -925,21 +684,12 @@ mod tests {
         let line = DisplayLine::new("cdef");
         let decorations = || {
             vec![vec![
-                Span {
-                    range: 0..3,
-                    face: Face::Keyword,
-                },
-                Span {
-                    range: 4..9,
-                    face: Face::Swatch(0xff0000),
-                },
+                Span { range: 0..3, face: Face::Keyword },
+                Span { range: 4..9, face: Face::Swatch(0xff0000) },
             ]]
         };
         let ranges = |inline| -> Vec<Vec<Range<usize>>> {
-            let swatches = SwatchesSettings {
-                inline,
-                ..Default::default()
-            };
+            let swatches = SwatchesSettings { inline, ..Default::default() };
             EditorView::face_layers(&(2..6), decorations(), &line, swatches)
                 .into_iter()
                 .map(|layer| layer.into_iter().map(|(range, _)| range).collect())

@@ -43,10 +43,7 @@ impl Add for Summary {
     type Output = Self;
 
     fn add(self, other: Self) -> Self {
-        Self {
-            len: self.len + other.len,
-            newlines: self.newlines + other.newlines,
-        }
+        Self { len: self.len + other.len, newlines: self.newlines + other.newlines }
     }
 }
 
@@ -62,9 +59,6 @@ pub(crate) trait Summarized {
 
 impl Summarized for Piece {
     fn summary(&self) -> Summary {
-        Summary {
-            len: self.len,
-            newlines: self.newlines,
-        }
+        Summary { len: self.len, newlines: self.newlines }
     }
 }

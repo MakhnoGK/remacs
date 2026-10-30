@@ -145,11 +145,8 @@ fn read_settings(editor: &mut Editor) {
 fn toggle_format_on_save(editor: &mut Editor) -> CommandResult {
     let state = editor.plugin_state::<State>();
     state.on_save = !state.on_save;
-    let message = if state.on_save {
-        "Formatting on save enabled"
-    } else {
-        "Formatting on save disabled"
-    };
+    let message =
+        if state.on_save { "Formatting on save enabled" } else { "Formatting on save disabled" };
     editor.set_message(message);
     Ok(())
 }
@@ -164,10 +161,7 @@ fn ask(
     after_save: bool,
 ) -> CommandResult {
     let buffer = &editor.buffers()[index];
-    let file = buffer
-        .path()
-        .ok_or("The buffer visits no file")?
-        .to_path_buf();
+    let file = buffer.path().ok_or("The buffer visits no file")?.to_path_buf();
     let basis = buffer.text().snapshot();
     let code = range.as_ref().and_then(|range| {
         let embedded = editor.embedded(buffer)?;
@@ -183,19 +177,8 @@ fn ask(
     };
     let state = editor.plugin_state::<State>();
     state.next_id += 1;
-    let request = Request {
-        id: state.next_id,
-        path,
-        mode,
-        text,
-        range,
-    };
-    let asked = Asked {
-        file,
-        basis,
-        code,
-        after_save,
-    };
+    let request = Request { id: state.next_id, path, mode, text, range };
+    let asked = Asked { file, basis, code, after_save };
     state.pending.insert(request.id, asked);
     state.requests.push(request);
     Ok(())
@@ -204,9 +187,7 @@ fn ask(
 /// Asks to format the buffers saved since the last command, with formatting on save on.
 /// A save is told from undoing back to the saved text by the save count.
 fn format_saved(editor: &mut Editor) {
-    let on_save = editor
-        .find_plugin_state::<State>()
-        .is_some_and(|state| state.on_save);
+    let on_save = editor.find_plugin_state::<State>().is_some_and(|state| state.on_save);
     let mut saved = Vec::new();
     for (index, buffer) in editor.buffers_mut().iter_mut().enumerate() {
         let saves = buffer.text().saves();
@@ -226,9 +207,7 @@ fn format_saved(editor: &mut Editor) {
 /// The requests `accepts` takes on; the rest are left for the backends after it.
 pub fn take_requests(editor: &mut Editor, accepts: impl Fn(&Request) -> bool) -> Vec<Request> {
     let state = editor.plugin_state::<State>();
-    let (taken, left) = mem::take(&mut state.requests)
-        .into_iter()
-        .partition(accepts);
+    let (taken, left) = mem::take(&mut state.requests).into_iter().partition(accepts);
     state.requests = left;
     taken
 }
@@ -236,12 +215,8 @@ pub fn take_requests(editor: &mut Editor, accepts: impl Fn(&Request) -> bool) ->
 /// Makes the edits of request `id` in the buffer visiting its file, as one undo step,
 /// unless the text changed since it was asked for; after a save, saves again.
 pub fn deliver(editor: &mut Editor, id: u64, formatted: Formatted) {
-    let Some(Asked {
-        file,
-        basis,
-        code,
-        after_save,
-    }) = editor.plugin_state::<State>().pending.remove(&id)
+    let Some(Asked { file, basis, code, after_save }) =
+        editor.plugin_state::<State>().pending.remove(&id)
     else {
         return;
     };
@@ -257,10 +232,7 @@ pub fn deliver(editor: &mut Editor, id: u64, formatted: Formatted) {
     {
         return editor.set_error("Not formatted: the edits reach outside the embedded code");
     }
-    let Some(buffer) = editor
-        .buffers_mut()
-        .iter_mut()
-        .find(|buffer| buffer.path() == Some(&file))
+    let Some(buffer) = editor.buffers_mut().iter_mut().find(|buffer| buffer.path() == Some(&file))
     else {
         return;
     };

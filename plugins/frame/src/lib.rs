@@ -125,22 +125,15 @@ fn view_notices(editor: &mut Editor) -> CommandResult {
     let notices = if cfg!(target_os = "linux") {
         binary.with_file_name("THIRD-PARTY-NOTICES")
     } else {
-        binary
-            .ancestors()
-            .nth(2)
-            .ok_or("No app bundle")?
-            .join("Resources/THIRD-PARTY-NOTICES")
+        binary.ancestors().nth(2).ok_or("No app bundle")?.join("Resources/THIRD-PARTY-NOTICES")
     };
     if !notices.is_file() {
         return Err(
-            "No third-party notices: they come with the app, made by `cargo xtask bundle`".into(),
+            "No third-party notices: they come with the app, made by `cargo xtask bundle`".into()
         );
     }
     let error = |error: std::io::Error| format!("{}: {error}", notices.display());
-    editor
-        .find_file_noselect(&notices)
-        .map_err(error)?
-        .set_read_only(true);
+    editor.find_file_noselect(&notices).map_err(error)?.set_read_only(true);
     editor.visit_file(&notices).map_err(error)?;
     Ok(())
 }
@@ -149,11 +142,7 @@ fn toggle_key_hints(editor: &mut Editor) -> CommandResult {
     let home = home().ok_or("No home directory")?;
     let show = !editor.settings_section::<ui_file::Ui>().hints.show;
     ui_file::set(&config_dir(&home), "hints", "show", &show.to_string())?;
-    editor.set_message(if show {
-        "Key hints shown"
-    } else {
-        "Key hints hidden"
-    });
+    editor.set_message(if show { "Key hints shown" } else { "Key hints hidden" });
     Ok(())
 }
 

@@ -56,10 +56,7 @@ impl FileDiff {
 
     /// Where a renamed file came from.
     pub fn original(&self) -> Option<PathBuf> {
-        self.header
-            .lines()
-            .find_map(|line| line.strip_prefix("rename from "))
-            .map(PathBuf::from)
+        self.header.lines().find_map(|line| line.strip_prefix("rename from ")).map(PathBuf::from)
     }
 
     /// Lines added and removed; none for a binary file.
@@ -71,10 +68,7 @@ impl FileDiff {
             let lines = self.hunks.iter().flat_map(|hunk| &hunk.lines);
             lines.filter(|line| line.starts_with(sign)).count() as u64
         };
-        Some(LineCounts {
-            added: count('+'),
-            removed: count('-'),
-        })
+        Some(LineCounts { added: count('+'), removed: count('-') })
     }
 
     /// What is said in place of the hunks when there are none.
@@ -110,11 +104,7 @@ pub fn size(bytes: u64) -> String {
         value /= 1024.0;
         unit += 1;
     }
-    if unit == 0 {
-        format!("{bytes} B")
-    } else {
-        format!("{value:.1} {}", UNITS[unit])
-    }
+    if unit == 0 { format!("{bytes} B") } else { format!("{value:.1} {}", UNITS[unit]) }
 }
 
 /// Reads `git diff` of one file; `None` when it printed nothing.
@@ -226,25 +216,20 @@ fn patched_path(file: &str) -> Option<PathBuf> {
         let name = unquote(name.strip_suffix('\t').unwrap_or(name));
         name.strip_prefix(side).map(bytes_path)
     };
-    named("+++ ", b"b/")
-        .or_else(|| named("--- ", b"a/"))
-        .or_else(|| {
-            let names = header.lines().next()?.strip_prefix("diff --git ")?;
-            let second = match names.rfind(" \"b/") {
-                Some(at) => &names[at + 1..],
-                None => names.get(names.len().checked_sub(1)? / 2 + 1..)?,
-            };
-            unquote(second).strip_prefix(b"b/").map(bytes_path)
-        })
+    named("+++ ", b"b/").or_else(|| named("--- ", b"a/")).or_else(|| {
+        let names = header.lines().next()?.strip_prefix("diff --git ")?;
+        let second = match names.rfind(" \"b/") {
+            Some(at) => &names[at + 1..],
+            None => names.get(names.len().checked_sub(1)? / 2 + 1..)?,
+        };
+        unquote(second).strip_prefix(b"b/").map(bytes_path)
+    })
 }
 
 /// A name as Git prints it: in quotes with C's escapes when it holds a quote, a backslash
 /// or a control character, else as it is.
 fn unquote(name: &str) -> Vec<u8> {
-    let Some(quoted) = name
-        .strip_prefix('"')
-        .and_then(|name| name.strip_suffix('"'))
-    else {
+    let Some(quoted) = name.strip_prefix('"').and_then(|name| name.strip_suffix('"')) else {
         return name.as_bytes().to_vec();
     };
     let (mut bytes, mut rest) = (Vec::new(), quoted.as_bytes());
@@ -268,9 +253,8 @@ fn unquote(name: &str) -> Vec<u8> {
             b'r' => b'\r',
             // A byte of a name not in UTF-8, as three octal digits.
             b'0'..=b'7' => {
-                let more = (rest.iter().take(2))
-                    .take_while(|digit| matches!(digit, b'0'..=b'7'))
-                    .count();
+                let more =
+                    (rest.iter().take(2)).take_while(|digit| matches!(digit, b'0'..=b'7')).count();
                 let (digits, after) = rest.split_at(more);
                 rest = after;
                 (digits.iter()).fold(escaped - b'0', |value, digit| {
@@ -362,10 +346,7 @@ diff --git a/i m.png b/i m.png\n\
 Binary files a/i m.png and b/i m.png differ\n"
         );
         let files = split_patch(&patch);
-        let paths: Vec<_> = files
-            .iter()
-            .map(|(path, _)| path.to_str().unwrap())
-            .collect();
+        let paths: Vec<_> = files.iter().map(|(path, _)| path.to_str().unwrap()).collect();
         assert_eq!(paths, ["src/buffer.rs", "gone.rs", "i m.png"]);
         assert_eq!(files[0].1.hunks.len(), 2);
         assert_eq!(files[1].1.hunks[0].lines, ["-x"]);
@@ -411,17 +392,10 @@ deleted file mode 100644\n\
 +++ /dev/null\n\
 @@ -1 +0,0 @@\n\
 -x\n";
-        let paths: Vec<PathBuf> = split_patch(patch)
-            .into_iter()
-            .map(|(path, _)| path)
-            .collect();
+        let paths: Vec<PathBuf> = split_patch(patch).into_iter().map(|(path, _)| path).collect();
         assert_eq!(
             paths,
-            [
-                PathBuf::from("a\"b.rs"),
-                PathBuf::from("q\\b\tc.bin"),
-                PathBuf::from("é.rs"),
-            ]
+            [PathBuf::from("a\"b.rs"), PathBuf::from("q\\b\tc.bin"), PathBuf::from("é.rs"),]
         );
     }
 

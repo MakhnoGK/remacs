@@ -18,10 +18,7 @@ pub(crate) struct History {
 impl History {
     pub fn record(&mut self, before: &PieceTree, offset: usize) {
         if !self.group_open {
-            self.undo.push(Revision {
-                pieces: before.clone(),
-                offset,
-            });
+            self.undo.push(Revision { pieces: before.clone(), offset });
             self.group_open = true;
         }
         self.redo.clear();
@@ -53,9 +50,6 @@ impl History {
 
 fn step(from: &mut Vec<Revision>, to: &mut Vec<Revision>, current: &PieceTree) -> Option<Revision> {
     let revision = from.pop()?;
-    to.push(Revision {
-        pieces: current.clone(),
-        offset: revision.offset,
-    });
+    to.push(Revision { pieces: current.clone(), offset: revision.offset });
     Some(revision)
 }

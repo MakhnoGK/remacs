@@ -57,11 +57,7 @@ pub const PRETTIER_MODES: &[&str] = &[TYPESCRIPT, TSX, JAVASCRIPT, JSX, HTML, CS
 pub(crate) static MODES: LazyLock<Vec<Mode>> = LazyLock::new(|| {
     let catalog: Catalog = toml::from_str(include_str!("../languages.toml"))
         .unwrap_or_else(|error| panic!("languages.toml: {error}"));
-    catalog
-        .languages
-        .into_iter()
-        .map(Language::into_mode)
-        .collect()
+    catalog.languages.into_iter().map(Language::into_mode).collect()
 });
 
 #[derive(Deserialize)]
@@ -91,10 +87,7 @@ impl Language {
         let pairs: Vec<(char, char)> = (self.pairs.iter())
             .map(|pair| match pair.chars().collect::<Vec<_>>()[..] {
                 [open, close] => (open, close),
-                _ => panic!(
-                    "languages.toml: {}: a pair is two characters: {pair}",
-                    self.name
-                ),
+                _ => panic!("languages.toml: {}: a pair is two characters: {pair}", self.name),
             })
             .collect();
         Mode {
@@ -117,8 +110,5 @@ fn leak(strings: Vec<String>) -> &'static [&'static str] {
 }
 
 fn comment(start: Option<String>, end: String) -> Option<CommentSyntax> {
-    Some(CommentSyntax {
-        start: start?.leak(),
-        end: end.leak(),
-    })
+    Some(CommentSyntax { start: start?.leak(), end: end.leak() })
 }

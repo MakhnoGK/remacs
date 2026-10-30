@@ -65,11 +65,8 @@ fn run(requests: Receiver<Request>, notifier: Notifier) {
                 let contents = String::from_utf8_lossy(&bytes);
                 entry_points(&request.path, request.mode, &contents, &request.root)
             };
-            *request.slot.lock().expect("scan slots are never poisoned") = Some(Scan {
-                text: request.text,
-                root: request.root,
-                points,
-            });
+            *request.slot.lock().expect("scan slots are never poisoned") =
+                Some(Scan { text: request.text, root: request.root, points });
             notifier();
         }
     }
@@ -79,10 +76,7 @@ fn run(requests: Receiver<Request>, notifier: Notifier) {
 fn newest_per_buffer(first: Request, requests: &Receiver<Request>) -> Vec<Request> {
     let mut newest: Vec<Request> = Vec::new();
     for request in std::iter::once(first).chain(requests.try_iter()) {
-        match newest
-            .iter_mut()
-            .find(|queued| Arc::ptr_eq(&queued.slot, &request.slot))
-        {
+        match newest.iter_mut().find(|queued| Arc::ptr_eq(&queued.slot, &request.slot)) {
             Some(queued) => *queued = request,
             None => newest.push(request),
         }

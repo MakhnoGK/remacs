@@ -26,13 +26,8 @@ pub const COMMANDS: &[Command] = &[
     Command::new(DELETE, "Delete the selected breakpoint", delete),
 ];
 
-const HINTS: &[(&str, &str)] = &[
-    ("SPC", "Enable"),
-    ("↵", "Go to"),
-    ("e", "Edit"),
-    ("d", "Delete"),
-    ("C-g", "Close"),
-];
+const HINTS: &[(&str, &str)] =
+    &[("SPC", "Enable"), ("↵", "Go to"), ("e", "Edit"), ("d", "Delete"), ("C-g", "Close")];
 
 /// The lines breakpoints are on, read when the list opened.
 #[derive(Default)]
@@ -75,18 +70,15 @@ fn all(editor: &mut Editor) -> Vec<(PathBuf, Breakpoint)> {
         .files
         .iter()
         .flat_map(|(path, breakpoints)| {
-            breakpoints
-                .iter()
-                .map(|breakpoint| (path.clone(), breakpoint.clone()))
+            breakpoints.iter().map(|breakpoint| (path.clone(), breakpoint.clone()))
         })
         .collect()
 }
 
 fn completions(editor: &Editor) -> Completions {
-    let (Some(debugger), Some(sources)) = (
-        editor.find_plugin_state::<Debugger>(),
-        editor.find_plugin_state::<Sources>(),
-    ) else {
+    let (Some(debugger), Some(sources)) =
+        (editor.find_plugin_state::<Debugger>(), editor.find_plugin_state::<Sources>())
+    else {
         return Completions::default();
     };
     let mut candidates: Vec<Candidate> = Vec::new();
@@ -97,11 +89,8 @@ fn completions(editor: &Editor) -> Completions {
             .and_then(Path::file_name)
             .map(|name| name.to_string_lossy().to_uppercase());
         for breakpoint in breakpoints {
-            let source = sources
-                .lines
-                .get(&(path.clone(), breakpoint.line))
-                .cloned()
-                .unwrap_or_default();
+            let source =
+                sources.lines.get(&(path.clone(), breakpoint.line)).cloned().unwrap_or_default();
             candidates.push(Candidate {
                 value: candidates.len().to_string(),
                 label: edit::location(path, breakpoint.line),
@@ -114,10 +103,7 @@ fn completions(editor: &Editor) -> Completions {
         }
     }
     let count = candidates.len();
-    Completions {
-        subject: Some(format!("{count} in all projects")),
-        ..candidates.into()
-    }
+    Completions { subject: Some(format!("{count} in all projects")), ..candidates.into() }
 }
 
 /// What it does beside stopping, or why it does not.
@@ -132,18 +118,9 @@ fn describe(breakpoint: &Breakpoint) -> String {
         };
     }
     let parts: Vec<String> = [
-        breakpoint
-            .condition
-            .as_ref()
-            .map(|condition| format!("if {condition}")),
-        breakpoint
-            .hit_condition
-            .as_ref()
-            .map(|hits| format!("hits {hits}")),
-        breakpoint
-            .log_message
-            .as_ref()
-            .map(|message| format!("log \"{message}\"")),
+        breakpoint.condition.as_ref().map(|condition| format!("if {condition}")),
+        breakpoint.hit_condition.as_ref().map(|hits| format!("hits {hits}")),
+        breakpoint.log_message.as_ref().map(|message| format!("log \"{message}\"")),
     ]
     .into_iter()
     .flatten()
@@ -153,11 +130,7 @@ fn describe(breakpoint: &Breakpoint) -> String {
 
 /// `line` of the file, from its buffer if it is open, else from disk.
 fn source_line(editor: &Editor, path: &Path, line: usize) -> Option<String> {
-    let text = match editor
-        .buffers()
-        .iter()
-        .find(|buffer| buffer.path() == Some(path))
-    {
+    let text = match editor.buffers().iter().find(|buffer| buffer.path() == Some(path)) {
         Some(buffer) => {
             let range = buffer.text().line_range(line)?;
             buffer.contents(range)

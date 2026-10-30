@@ -1,4 +1,5 @@
 use crate::editor::Editor;
+use crate::push_new;
 
 /// The application's own menu, first in the menu bar and titled with its name.
 pub const APP_MENU: &str = "Remacs";
@@ -42,28 +43,15 @@ impl MenuItem {
         title: &'static str,
         command: &'static str,
     ) -> Self {
-        Self {
-            menu,
-            group,
-            title,
-            command,
-            enabled: None,
-            titled: None,
-        }
+        Self { menu, group, title, command, enabled: None, titled: None }
     }
 
     pub const fn enabled_when(self, enabled: fn(&Editor) -> bool) -> Self {
-        Self {
-            enabled: Some(enabled),
-            ..self
-        }
+        Self { enabled: Some(enabled), ..self }
     }
 
     pub const fn titled_by(self, titled: fn(&Editor) -> &'static str) -> Self {
-        Self {
-            titled: Some(titled),
-            ..self
-        }
+        Self { titled: Some(titled), ..self }
     }
 
     pub fn title_in(&self, editor: &Editor) -> &'static str {
@@ -80,44 +68,27 @@ pub fn visiting_file(editor: &Editor) -> bool {
 /// their first items were added, before the trailing ones.
 pub fn layout<'a>(menus: &[Menu], items: &'a [MenuItem]) -> Vec<MenuLayout<'a>> {
     let declared = |trailing: bool| {
-        menus
-            .iter()
-            .filter(move |menu| menu.trailing == trailing)
-            .map(|menu| menu.title)
+        menus.iter().filter(move |menu| menu.trailing == trailing).map(|menu| menu.title)
     };
-    let mut titles: Vec<&'static str> = declared(false).collect();
-    for item in items {
-        if !titles.contains(&item.menu) && !declared(true).any(|title| title == item.menu) {
-            titles.push(item.menu);
-        }
-    }
+    let undeclared = (items.iter().map(|item| item.menu))
+        .filter(|&title| !declared(true).any(|trailing| trailing == title));
+    let mut titles = declared(false).collect();
+    push_new(&mut titles, undeclared);
     titles.extend(declared(true));
-    titles
-        .into_iter()
-        .filter_map(|title| {
-            let declared = menus
-                .iter()
-                .find(|menu| menu.title == title)
-                .map_or(&[][..], |menu| menu.groups);
-            let mut order: Vec<&'static str> = declared.to_vec();
-            for item in items.iter().filter(|item| item.menu == title) {
-                if !order.contains(&item.group) {
-                    order.push(item.group);
-                }
-            }
-            let groups: Vec<Vec<&MenuItem>> = order
-                .into_iter()
-                .map(|group| {
-                    items
-                        .iter()
-                        .filter(|item| item.menu == title && item.group == group)
-                        .collect::<Vec<_>>()
-                })
-                .filter(|group| !group.is_empty())
-                .collect();
-            (!groups.is_empty()).then_some(MenuLayout { title, groups })
-        })
-        .collect()
+    let menu = |title: &'static str| {
+        let declared =
+            menus.iter().find(|menu| menu.title == title).map_or(&[][..], |menu| menu.groups);
+        let menu_items = items.iter().filter(|item| item.menu == title);
+        let mut order = declared.to_vec();
+        push_new(&mut order, menu_items.clone().map(|item| item.group));
+        let groups: Vec<Vec<&MenuItem>> = (order.into_iter())
+            .map(|group| menu_items.clone().filter(move |item| item.group == group))
+            .map(Iterator::collect)
+            .filter(|group: &Vec<_>| !group.is_empty())
+            .collect();
+        (!groups.is_empty()).then_some(MenuLayout { title, groups })
+    };
+    titles.into_iter().filter_map(menu).collect()
 }
 
 /// What a command asks of the window or the application, which only the view can do.
@@ -147,38 +118,18 @@ mod tests {
     use super::*;
 
     fn titles(layout: &[MenuLayout]) -> Vec<(&'static str, Vec<Vec<&'static str>>)> {
-        layout
-            .iter()
-            .map(|menu| {
-                let groups = menu
-                    .groups
-                    .iter()
-                    .map(|group| group.iter().map(|item| item.title).collect())
-                    .collect();
-                (menu.title, groups)
-            })
-            .collect()
+        let titles = |group: &Vec<&MenuItem>| group.iter().map(|item| item.title).collect();
+        layout.iter().map(|menu| (menu.title, menu.groups.iter().map(titles).collect())).collect()
     }
 
     #[test]
     fn declared_menus_and_groups_come_first_and_empty_ones_are_left_out() {
         let menus = [
-            Menu {
-                title: "File",
-                groups: &["open", "save"],
-                trailing: false,
-            },
-            Menu {
-                title: "Edit",
-                groups: &["undo"],
-                trailing: false,
-            },
-            Menu {
-                title: "Help",
-                groups: &[],
-                trailing: true,
-            },
-        ];
+            ("File", &["open", "save"][..], false),
+            ("Edit", &["undo"], false),
+            ("Help", &[], true),
+        ]
+        .map(|(title, groups, trailing)| Menu { title, groups, trailing });
         let items = [
             MenuItem::new("Help", "help", "Messages", "view-echo-area-messages"),
             MenuItem::new("Run", "run", "Run", "run"),
@@ -193,11 +144,7 @@ mod tests {
             [
                 (
                     "File",
-                    vec![
-                        vec!["Open…", "Open Directory…"],
-                        vec!["Save", "Save As…"],
-                        vec!["Close"],
-                    ]
+                    vec![vec!["Open…", "Open Directory…"], vec!["Save", "Save As…"], vec!["Close"],]
                 ),
                 ("Run", vec![vec!["Run"]]),
                 ("Help", vec![vec!["Messages"]]),

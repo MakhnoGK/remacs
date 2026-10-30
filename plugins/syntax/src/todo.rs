@@ -21,11 +21,7 @@ pub(crate) fn mark(buffer: &Buffer, spans: Vec<Span>, keywords: &[String]) -> Ve
         let mut start = 0;
         for word in words(&text, keywords) {
             push(&mut marked, offset + start..offset + word.start, span.face);
-            push(
-                &mut marked,
-                offset + word.start..offset + word.end,
-                Face::Keyword,
-            );
+            push(&mut marked, offset + word.start..offset + word.end, Face::Keyword);
             start = word.end;
         }
         push(&mut marked, offset + start..span.range.end, span.face);
@@ -49,9 +45,7 @@ fn words(text: &[u8], keywords: &[String]) -> Vec<Range<usize>> {
         let keyword = keywords.iter().map(String::as_bytes).find(|keyword| {
             starts_word
                 && text[at..].starts_with(keyword)
-                && text
-                    .get(at + keyword.len())
-                    .is_none_or(|&next| !is_word(next))
+                && text.get(at + keyword.len()).is_none_or(|&next| !is_word(next))
         });
         match keyword {
             Some(keyword) => {

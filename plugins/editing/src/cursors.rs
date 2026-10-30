@@ -57,11 +57,7 @@ pub fn skip_to_next_like_this(editor: &mut Editor) -> CommandResult {
     let buffer = editor.buffer_mut();
     let region = buffer.region().ok_or("Mark a region to match first")?;
     let needle = buffer.contents(region.clone());
-    let from = match buffer
-        .cursors()
-        .last()
-        .filter(|last| last.point > region.end)
-    {
+    let from = match buffer.cursors().last().filter(|last| last.point > region.end) {
         Some(_) => {
             let cursors = buffer.cursors().len();
             let last = buffer.remove_cursor(cursors - 1);
@@ -105,11 +101,8 @@ pub fn edit_lines(editor: &mut Editor) -> CommandResult {
     let buffer = editor.buffer_mut();
     let region = buffer.region().ok_or("Mark a region of lines first")?;
     let text = buffer.text();
-    let (first, last, column) = (
-        text.line_of(region.start),
-        text.line_of(region.end),
-        buffer.point_column(),
-    );
+    let (first, last, column) =
+        (text.line_of(region.start), text.line_of(region.end), buffer.point_column());
     let point_line = buffer.point_line();
     let places: Vec<_> = (first..=last)
         .filter(|&line| line != point_line)
@@ -132,10 +125,7 @@ pub fn iedit_mode(editor: &mut Editor) -> CommandResult {
     let buffer = editor.buffer();
     let (occurrence, whole_symbol) = match buffer.region() {
         Some(region) => (region, false),
-        None => (
-            symbol_at(buffer, buffer.point()).ok_or("No symbol at point")?,
-            true,
-        ),
+        None => (symbol_at(buffer, buffer.point()).ok_or("No symbol at point")?, true),
     };
     let needle = buffer.contents(occurrence.clone());
     let into = buffer.point() - occurrence.start;
@@ -158,10 +148,7 @@ pub fn iedit_mode(editor: &mut Editor) -> CommandResult {
 pub fn keyboard_quit(editor: &mut Editor) -> CommandResult {
     let buffer = editor.buffer_mut();
     let any_region = buffer.region().is_some()
-        || buffer
-            .cursors()
-            .iter()
-            .any(|cursor| cursor.region().is_some());
+        || buffer.cursors().iter().any(|cursor| cursor.region().is_some());
     if any_region {
         buffer.deactivate_mark();
         buffer.deactivate_cursor_marks();
@@ -180,10 +167,7 @@ pub fn remove_cursors(editor: &mut Editor) -> CommandResult {
 pub fn status(editor: &Editor) -> Option<StatusSegment> {
     let count = editor.window_buffer().cursors().len();
     (count > 0).then(|| StatusSegment {
-        items: vec![StatusItem::toned(
-            format!("{} cursors", count + 1),
-            Tone::Accent,
-        )],
+        items: vec![StatusItem::toned(format!("{} cursors", count + 1), Tone::Accent)],
         command: Some(REMOVE_CURSORS),
         active: false,
         code: false,
@@ -197,14 +181,8 @@ fn report_count(editor: &mut Editor) {
 
 /// Point and mark over `matched`, point on the same side of it as on the region.
 fn like_region(buffer: &Buffer, matched: Range<usize>) -> (usize, usize) {
-    let point_at_end = buffer
-        .region()
-        .is_some_and(|region| buffer.point() == region.end);
-    if point_at_end {
-        (matched.end, matched.start)
-    } else {
-        (matched.start, matched.end)
-    }
+    let point_at_end = buffer.region().is_some_and(|region| buffer.point() == region.end);
+    if point_at_end { (matched.end, matched.start) } else { (matched.start, matched.end) }
 }
 
 fn add_on_next_line(editor: &mut Editor, down: bool) -> CommandResult {
@@ -216,11 +194,7 @@ fn add_on_next_line(editor: &mut Editor, down: bool) -> CommandResult {
     } else {
         text.line_of(first).checked_sub(1)
     }
-    .ok_or(if down {
-        "End of buffer"
-    } else {
-        "Beginning of buffer"
-    })?;
+    .ok_or(if down { "End of buffer" } else { "Beginning of buffer" })?;
     let offset = text.offset_at_char_column(line, buffer.point_column());
     add(editor, vec![(offset, None)])
 }
@@ -236,10 +210,7 @@ fn add(editor: &mut Editor, places: Vec<(usize, Option<usize>)>) -> CommandResul
         .map(|&(point, _)| point)
         .filter(|&point| {
             point != buffer.point()
-                && buffer
-                    .cursors()
-                    .binary_search_by_key(&point, |cursor| cursor.point)
-                    .is_err()
+                && buffer.cursors().binary_search_by_key(&point, |cursor| cursor.point).is_err()
         })
         .collect();
     new.sort_unstable();
@@ -256,13 +227,10 @@ fn add(editor: &mut Editor, places: Vec<(usize, Option<usize>)>) -> CommandResul
 /// Where the first cursor, or point, starts and the last one ends, regions included.
 fn span_of_cursors(buffer: &Buffer) -> (usize, usize) {
     let point = buffer.region().unwrap_or(buffer.point()..buffer.point());
-    buffer
-        .cursors()
-        .iter()
-        .fold((point.start, point.end), |(first, last), cursor| {
-            let at = cursor.region().unwrap_or(cursor.point..cursor.point);
-            (first.min(at.start), last.max(at.end))
-        })
+    buffer.cursors().iter().fold((point.start, point.end), |(first, last), cursor| {
+        let at = cursor.region().unwrap_or(cursor.point..cursor.point);
+        (first.min(at.start), last.max(at.end))
+    })
 }
 
 /// The identifier around `offset`, if it is in or right after one.

@@ -131,19 +131,11 @@ fn push_mark_unless_selecting(buffer: &mut Buffer) {
 }
 
 pub fn scroll_up_command(editor: &mut Editor) -> CommandResult {
-    if scroll_page(editor, 1) {
-        Ok(())
-    } else {
-        at_end_of_buffer(editor)
-    }
+    if scroll_page(editor, 1) { Ok(()) } else { at_end_of_buffer(editor) }
 }
 
 pub fn scroll_down_command(editor: &mut Editor) -> CommandResult {
-    if scroll_page(editor, -1) {
-        Ok(())
-    } else {
-        at_beginning_of_buffer(editor)
-    }
+    if scroll_page(editor, -1) { Ok(()) } else { at_beginning_of_buffer(editor) }
 }
 
 pub fn recenter(editor: &mut Editor) -> CommandResult {
@@ -177,10 +169,7 @@ pub fn move_to_window_line_top_bottom(editor: &mut Editor) -> CommandResult {
     };
     let buffer = editor.window_buffer_mut();
     let line = viewport.clamp(line, &shown);
-    let line_start = buffer
-        .text()
-        .line_start(line)
-        .unwrap_or(buffer.text().len());
+    let line_start = buffer.text().line_start(line).unwrap_or(buffer.text().len());
     buffer.set_point(line_start);
     Ok(())
 }
@@ -198,10 +187,7 @@ pub(crate) fn cycle_step(editor: &mut Editor, command: &'static str, steps: usiz
 }
 
 pub(crate) fn line_end(buffer: &Buffer) -> usize {
-    buffer
-        .text()
-        .line_range(buffer.point_line())
-        .map_or(buffer.text().len(), |range| range.end)
+    buffer.text().line_range(buffer.point_line()).map_or(buffer.text().len(), |range| range.end)
 }
 
 // Word steps follow IntelliJ's default macOS caret stops (`EditorActionUtil`): moves stop
@@ -210,23 +196,13 @@ pub(crate) fn line_end(buffer: &Buffer) -> usize {
 
 /// Where `forward-word` goes: the end of the next token, or the start of the next line.
 pub(crate) fn forward_word_end(buffer: &Buffer, offset: usize) -> usize {
-    next_stop(
-        buffer,
-        offset,
-        next_line_start(buffer, offset),
-        is_token_end,
-    )
+    next_stop(buffer, offset, next_line_start(buffer, offset), is_token_end)
 }
 
 /// Where `backward-word` goes: the start of the previous token, or the end of the previous
 /// line.
 pub(crate) fn backward_word_start(buffer: &Buffer, offset: usize) -> usize {
-    previous_stop(
-        buffer,
-        offset,
-        previous_line_end(buffer, offset),
-        is_token_start,
-    )
+    previous_stop(buffer, offset, previous_line_end(buffer, offset), is_token_start)
 }
 
 /// Where `kill-word` kills to: the next start or end of a token, past a quoted word, or the
@@ -234,11 +210,7 @@ pub(crate) fn backward_word_start(buffer: &Buffer, offset: usize) -> usize {
 pub(crate) fn kill_word_end(editor: &Editor, offset: usize) -> usize {
     let buffer = editor.buffer();
     let line_end = line_range_at(buffer, offset).end;
-    let limit = if offset < line_end {
-        line_end
-    } else {
-        next_line_start(buffer, offset)
-    };
+    let limit = if offset < line_end { line_end } else { next_line_start(buffer, offset) };
     let stop = next_stop(buffer, offset, limit, is_token_edge);
     if let Some(quote) = buffer.char_before(stop).filter(|&c| is_quote(c))
         && stop < limit
@@ -257,11 +229,7 @@ pub(crate) fn kill_word_end(editor: &Editor, offset: usize) -> usize {
 pub(crate) fn backward_kill_word_start(editor: &Editor, offset: usize) -> usize {
     let buffer = editor.buffer();
     let line_start = line_range_at(buffer, offset).start;
-    let limit = if offset > line_start {
-        line_start
-    } else {
-        previous_line_end(buffer, offset)
-    };
+    let limit = if offset > line_start { line_start } else { previous_line_end(buffer, offset) };
     let stop = previous_stop(buffer, offset, limit, is_token_start);
     if let Some(quote) = buffer.char_after(stop).filter(|&c| is_quote(c))
         && stop > limit
@@ -353,14 +321,12 @@ fn stands_alone(character: char) -> bool {
 
 fn line_range_at(buffer: &Buffer, offset: usize) -> Range<usize> {
     let text = buffer.text();
-    text.line_range(text.line_of(offset))
-        .unwrap_or(offset..offset)
+    text.line_range(text.line_of(offset)).unwrap_or(offset..offset)
 }
 
 fn next_line_start(buffer: &Buffer, offset: usize) -> usize {
     let text = buffer.text();
-    text.line_start(text.line_of(offset) + 1)
-        .unwrap_or(text.len())
+    text.line_start(text.line_of(offset) + 1).unwrap_or(text.len())
 }
 
 fn previous_line_end(buffer: &Buffer, offset: usize) -> usize {
@@ -381,18 +347,13 @@ pub(crate) fn paragraph_end(buffer: &Buffer, mut line: usize) -> usize {
     while line < line_count && !is_blank_line(buffer, line) {
         line += 1;
     }
-    buffer
-        .text()
-        .line_start(line)
-        .unwrap_or(buffer.text().len())
+    buffer.text().line_start(line).unwrap_or(buffer.text().len())
 }
 
 /// The start of the last blank line before the paragraph at or before `line`, or the
 /// beginning of the buffer.
 pub(crate) fn paragraph_start(buffer: &Buffer, line: usize) -> usize {
-    let mut lines = (0..=line)
-        .rev()
-        .skip_while(|&line| is_blank_line(buffer, line));
+    let mut lines = (0..=line).rev().skip_while(|&line| is_blank_line(buffer, line));
     lines
         .find(|&line| is_blank_line(buffer, line))
         .and_then(|line| buffer.text().line_start(line))

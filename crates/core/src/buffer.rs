@@ -8,7 +8,7 @@ use std::ops::{Range, RangeInclusive};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use remacs_text::{Text, UTF_8};
+use remacs_text::{Edit, Text, UTF_8};
 
 use crate::command::CommandResult;
 use crate::kill_ring::KillRing;
@@ -22,6 +22,7 @@ const MARK_RING_MAX: usize = 16;
 pub struct BufferId(u64);
 
 /// A text with a point (cursor), a mark, a name and a major mode.
+#[derive(Default)]
 pub struct Buffer {
     id: BufferId,
     name: String,
@@ -80,28 +81,8 @@ impl Cursor {
 impl Buffer {
     pub fn new(name: impl Into<String>, text: Text, mode: &'static str) -> Self {
         static NEXT_ID: AtomicU64 = AtomicU64::new(1);
-        Self {
-            id: BufferId(NEXT_ID.fetch_add(1, Ordering::Relaxed)),
-            name: name.into(),
-            mode,
-            text,
-            file: None,
-            directory: None,
-            read_only: false,
-            point: 0,
-            goal_column: None,
-            mark: None,
-            mark_ring: Vec::new(),
-            mark_active: false,
-            rectangle: false,
-            window_start: 0,
-            window_points: Vec::new(),
-            cursors: Vec::new(),
-            cursors_at_boundary: Vec::new(),
-            cursors_before_groups: Vec::new(),
-            cursors_undone: Vec::new(),
-            locals: HashMap::new(),
-        }
+        let id = BufferId(NEXT_ID.fetch_add(1, Ordering::Relaxed));
+        Self { id, name: name.into(), mode, text, ..Self::default() }
     }
 
     /// State a plugin keeps for this buffer, like an Emacs buffer-local variable; it is
@@ -115,14 +96,8 @@ impl Buffer {
     }
 
     pub fn set_local<T: 'static>(&mut self, value: T) -> &mut T {
-        let local = self
-            .locals
-            .entry(TypeId::of::<T>())
-            .insert_entry(Box::new(value))
-            .into_mut();
-        local
-            .downcast_mut()
-            .expect("locals are keyed by their type")
+        let local = self.locals.entry(TypeId::of::<T>()).insert_entry(Box::new(value)).into_mut();
+        local.downcast_mut().expect("locals are keyed by their type")
     }
 
     pub fn remove_local<T: 'static>(&mut self) {
@@ -144,9 +119,7 @@ impl Buffer {
     /// Where file names typed in this buffer are relative to, like Emacs
     /// `default-directory`: its own directory, else its file's.
     pub fn default_directory(&self) -> Option<&Path> {
-        self.directory
-            .as_deref()
-            .or_else(|| self.file.as_deref()?.parent())
+        self.directory.as_deref().or_else(|| self.file.as_deref()?.parent())
     }
 
     pub fn read_only(mut self) -> Self {
@@ -225,9 +198,7 @@ impl Buffer {
         self.cursors_undone.clear();
         self.mark_active = false;
         self.set_point(self.point);
-        for (_, point) in &mut self.window_points {
-            *point = on_character(&self.text, *point);
-        }
+        self.shift_marks(on_character);
     }
 
     pub fn contents(&self, range: Range<usize>) -> String {
@@ -268,9 +239,7 @@ impl Buffer {
 
     pub fn char_after(&self, offset: usize) -> Option<char> {
         let end = (offset + 4).min(self.text.len());
-        String::from_utf8_lossy(&self.text.bytes_in(offset..end))
-            .chars()
-            .next()
+        String::from_utf8_lossy(&self.text.bytes_in(offset..end)).chars().next()
     }
 
     pub fn char_before(&self, offset: usize) -> Option<char> {
@@ -354,8 +323,7 @@ impl Buffer {
 
     /// Text between point and mark, whether or not the mark is active.
     pub fn mark_range(&self) -> Option<Range<usize>> {
-        self.mark
-            .map(|mark| self.point.min(mark)..self.point.max(mark))
+        self.mark.map(|mark| self.point.min(mark)..self.point.max(mark))
     }
 
     /// The active region, if any.
@@ -375,14 +343,13 @@ impl Buffer {
         kill_ring: &KillRing,
     ) {
         let len = self.text.len();
-        self.cursors
-            .extend(places.into_iter().map(|(point, mark)| Cursor {
-                point: point.min(len),
-                mark: mark.map(|mark| mark.min(len)),
-                mark_active: mark.is_some(),
-                goal_column: None,
-                kill_ring: kill_ring.clone(),
-            }));
+        self.cursors.extend(places.into_iter().map(|(point, mark)| Cursor {
+            point: point.min(len),
+            mark: mark.map(|mark| mark.min(len)),
+            mark_active: mark.is_some(),
+            goal_column: None,
+            kill_ring: kill_ring.clone(),
+        }));
         self.merge_cursors();
     }
 
@@ -426,13 +393,7 @@ impl Buffer {
     pub fn insert(&mut self, text: &str) {
         let point = self.point;
         self.record_cursors(|edited| edited.insert(point, text));
-        self.shift_marks(|mark| {
-            if mark > point {
-                mark + text.len()
-            } else {
-                mark
-            }
-        });
+        self.shift_marks(|_, mark| shift(mark, &(point..point), text.len()));
         self.mark_active = false;
         self.set_point(point + text.len());
         // Each edit at once: one diff of several would take the folds between them.
@@ -445,12 +406,10 @@ impl Buffer {
         let end = self.text.len();
         self.text.append_output(text);
         let new_end = self.text.len();
-        for point in
-            iter::once(&mut self.point).chain(self.window_points.iter_mut().map(|(_, point)| point))
+        let window_points = self.window_points.iter_mut().map(|(_, point)| point);
+        for point in iter::once(&mut self.point).chain(window_points).filter(|point| **point == end)
         {
-            if *point == end {
-                *point = new_end;
-            }
+            *point = new_end;
         }
     }
 
@@ -458,20 +417,12 @@ impl Buffer {
     pub fn truncate_output(&mut self, len: usize) {
         self.text.truncate_output(len);
         self.point = self.point.min(self.text.len());
-        let len = self.text.len();
-        self.shift_marks(|mark| mark.min(len));
+        self.shift_marks(|text, mark| mark.min(text.len()));
     }
 
     pub fn delete(&mut self, range: Range<usize>) {
-        let shift = |offset: usize| {
-            if offset >= range.end {
-                offset - range.len()
-            } else {
-                offset.min(range.start)
-            }
-        };
-        let point = shift(self.point);
-        self.shift_marks(shift);
+        let point = shift(self.point, &range, 0);
+        self.shift_marks(|_, offset| shift(offset, &range, 0));
         self.mark_active = false;
         self.record_cursors(|edited| edited.delete(range));
         self.set_point(point);
@@ -521,10 +472,7 @@ impl Buffer {
     }
 
     fn cursor_places(&self) -> Vec<CursorPlace> {
-        self.cursors
-            .iter()
-            .map(|cursor| (cursor.point, cursor.mark, cursor.mark_active))
-            .collect()
+        self.cursors.iter().map(|cursor| (cursor.point, cursor.mark, cursor.mark_active)).collect()
     }
 
     /// Moves the cursors to `places` and returns where they were. Only as many as there
@@ -546,8 +494,7 @@ impl Buffer {
         let (depth, len) = (self.text.undo_depth(), self.text.len());
         edit(&mut self.text);
         if self.text.undo_depth() > depth {
-            self.cursors_before_groups
-                .push(self.cursors_at_boundary.clone());
+            self.cursors_before_groups.push(self.cursors_at_boundary.clone());
         }
         // An empty edit records nothing, so redo still has what it had.
         if self.text.len() != len {
@@ -556,20 +503,14 @@ impl Buffer {
     }
 
     pub fn save(&mut self) -> io::Result<()> {
-        let path = self
-            .file
-            .clone()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "buffer has no file"))?;
+        let path = self.file.clone().ok_or_else(no_file)?;
         self.text.save_as(path)
     }
 
     /// Reads the file again in the encoding it was read in, dropping unsaved changes and
     /// undo history; point keeps its line and column.
     pub fn revert(&mut self) -> io::Result<()> {
-        let path = self
-            .file
-            .as_deref()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "buffer has no file"))?;
+        let path = self.file.as_deref().ok_or_else(no_file)?;
         let format = self.text.format();
         let text = if format.binary || format.encoding == UTF_8 {
             Text::open(path)?
@@ -589,48 +530,33 @@ impl Buffer {
     /// Undo replaces the whole text, so the mark may no longer fall on a character.
     fn restore_point(&mut self, offset: Option<usize>) -> bool {
         self.mark_active = false;
-        let text = &self.text;
-        let on_character = |mark| on_character(text, mark);
-        self.mark = self.mark.map(on_character);
-        for mark in &mut self.mark_ring {
-            *mark = on_character(*mark);
-        }
-        for (_, point) in &mut self.window_points {
-            *point = on_character(*point);
-        }
-        for cursor in &mut self.cursors {
-            cursor.point = on_character(cursor.point);
-            cursor.mark = cursor.mark.map(on_character);
-            cursor.mark_active = false;
-        }
+        self.shift_marks(on_character);
+        self.deactivate_cursor_marks();
         let restored = offset.inspect(|&offset| self.set_point(offset)).is_some();
         self.merge_cursors();
         restored
     }
 
-    /// Moves the mark, the mark ring and the cursors with an edit, like Emacs markers.
-    fn shift_marks(&mut self, shift: impl Fn(usize) -> usize) {
-        self.mark = self.mark.map(&shift);
-        for mark in &mut self.mark_ring {
-            *mark = shift(*mark);
-        }
-        for cursor in &mut self.cursors {
-            cursor.point = shift(cursor.point);
-            cursor.mark = cursor.mark.map(&shift);
-        }
-        for (_, point) in &mut self.window_points {
-            *point = shift(*point);
+    /// Moves the mark, the mark ring, the cursors and the other windows' points with an
+    /// edit, like Emacs markers.
+    fn shift_marks(&mut self, shift: impl Fn(&Text, usize) -> usize) {
+        let cursors = (self.cursors.iter_mut())
+            .flat_map(|cursor| iter::once(&mut cursor.point).chain(&mut cursor.mark));
+        let points = self.window_points.iter_mut().map(|(_, point)| point);
+        let marks = self.mark.iter_mut().chain(&mut self.mark_ring);
+        for mark in marks.chain(cursors).chain(points) {
+            *mark = shift(&self.text, *mark);
         }
     }
 }
 
+fn no_file() -> io::Error {
+    io::Error::new(io::ErrorKind::NotFound, "buffer has no file")
+}
+
 fn on_character(text: &Text, offset: usize) -> usize {
     let offset = offset.min(text.len());
-    if text.is_char_boundary(offset) {
-        offset
-    } else {
-        text.previous_char_boundary(offset)
-    }
+    if text.is_char_boundary(offset) { offset } else { text.previous_char_boundary(offset) }
 }
 
 /// Edits to one file, in offsets of the text of the buffer visiting it, else of the file.
@@ -644,11 +570,5 @@ pub struct FileEdits {
 /// Where `offset` ends up when `range` is replaced with `inserted` bytes: text inserted
 /// at it goes after it, like an Emacs marker.
 fn shift(offset: usize, range: &Range<usize>, inserted: usize) -> usize {
-    if offset <= range.start {
-        offset
-    } else if offset >= range.end {
-        offset - range.len() + inserted
-    } else {
-        range.start
-    }
+    Edit { start: range.start, old_end: range.end, new_end: range.start + inserted }.moved(offset)
 }

@@ -18,14 +18,11 @@ pub(crate) struct SignatureSupport {
 
 impl SignatureSupport {
     pub fn from_capabilities(capabilities: &Value) -> Option<Self> {
-        let provider = capabilities
-            .get("signatureHelpProvider")
-            .filter(|provider| provider.is_object())?;
+        let provider =
+            capabilities.get("signatureHelpProvider").filter(|provider| provider.is_object())?;
         let characters = |key: &str| {
             let listed = provider[key].as_array().into_iter().flatten();
-            listed
-                .filter_map(|character| character.as_str()?.chars().next())
-                .collect()
+            listed.filter_map(|character| character.as_str()?.chars().next()).collect()
         };
         Some(Self {
             triggers: characters("triggerCharacters"),
@@ -37,20 +34,14 @@ impl SignatureSupport {
     pub fn context(&self, trigger: SignatureTrigger) -> Option<SignatureHelpContext> {
         let (trigger_kind, character, is_retrigger) = match trigger {
             SignatureTrigger::Explicit => (SignatureHelpTriggerKind::INVOKED, None, false),
-            SignatureTrigger::Typed(typed) if self.triggers.contains(&typed) => (
-                SignatureHelpTriggerKind::TRIGGER_CHARACTER,
-                Some(typed),
-                false,
-            ),
+            SignatureTrigger::Typed(typed) if self.triggers.contains(&typed) => {
+                (SignatureHelpTriggerKind::TRIGGER_CHARACTER, Some(typed), false)
+            }
             SignatureTrigger::Typed(_) => return None,
             SignatureTrigger::Update(Some(typed))
                 if self.triggers.contains(&typed) || self.retriggers.contains(&typed) =>
             {
-                (
-                    SignatureHelpTriggerKind::TRIGGER_CHARACTER,
-                    Some(typed),
-                    true,
-                )
+                (SignatureHelpTriggerKind::TRIGGER_CHARACTER, Some(typed), true)
             }
             SignatureTrigger::Update(_) => (SignatureHelpTriggerKind::CONTENT_CHANGE, None, true),
         };
@@ -76,16 +67,10 @@ pub(crate) fn signatures(help: Option<SignatureHelp>, mode: &'static str) -> Opt
                 let parameters = signature.parameters.as_deref()?;
                 parameter_range(&signature.label, parameters, index as usize)
             });
-            Code {
-                emphasis,
-                ..Code::new(signature.label, Some(mode))
-            }
+            Code { emphasis, ..Code::new(signature.label, Some(mode)) }
         })
         .collect();
-    Some(Signatures {
-        active: active.min(list.len() - 1),
-        list,
-    })
+    Some(Signatures { active: active.min(list.len() - 1), list })
 }
 
 /// Where parameter `index` is in its signature's label: offsets in UTF-16 code units, or
@@ -175,9 +160,7 @@ mod tests {
             kind(SignatureTrigger::Typed('(')),
             Some(SignatureHelpTriggerKind::TRIGGER_CHARACTER)
         );
-        let update = support
-            .context(SignatureTrigger::Update(Some(')')))
-            .unwrap();
+        let update = support.context(SignatureTrigger::Update(Some(')'))).unwrap();
         assert_eq!(update.trigger_character.as_deref(), Some(")"));
         assert!(update.is_retrigger);
         assert_eq!(

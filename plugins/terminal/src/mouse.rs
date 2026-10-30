@@ -53,9 +53,7 @@ pub fn take(terminal: &mut Terminal, pointer: ScreenPointer) -> Outcome {
     let offset = term.grid().display_offset() as i32;
     let point = Point::new(Line(pointer.row as i32 - offset), Column(pointer.column));
     let following = pointer.modifiers.super_key && pointer.mouse != ScreenMouse::Leave;
-    let link = following
-        .then(|| link_at(&term, point, &terminal.directory))
-        .flatten();
+    let link = following.then(|| link_at(&term, point, &terminal.directory)).flatten();
     let hover_changed = terminal.link != link;
     terminal.link = link;
     let mode = *term.mode();
@@ -65,11 +63,7 @@ pub fn take(terminal: &mut Terminal, pointer: ScreenPointer) -> Outcome {
     let mut bytes = Vec::new();
     match pointer.mouse {
         ScreenMouse::Press { button, clicks } => {
-            if let Some(link) = terminal
-                .link
-                .as_ref()
-                .filter(|_| button == ScreenButton::Left)
-            {
+            if let Some(link) = terminal.link.as_ref().filter(|_| button == ScreenButton::Left) {
                 return Outcome::Follow(link.target.clone());
             }
             state.gesture = if reporting {
@@ -206,10 +200,7 @@ mod tests {
         ScreenPointer {
             row,
             column,
-            modifiers: Modifiers {
-                control,
-                ..Modifiers::default()
-            },
+            modifiers: Modifiers { control, ..Modifiers::default() },
             mouse: ScreenMouse::Move,
         }
     }
@@ -217,29 +208,14 @@ mod tests {
     #[test]
     fn reports_the_mouse_as_asked() {
         let sgr = TermMode::MOUSE_REPORT_CLICK | TermMode::SGR_MOUSE;
-        assert_eq!(
-            report(sgr, 0, &pointer(4, 9, false), false),
-            b"\x1b[<0;10;5M"
-        );
-        assert_eq!(
-            report(sgr, 2, &pointer(4, 9, false), true),
-            b"\x1b[<2;10;5m"
-        );
-        assert_eq!(
-            report(sgr, 65, &pointer(0, 0, true), false),
-            b"\x1b[<81;1;1M"
-        );
+        assert_eq!(report(sgr, 0, &pointer(4, 9, false), false), b"\x1b[<0;10;5M");
+        assert_eq!(report(sgr, 2, &pointer(4, 9, false), true), b"\x1b[<2;10;5m");
+        assert_eq!(report(sgr, 65, &pointer(0, 0, true), false), b"\x1b[<81;1;1M");
         let normal = TermMode::MOUSE_REPORT_CLICK;
-        assert_eq!(
-            report(normal, 0, &pointer(0, 0, false), false),
-            b"\x1b[M !!"
-        );
+        assert_eq!(report(normal, 0, &pointer(0, 0, false), false), b"\x1b[M !!");
         assert_eq!(report(normal, 2, &pointer(0, 0, false), true), b"\x1b[M#!!");
         assert_eq!(report(normal, 0, &pointer(0, 300, false), false), b"");
         let utf8 = TermMode::MOUSE_REPORT_CLICK | TermMode::UTF8_MOUSE;
-        assert_eq!(
-            report(utf8, 0, &pointer(0, 300, false), false),
-            "\x1b[M \u{14d}!".as_bytes()
-        );
+        assert_eq!(report(utf8, 0, &pointer(0, 300, false), false), "\x1b[M \u{14d}!".as_bytes());
     }
 }

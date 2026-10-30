@@ -20,12 +20,8 @@ use crate::status_view::{Section, directory_label, section_files};
 const SUBJECT_LIMIT: usize = 50;
 /// Messages of the last commits `M-p` brings back.
 const EARLIER_MESSAGES: &str = "20";
-const HINTS: &[(&str, &str)] = &[
-    ("C-c C-c", "Commit"),
-    ("⇥", "Next field"),
-    ("M-p", "Previous message"),
-    ("C-g", "Cancel"),
-];
+const HINTS: &[(&str, &str)] =
+    &[("C-c C-c", "Commit"), ("⇥", "Next field"), ("M-p", "Previous message"), ("C-g", "Cancel")];
 
 /// Reads a message and commits what is staged with it; amending, an empty message keeps
 /// the last commit's.
@@ -36,11 +32,7 @@ pub fn commit(editor: &mut Editor) -> CommandResult {
         return Err("Nothing staged to commit".into());
     }
     let [sign_off, amend, skip_hooks] = [(); 3].map(|_| Rc::new(Cell::new(false)));
-    let earlier = if snapshot.is_unborn() {
-        Vec::new()
-    } else {
-        earlier_messages(&root)
-    };
+    let earlier = if snapshot.is_unborn() { Vec::new() } else { earlier_messages(&root) };
     let nothing_staged = staged.is_empty();
     let amending = amend.clone();
     let check = move |message: &str| match () {
@@ -94,9 +86,7 @@ fn commit_job(mut args: Vec<&'static str>, message: String) -> Job {
             args.extend(["--file", "-"]);
             output_with_input(command.args(&args), message.as_bytes())
         };
-        committed
-            .map(drop)
-            .map_err(|error| format!("git commit: {error}"))
+        committed.map(drop).map_err(|error| format!("git commit: {error}"))
     })
 }
 
@@ -120,13 +110,9 @@ fn staged_items(snapshot: &Snapshot) -> Vec<ListItem> {
 /// `2 files · +112 −3`.
 fn staged_summary(items: &[ListItem]) -> String {
     let lines =
-        items
-            .iter()
-            .filter_map(|item| item.lines)
-            .fold(LineCounts::default(), |total, lines| LineCounts {
-                added: total.added + lines.added,
-                removed: total.removed + lines.removed,
-            });
+        items.iter().filter_map(|item| item.lines).fold(LineCounts::default(), |total, lines| {
+            LineCounts { added: total.added + lines.added, removed: total.removed + lines.removed }
+        });
     let files = match items.len() {
         0 => return "Nothing".into(),
         1 => "1 file".to_owned(),

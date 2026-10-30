@@ -47,13 +47,7 @@ pub fn slice_line(bytes: impl IntoIterator<Item = u8>, columns: Range<usize>) ->
             }
             let next = advance(column, byte == b'\t');
             if start.is_none() && next > columns.start {
-                start = Some((
-                    offset,
-                    LineStart {
-                        char: char_count,
-                        column,
-                    },
-                ));
+                start = Some((offset, LineStart { char: char_count, column }));
             }
             char_count += 1;
             column = next;
@@ -61,18 +55,8 @@ pub fn slice_line(bytes: impl IntoIterator<Item = u8>, columns: Range<usize>) ->
         length = offset + 1;
     }
     let end = end.unwrap_or(length);
-    let (from, start) = start.unwrap_or((
-        end,
-        LineStart {
-            char: char_count,
-            column,
-        },
-    ));
-    LineSlice {
-        bytes: from..end,
-        start,
-        continues,
-    }
+    let (from, start) = start.unwrap_or((end, LineStart { char: char_count, column }));
+    LineSlice { bytes: from..end, start, continues }
 }
 
 /// The display column after `bytes` from the start of a line.
@@ -84,11 +68,7 @@ pub fn display_width(bytes: impl IntoIterator<Item = u8>) -> usize {
 }
 
 fn advance(column: usize, is_tab: bool) -> usize {
-    if is_tab {
-        column + TAB_WIDTH - column % TAB_WIDTH
-    } else {
-        column + 1
-    }
+    if is_tab { column + TAB_WIDTH - column % TAB_WIDTH } else { column + 1 }
 }
 
 fn is_utf8_continuation(byte: u8) -> bool {
@@ -115,11 +95,7 @@ impl DisplayLine {
         let mut cells = Vec::with_capacity(source.len() + 1);
         let mut column = start.column;
         for (source_byte, character) in source.char_indices() {
-            cells.push(Cell {
-                source: source_byte,
-                column,
-                byte: text.len(),
-            });
+            cells.push(Cell { source: source_byte, column, byte: text.len() });
             let next = advance(column, character == '\t');
             if character == '\t' {
                 text.extend(std::iter::repeat_n(' ', next - column));
@@ -128,18 +104,8 @@ impl DisplayLine {
             }
             column = next;
         }
-        cells.push(Cell {
-            source: source.len(),
-            column,
-            byte: text.len(),
-        });
-        Self {
-            text,
-            cells,
-            first_char: start.char,
-            continues,
-            padded: false,
-        }
+        cells.push(Cell { source: source.len(), column, byte: text.len() });
+        Self { text, cells, first_char: start.char, continues, padded: false }
     }
 
     /// The line has characters before the source, out of view.
@@ -188,10 +154,8 @@ impl DisplayLine {
 
     /// The line's character at `display_column`.
     pub fn char_column_at(&self, display_column: usize) -> usize {
-        let index = self
-            .cells
-            .partition_point(|cell| cell.column <= display_column)
-            .saturating_sub(1);
+        let index =
+            self.cells.partition_point(|cell| cell.column <= display_column).saturating_sub(1);
         self.first_char + index
     }
 

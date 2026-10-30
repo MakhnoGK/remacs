@@ -8,18 +8,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 const FILES: &[(&str, &str)] = &[
-    (
-        "zsh/.zshenv",
-        include_str!("../shell-integration/zsh/.zshenv"),
-    ),
-    (
-        "zsh/remacs.zsh",
-        include_str!("../shell-integration/zsh/remacs.zsh"),
-    ),
-    (
-        "bash/remacs.bash",
-        include_str!("../shell-integration/bash/remacs.bash"),
-    ),
+    ("zsh/.zshenv", include_str!("../shell-integration/zsh/.zshenv")),
+    ("zsh/remacs.zsh", include_str!("../shell-integration/zsh/remacs.zsh")),
+    ("bash/remacs.bash", include_str!("../shell-integration/bash/remacs.bash")),
 ];
 
 /// A shell's arguments and environment, changed to start it with the hooks.
@@ -41,17 +32,10 @@ pub fn inject(program: &Path, args: &[String], env: &BTreeMap<String, String>) -
     match shell {
         "zsh" => {
             let directory = written()?.join("zsh");
-            if let Some(own) = env
-                .get("ZDOTDIR")
-                .cloned()
-                .or_else(|| env::var("ZDOTDIR").ok())
-            {
+            if let Some(own) = env.get("ZDOTDIR").cloned().or_else(|| env::var("ZDOTDIR").ok()) {
                 env.insert("REMACS_ZSH_ZDOTDIR".to_owned(), own);
             }
-            env.insert(
-                "ZDOTDIR".to_owned(),
-                directory.to_string_lossy().into_owned(),
-            );
+            env.insert("ZDOTDIR".to_owned(), directory.to_string_lossy().into_owned());
         }
         "bash" => {
             if args.iter().any(|arg| arg == "-c" || arg == "--posix") {
@@ -75,10 +59,7 @@ pub fn inject(program: &Path, args: &[String], env: &BTreeMap<String, String>) -
                 let rcfile = args.drain(index..(index + 2).min(args.len())).nth(1);
                 env.insert("REMACS_BASH_RCFILE".to_owned(), rcfile.unwrap_or_default());
             }
-            args.splice(
-                0..0,
-                ["--rcfile".to_owned(), script.to_string_lossy().into_owned()],
-            );
+            args.splice(0..0, ["--rcfile".to_owned(), script.to_string_lossy().into_owned()]);
             env.insert("REMACS_BASH_INJECT".to_owned(), "1".to_owned());
         }
         _ => return None,

@@ -57,10 +57,7 @@ pub fn keep_session_in(editor: &mut Editor, store: PathBuf, opening: Option<&Pat
     {
         reopen(editor, files);
     }
-    *editor.plugin_state() = Session {
-        projects,
-        store: Some(store),
-    };
+    *editor.plugin_state() = Session { projects, store: Some(store) };
 }
 
 fn reopen(editor: &mut Editor, files: &[OpenFile]) {
@@ -96,11 +93,7 @@ fn save(editor: &mut Editor) {
         let Some(path) = buffer.path().filter(|path| path.is_file()) else {
             continue;
         };
-        let first_line = if index == 0 {
-            editor.viewport.first_line
-        } else {
-            buffer.window_start
-        };
+        let first_line = if index == 0 { editor.viewport.first_line } else { buffer.window_start };
         open.entry(project_of(path)).or_default().push(OpenFile {
             path: path.to_owned(),
             line: buffer.point_line(),
@@ -124,9 +117,8 @@ fn save(editor: &mut Editor) {
         projects.last = Some(shown);
     }
     projects.files.extend(open);
-    let written = serde_json::to_string_pretty(projects)
-        .map_err(std::io::Error::other)
-        .and_then(|json| {
+    let written =
+        serde_json::to_string_pretty(projects).map_err(std::io::Error::other).and_then(|json| {
             store.parent().map_or(Ok(()), fs::create_dir_all)?;
             fs::write(&store, json)
         });
@@ -136,9 +128,5 @@ fn save(editor: &mut Editor) {
 }
 
 fn project_of(path: &Path) -> PathBuf {
-    if path.is_dir() {
-        project_root(path)
-    } else {
-        project_root(path.parent().unwrap_or(path))
-    }
+    if path.is_dir() { project_root(path) } else { project_root(path.parent().unwrap_or(path)) }
 }

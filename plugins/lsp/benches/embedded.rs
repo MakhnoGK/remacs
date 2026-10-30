@@ -26,9 +26,7 @@ fn page() -> (Text, Vec<Range<usize>>) {
         ));
         page.push_str("<script>\n");
         let start = page.len();
-        page.push_str(&format!(
-            "const part{index} = document.getElementById(\"s{index}\");\n"
-        ));
+        page.push_str(&format!("const part{index} = document.getElementById(\"s{index}\");\n"));
         scripts.push(start..page.len());
         page.push_str("</script></section>\n");
     }
@@ -39,10 +37,7 @@ fn page() -> (Text, Vec<Range<usize>>) {
 fn grown(ranges: &[Range<usize>], index: usize, by: usize) -> Vec<Range<usize>> {
     let grow = |offset: usize, from: usize| if offset >= from { offset + by } else { offset };
     let from = ranges[index].end;
-    ranges
-        .iter()
-        .map(|range| grow(range.start, from + 1)..grow(range.end, from))
-        .collect()
+    ranges.iter().map(|range| grow(range.start, from + 1)..grow(range.end, from)).collect()
 }
 
 /// A character typed in the middle script: the edit is made on the mirror too.
@@ -64,10 +59,7 @@ fn typing_in_a_script(bencher: Bencher) {
 fn scripts_found_again(bencher: Bencher) {
     let (text, scripts) = page();
     let snapshot: Snapshot = text.snapshot();
-    let moved: Vec<_> = scripts
-        .iter()
-        .map(|range| range.start..range.end - 1)
-        .collect();
+    let moved: Vec<_> = scripts.iter().map(|range| range.start..range.end - 1).collect();
     let mut mirror = Mirror::new("JavaScript", snapshot.clone(), scripts.clone());
     let mut flip = false;
     bencher.bench_local(|| {

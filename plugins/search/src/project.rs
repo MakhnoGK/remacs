@@ -31,9 +31,7 @@ pub struct SearchSettings {
 
 impl Default for SearchSettings {
     fn default() -> Self {
-        Self {
-            project_max_matches: 10_000,
-        }
+        Self { project_max_matches: 10_000 }
     }
 }
 
@@ -105,9 +103,7 @@ pub fn read_lines(
 ) -> CommandResult {
     let root = project_root(&default_directory(editor));
     let index = project_files(editor, &root);
-    let max_lines = editor
-        .settings_section::<SearchSettings>()
-        .project_max_matches;
+    let max_lines = editor.settings_section::<SearchSettings>().project_max_matches;
     let regex = Rc::new(Cell::new(false));
     let prompt = Prompt {
         directory: with_slash(&abbreviate_home(&root)),
@@ -135,24 +131,18 @@ pub fn read_lines(
 pub fn searched(editor: &Editor) -> Option<(PathBuf, Arc<FileIndex>, String, bool)> {
     let state = editor.find_plugin_state::<ProjectSearch>()?;
     let index = Arc::clone(state.index.as_ref()?);
-    Some((
-        state.root.clone(),
-        index,
-        state.input.clone(),
-        state.input_is_regex,
-    ))
+    Some((state.root.clone(), index, state.input.clone(), state.input_is_regex))
 }
 
 /// Whether the open prompt lists the project's lines.
 pub fn is_open(editor: &Editor) -> bool {
-    editor
-        .find_plugin_state::<ProjectSearch>()
-        .filter(|state| state.index.is_some())
-        .is_some_and(|state| {
+    editor.find_plugin_state::<ProjectSearch>().filter(|state| state.index.is_some()).is_some_and(
+        |state| {
             editor
                 .minibuffer()
                 .is_some_and(|minibuffer| minibuffer.prompt().category == state.category)
-        })
+        },
+    )
 }
 
 /// The numbers of the lines found, by file from the project's root.
@@ -162,9 +152,7 @@ pub type FoundLines = Vec<(String, Vec<usize>)>;
 /// lines found, unless the search is still running.
 pub fn close(editor: &mut Editor) -> Result<(PathBuf, FoundLines), &'static str> {
     let state = editor.find_plugin_state::<ProjectSearch>();
-    let scan = state
-        .and_then(|state| state.scan.as_ref())
-        .ok_or("Nothing found")?;
+    let scan = state.and_then(|state| state.scan.as_ref()).ok_or("Nothing found")?;
     if !scan.found().done {
         return Err("Still searching; try again in a moment");
     }
@@ -196,9 +184,7 @@ pub fn update(editor: &mut Editor) {
         .minibuffer()
         .filter(|minibuffer| minibuffer.prompt().category == category)
         .map(|minibuffer| {
-            let selected = minibuffer
-                .selected_candidate()
-                .map(|candidate| candidate.value.clone());
+            let selected = minibuffer.selected_candidate().map(|candidate| candidate.value.clone());
             (minibuffer.input_text(), selected)
         });
     let Some((input, selected)) = open else {
@@ -226,10 +212,7 @@ fn search(editor: &mut Editor, input: String) {
     else {
         return;
     };
-    let same_files = state
-        .files
-        .as_ref()
-        .is_some_and(|searched| Arc::ptr_eq(searched, &files));
+    let same_files = state.files.as_ref().is_some_and(|searched| Arc::ptr_eq(searched, &files));
     let regex = state.regex.get();
     if state.input == input && state.input_is_regex == regex && same_files {
         return;
@@ -310,9 +293,5 @@ fn candidates(editor: &Editor, input: &str) -> Completions {
         (true, false, true) if !input.trim().is_empty() => Some("No matches".to_owned()),
         _ => None,
     };
-    Completions {
-        note,
-        count_groups: true,
-        ..candidates.into()
-    }
+    Completions { note, count_groups: true, ..candidates.into() }
 }

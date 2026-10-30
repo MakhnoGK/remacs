@@ -43,10 +43,7 @@ fn command_candidates(editor: &Editor, input: &str) -> Completions {
     commands.sort_by_key(|command| command.name);
     let candidates = commands
         .into_iter()
-        .map(|command| Candidate {
-            annotation: command.doc.into(),
-            ..Candidate::new(command.name)
-        })
+        .map(|command| Candidate { annotation: command.doc.into(), ..Candidate::new(command.name) })
         .collect();
     filter_candidates(input, candidates, true)
 }
@@ -54,11 +51,8 @@ fn command_candidates(editor: &Editor, input: &str) -> Completions {
 /// The command's keys on the first line, what it does under them.
 fn describe(editor: &Editor, name: &str) -> Option<String> {
     let command = editor.commands().get(name)?;
-    let mut keys: Vec<String> = editor
-        .keymap()
-        .sequences_for(name)
-        .map(describe_sequence)
-        .collect();
+    let mut keys: Vec<String> =
+        editor.keymap().sequences_for(name).map(describe_sequence).collect();
     keys.sort();
     let bound = match keys.as_slice() {
         [] => "is not bound to any key".to_owned(),

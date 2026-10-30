@@ -41,19 +41,14 @@ impl Repository {
     }
 
     fn git(&self, args: &[&str]) {
-        let status = Command::new("git")
-            .current_dir(&self.0)
-            .args(args)
-            .status()
-            .unwrap();
+        let status = Command::new("git").current_dir(&self.0).args(args).status().unwrap();
         assert!(status.success(), "git {args:?}");
     }
 
     fn write_sources(&self, version: &str) {
         for file in 0..FILES {
-            let text: String = (0..LINES)
-                .map(|line| format!("{version} line {line} of file {file}\n"))
-                .collect();
+            let text: String =
+                (0..LINES).map(|line| format!("{version} line {line} of file {file}\n")).collect();
             fs::write(self.0.join(format!("src/f{file}.rs")), text).unwrap();
         }
     }
@@ -83,8 +78,7 @@ fn last_rows(editor: &Editor) -> Vec<OutlineRow> {
 }
 
 fn lists(rows: &[OutlineRow], name: &str) -> bool {
-    rows.iter()
-        .any(|row| matches!(row, OutlineRow::File { name: listed, .. } if listed == name))
+    rows.iter().any(|row| matches!(row, OutlineRow::File { name: listed, .. } if listed == name))
 }
 
 /// Bytes allocated per snapshot, the reading included, until `shown` says it is.
@@ -107,13 +101,8 @@ fn bytes_per_snapshot(
 fn a_status_snapshot_with_every_diff_unfolded_is_drawn_once_and_only_when_shown() {
     let _profiler = dhat::Profiler::builder().testing().build();
     let repository = Repository::new();
-    let mut editor = Editor::new(&[
-        &EditingPlugin,
-        &MinibufferPlugin,
-        &FilesPlugin,
-        &DiredPlugin,
-        &GitPlugin,
-    ]);
+    let mut editor =
+        Editor::new(&[&EditingPlugin, &MinibufferPlugin, &FilesPlugin, &DiredPlugin, &GitPlugin]);
     editor.viewport.set_height(20);
     editor.visit_file(&repository.0.join("src/f0.rs")).unwrap();
     editor.run_command("git-status");
@@ -130,10 +119,7 @@ fn a_status_snapshot_with_every_diff_unfolded_is_drawn_once_and_only_when_shown(
     list_directory(&mut editor, &repository.0).unwrap();
     let hidden = bytes_per_snapshot(&mut editor, &repository.0, "hidden", |editor, name| {
         editor.table(0..20).is_some_and(|table| {
-            table
-                .rows
-                .iter()
-                .any(|row| row.cells[0] == name && !row.cells[1].is_empty())
+            table.rows.iter().any(|row| row.cells[0] == name && !row.cells[1].is_empty())
         })
     });
     eprintln!(
@@ -144,7 +130,5 @@ fn a_status_snapshot_with_every_diff_unfolded_is_drawn_once_and_only_when_shown(
 
     editor.run_command("git-status");
     let last = format!("trigger-hidden-{}", SNAPSHOTS - 1);
-    wait_until(&mut editor, "the status drawn again", |editor| {
-        lists(&last_rows(editor), &last)
-    });
+    wait_until(&mut editor, "the status drawn again", |editor| lists(&last_rows(editor), &last));
 }

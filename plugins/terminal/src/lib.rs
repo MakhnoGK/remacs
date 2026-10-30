@@ -106,11 +106,8 @@ const TERMINAL_BINDINGS: &[(&str, &str)] = &[
 
 /// While the terminal with the keys has ended.
 const EXITED_BINDINGS: &[(&str, &str)] = &[("RET", RESTART), ("q", CLOSE_ENDED)];
-const FAILED_BINDINGS: &[(&str, &str)] = &[
-    ("RET", OPEN_SETTINGS),
-    ("z", START_FALLBACK),
-    ("r", RESTART),
-];
+const FAILED_BINDINGS: &[(&str, &str)] =
+    &[("RET", OPEN_SETTINGS), ("z", START_FALLBACK), ("r", RESTART)];
 
 impl Plugin for TerminalPlugin {
     fn register(&self, registry: &mut Registry) {
@@ -121,18 +118,15 @@ impl Plugin for TerminalPlugin {
             registry.keymap.bind(keys, command);
         }
         registry.menu_items.extend_from_slice(MENU_ITEMS);
-        registry.minor_keymaps.push(MinorKeymap {
-            active: view::ended_has_keys,
-            keymap: keymap(EXITED_BINDINGS),
-        });
-        registry.minor_keymaps.push(MinorKeymap {
-            active: view::failed_has_keys,
-            keymap: keymap(FAILED_BINDINGS),
-        });
-        registry.minor_keymaps.push(MinorKeymap {
-            active: view::has_keys,
-            keymap: keymap(TERMINAL_BINDINGS),
-        });
+        registry
+            .minor_keymaps
+            .push(MinorKeymap { active: view::ended_has_keys, keymap: keymap(EXITED_BINDINGS) });
+        registry
+            .minor_keymaps
+            .push(MinorKeymap { active: view::failed_has_keys, keymap: keymap(FAILED_BINDINGS) });
+        registry
+            .minor_keymaps
+            .push(MinorKeymap { active: view::has_keys, keymap: keymap(TERMINAL_BINDINGS) });
         registry.typing_blockers.push(view::has_keys);
         registry.key_sinks.push(Rc::new(view::take_key));
         registry.screens.push(Rc::new(TerminalScreens));

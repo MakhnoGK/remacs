@@ -102,11 +102,7 @@ pub fn parse(text: &str) -> ConflictFile {
             None if marker(b'<') => {
                 open = Some((
                     Part::Ours,
-                    Conflict {
-                        ours: Vec::new(),
-                        base: None,
-                        theirs: Vec::new(),
-                    },
+                    Conflict { ours: Vec::new(), base: None, theirs: Vec::new() },
                     vec![line.to_owned()],
                 ));
             }
@@ -172,23 +168,13 @@ pub fn resolve(text: &str, index: usize, keep: Keep) -> Option<Resolved> {
     let kept: Vec<String> = match keep {
         Keep::Ours => conflict.ours.clone(),
         Keep::Theirs => conflict.theirs.clone(),
-        Keep::Both => conflict
-            .ours
-            .iter()
-            .chain(&conflict.theirs)
-            .cloned()
-            .collect(),
+        Keep::Both => conflict.ours.iter().chain(&conflict.theirs).cloned().collect(),
     };
     let mut lines: Vec<String> = text.split('\n').map(str::to_owned).collect();
     let start = starts[position];
     let (replaced, kept_count) = (conflict.len(), kept.len());
     lines.splice(start..start + replaced, kept);
-    Some(Resolved {
-        text: lines.join("\n"),
-        start,
-        replaced,
-        kept: kept_count,
-    })
+    Some(Resolved { text: lines.join("\n"), start, replaced, kept: kept_count })
 }
 
 #[cfg(test)]

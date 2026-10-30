@@ -51,9 +51,7 @@ fn key_in_search_for_rare_string(bencher: Bencher, lines: usize) {
 
 /// A buffer of one line of `bytes` bytes with a number every 7, like minified code.
 fn one_long_line(bytes: usize) -> Editor {
-    let line: String = (0..bytes / 7)
-        .map(|n| format!("w{:04} ", n % 10_000))
-        .collect();
+    let line: String = (0..bytes / 7).map(|n| format!("w{:04} ", n % 10_000)).collect();
     let mut editor = Editor::new(&[&EditingPlugin, &MinibufferPlugin, &SearchPlugin]);
     editor.add_buffer(Buffer::new("min.js", Text::from(line.as_str()), "Rust"));
     editor

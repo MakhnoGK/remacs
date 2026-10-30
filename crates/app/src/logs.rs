@@ -14,8 +14,9 @@ use std::time::SystemTime;
 
 use futures::channel::mpsc::UnboundedSender;
 use remacs_config::Section;
-use serde::Deserialize;
+use remacs_core::local_tm;
 
+use crate::settings::settings_sections;
 use crate::version::{COMMIT, VERSION};
 
 const LOG: &str = "remacs.log";
@@ -27,22 +28,13 @@ const SHOWN: &str = ".shown";
 /// Where the panic hook sends each report it writes, once the window is open.
 static REPORTED: OnceLock<UnboundedSender<PathBuf>> = OnceLock::new();
 
-/// `logs.toml`.
-#[derive(Debug, Deserialize, PartialEq)]
-#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
-pub struct LogSettings {
-    /// Bytes `remacs.log` may reach before the next start moves it to `remacs.log.old`.
-    pub log_size: u64,
-    /// Crash reports kept; each start removes the oldest past it.
-    pub crash_reports: usize,
-}
-
-impl Default for LogSettings {
-    fn default() -> Self {
-        Self {
-            log_size: 1024 * 1024,
-            crash_reports: 20,
-        }
+settings_sections! {
+    /// `logs.toml`.
+    pub struct LogSettings {
+        /// Bytes `remacs.log` may reach before the next start moves it to `remacs.log.old`.
+        pub log_size: u64 = 1024 * 1024,
+        /// Crash reports kept; each start removes the oldest past it.
+        pub crash_reports: usize = 20,
     }
 }
 
@@ -127,12 +119,8 @@ fn write_report(dir: &Path, info: &PanicHookInfo) -> Option<PathBuf> {
     fs::create_dir_all(dir).ok()?;
     // Two panics in one second share a file.
     let path = dir.join(format!("{}.log", local_time(SystemTime::now())));
-    OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .and_then(|mut file| file.write_all(report.as_bytes()))
-        .ok()?;
+    let mut file = OpenOptions::new().create(true).append(true).open(&path).ok()?;
+    file.write_all(report.as_bytes()).ok()?;
     Some(path)
 }
 
@@ -140,11 +128,8 @@ fn unseen_reports(crashes: &Path) -> Option<String> {
     let shown = fs::metadata(crashes.join(SHOWN))
         .and_then(|metadata| metadata.modified())
         .unwrap_or(SystemTime::UNIX_EPOCH);
-    let unseen: Vec<PathBuf> = reports(crashes)
-        .into_iter()
-        .filter(|(modified, _)| *modified > shown)
-        .map(|(_, path)| path)
-        .collect();
+    let unseen = |(modified, path): (SystemTime, PathBuf)| (modified > shown).then_some(path);
+    let unseen: Vec<PathBuf> = reports(crashes).into_iter().filter_map(unseen).collect();
     let newest = unseen.last()?;
     mark_shown(crashes);
     Some(match unseen.len() {
@@ -173,38 +158,18 @@ fn remove_old_reports(crashes: &Path, kept: usize) {
 
 /// The reports and when each was last written, oldest first.
 fn reports(crashes: &Path) -> Vec<(SystemTime, PathBuf)> {
-    let Ok(entries) = fs::read_dir(crashes) else {
-        return Vec::new();
-    };
-    let mut reports: Vec<_> = entries
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|extension| extension == "log"))
-        .filter_map(|path| Some((fs::metadata(&path).ok()?.modified().ok()?, path)))
-        .collect();
+    let paths = fs::read_dir(crashes).into_iter().flatten().flatten().map(|entry| entry.path());
+    let logs = paths.filter(|path| path.extension().is_some_and(|extension| extension == "log"));
+    let mut reports: Vec<_> =
+        logs.filter_map(|path| Some((fs::metadata(&path).ok()?.modified().ok()?, path))).collect();
     reports.sort();
     reports
 }
 
 /// `2026-10-20-142903` in local time, which sorts as it goes.
 fn local_time(at: SystemTime) -> String {
-    let seconds = at
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as libc::time_t;
-    // SAFETY: `tm` is plain data, valid zeroed.
-    let mut local: libc::tm = unsafe { std::mem::zeroed() };
-    // SAFETY: both pointers are to locals that outlive the call.
-    unsafe { libc::localtime_r(&seconds, &mut local) };
-    format!(
-        "{}-{:02}-{:02}-{:02}{:02}{:02}",
-        local.tm_year + 1900,
-        local.tm_mon + 1,
-        local.tm_mday,
-        local.tm_hour,
-        local.tm_min,
-        local.tm_sec
-    )
+    let libc::tm { tm_year, tm_mon, tm_mday, tm_hour, tm_min, tm_sec, .. } = local_tm(at);
+    format!("{}-{:02}-{tm_mday:02}-{tm_hour:02}{tm_min:02}{tm_sec:02}", tm_year + 1900, tm_mon + 1)
 }
 
 #[cfg(test)]
@@ -233,17 +198,11 @@ mod tests {
             file.set_modified(past - Duration::from_secs(age)).unwrap();
         }
         let told = unseen_reports(&crashes).unwrap();
-        assert!(
-            told.contains("3 times") && told.ends_with("c.log"),
-            "{told}"
-        );
+        assert!(told.contains("3 times") && told.ends_with("c.log"), "{told}");
         assert_eq!(unseen_reports(&crashes), None);
 
         remove_old_reports(&crashes, 2);
-        let left: Vec<_> = reports(&crashes)
-            .into_iter()
-            .map(|(_, path)| path)
-            .collect();
+        let left: Vec<_> = reports(&crashes).into_iter().map(|(_, path)| path).collect();
         assert_eq!(left, [crashes.join("b.log"), crashes.join("c.log")]);
         fs::remove_dir_all(&crashes).unwrap();
     }

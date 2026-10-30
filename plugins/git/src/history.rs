@@ -82,11 +82,8 @@ impl HistoryCache {
             "refs/remotes",
             "refs/tags",
         ]))?;
-        let fingerprint = format!(
-            "{:?}\n{base:?}\n{}",
-            snapshot.head,
-            String::from_utf8_lossy(&refs)
-        );
+        let fingerprint =
+            format!("{:?}\n{base:?}\n{}", snapshot.head, String::from_utf8_lossy(&refs));
         if let Some((last_wants, last_fingerprint, log)) = &self.last
             && last_wants == wants
             && *last_fingerprint == fingerprint
@@ -132,12 +129,7 @@ fn read(root: &Path, wants: &HistoryWants, base: Option<&str>) -> io::Result<Log
     // Found by their messages or files, commits are not each other's parents.
     let connected = wants.search.is_none() && wants.file.is_none();
     let graph = layout(&commits, base_tip, connected);
-    Ok(Log {
-        wants: wants.clone(),
-        complete: commits.len() < wants.count,
-        commits,
-        graph,
-    })
+    Ok(Log { wants: wants.clone(), complete: commits.len() < wants.count, commits, graph })
 }
 
 /// Commits of `git log -z` with [`FORMAT`].
@@ -147,24 +139,12 @@ pub fn parse_log(printed: &str) -> Vec<Commit> {
         .filter_map(|record| {
             let mut fields = record.trim_start_matches('\n').split(FIELD_SEPARATOR);
             let id = fields.next().filter(|id| !id.is_empty())?.to_owned();
-            let parents = fields
-                .next()?
-                .split_whitespace()
-                .map(str::to_owned)
-                .collect();
+            let parents = fields.next()?.split_whitespace().map(str::to_owned).collect();
             let author = fields.next()?.to_owned();
             let time = fields.next()?.parse().unwrap_or_default();
             let (refs, is_head) = parse_decorations(fields.next()?);
             let subject = fields.collect::<Vec<_>>().join(" ");
-            Some(Commit {
-                id,
-                parents,
-                author,
-                time,
-                subject,
-                refs,
-                is_head,
-            })
+            Some(Commit { id, parents, author, time, subject, refs, is_head })
         })
         .collect()
 }
@@ -225,11 +205,7 @@ pub fn layout(commits: &[Commit], base_tip: Option<&str>, connected: bool) -> Ve
         let continued = awaiting
             .iter()
             .copied()
-            .find(|&index| {
-                lanes[index]
-                    .as_ref()
-                    .is_some_and(|lane| lane.color == BASE_COLOR)
-            })
+            .find(|&index| lanes[index].as_ref().is_some_and(|lane| lane.color == BASE_COLOR))
             .or(awaiting.first().copied());
         let upper: Vec<GraphEdge> = lanes
             .iter()
@@ -238,11 +214,7 @@ pub fn layout(commits: &[Commit], base_tip: Option<&str>, connected: bool) -> Ve
                 let lane = lane.as_ref()?;
                 Some(GraphEdge {
                     from: index,
-                    to: if lane.awaits == commit.id {
-                        continued.unwrap_or(index)
-                    } else {
-                        index
-                    },
+                    to: if lane.awaits == commit.id { continued.unwrap_or(index) } else { index },
                     color: lane.color,
                 })
             })
@@ -259,11 +231,7 @@ pub fn layout(commits: &[Commit], base_tip: Option<&str>, connected: bool) -> Ve
             .enumerate()
             .filter_map(|(index, lane)| {
                 let color = lane.as_ref()?.color;
-                Some(GraphEdge {
-                    from: index,
-                    to: index,
-                    color,
-                })
+                Some(GraphEdge { from: index, to: index, color })
             })
             .collect();
         let parents = if connected { &commit.parents[..] } else { &[] };
@@ -274,20 +242,9 @@ pub fn layout(commits: &[Commit], base_tip: Option<&str>, connected: bool) -> Ve
             let (target, target_color) = match waiting {
                 Some(index) if number > 0 => (index, lanes[index].as_ref().map_or(0, |l| l.color)),
                 _ => {
-                    let target = if number == 0 {
-                        lane
-                    } else {
-                        free_lane(&mut lanes)
-                    };
-                    let target_color = if number == 0 {
-                        color
-                    } else {
-                        new_color(parent, false)
-                    };
-                    lanes[target] = Some(Lane {
-                        awaits: parent,
-                        color: target_color,
-                    });
+                    let target = if number == 0 { lane } else { free_lane(&mut lanes) };
+                    let target_color = if number == 0 { color } else { new_color(parent, false) };
+                    lanes[target] = Some(Lane { awaits: parent, color: target_color });
                     (target, target_color)
                 }
             };
@@ -339,11 +296,13 @@ pub struct ChangedFile {
 
 /// The files commit `id` changed, without reading their diffs.
 pub fn read_files(root: &Path, id: &str) -> io::Result<Vec<ChangedFile>> {
-    let printed = output(
-        git(root)
-            .args(["show", "--format=", "--raw", "--numstat", "-z", "-M"])
-            .args(["--diff-merges=first-parent", "--no-color", id, "--"]),
-    )?;
+    let printed =
+        output(git(root).args(["show", "--format=", "--raw", "--numstat", "-z", "-M"]).args([
+            "--diff-merges=first-parent",
+            "--no-color",
+            id,
+            "--",
+        ]))?;
     Ok(parse_files(&printed))
 }
 
@@ -355,21 +314,13 @@ fn parse_files(printed: &[u8]) -> Vec<ChangedFile> {
     while rest.starts_with(b":") {
         let raw = take_record(&mut rest);
         let letter = raw.rsplit(|&byte| byte == b' ').next();
-        let letter = letter
-            .and_then(|state| state.first())
-            .copied()
-            .unwrap_or(b'M');
+        let letter = letter.and_then(|state| state.first()).copied().unwrap_or(b'M');
         let first = path(take_record(&mut rest));
         let (path, original) = match letter {
             b'R' | b'C' => (path(take_record(&mut rest)), Some(first)),
             _ => (first, None),
         };
-        files.push(ChangedFile {
-            path,
-            state: side_state(letter),
-            lines: None,
-            original,
-        });
+        files.push(ChangedFile { path, state: side_state(letter), lines: None, original });
     }
     for (path, lines) in parse_numstat(rest) {
         if let Some(file) = files.iter_mut().find(|file| file.path == path) {
@@ -381,11 +332,8 @@ fn parse_files(printed: &[u8]) -> Vec<ChangedFile> {
 
 /// The record `rest` starts with, up to its NUL, which `rest` is moved past.
 fn take_record<'a>(rest: &mut &'a [u8]) -> &'a [u8] {
-    let (record, after) = rest.split_at(
-        rest.iter()
-            .position(|&byte| byte == 0)
-            .unwrap_or(rest.len()),
-    );
+    let (record, after) =
+        rest.split_at(rest.iter().position(|&byte| byte == 0).unwrap_or(rest.len()));
     *rest = after.get(1..).unwrap_or_default();
     record
 }
@@ -460,11 +408,7 @@ mod tests {
         assert_eq!(commits[0].parents, ["b2", "c3"]);
         assert_eq!(
             commits[0].refs,
-            [
-                "refs/heads/main",
-                "refs/remotes/origin/main",
-                "refs/tags/v1"
-            ]
+            ["refs/heads/main", "refs/remotes/origin/main", "refs/tags/v1"]
         );
         assert!(commits[0].is_head);
         assert_eq!(commits[0].subject, "Merge branch 'fix'");
@@ -505,10 +449,7 @@ mod tests {
         let rows = layout(&commits, Some("main"), true);
         assert_eq!((rows[1].lane, rows[1].color), (1, BASE_COLOR));
         assert_eq!((rows[2].lane, rows[2].color), (1, BASE_COLOR));
-        assert_eq!(
-            rows[2].upper,
-            [edge(0, 1, HEAD_COLOR), edge(1, 1, BASE_COLOR)]
-        );
+        assert_eq!(rows[2].upper, [edge(0, 1, HEAD_COLOR), edge(1, 1, BASE_COLOR)]);
     }
 
     #[test]

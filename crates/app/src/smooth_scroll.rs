@@ -13,10 +13,9 @@ pub fn wheel_delta(
 ) -> (Point<Pixels>, bool) {
     match event.delta {
         ScrollDelta::Pixels(delta) => (delta, !event.from_wheel),
-        ScrollDelta::Lines(lines) => (
-            ScrollDelta::Lines(lines * lines_per_notch as f32).pixel_delta(row_height),
-            false,
-        ),
+        ScrollDelta::Lines(lines) => {
+            (ScrollDelta::Lines(lines * lines_per_notch as f32).pixel_delta(row_height), false)
+        }
     }
 }
 
@@ -126,12 +125,10 @@ impl Glide {
         duration: Duration,
         max_distance: f32,
     ) -> f32 {
-        if target != self.target {
-            if duration.is_zero() {
-                self.place(target);
-            } else {
-                self.head_for(target, now, duration, max_distance);
-            }
+        if target != self.target && duration.is_zero() {
+            self.place(target);
+        } else if target != self.target {
+            self.head_for(target, now, duration, max_distance);
         }
         if let Some(animation) = self.animation {
             let progress = animation.progress(now, duration);
@@ -153,23 +150,14 @@ impl Glide {
             self.shown = animation.position(progress, self.target, duration);
             reached = animation.velocity(progress, self.target, duration);
         }
-        let from = self
-            .shown
-            .clamp(target - max_distance, target + max_distance);
+        let from = self.shown.clamp(target - max_distance, target + max_distance);
         // An ease-out's: the fastest that comes to rest on the target without passing it.
         let eased = 3.0 * (target - from) / duration.as_secs_f32();
         // Turning back, or from rest, it sets off at once.
-        let velocity = if reached * eased > 0.0 && reached.abs() < eased.abs() {
-            reached
-        } else {
-            eased
-        };
+        let velocity =
+            if reached * eased > 0.0 && reached.abs() < eased.abs() { reached } else { eased };
         self.target = target;
-        self.animation = Some(Animation {
-            from,
-            velocity,
-            started: now,
-        });
+        self.animation = Some(Animation { from, velocity, started: now });
     }
 
     pub fn shown(&self) -> f32 {
@@ -225,10 +213,7 @@ mod tests {
         let start = Instant::now();
         glide.advance(8.0, start, DURATION, 50.0);
         let halfway = glide.advance(8.0, start + DURATION / 2, DURATION, 50.0);
-        assert!(
-            (halfway - 8.0 * (1.0 - 0.5f32.powi(3))).abs() < 1e-4,
-            "{halfway}"
-        );
+        assert!((halfway - 8.0 * (1.0 - 0.5f32.powi(3))).abs() < 1e-4, "{halfway}");
     }
 
     #[test]
@@ -258,10 +243,7 @@ mod tests {
             }
             (previous, previous_speed) = (shown, speed);
         }
-        assert_eq!(
-            glide.advance(target, start + step * 60 + DURATION, DURATION, 50.0),
-            target
-        );
+        assert_eq!(glide.advance(target, start + step * 60 + DURATION, DURATION, 50.0), target);
     }
 
     #[test]
@@ -312,11 +294,8 @@ mod tests {
 
     #[test]
     fn a_notch_goes_the_lines_set_and_glides() {
-        let event = |delta, from_wheel| ScrollWheelEvent {
-            delta,
-            from_wheel,
-            ..Default::default()
-        };
+        let event =
+            |delta, from_wheel| ScrollWheelEvent { delta, from_wheel, ..Default::default() };
         let notch = event(ScrollDelta::Lines(gpui::point(0.0, -1.0)), true);
         let (delta, at_once) = wheel_delta(&notch, gpui::px(20.0), 3);
         assert_eq!(delta.y, gpui::px(-60.0));

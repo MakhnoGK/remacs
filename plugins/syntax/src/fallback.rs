@@ -61,10 +61,7 @@ pub(crate) fn highlight(buffer: &Buffer, range: Range<usize>, level: u8) -> Vec<
             scan(fallback, &bytes)
                 .into_iter()
                 .filter(|(_, face)| shown(face))
-                .map(|(span, face)| Span {
-                    range: start + span.start..start + span.end,
-                    face,
-                }),
+                .map(|(span, face)| Span { range: start + span.start..start + span.end, face }),
         );
     }
     spans
@@ -95,11 +92,7 @@ fn scan(fallback: &Fallback, line: &[u8]) -> Vec<(Range<usize>, Face)> {
             found.push((at..close, Face::String));
             at = close;
         } else if rest[0].is_ascii_digit() && (at == 0 || !is_word(line[at - 1])) {
-            let end = at
-                + rest
-                    .iter()
-                    .take_while(|&&byte| is_word(byte) || byte == b'.')
-                    .count();
+            let end = at + rest.iter().take_while(|&&byte| is_word(byte) || byte == b'.').count();
             found.push((at..end, Face::Constant));
             at = end;
         } else {
@@ -110,9 +103,7 @@ fn scan(fallback: &Fallback, line: &[u8]) -> Vec<(Range<usize>, Face)> {
 }
 
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack
-        .windows(needle.len())
-        .position(|window| window == needle)
+    haystack.windows(needle.len()).position(|window| window == needle)
 }
 
 #[cfg(test)]
@@ -121,11 +112,8 @@ mod tests {
 
     #[test]
     fn a_line_reads_its_comment_strings_and_numbers() {
-        let fallback = Fallback {
-            mode: "Code",
-            comment: Some(("//", "")),
-            quotes: vec![b'"', b'\''],
-        };
+        let fallback =
+            Fallback { mode: "Code", comment: Some(("//", "")), quotes: vec![b'"', b'\''] };
         let line = br#"x = "a\"b // no" + 'c' + 0x1f + v2; // done "x""#;
         let faces: Vec<_> = scan(&fallback, line)
             .into_iter()
@@ -140,11 +128,7 @@ mod tests {
                 (r#"// done "x""#, Face::Comment),
             ]
         );
-        let css = Fallback {
-            mode: "Style",
-            comment: Some(("/*", "*/")),
-            quotes: Vec::new(),
-        };
+        let css = Fallback { mode: "Style", comment: Some(("/*", "*/")), quotes: Vec::new() };
         let faces = scan(&css, b"a /* b */ 2");
         assert_eq!(faces, [(2..9, Face::Comment), (10..11, Face::Constant)]);
     }

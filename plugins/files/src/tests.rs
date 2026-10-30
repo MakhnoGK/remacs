@@ -77,11 +77,7 @@ fn open_find_file(editor: &mut Editor) -> Receiver<()> {
 
 fn candidate_values(editor: &Editor) -> BTreeSet<String> {
     let minibuffer = editor.minibuffer().unwrap();
-    minibuffer
-        .candidates()
-        .iter()
-        .map(|candidate| candidate.value.clone())
-        .collect()
+    minibuffer.candidates().iter().map(|candidate| candidate.value.clone()).collect()
 }
 
 fn press(editor: &mut Editor, keys: &str) {
@@ -106,11 +102,7 @@ fn labels(editor: &Editor) -> Vec<String> {
 }
 
 fn buffer_names(editor: &Editor) -> Vec<&str> {
-    editor
-        .buffers()
-        .iter()
-        .map(|buffer| buffer.name())
-        .collect()
+    editor.buffers().iter().map(|buffer| buffer.name()).collect()
 }
 
 #[test]
@@ -119,20 +111,14 @@ fn find_file_matches_project_paths_fuzzily() {
     let mut editor = editor_visiting(&project.path("Cargo.toml"));
     open_find_file(&mut editor);
     type_text(&mut editor, "mark");
-    assert_eq!(
-        labels(&editor),
-        ["docs/marks.md ", "src/marker.rs ", "src/mark_ring.rs "]
-    );
+    assert_eq!(labels(&editor), ["docs/marks.md ", "src/marker.rs ", "src/mark_ring.rs "]);
     press(&mut editor, "C-n RET");
     assert_eq!(editor.window_buffer().name(), "marker.rs");
 
     press(&mut editor, "C-x C-f");
     type_text(&mut editor, "smaring");
     assert_eq!(labels(&editor), ["src/mark_ring.rs "]);
-    assert_eq!(
-        editor.minibuffer().unwrap().candidates()[0].matches,
-        [0..1, 4..6, 9..13]
-    );
+    assert_eq!(editor.minibuffer().unwrap().candidates()[0].matches, [0..1, 4..6, 9..13]);
 
     press(&mut editor, "C-a C-k");
     type_text(&mut editor, ".rs$ ^src");
@@ -156,10 +142,7 @@ fn find_file_browses_absolute_paths_and_creates_new_files() {
     assert_eq!(editor.echo().as_deref(), Some("(New file)"));
     type_text(&mut editor, "fn main() {}");
     press(&mut editor, "C-x C-s");
-    assert_eq!(
-        fs::read_to_string(project.path("src/new.rs")).unwrap(),
-        "fn main() {}"
-    );
+    assert_eq!(fs::read_to_string(project.path("src/new.rs")).unwrap(), "fn main() {}");
 }
 
 #[test]
@@ -168,12 +151,7 @@ fn file_index_follows_file_system_changes() {
     let mut editor = editor_visiting(&project.path("Cargo.toml"));
     let notifications = open_find_file(&mut editor);
     fs::create_dir_all(project.path("lib/nested")).unwrap();
-    for created in [
-        "src/added.rs",
-        "src/debug.log",
-        "target/built.rs",
-        "lib/nested/deep.rs",
-    ] {
+    for created in ["src/added.rs", "src/debug.log", "target/built.rs", "lib/nested/deep.rs"] {
         fs::write(project.path(created), "").unwrap();
     }
     fs::remove_file(project.path("docs/marks.md")).unwrap();
@@ -207,15 +185,10 @@ fn the_settings_say_what_is_left_out_and_gitignore_only_when_asked() {
         [("files.toml", files_toml)].map(|(name, text)| (PathBuf::from(name), text.to_owned()));
     editor.set_settings(Settings::from_files(settings));
     open_find_file(&mut editor);
-    let expected: BTreeSet<String> = [
-        ".gitignore",
-        "Cargo.toml",
-        "src/marker.rs",
-        "src/mark_ring.rs",
-        "target/marked.rs",
-    ]
-    .map(String::from)
-    .into();
+    let expected: BTreeSet<String> =
+        [".gitignore", "Cargo.toml", "src/marker.rs", "src/mark_ring.rs", "target/marked.rs"]
+            .map(String::from)
+            .into();
     assert_eq!(candidate_values(&editor), expected);
 }
 
@@ -249,16 +222,10 @@ fn the_scan_is_cached_and_a_stale_cache_gives_way_to_the_next_scan() {
     let mut second = editor_visiting(&project.path("Cargo.toml"));
     second.keep_caches_in(cache.clone());
     let notifications = open_find_file(&mut second);
-    let scanned: BTreeSet<String> = [
-        ".env",
-        ".gitignore",
-        "Cargo.toml",
-        "docs/marks.md",
-        "src/mark_ring.rs",
-        "src/marker.rs",
-    ]
-    .map(String::from)
-    .into();
+    let scanned: BTreeSet<String> =
+        [".env", ".gitignore", "Cargo.toml", "docs/marks.md", "src/mark_ring.rs", "src/marker.rs"]
+            .map(String::from)
+            .into();
     let deadline = Instant::now() + INDEX_TIMEOUT;
     while candidate_values(&second) != scanned && Instant::now() < deadline {
         let _ = notifications.recv_timeout(deadline - Instant::now());
@@ -280,51 +247,31 @@ fn write_file_visits_the_new_file() {
     type_text(&mut editor, &format!("{}/notes.md", project.0.display()));
     press(&mut editor, "M-RET");
     assert_eq!(editor.window_buffer().name(), "notes.md");
-    assert_eq!(
-        editor.window_buffer().path(),
-        Some(project.path("notes.md").as_path())
-    );
+    assert_eq!(editor.window_buffer().path(), Some(project.path("notes.md").as_path()));
     assert!(!editor.window_buffer().is_modified());
-    assert_eq!(
-        fs::read_to_string(project.path("notes.md")).unwrap(),
-        "notes"
-    );
+    assert_eq!(fs::read_to_string(project.path("notes.md")).unwrap(), "notes");
     assert!(!buffer_names(&editor).contains(&SCRATCH_BUFFER));
 
     press(&mut editor, "C-x C-w C-a C-k");
     type_text(&mut editor, &format!("{}/src/", project.0.display()));
     press(&mut editor, "M-RET");
-    assert_eq!(
-        fs::read_to_string(project.path("src/notes.md")).unwrap(),
-        "notes"
-    );
+    assert_eq!(fs::read_to_string(project.path("src/notes.md")).unwrap(), "notes");
     assert_eq!(buffer_names(&editor), ["notes.md"]);
 
     press(&mut editor, "C-x C-w C-a C-k");
     type_text(&mut editor, &format!("{}/Cargo.toml", project.0.display()));
     press(&mut editor, "M-RET");
     assert!(
-        editor
-            .minibuffer()
-            .unwrap()
-            .prompt()
-            .label
-            .ends_with("Cargo.toml` exists; overwrite?")
+        editor.minibuffer().unwrap().prompt().label.ends_with("Cargo.toml` exists; overwrite?")
     );
     press(&mut editor, "n");
     assert_eq!(editor.window_buffer().name(), "notes.md");
-    assert_eq!(
-        fs::read_to_string(project.path("Cargo.toml")).unwrap(),
-        "[package]\n"
-    );
+    assert_eq!(fs::read_to_string(project.path("Cargo.toml")).unwrap(), "[package]\n");
     press(&mut editor, "C-x C-w C-a C-k");
     type_text(&mut editor, &format!("{}/Cargo.toml", project.0.display()));
     press(&mut editor, "M-RET y");
     assert_eq!(editor.window_buffer().name(), "Cargo.toml");
-    assert_eq!(
-        fs::read_to_string(project.path("Cargo.toml")).unwrap(),
-        "notes"
-    );
+    assert_eq!(fs::read_to_string(project.path("Cargo.toml")).unwrap(), "notes");
 }
 
 #[test]
@@ -332,17 +279,11 @@ fn buffers_switch_and_kill_with_confirmation() {
     let project = Project::new("buffers");
     let mut editor = editor_visiting(&project.path("src/marker.rs"));
     editor.visit_file(&project.path("Cargo.toml")).unwrap();
-    assert_eq!(
-        buffer_names(&editor),
-        ["Cargo.toml", "marker.rs", "*scratch*"]
-    );
+    assert_eq!(buffer_names(&editor), ["Cargo.toml", "marker.rs", "*scratch*"]);
     press(&mut editor, "C-x b");
     assert_eq!(labels(&editor)[0], "Cargo.toml ./");
     press(&mut editor, "RET");
-    assert_eq!(
-        buffer_names(&editor),
-        ["marker.rs", "Cargo.toml", "*scratch*"]
-    );
+    assert_eq!(buffer_names(&editor), ["marker.rs", "Cargo.toml", "*scratch*"]);
 
     type_text(&mut editor, "x");
     press(&mut editor, "C-x k RET");
@@ -382,28 +323,15 @@ fn quitting_offers_to_save_each_modified_file() {
     let mut editor = editor_visiting(&project.path("Cargo.toml"));
     type_text(&mut editor, "#");
     press(&mut editor, "C-x C-c");
-    assert!(
-        editor
-            .minibuffer()
-            .unwrap()
-            .prompt()
-            .label
-            .starts_with("Save file")
-    );
+    assert!(editor.minibuffer().unwrap().prompt().label.starts_with("Save file"));
     press(&mut editor, "n");
-    assert_eq!(
-        editor.minibuffer().unwrap().prompt().label,
-        "Modified buffers exist; exit anyway?"
-    );
+    assert_eq!(editor.minibuffer().unwrap().prompt().label, "Modified buffers exist; exit anyway?");
     press(&mut editor, "C-g");
     assert!(!editor.quit_requested());
 
     press(&mut editor, "C-x C-c y");
     assert!(editor.quit_requested());
-    assert_eq!(
-        fs::read_to_string(project.path("Cargo.toml")).unwrap(),
-        "#[package]\n"
-    );
+    assert_eq!(fs::read_to_string(project.path("Cargo.toml")).unwrap(), "#[package]\n");
 }
 
 /// A terminal running something other than its shell.
@@ -411,9 +339,7 @@ struct RunningPlugin;
 
 impl Plugin for RunningPlugin {
     fn register(&self, registry: &mut Registry) {
-        registry
-            .quit_queries
-            .push(|_| vec!["*term: vim*".to_owned()]);
+        registry.quit_queries.push(|_| vec!["*term: vim*".to_owned()]);
     }
 }
 
@@ -428,12 +354,8 @@ fn quitting_with_nothing_to_lose_asks_nothing() {
 #[test]
 fn quitting_asks_before_ending_running_programs() {
     let project = Project::new("quit-running");
-    let mut editor = Editor::new(&[
-        &EditingPlugin,
-        &MinibufferPlugin,
-        &FilesPlugin,
-        &RunningPlugin,
-    ]);
+    let mut editor =
+        Editor::new(&[&EditingPlugin, &MinibufferPlugin, &FilesPlugin, &RunningPlugin]);
     editor.visit_file(&project.path("Cargo.toml")).unwrap();
     type_text(&mut editor, "#");
     let question = "Programs run in `*term: vim*`; kill them and exit anyway?";
@@ -591,10 +513,7 @@ fn quitting_keeps_the_open_files_which_the_next_start_reopens_where_they_were() 
     assert!(editor.quit_requested());
 
     let editor = editor_keeping_session(&store, None, true);
-    assert_eq!(
-        buffer_names(&editor),
-        ["marker.rs", "Cargo.toml", SCRATCH_BUFFER]
-    );
+    assert_eq!(buffer_names(&editor), ["marker.rs", "Cargo.toml", SCRATCH_BUFFER]);
     let shown = editor.window_buffer();
     assert_eq!((shown.point_line(), shown.point_column()), (2, 1));
     assert_eq!(shown.folded_lines(), vec![1..2], "its folds too");
@@ -614,13 +533,7 @@ fn quitting_keeps_the_open_files_which_the_next_start_reopens_where_they_were() 
     fs::remove_file(project.path("Cargo.toml")).unwrap();
     let editor = editor_keeping_session(&store, Some(&project.0), true);
     assert_eq!(buffer_names(&editor), ["marker.rs", SCRATCH_BUFFER]);
-    assert!(
-        editor
-            .message()
-            .unwrap()
-            .text
-            .starts_with("Not reopened: ")
-    );
+    assert!(editor.message().unwrap().text.starts_with("Not reopened: "));
 }
 
 #[test]

@@ -15,10 +15,7 @@ const OPERATORS: &[&str] = &["= ", "| ", "& ", "+ "];
 /// `code` with each line longer than `columns` broken into lines that fit; a part with
 /// nowhere to break stays longer.
 pub fn wrap_code(code: &str, columns: usize) -> String {
-    code.lines()
-        .map(|line| wrap_line(line, columns))
-        .collect::<Vec<_>>()
-        .join("\n")
+    code.lines().map(|line| wrap_line(line, columns)).collect::<Vec<_>>().join("\n")
 }
 
 /// The line ends at `end` and the next starts at `next`, `depth` brackets in.
@@ -63,6 +60,7 @@ fn wrap_line(line: &str, columns: usize) -> String {
 
 fn breaks(line: &str) -> Vec<Break> {
     let mut breaks = Vec::new();
+    let mut push = |end, next, depth| breaks.push(Break { end, next, depth });
     let mut depth = 0usize;
     let mut previous = None;
     for (index, character) in line.char_indices() {
@@ -76,26 +74,12 @@ fn breaks(line: &str) -> Vec<Break> {
             _ => {}
         }
         match character {
-            '(' if !rest.is_empty() && !rest.starts_with(')') => breaks.push(Break {
-                end: after,
-                next: after,
-                depth,
-            }),
-            ',' | ';' | '{' if rest.starts_with(' ') => breaks.push(Break {
-                end: after,
-                next: after + 1,
-                depth,
-            }),
-            ':' if previous == Some(')') && rest.starts_with(' ') => breaks.push(Break {
-                end: index,
-                next: index,
-                depth,
-            }),
-            ' ' if index > 0 && (starts(ARROWS) || starts(OPERATORS)) => breaks.push(Break {
-                end: index,
-                next: after,
-                depth: depth + usize::from(starts(OPERATORS)),
-            }),
+            '(' if !rest.is_empty() && !rest.starts_with(')') => push(after, after, depth),
+            ',' | ';' | '{' if rest.starts_with(' ') => push(after, after + 1, depth),
+            ':' if previous == Some(')') && rest.starts_with(' ') => push(index, index, depth),
+            ' ' if index > 0 && (starts(ARROWS) || starts(OPERATORS)) => {
+                push(index, after, depth + usize::from(starts(OPERATORS)))
+            }
             _ => {}
         }
         previous = Some(character);
@@ -115,9 +99,8 @@ pub fn wrapped_offset(code: &str, wrapped: &str, offset: usize) -> usize {
         let rest = &wrapped[position..];
         if rest.starts_with(character) || character != ' ' {
             // Past the line end and indent a break put before it.
-            position += rest
-                .find(character)
-                .map_or(rest.len(), |skipped| skipped + character.len_utf8());
+            position +=
+                rest.find(character).map_or(rest.len(), |skipped| skipped + character.len_utf8());
         }
     }
     match code[offset..].chars().next() {

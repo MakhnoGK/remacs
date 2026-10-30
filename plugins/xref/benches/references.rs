@@ -43,13 +43,11 @@ fn list_references_in_files_on_disk(bencher: Bencher) {
     let mut editor = Editor::new(&[&MinibufferPlugin, &XrefPlugin]);
     editor.add_buffer(Buffer::new("main.rs", Text::from("editor"), "Rust"));
     let locations = locations();
-    bencher
-        .with_inputs(|| locations.clone())
-        .bench_local_values(|locations| {
-            editor.cancel_minibuffer();
-            editor.run_command("xref-find-references");
-            let id = take_requests(&mut editor)[0].id;
-            deliver(&mut editor, id, locations);
-            black_box(editor.minibuffer().is_some())
-        });
+    bencher.with_inputs(|| locations.clone()).bench_local_values(|locations| {
+        editor.cancel_minibuffer();
+        editor.run_command("xref-find-references");
+        let id = take_requests(&mut editor)[0].id;
+        deliver(&mut editor, id, locations);
+        black_box(editor.minibuffer().is_some())
+    });
 }

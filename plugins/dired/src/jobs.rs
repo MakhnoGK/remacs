@@ -42,17 +42,14 @@ pub fn run(editor: &mut Editor, busy: &'static str, job: impl FnOnce() -> Report
 /// they changed again, without waiting for FSEvents.
 pub fn pick_up(editor: &mut Editor) {
     let mut reports = Vec::new();
-    editor
-        .plugin_state::<Jobs>()
-        .reports
-        .retain(|receiver| match receiver.try_recv() {
-            Ok(report) => {
-                reports.push(report);
-                false
-            }
-            Err(TryRecvError::Empty) => true,
-            Err(TryRecvError::Disconnected) => false,
-        });
+    editor.plugin_state::<Jobs>().reports.retain(|receiver| match receiver.try_recv() {
+        Ok(report) => {
+            reports.push(report);
+            false
+        }
+        Err(TryRecvError::Empty) => true,
+        Err(TryRecvError::Disconnected) => false,
+    });
     for report in reports {
         for (from, to) in &report.moved {
             editor.file_moved(from, to);

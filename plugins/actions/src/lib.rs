@@ -56,10 +56,7 @@ impl Plugin for ActionsPlugin {
         for &(keys, command) in POPUP_BINDINGS {
             keymap.bind(keys, command);
         }
-        registry.minor_keymaps.push(MinorKeymap {
-            active: menu::is_shown,
-            keymap,
-        });
+        registry.minor_keymaps.push(MinorKeymap { active: menu::is_shown, keymap });
         registry.post_command_hooks.push(Rc::new(menu::update));
         registry.popup_providers.push(Rc::new(menu::popup));
     }

@@ -43,18 +43,9 @@ impl Plugin for RenamePlugin {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Request {
     /// Its name, to edit into the new one; answered with [`deliver_name`].
-    Name {
-        id: u64,
-        path: PathBuf,
-        offset: usize,
-    },
+    Name { id: u64, path: PathBuf, offset: usize },
     /// The changes renaming it to `new_name` makes; answered with [`deliver_changes`].
-    Rename {
-        id: u64,
-        path: PathBuf,
-        offset: usize,
-        new_name: String,
-    },
+    Rename { id: u64, path: PathBuf, offset: usize, new_name: String },
 }
 
 #[derive(Default)]
@@ -80,17 +71,8 @@ fn rename_symbol(editor: &mut Editor) -> CommandResult {
     let buffer = editor.window_buffer();
     let path = buffer.path().ok_or("Not visiting a file")?.to_path_buf();
     let offset = buffer.point();
-    let id = ask(editor, |id| Request::Name {
-        id,
-        path: path.clone(),
-        offset,
-    });
-    editor.plugin_state::<State>().awaited = Some(Awaited {
-        id,
-        path,
-        offset,
-        names: None,
-    });
+    let id = ask(editor, |id| Request::Name { id, path: path.clone(), offset });
+    editor.plugin_state::<State>().awaited = Some(Awaited { id, path, offset, names: None });
     Ok(())
 }
 
@@ -156,12 +138,8 @@ fn read_new_name(editor: &mut Editor, awaited: Awaited, name: String) -> Command
                 offset,
                 new_name: new_name.clone(),
             });
-            editor.plugin_state::<State>().awaited = Some(Awaited {
-                id,
-                path,
-                offset,
-                names: Some((name, new_name)),
-            });
+            editor.plugin_state::<State>().awaited =
+                Some(Awaited { id, path, offset, names: Some((name, new_name)) });
             editor.set_message("Renaming…");
             Ok(())
         },
@@ -171,11 +149,7 @@ fn read_new_name(editor: &mut Editor, awaited: Awaited, name: String) -> Command
 /// Answers request `id` with the changes renaming makes, or why it cannot be done; makes
 /// them and saves every file changed.
 pub fn deliver_changes(editor: &mut Editor, id: u64, changes: Result<Vec<FileChange>, String>) {
-    let Some(Awaited {
-        names: Some((from, to)),
-        ..
-    }) = take_awaited(editor, id, true)
-    else {
+    let Some(Awaited { names: Some((from, to)), .. }) = take_awaited(editor, id, true) else {
         return;
     };
     let changes = match changes {
@@ -208,10 +182,7 @@ fn take_awaited(editor: &mut Editor, id: u64, renaming: bool) -> Option<Awaited>
 
 /// `Renamed a to b: 5 places in 2 files; moved a.rs to b.rs`.
 fn renamed_message(from: &str, to: &str, places: usize, changed: &ChangedFiles) -> String {
-    let mut message = format!(
-        "Renamed {from} to {to}: {places} {}",
-        plural(places, "place")
-    );
+    let mut message = format!("Renamed {from} to {to}: {places} {}", plural(places, "place"));
     let files = changed.edited.len();
     if files > 1 {
         message.push_str(&format!(" in {files} files"));
@@ -223,18 +194,12 @@ fn renamed_message(from: &str, to: &str, places: usize, changed: &ChangedFiles) 
 }
 
 fn plural(count: usize, word: &str) -> String {
-    if count == 1 {
-        word.to_owned()
-    } else {
-        format!("{word}s")
-    }
+    if count == 1 { word.to_owned() } else { format!("{word}s") }
 }
 
 fn file_name(path: &Path) -> String {
-    path.file_name().map_or_else(
-        || path.display().to_string(),
-        |name| name.to_string_lossy().into_owned(),
-    )
+    path.file_name()
+        .map_or_else(|| path.display().to_string(), |name| name.to_string_lossy().into_owned())
 }
 
 #[cfg(test)]

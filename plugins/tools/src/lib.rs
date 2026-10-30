@@ -33,9 +33,7 @@ impl Plugin for ToolsPlugin {
         for command in panel::COMMANDS {
             registry.commands.add(*command);
         }
-        registry
-            .menu_items
-            .push(MenuItem::new("View", "panels", "Tools", panel::OPEN));
+        registry.menu_items.push(MenuItem::new("View", "panels", "Tools", panel::OPEN));
         registry.settings_hooks.push(Rc::new(read_settings));
         registry.post_command_hooks.push(Rc::new(pick_up));
         registry.status_providers.push(Rc::new(status));
@@ -44,11 +42,7 @@ impl Plugin for ToolsPlugin {
 
 /// Installs tools under `home`'s cache directory, its settings file being `tools.toml`.
 pub fn keep_tools_in(editor: &mut Editor, home: &Path) {
-    state::keep_in(
-        editor,
-        cache_dir(home).join("tools"),
-        config_dir(home).join("tools.toml"),
-    );
+    state::keep_in(editor, cache_dir(home).join("tools"), config_dir(home).join("tools.toml"));
 }
 
 /// Calls `then` with the program of the tool called `name` once it is there, downloading
@@ -68,9 +62,7 @@ pub fn installed(editor: &Editor, name: &str) -> Option<Program> {
 
 /// Whether `tool` can be installed here, e.g. npm is there for an npm package.
 pub fn can_install(editor: &Editor, tool: &Tool) -> bool {
-    editor
-        .find_plugin_state::<Tools>()
-        .is_some_and(|tools| tools.can_install(tool))
+    editor.find_plugin_state::<Tools>().is_some_and(|tools| tools.can_install(tool))
 }
 
 /// Makes `tools` the tools of `kind`, e.g. the language servers of the servers' catalog;
@@ -82,12 +74,7 @@ pub fn provide(editor: &mut Editor, kind: ToolKind, tools: &[&'static Tool]) {
     if kind == ToolKind::Grammar {
         return;
     }
-    let unknown = state
-        .settings
-        .tools
-        .keys()
-        .find(|name| state.entry(name).is_none())
-        .cloned();
+    let unknown = state.settings.tools.keys().find(|name| state.entry(name).is_none()).cloned();
     if let Some(name) = unknown {
         editor.set_error(format!("tools.toml: no tool is called {name}"));
     }
@@ -128,10 +115,7 @@ fn status(editor: &Editor) -> Option<StatusSegment> {
     let text = tools.entries.iter().find_map(|entry| {
         let name = entry.tool.name;
         match &entry.progress {
-            Progress::Downloading {
-                version,
-                percent: Some(percent),
-            } => {
+            Progress::Downloading { version, percent: Some(percent) } => {
                 let version = version.as_deref().unwrap_or_default();
                 Some(format!("Downloading {name} {version} — {percent}%"))
             }

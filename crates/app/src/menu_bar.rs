@@ -1,6 +1,8 @@
 use gpui::{Action, App, KeyBinding, Menu, MenuItem, SharedString};
 use remacs_core::{Editor, Key, KeyCode, describe_sequence};
 
+use crate::key_input::NAMED_KEYS;
+
 /// A menu item's command, run by the editor view.
 #[derive(Clone, Debug, PartialEq, Action)]
 #[action(namespace = remacs, no_json)]
@@ -24,23 +26,14 @@ pub fn set_menus(editor: &Editor, cx: &mut App) {
                     items.push(MenuItem::separator());
                 }
                 for item in group {
-                    let action = RunCommand {
-                        name: item.command.into(),
-                    };
-                    if let Some(keystroke) = item.key_equivalent {
-                        bindings.push(KeyBinding::new(
-                            &keystroke,
-                            action.clone(),
-                            Some(DISPLAY_ONLY),
-                        ));
-                    }
+                    let action = RunCommand { name: item.command.into() };
+                    bindings.extend(item.key_equivalent.map(|keystroke| {
+                        KeyBinding::new(&keystroke, action.clone(), Some(DISPLAY_ONLY))
+                    }));
                     items.push(MenuItem::action(item.title, action));
                 }
             }
-            Menu {
-                name: menu.title.into(),
-                items,
-            }
+            Menu { name: menu.title.into(), items }
         })
         .collect();
     cx.clear_key_bindings();
@@ -71,31 +64,20 @@ fn shown_menus(editor: &Editor) -> Vec<ShownMenu> {
             groups: menu
                 .groups
                 .iter()
-                .map(|group| {
-                    group
-                        .iter()
-                        .map(|item| {
-                            let item_title = item.title_in(editor);
-                            let (title, key_equivalent) = match shown_keys(editor, item.command) {
-                                Some(Shown::Native(keystroke)) => {
-                                    (item_title.to_owned(), Some(keystroke))
-                                }
-                                Some(Shown::InTitle(keys)) => {
-                                    (format!("{item_title} ({keys})"), None)
-                                }
-                                None => (item_title.to_owned(), None),
-                            };
-                            ShownItem {
-                                title,
-                                command: item.command,
-                                key_equivalent,
-                            }
-                        })
-                        .collect()
-                })
+                .map(|group| group.iter().map(|item| shown_item(editor, item)).collect())
                 .collect(),
         })
         .collect()
+}
+
+fn shown_item(editor: &Editor, item: &remacs_core::MenuItem) -> ShownItem {
+    let title = item.title_in(editor);
+    let (title, key_equivalent) = match shown_keys(editor, item.command) {
+        Some(Shown::Native(keystroke)) => (title.to_owned(), Some(keystroke)),
+        Some(Shown::InTitle(keys)) => (format!("{title} ({keys})"), None),
+        None => (title.to_owned(), None),
+    };
+    ShownItem { title, command: item.command, key_equivalent }
 }
 
 /// Whether a menu item may be chosen: its command can run now.
@@ -137,24 +119,13 @@ fn to_keystroke(key: Key) -> Option<String> {
         KeyCode::Char(character) if character.is_ascii_uppercase() => {
             format!("shift-{}", character.to_ascii_lowercase())
         }
-        KeyCode::Char(' ') => "space".to_owned(),
         KeyCode::Char(character) if !character.is_whitespace() && character != '-' => {
             character.to_string()
         }
-        KeyCode::Backspace => "backspace".to_owned(),
-        KeyCode::Delete => "delete".to_owned(),
-        KeyCode::Escape => "escape".to_owned(),
-        KeyCode::Up => "up".to_owned(),
-        KeyCode::Down => "down".to_owned(),
-        KeyCode::Left => "left".to_owned(),
-        KeyCode::Right => "right".to_owned(),
-        KeyCode::Home => "home".to_owned(),
-        KeyCode::End => "end".to_owned(),
-        KeyCode::PageUp => "pageup".to_owned(),
-        KeyCode::PageDown => "pagedown".to_owned(),
         KeyCode::Function(number) => format!("f{number}"),
-        // macOS menus have no key equivalent for them.
-        KeyCode::Char(_) | KeyCode::Return | KeyCode::Tab => return None,
+        // macOS menus have no key equivalent for them, nor for `-` and whitespace but space.
+        KeyCode::Return | KeyCode::Tab => return None,
+        code => NAMED_KEYS.iter().find(|&&(_, named)| named == code)?.0.to_owned(),
     };
     let chord = modifiers.control || modifiers.meta || modifiers.super_key;
     if !chord && !matches!(key.code, KeyCode::Function(_)) {
@@ -166,10 +137,8 @@ fn to_keystroke(key: Key) -> Option<String> {
         (modifiers.shift, "shift-"),
         (modifiers.super_key, "cmd-"),
     ];
-    let mut keystroke: String = prefixes
-        .into_iter()
-        .filter_map(|(held, prefix)| held.then_some(prefix))
-        .collect();
+    let mut keystroke: String =
+        prefixes.into_iter().filter_map(|(held, prefix)| held.then_some(prefix)).collect();
     keystroke.push_str(&name);
     Some(keystroke)
 }
@@ -201,14 +170,10 @@ mod tests {
         let titles: Vec<&str> = menus.iter().map(|menu| menu.title).collect();
         assert_eq!(
             titles,
-            [
-                "Remacs", "File", "Edit", "View", "Go", "Git", "Run", "Window", "Help"
-            ]
+            ["Remacs", "File", "Edit", "View", "Go", "Git", "Run", "Window", "Help"]
         );
-        let items: Vec<&ShownItem> = menus
-            .iter()
-            .flat_map(|menu| menu.groups.iter().flatten())
-            .collect();
+        let items: Vec<&ShownItem> =
+            menus.iter().flat_map(|menu| menu.groups.iter().flatten()).collect();
         for item in &items {
             assert!(
                 editor.commands().get(item.command).is_some(),

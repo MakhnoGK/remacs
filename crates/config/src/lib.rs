@@ -13,36 +13,31 @@ use serde::de::DeserializeOwned;
 
 /// `$XDG_CONFIG_HOME/remacs`, else `~/.config/remacs`.
 pub fn home() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .filter(|dir| !dir.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
-    Some(base.join("remacs"))
+    let xdg = std::env::var_os("XDG_CONFIG_HOME").filter(|dir| !dir.is_empty()).map(PathBuf::from);
+    let home_config = || Some(PathBuf::from(std::env::var_os("HOME")?).join(".config"));
+    Some(xdg.or_else(home_config)?.join("remacs"))
 }
 
-/// The directory of the settings files.
-pub fn config_dir(home: &Path) -> PathBuf {
-    home.join("config")
+macro_rules! home_dirs {
+    ($($(#[$doc:meta])* $function:ident: $name:literal,)*) => {$(
+        $(#[$doc])*
+        pub fn $function(home: &Path) -> PathBuf {
+            home.join($name)
+        }
+    )*};
 }
 
-/// The directory of the user's themes, one file each.
-pub fn themes_dir(home: &Path) -> PathBuf {
-    home.join("themes")
-}
-
-/// The directory of what lasts between sessions, e.g. the minibuffer history.
-pub fn state_dir(home: &Path) -> PathBuf {
-    home.join("state")
-}
-
-/// The directory of what can be rebuilt, e.g. a project's file index.
-pub fn cache_dir(home: &Path) -> PathBuf {
-    home.join("cache")
-}
-
-/// The directory of run configurations, one file per project.
-pub fn run_dir(home: &Path) -> PathBuf {
-    home.join("run")
+home_dirs! {
+    /// The directory of the settings files.
+    config_dir: "config",
+    /// The directory of the user's themes, one file each.
+    themes_dir: "themes",
+    /// The directory of what lasts between sessions, e.g. the minibuffer history.
+    state_dir: "state",
+    /// The directory of what can be rebuilt, e.g. a project's file index.
+    cache_dir: "cache",
+    /// The directory of run configurations, one file per project.
+    run_dir: "run",
 }
 
 /// A project's own directory under `cache`.
@@ -53,9 +48,7 @@ pub fn project_cache_dir(cache: &Path, root: &Path) -> PathBuf {
 /// What a project's own files and directories are called: after its root for people, and
 /// a hash of the root's path for uniqueness.
 pub fn project_name(root: &Path) -> String {
-    let name = root
-        .file_name()
-        .map_or_else(|| "root".into(), |name| name.to_string_lossy());
+    let name = root.file_name().map_or_else(|| "root".into(), |name| name.to_string_lossy());
     let hash = fnv1a(root.as_os_str().as_encoded_bytes());
     format!("{name}-{hash:016x}")
 }
@@ -87,11 +80,7 @@ pub fn watch(
 }
 
 fn changes_settings(event: &Event) -> bool {
-    !matches!(event.kind, EventKind::Access(_))
-        && event
-            .paths
-            .iter()
-            .any(|path| path.extension() == Some(OsStr::new("toml")))
+    !matches!(event.kind, EventKind::Access(_)) && event.paths.iter().any(|path| is_toml(path))
 }
 
 /// Each section's settings file of the defaults, with comments on every setting:
@@ -122,14 +111,10 @@ pub const DEFAULT_FILES: &[(&str, &str)] = &[
 /// settings files are read, to exactly `T::default()`.
 pub fn assert_default_file<T: Section + PartialEq + fmt::Debug>() {
     let file = format!("{}.toml", T::NAME);
-    let (_, text) = DEFAULT_FILES
-        .iter()
-        .find(|(name, _)| *name == T::NAME)
-        .unwrap_or_else(|| panic!("no {file} in DEFAULT_FILES"));
+    let default_file = DEFAULT_FILES.iter().find(|(name, _)| *name == T::NAME);
+    let (_, text) = default_file.unwrap_or_else(|| panic!("no {file} in DEFAULT_FILES"));
     let settings = Settings::from_files([(PathBuf::from(&file), (*text).to_owned())]);
-    let section = settings
-        .section::<T>()
-        .map_err(|(error, _)| error.to_string());
+    let section = settings.section::<T>().map_err(|(error, _)| error.to_string());
     assert_eq!(section, Ok(T::default()), "{file}");
 }
 
@@ -180,15 +165,9 @@ pub struct Settings {
 impl Settings {
     /// A missing directory means all defaults; unreadable files are left out and reported.
     pub fn load(dir: &Path) -> (Self, Vec<SettingsError>) {
-        let mut files = Vec::new();
-        let mut errors = Vec::new();
-        let Ok(entries) = fs::read_dir(dir) else {
-            return (Self::default(), errors);
-        };
-        for path in entries.flatten().map(|entry| entry.path()) {
-            if path.extension() != Some(OsStr::new("toml")) {
-                continue;
-            }
+        let (mut files, mut errors) = (Vec::new(), Vec::new());
+        let paths = fs::read_dir(dir).into_iter().flatten().flatten().map(|entry| entry.path());
+        for path in paths.filter(|path| is_toml(path)) {
             match fs::read_to_string(&path) {
                 Ok(text) => files.push((path, text)),
                 Err(error) => errors.push(SettingsError {
@@ -203,14 +182,10 @@ impl Settings {
 
     /// Settings from files' paths and texts, each file a section named after it.
     pub fn from_files(files: impl IntoIterator<Item = (PathBuf, String)>) -> Self {
-        let files = files
-            .into_iter()
-            .filter_map(|(path, text)| {
-                let name = path.file_stem()?.to_str()?.to_owned();
-                Some((name, SectionFile { path, text }))
-            })
-            .collect();
-        Self { files }
+        let section_file = |(path, text): (PathBuf, String)| {
+            Some((path.file_stem()?.to_str()?.to_owned(), SectionFile { path, text }))
+        };
+        Self { files: files.into_iter().filter_map(section_file).collect() }
     }
 
     /// The section's settings; when its file does not parse or check, the error and the
@@ -219,22 +194,18 @@ impl Settings {
         let Some(file) = self.files.get(T::NAME) else {
             return Ok(T::default());
         };
-        let error = |line, message| SettingsError {
-            file: file.path.clone(),
-            line,
-            message,
-        };
+        let error = |line, message| SettingsError { file: file.path.clone(), line, message };
         let section = toml::from_str::<T>(&file.text).map_err(|parse_error| {
-            let line = parse_error
-                .span()
-                .map(|span| line_at(&file.text, span.start));
+            let line = parse_error.span().map(|span| line_at(&file.text, span.start));
             (error(line, parse_error.message().to_owned()), T::default())
         })?;
-        match section.check() {
-            Ok(()) => Ok(section),
-            Err(message) => Err((error(None, message), T::default())),
-        }
+        section.check().map_err(|message| (error(None, message), T::default()))?;
+        Ok(section)
     }
+}
+
+fn is_toml(path: &Path) -> bool {
+    path.extension() == Some(OsStr::new("toml"))
 }
 
 fn line_at(text: &str, offset: usize) -> usize {
@@ -253,10 +224,8 @@ mod tests {
         assert_eq!(remacs, project_cache_dir(cache, Path::new("/src/remacs")));
         assert!(remacs.starts_with("/cache/projects"));
         let name = remacs.file_name().unwrap().to_str().unwrap();
-        assert!(
-            name.starts_with("remacs-") && name.len() == "remacs-".len() + 16,
-            "{name}"
-        );
+        let hash = name.strip_prefix("remacs-");
+        assert!(hash.is_some_and(|hash| hash.len() == 16), "{name}");
         assert_ne!(remacs, project_cache_dir(cache, Path::new("/old/remacs")));
     }
 
@@ -269,10 +238,7 @@ mod tests {
 
     impl Default for Sample {
         fn default() -> Self {
-            Self {
-                size: 13.0,
-                name: "default".to_owned(),
-            }
+            Self { size: 13.0, name: "default".to_owned() }
         }
     }
 
@@ -280,11 +246,8 @@ mod tests {
         const NAME: &str = "sample";
 
         fn check(&self) -> Result<(), String> {
-            if self.size > 0.0 {
-                Ok(())
-            } else {
-                Err("size must be above 0".to_owned())
-            }
+            let above_zero = self.size > 0.0;
+            above_zero.then_some(()).ok_or("size must be above 0".to_owned())
         }
     }
 
@@ -306,24 +269,17 @@ mod tests {
     #[test]
     fn every_file_of_the_defaults_is_listed_once() {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/defaults");
-        let mut on_disk: Vec<String> = fs::read_dir(dir)
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
-            .collect();
+        let on_disk = fs::read_dir(dir).unwrap().map(|entry| entry.unwrap().file_name());
+        let mut on_disk: Vec<String> = on_disk.map(|name| name.into_string().unwrap()).collect();
         on_disk.sort();
-        let listed: Vec<String> = DEFAULT_FILES
-            .iter()
-            .map(|(name, _)| format!("{name}.toml"))
-            .collect();
-        assert_eq!(listed, on_disk);
+        let listed = DEFAULT_FILES.iter().map(|(name, _)| format!("{name}.toml"));
+        assert_eq!(listed.collect::<Vec<_>>(), on_disk);
     }
 
     /// The `NAME` of each `impl Section` in the sources under `dir`.
     fn section_names(dir: &Path, names: &mut Vec<String>) {
-        for path in fs::read_dir(dir)
-            .unwrap()
-            .map(|entry| entry.unwrap().path())
-        {
+        let paths = fs::read_dir(dir).unwrap().map(|entry| entry.unwrap().path());
+        for path in paths {
             if path.is_dir() {
                 section_names(&path, names);
             } else if path.extension() == Some(OsStr::new("rs")) {
@@ -352,11 +308,9 @@ mod tests {
             }
         }
         assert!(names.len() >= DEFAULT_FILES.len(), "{names:?}");
+        let listed = |name: &str| DEFAULT_FILES.iter().any(|(file, _)| *file == name);
         for name in names {
-            assert!(
-                DEFAULT_FILES.iter().any(|(file, _)| *file == name),
-                "no config/defaults/{name}.toml"
-            );
+            assert!(listed(&name), "no config/defaults/{name}.toml");
         }
     }
 
@@ -417,11 +371,8 @@ mod tests {
         })
         .unwrap();
         fs::write(dir.join("sample.toml"), "size = 15\n").unwrap();
-        assert!(
-            changes
-                .recv_timeout(std::time::Duration::from_secs(5))
-                .is_ok()
-        );
+        let seen = changes.recv_timeout(std::time::Duration::from_secs(5));
+        assert!(seen.is_ok());
         fs::remove_dir_all(dir.parent().unwrap()).unwrap();
     }
 }

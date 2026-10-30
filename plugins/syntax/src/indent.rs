@@ -49,9 +49,8 @@ impl IndentQuery {
     pub fn new(language: &Language, sources: &[&str]) -> Result<Self, String> {
         let query = Query::new(language, &sources.join("\n")).map_err(|error| error.to_string())?;
         let names = query.capture_names();
-        if let Some(unknown) = names
-            .iter()
-            .find(|name| !name.starts_with('_') && role(name).is_none())
+        if let Some(unknown) =
+            names.iter().find(|name| !name.starts_with('_') && role(name).is_none())
         {
             return Err(format!("unknown capture @{unknown}"));
         }
@@ -89,9 +88,7 @@ struct Roles<'tree> {
 impl<'tree> FromIterator<(Node<'tree>, Role)> for Roles<'tree> {
     fn from_iter<T: IntoIterator<Item = (Node<'tree>, Role)>>(captured: T) -> Self {
         let captured: Vec<_> = captured.into_iter().collect();
-        let ids = (captured.iter())
-            .map(|(node, role)| (node.id(), *role))
-            .collect();
+        let ids = (captured.iter()).map(|(node, role)| (node.id(), *role)).collect();
         Self { captured, ids }
     }
 }
@@ -122,11 +119,7 @@ pub(crate) struct Indenter {
 
 impl Indenter {
     pub fn new() -> Self {
-        Self {
-            parser: Parser::new(),
-            parsed: None,
-            queries: HashMap::new(),
-        }
+        Self { parser: Parser::new(), parsed: None, queries: HashMap::new() }
     }
 
     pub fn indentation(
@@ -143,12 +136,7 @@ impl Indenter {
             .map_or(range.start..range.start, |code| code..code + 1);
         let Some((layer, parsed)) = buffer_syntax::layer_for(buffer, &text, at) else {
             let (grammar, tree, parsed) = buffer_syntax::tree_for(buffer, &text)?;
-            let code = Code {
-                grammar,
-                tree,
-                parsed,
-                terminator: None,
-            };
+            let code = Code { grammar, tree, parsed, terminator: None };
             return self.indentation_by(indents, code, &text, line);
         };
         let ranges = layer.tree.included_ranges();
@@ -183,9 +171,7 @@ impl Indenter {
         text: &Snapshot,
         line: usize,
     ) -> Option<Indentation> {
-        let indents = indents
-            .iter()
-            .find(|indents| indents.mode == code.grammar.mode)?;
+        let indents = indents.iter().find(|indents| indents.mode == code.grammar.mode)?;
         if indents.only_blank_lines && first_code(text, text.line_range(line)?).is_some() {
             return None;
         }
@@ -305,9 +291,7 @@ fn indentation(
     let Some(start) = first_code(text, range.clone()) else {
         return blank_line_indentation(query, tree, text, line, range.start);
     };
-    let leaf = tree
-        .root_node()
-        .descendant_for_byte_range(start, start + 1)?;
+    let leaf = tree.root_node().descendant_for_byte_range(start, start + 1)?;
     if leaf.start_position().row < line {
         // Within a string or comment begun above: left as written.
         return Some(at_line(line, false));
@@ -316,18 +300,14 @@ fn indentation(
     let closes = ancestors(leaf)
         .take_while(|node| node.start_byte() == start)
         .any(|node| roles.has(node, Role::Close));
-    let outer = ancestors(leaf)
-        .take_while(|node| !node.is_error())
-        .find(|node| {
-            node.start_position().row < line
-                && (roles.has(*node, Role::Begin) || roles.has(*node, Role::Align))
-        });
+    let outer = ancestors(leaf).take_while(|node| !node.is_error()).find(|node| {
+        node.start_position().row < line
+            && (roles.has(*node, Role::Begin) || roles.has(*node, Role::Align))
+    });
     if outer.is_none() && ancestors(leaf).any(|node| node.is_error()) {
         return None;
     }
-    Some(outer.map_or_else(Indentation::default, |outer| {
-        within(text, &roles, outer, !closes)
-    }))
+    Some(outer.map_or_else(Indentation::default, |outer| within(text, &roles, outer, !closes)))
 }
 
 /// A blank line, as one breaking a line leaves: deeper after an opening token, deeper than
@@ -365,11 +345,7 @@ fn blank_line_indentation(
 }
 
 fn at_line(anchor: usize, deeper: bool) -> Indentation {
-    Indentation {
-        anchor: Some(anchor),
-        deeper,
-        align: 0,
-    }
+    Indentation { anchor: Some(anchor), deeper, align: 0 }
 }
 
 /// A line within `outer`: lined up with it if it aligns, else a level deeper than its
@@ -382,10 +358,7 @@ fn within(text: &Snapshot, roles: &Roles, outer: Node, deeper: bool) -> Indentat
     let line_start = text.line_start(row).unwrap_or(0);
     let code = first_code(text, line_start..outer.start_byte()).unwrap_or(outer.start_byte());
     let before = text.bytes_in(code..outer.start_byte());
-    Indentation {
-        align: String::from_utf8_lossy(&before).chars().count(),
-        ..at_line(row, false)
-    }
+    Indentation { align: String::from_utf8_lossy(&before).chars().count(), ..at_line(row, false) }
 }
 
 /// The block `node` is, over more than one line: the lines after its first are hidden,
@@ -394,11 +367,7 @@ fn block(text: &Snapshot, roles: Option<&Roles>, node: Node) -> Option<Block> {
     let first = node.start_position().row;
     let end = node.end_position();
     // Ending with its line's newline, it ends on that line.
-    let last = if end.column == 0 {
-        end.row.checked_sub(1)?
-    } else {
-        end.row
-    };
+    let last = if end.column == 0 { end.row.checked_sub(1)? } else { end.row };
     if last <= first {
         return None;
     }
@@ -411,10 +380,7 @@ fn block(text: &Snapshot, roles: Option<&Roles>, node: Node) -> Option<Block> {
             !closer.is_named() || roles.is_some_and(|roles| roles.has(closer, Role::Close));
         starts_line && closing
     });
-    Some(Block {
-        lines: first..last + 1,
-        hidden: first + 1..if closes { last } else { last + 1 },
-    })
+    Some(Block { lines: first..last + 1, hidden: first + 1..if closes { last } else { last + 1 } })
 }
 
 /// The lists between brackets under `root` that touch `range`.
@@ -455,13 +421,11 @@ fn first_code(text: &Snapshot, line: Range<usize>) -> Option<usize> {
 
 /// The nearest line above `line` that is not blank, and the end of its last token.
 fn last_code_above(text: &Snapshot, line: usize) -> Option<(usize, usize)> {
-    (line.saturating_sub(MAX_BLANK_LINES)..line)
-        .rev()
-        .find_map(|above| {
-            let range = text.line_range(above)?;
-            let start = range.start.max(range.end.saturating_sub(MAX_SCAN));
-            let tail = text.bytes_in(start..range.end);
-            let end = tail.iter().rposition(|byte| !byte.is_ascii_whitespace())?;
-            Some((above, start + end + 1))
-        })
+    (line.saturating_sub(MAX_BLANK_LINES)..line).rev().find_map(|above| {
+        let range = text.line_range(above)?;
+        let start = range.start.max(range.end.saturating_sub(MAX_SCAN));
+        let tail = text.bytes_in(start..range.end);
+        let end = tail.iter().rposition(|byte| !byte.is_ascii_whitespace())?;
+        Some((above, start + end + 1))
+    })
 }

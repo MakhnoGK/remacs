@@ -24,11 +24,7 @@ struct RustMode;
 
 impl Plugin for RustMode {
     fn register(&self, registry: &mut Registry) {
-        registry.modes.add(Mode {
-            name: "Rust",
-            extensions: &["rs"],
-            ..Mode::default()
-        });
+        registry.modes.add(Mode { name: "Rust", extensions: &["rs"], ..Mode::default() });
     }
 }
 

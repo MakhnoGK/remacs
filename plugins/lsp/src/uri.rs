@@ -55,10 +55,7 @@ mod tests {
     fn paths_survive_the_round_trip() {
         let path = Path::new("/tmp/a b/c#d%/файл.rs");
         let uri = from_path(path);
-        assert_eq!(
-            uri.as_str(),
-            "file:///tmp/a%20b/c%23d%25/%D1%84%D0%B0%D0%B9%D0%BB.rs"
-        );
+        assert_eq!(uri.as_str(), "file:///tmp/a%20b/c%23d%25/%D1%84%D0%B0%D0%B9%D0%BB.rs");
         assert_eq!(to_path(&uri).as_deref(), Some(path));
         let lowercase: Uri = "file:///tmp/a%2fb".parse().unwrap();
         assert_eq!(to_path(&lowercase), Some(PathBuf::from("/tmp/a/b")));

@@ -63,11 +63,7 @@ pub fn ask(editor: &mut Editor, renames: Vec<(PathBuf, PathBuf)>) -> References 
         return References::default();
     }
     let id = queue(editor, renames.clone());
-    References {
-        id,
-        renames,
-        state: State::Unanswered,
-    }
+    References { id, renames, state: State::Unanswered }
 }
 
 /// Asks backends what moving files, from and to, would update, then calls `then` with the
@@ -85,11 +81,8 @@ pub fn ask_before_moving(
         return Ok(());
     }
     let id = queue(editor, moves);
-    editor.plugin_state::<Requests>().waiting_move = Some(WaitingMove {
-        id,
-        queued_after_command: false,
-        then: Box::new(then),
-    });
+    editor.plugin_state::<Requests>().waiting_move =
+        Some(WaitingMove { id, queued_after_command: false, then: Box::new(then) });
     editor.set_message("Finding references to update…");
     Ok(())
 }
@@ -160,10 +153,7 @@ pub fn deliver_rename_edits(editor: &mut Editor, id: u64, edits: Vec<FileEdits>)
     }) else {
         return;
     };
-    let diffs = edits
-        .iter()
-        .filter_map(|file| diff(editor, file, directory))
-        .collect();
+    let diffs = edits.iter().filter_map(|file| diff(editor, file, directory)).collect();
     if let Some(references) = editing_references(editor).find(|references| references.id == id) {
         references.state = State::Known { edits, diffs };
     }
@@ -192,21 +182,13 @@ fn diff(editor: &Editor, file: &FileEdits, directory: &Path) -> Option<FileDiff>
         }
         after.push_str(text.get(copied..span.end)?);
         let before = text.get(span)?;
-        lines.extend(
-            before
-                .split('\n')
-                .map(|line| DiffLine::Removed(line.to_owned())),
-        );
-        lines.extend(
-            after
-                .split('\n')
-                .map(|line| DiffLine::Added(line.to_owned())),
-        );
+        lines.extend(before.split('\n').map(|line| DiffLine::Removed(line.to_owned())));
+        lines.extend(after.split('\n').map(|line| DiffLine::Added(line.to_owned())));
     }
-    let name = file.path.strip_prefix(directory).map_or_else(
-        |_| abbreviate_home(&file.path),
-        |relative| relative.display().to_string(),
-    );
+    let name = file
+        .path
+        .strip_prefix(directory)
+        .map_or_else(|_| abbreviate_home(&file.path), |relative| relative.display().to_string());
     Some(FileDiff { name, lines })
 }
 
@@ -221,9 +203,7 @@ fn line_spans<'a>(
     for edit in edits {
         let (start, end) = (edit.0.start.min(text.len()), edit.0.end.min(text.len()));
         let line_start = text[..start].rfind('\n').map_or(0, |newline| newline + 1);
-        let line_end = text[end..]
-            .find('\n')
-            .map_or(text.len(), |newline| end + newline);
+        let line_end = text[end..].find('\n').map_or(text.len(), |newline| end + newline);
         match spans.last_mut() {
             Some((span, edits)) if line_start <= span.end => {
                 span.end = span.end.max(line_end);
@@ -237,11 +217,7 @@ fn line_spans<'a>(
 
 /// The text the edits' offsets refer to: the buffer visiting `path`, else the file.
 fn text_of(editor: &Editor, path: &Path) -> Option<String> {
-    match editor
-        .buffers()
-        .iter()
-        .find(|buffer| buffer.path() == Some(path))
-    {
+    match editor.buffers().iter().find(|buffer| buffer.path() == Some(path)) {
         Some(buffer) => Some(buffer.contents(0..buffer.text().len())),
         None => fs::read_to_string(path).ok(),
     }
@@ -261,10 +237,8 @@ mod tests {
             (14..14, "// new\n".to_owned()),
         ];
         let spans = line_spans(text, &edits);
-        let shapes: Vec<_> = spans
-            .iter()
-            .map(|(span, edits)| (span.clone(), edits.len()))
-            .collect();
+        let shapes: Vec<_> =
+            spans.iter().map(|(span, edits)| (span.clone(), edits.len())).collect();
         assert_eq!(shapes, [(0..6, 2), (7..13, 1), (14..14, 1)]);
     }
 }

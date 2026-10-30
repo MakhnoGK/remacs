@@ -50,10 +50,7 @@ struct Shown {
 
 impl Shown {
     fn anchor(&self) -> usize {
-        self.answer
-            .range
-            .as_ref()
-            .map_or(self.point, |range| range.start)
+        self.answer.range.as_ref().map_or(self.point, |range| range.start)
     }
 
     /// The blocks before the first heading past the start, like `# Examples`.
@@ -73,9 +70,7 @@ fn state(editor: &mut Editor) -> &mut State {
 
 /// Point moved by the mouse hides the documentation.
 fn shown(buffer: &Buffer) -> Option<&Shown> {
-    buffer
-        .local::<Shown>()
-        .filter(|shown| shown.point == buffer.point())
+    buffer.local::<Shown>().filter(|shown| shown.point == buffer.point())
 }
 
 fn close(editor: &mut Editor) {
@@ -94,10 +89,7 @@ pub(crate) fn update(editor: &mut Editor) {
     if mem::replace(&mut state(editor).seen_commands, count) == count {
         return;
     }
-    if !editor
-        .last_command()
-        .is_some_and(|command| OWN_COMMANDS.contains(&command))
-    {
+    if !editor.last_command().is_some_and(|command| OWN_COMMANDS.contains(&command)) {
         close(editor);
     }
 }
@@ -109,20 +101,14 @@ pub(crate) fn show(editor: &mut Editor) -> CommandResult {
     }
     let buffer = editor.window_buffer_mut();
     let point = buffer.point();
-    if let Some(shown) = buffer
-        .local_mut::<Shown>()
-        .filter(|shown| shown.point == point)
-    {
+    if let Some(shown) = buffer.local_mut::<Shown>().filter(|shown| shown.point == point) {
         shown.full = true;
         return Ok(());
     }
     close(editor);
     let state = state(editor);
     state.next_id += 1;
-    let request = Request {
-        id: state.next_id,
-        offset: point,
-    };
+    let request = Request { id: state.next_id, offset: point };
     state.awaited = Some(request);
     state.requests.push(request);
     Ok(())
@@ -172,12 +158,7 @@ pub fn deliver(editor: &mut Editor, id: u64, answer: Option<Answer>) {
     if buffer.point() != awaited.offset {
         return;
     }
-    buffer.set_local(Shown {
-        point: awaited.offset,
-        answer,
-        full: false,
-        pages: 0,
-    });
+    buffer.set_local(Shown { point: awaited.offset, answer, full: false, pages: 0 });
     state(editor).showing = true;
 }
 
@@ -210,10 +191,7 @@ pub(crate) fn highlight(buffer: &Buffer, range: Range<usize>) -> Vec<Span> {
     shown(buffer)
         .and_then(|shown| shown.answer.range.clone())
         .filter(|symbol| symbol.start < range.end && range.start < symbol.end)
-        .map(|symbol| Span {
-            range: symbol,
-            face: Face::Highlight,
-        })
+        .map(|symbol| Span { range: symbol, face: Face::Highlight })
         .into_iter()
         .collect()
 }

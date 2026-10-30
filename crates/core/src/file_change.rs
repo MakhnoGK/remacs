@@ -34,17 +34,10 @@ impl Editor {
     pub fn change_files(&mut self, changes: Vec<FileChange>) -> Result<ChangedFiles, String> {
         let mut changed = ChangedFiles::default();
         let mut edited: Vec<PathBuf> = Vec::new();
-        let mut result = Ok(());
-        for change in changes {
-            result = self.change_file(change, &mut edited, &mut changed.moved);
-            if result.is_err() {
-                break;
-            }
-        }
+        let result = (changes.into_iter())
+            .try_for_each(|change| self.change_file(change, &mut edited, &mut changed.moved));
         for path in edited {
-            let buffer = self
-                .find_file_noselect(&path)
-                .map_err(|error| failed(&path, error))?;
+            let buffer = self.find_file_noselect(&path).map_err(|error| failed(&path, error))?;
             buffer.save().map_err(|error| failed(&path, error))?;
             changed.edited.push(buffer.name().to_owned());
         }
@@ -63,9 +56,7 @@ impl Editor {
         match change {
             FileChange::Edit(edits) => {
                 let path = edits.path.clone();
-                let buffer = self
-                    .edit_file(edits)
-                    .map_err(|error| failed(&path, error))?;
+                let buffer = self.edit_file(edits).map_err(|error| failed(&path, error))?;
                 let path = buffer.path().map_or(path, Path::to_path_buf);
                 if !edited.contains(&path) {
                     edited.push(path);
@@ -80,11 +71,8 @@ impl Editor {
                 self.file_moved(&from, &to);
                 for path in edited.iter_mut() {
                     if let Ok(rest) = path.strip_prefix(&from) {
-                        *path = if rest.as_os_str().is_empty() {
-                            to.clone()
-                        } else {
-                            to.join(rest)
-                        };
+                        *path =
+                            if rest.as_os_str().is_empty() { to.clone() } else { to.join(rest) };
                     }
                 }
                 moved.push((from, to));
@@ -95,9 +83,7 @@ impl Editor {
 }
 
 fn create(path: &Path) -> io::Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
+    path.parent().map_or(Ok(()), fs::create_dir_all)?;
     match fs::File::create_new(path) {
         Err(error) if error.kind() != io::ErrorKind::AlreadyExists => Err(error),
         _ => Ok(()),
@@ -109,9 +95,7 @@ fn rename(from: &Path, to: &Path) -> io::Result<()> {
         let message = format!("{} already exists", to.display());
         return Err(io::Error::new(io::ErrorKind::AlreadyExists, message));
     }
-    if let Some(parent) = to.parent() {
-        fs::create_dir_all(parent)?;
-    }
+    to.parent().map_or(Ok(()), fs::create_dir_all)?;
     fs::rename(from, to)
 }
 
@@ -121,7 +105,13 @@ fn failed(path: &Path, error: io::Error) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Range;
+
     use super::*;
+
+    fn edit(path: &Path, range: Range<usize>, text: &str) -> FileChange {
+        FileChange::Edit(FileEdits { path: path.to_owned(), edits: vec![(range, text.into())] })
+    }
 
     fn project(name: &str) -> PathBuf {
         let directory = std::env::temp_dir().join(format!("remacs-{name}-{}", std::process::id()));
@@ -142,18 +132,9 @@ mod tests {
 
         let changed = editor
             .change_files(vec![
-                FileChange::Edit(FileEdits {
-                    path: lib.clone(),
-                    edits: vec![(4..5, "c".into())],
-                }),
-                FileChange::Rename {
-                    from: old.clone(),
-                    to: new.clone(),
-                },
-                FileChange::Edit(FileEdits {
-                    path: new.clone(),
-                    edits: vec![(11..12, "c".into())],
-                }),
+                edit(&lib, 4..5, "c"),
+                FileChange::Rename { from: old.clone(), to: new.clone() },
+                edit(&new, 11..12, "c"),
                 FileChange::Create(root.join("d.rs")),
             ])
             .unwrap();
@@ -179,14 +160,8 @@ mod tests {
 
         let error = editor
             .change_files(vec![
-                FileChange::Edit(FileEdits {
-                    path: lib.clone(),
-                    edits: vec![(4..5, "b".into())],
-                }),
-                FileChange::Rename {
-                    from: root.join("a.rs"),
-                    to: taken,
-                },
+                edit(&lib, 4..5, "b"),
+                FileChange::Rename { from: root.join("a.rs"), to: taken },
             ])
             .unwrap_err();
 

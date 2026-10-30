@@ -56,13 +56,8 @@ impl Editor {
     }
 
     fn show_message(&mut self, text: String, kind: MessageKind) {
-        let message = EchoMessage {
-            text,
-            kind,
-            command: self.this_command,
-            at: SystemTime::now(),
-            repeats: 0,
-        };
+        let at = SystemTime::now();
+        let message = EchoMessage { text, kind, command: self.this_command, at, repeats: 0 };
         self.messages.add(&message);
         self.message = Some(message);
     }

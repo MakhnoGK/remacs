@@ -26,12 +26,8 @@ pub const PREVIOUS_ERROR: &str = "compile-previous-error";
 /// one, until the problems of a buffer are gone to.
 pub const OUTPUT: &str = "compile output";
 
-const HINTS: &[(&str, &str)] = &[
-    ("↵", "Run"),
-    ("TAB", "Edit"),
-    ("M-↵", "Run as typed"),
-    ("C-g", "Cancel"),
-];
+const HINTS: &[(&str, &str)] =
+    &[("↵", "Run"), ("TAB", "Edit"), ("M-↵", "Run as typed"), ("C-g", "Cancel")];
 
 /// The command lines compiled so far, newest first, by project root; kept in a state
 /// file across sessions.
@@ -92,9 +88,8 @@ pub fn compile_directory(editor: &Editor) -> Option<PathBuf> {
     if buffer.local::<Console>().is_some() {
         return Some(root);
     }
-    let settings = editor
-        .find_plugin_state::<Sessions>()
-        .map(|sessions| &sessions.settings.compile);
+    let settings =
+        editor.find_plugin_state::<Sessions>().map(|sessions| &sessions.settings.compile);
     let nearest = directory.zip(settings).and_then(|(directory, settings)| {
         directory
             .ancestors()
@@ -106,9 +101,7 @@ pub fn compile_directory(editor: &Editor) -> Option<PathBuf> {
 }
 
 fn canonical(directory: &Path) -> PathBuf {
-    directory
-        .canonicalize()
-        .unwrap_or_else(|_| directory.to_path_buf())
+    directory.canonicalize().unwrap_or_else(|_| directory.to_path_buf())
 }
 
 /// Asks for a command line, the directory's last one first, and runs it there in its
@@ -129,9 +122,7 @@ pub fn compile(editor: &mut Editor) -> CommandResult {
     };
     let complete =
         move |_: &Editor, input: &str| candidates(&commands, suggested.as_deref(), input);
-    editor.read(prompt, complete, move |editor, command| {
-        run(editor, &root, &command)
-    })
+    editor.read(prompt, complete, move |editor, command| run(editor, &root, &command))
 }
 
 /// The commands run before, best matches first; what is typed comes first, so that the
@@ -142,10 +133,7 @@ pub fn candidates(commands: &[String], suggested: Option<&str>, input: &str) -> 
     if let Some(suggested) =
         suggested.filter(|suggested| !commands.iter().any(|command| command == suggested))
     {
-        known.push(Candidate {
-            annotation: "suggested".into(),
-            ..Candidate::new(suggested)
-        });
+        known.push(Candidate { annotation: "suggested".into(), ..Candidate::new(suggested) });
     }
     if input.is_empty() {
         return known.into();
@@ -183,12 +171,7 @@ pub fn run(editor: &mut Editor, root: &Path, command: &str) -> CommandResult {
     if let Err(error) = history(editor).add(root, command, limit) {
         editor.set_error(format!("Could not keep the command: {error}"));
     }
-    let configuration = Configuration::new(
-        command,
-        Kind::Shell {
-            command: command.to_owned(),
-        },
-    );
+    let configuration = Configuration::new(command, Kind::Shell { command: command.to_owned() });
     sessions::compile(editor, root, configuration)
 }
 
@@ -222,17 +205,10 @@ fn visit_location(editor: &mut Editor, forward: bool) -> CommandResult {
     } else {
         output_console(editor).ok_or("Nothing compiled or run yet")?
     };
-    let buffer = editor
-        .buffers()
-        .iter()
-        .find(|buffer| buffer.name() == name)
-        .ok_or("No such console")?;
+    let buffer =
+        editor.buffers().iter().find(|buffer| buffer.name() == name).ok_or("No such console")?;
     let console = buffer.local::<Console>().ok_or("Not a console")?;
-    let offset = if in_window {
-        Some(buffer.point())
-    } else {
-        console.location
-    };
+    let offset = if in_window { Some(buffer.point()) } else { console.location };
     let (start, target) = next_location(buffer, offset, forward).ok_or(if forward {
         "No more locations"
     } else {
@@ -257,9 +233,7 @@ struct Visited(Option<u64>);
 /// so that a location in another package goes on there, else of the latest run.
 fn output_console(editor: &Editor) -> Option<String> {
     let compiled = compile_directory(editor).and_then(|root| find_compile(editor, &root));
-    let visited = editor
-        .find_plugin_state::<Visited>()
-        .and_then(|visited| visited.0);
+    let visited = editor.find_plugin_state::<Visited>().and_then(|visited| visited.0);
     [compiled, visited, latest(editor)]
         .into_iter()
         .flatten()

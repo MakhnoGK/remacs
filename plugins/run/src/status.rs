@@ -39,20 +39,12 @@ pub fn status(editor: &Editor) -> Option<StatusSegment> {
             (configuration, session)
         }
     };
-    let mut items = vec![StatusItem::new(
-        Some(configuration.kind.icon()),
-        configuration.name,
-    )];
+    let mut items = vec![StatusItem::new(Some(configuration.kind.icon()), configuration.name)];
     items.push(match session {
         None => StatusItem::toned("idle", Tone::Faint),
         Some(session) => state_item(session),
     });
-    Some(StatusSegment {
-        items,
-        command: Some(CHOOSE),
-        active: false,
-        code: true,
-    })
+    Some(StatusSegment { items, command: Some(CHOOSE), active: false, code: true })
 }
 
 /// A console where buffers are listed: its configuration's icon and name, or that it
@@ -79,10 +71,7 @@ fn state_item(session: &Session) -> StatusItem {
         return StatusItem::toned(text, tone);
     }
     let (text, tone) = match session.state {
-        State::Running => (
-            format!("running {}", clock(session.elapsed())),
-            Tone::Success,
-        ),
+        State::Running => (format!("running {}", clock(session.elapsed())), Tone::Success),
         State::Stopping => ("stopping".to_owned(), Tone::Warning),
         State::Stopped => ("stopped".to_owned(), Tone::Faint),
         State::Exited(Exit::Code(0)) => ("exited 0".to_owned(), Tone::Faint),

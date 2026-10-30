@@ -82,18 +82,12 @@ fn action(tools: &Tools, entry: &Entry) -> Action {
 }
 
 pub fn is_open(editor: &Editor) -> bool {
-    editor
-        .minibuffer()
-        .is_some_and(|minibuffer| minibuffer.prompt().category == CATEGORY)
+    editor.minibuffer().is_some_and(|minibuffer| minibuffer.prompt().category == CATEGORY)
 }
 
 pub fn open(editor: &mut Editor) -> CommandResult {
     state::check_updates(editor);
-    let dir = tools(editor)
-        .dir
-        .as_deref()
-        .map(abbreviate_home)
-        .unwrap_or_default();
+    let dir = tools(editor).dir.as_deref().map(abbreviate_home).unwrap_or_default();
     let mut keymap = Keymap::default();
     for &(keys, command) in KEYS {
         keymap.bind(keys, command);
@@ -115,11 +109,8 @@ fn completions(editor: &Editor) -> Completions {
     let Some(tools) = editor.find_plugin_state::<Tools>() else {
         return Completions::default();
     };
-    let candidates: Vec<Candidate> = tools
-        .entries
-        .iter()
-        .map(|entry| candidate(tools, entry))
-        .collect();
+    let candidates: Vec<Candidate> =
+        tools.entries.iter().map(|entry| candidate(tools, entry)).collect();
     Completions {
         subject: Some("Debug adapters and language servers remacs downloads".into()),
         ..candidates.into()
@@ -131,14 +122,7 @@ fn candidate(tools: &Tools, entry: &Entry) -> Candidate {
     let own = tools.own_program(name);
     let annotation = match (&own, &entry.progress, &entry.installed) {
         (Some(own), _, _) => abbreviate_home(own),
-        (
-            _,
-            Progress::Downloading {
-                version: Some(version),
-                ..
-            },
-            _,
-        )
+        (_, Progress::Downloading { version: Some(version), .. }, _)
         | (_, Progress::Installing { version }, _)
         | (_, _, Some(version)) => format!("{version} · {}", entry.tool.origin()),
         _ => entry.tool.origin().into(),
@@ -158,10 +142,7 @@ fn describe(tools: &Tools, entry: &Entry, own: bool) -> String {
     match &entry.progress {
         _ if own => "Set in tools.toml".into(),
         Progress::Downloading { percent: None, .. } => "Looking up the release…".into(),
-        Progress::Downloading {
-            percent: Some(percent),
-            ..
-        } => format!("Downloading {percent}%"),
+        Progress::Downloading { percent: Some(percent), .. } => format!("Downloading {percent}%"),
         Progress::Installing { .. } => "Installing…".into(),
         Progress::Failed(error) => format!("Failed: {error}"),
         Progress::Idle => match (&entry.installed, &entry.update) {
@@ -203,9 +184,7 @@ fn act(editor: &mut Editor) -> CommandResult {
         Action::OpenSettings => open_settings(editor),
         Action::Reinstall => {
             let version = entry.installed.clone().unwrap_or_default();
-            editor.set_message(format!(
-                "{name} {version} is installed; R downloads it again"
-            ));
+            editor.set_message(format!("{name} {version} is installed; R downloads it again"));
             Ok(())
         }
     }
@@ -216,9 +195,7 @@ fn update(editor: &mut Editor) -> CommandResult {
     if tools(editor).own_program(name).is_some() {
         return Err(format!("{name} is set in tools.toml").into());
     }
-    let latest = tools(editor)
-        .entry(name)
-        .and_then(|entry| entry.update.clone());
+    let latest = tools(editor).entry(name).and_then(|entry| entry.update.clone());
     state::start_install(editor, name, latest, false);
     editor.refresh_minibuffer();
     Ok(())
@@ -233,9 +210,7 @@ fn install(editor: &mut Editor) -> CommandResult {
 
 fn reinstall(editor: &mut Editor) -> CommandResult {
     let name = selected(editor)?;
-    let version = tools(editor)
-        .entry(name)
-        .and_then(|entry| entry.installed.clone());
+    let version = tools(editor).entry(name).and_then(|entry| entry.installed.clone());
     state::start_install(editor, name, version, true);
     editor.refresh_minibuffer();
     Ok(())
@@ -248,10 +223,7 @@ fn cancel(editor: &mut Editor) -> CommandResult {
 }
 
 fn open_settings(editor: &mut Editor) -> CommandResult {
-    let path = tools(editor)
-        .settings_file
-        .clone()
-        .ok_or("No settings directory")?;
+    let path = tools(editor).settings_file.clone().ok_or("No settings directory")?;
     editor.cancel_minibuffer();
     editor.visit_file(&path)?;
     Ok(())

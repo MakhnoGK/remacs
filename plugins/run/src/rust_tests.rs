@@ -34,10 +34,7 @@ pub fn rust_tests(path: &Path, text: &str, root: &Path, package: &CargoPackage) 
         return Vec::new();
     };
     let mut parser = Parser::new();
-    if parser
-        .set_language(&tree_sitter_rust::LANGUAGE.into())
-        .is_err()
-    {
+    if parser.set_language(&tree_sitter_rust::LANGUAGE.into()).is_err() {
         return Vec::new();
     }
     let Some(tree) = parser.parse(text, None) else {
@@ -46,20 +43,13 @@ pub fn rust_tests(path: &Path, text: &str, root: &Path, package: &CargoPackage) 
     let mut tests = Vec::new();
     let mut module = target.module.clone();
     find_tests(tree.root_node(), text, &mut module, &mut tests);
-    tests
-        .into_iter()
-        .map(|test| entry_point(test, &target.cargo, package.cwd(root)))
-        .collect()
+    tests.into_iter().map(|test| entry_point(test, &target.cargo, package.cwd(root))).collect()
 }
 
 fn entry_point(test: Test, cargo: &Cargo, cwd: String) -> EntryPoint {
     let path = test.path.join("::");
     // A module's own tests, not those of a module whose name it starts.
-    let filter = if test.function {
-        path.clone()
-    } else {
-        format!("{path}::")
-    };
+    let filter = if test.function { path.clone() } else { format!("{path}::") };
     let mut configuration = Configuration::new(
         path,
         Kind::Cargo(Cargo {
@@ -72,12 +62,7 @@ fn entry_point(test: Test, cargo: &Cargo, cwd: String) -> EntryPoint {
     if test.function {
         configuration.args = vec!["--exact".to_owned()];
     }
-    EntryPoint {
-        line: test.line,
-        end_line: test.end_line,
-        configuration,
-        temporary: true,
-    }
+    EntryPoint { line: test.line, end_line: test.end_line, configuration, temporary: true }
 }
 
 /// Collects the tests among `node`'s items, in `module`; whether there are any.
@@ -126,88 +111,47 @@ fn name(item: Node, text: &str) -> Option<String> {
 }
 
 fn test(item: Node, path: Vec<String>, function: bool) -> Test {
-    Test {
-        line: item.start_position().row,
-        end_line: item.end_position().row,
-        path,
-        function,
-    }
+    Test { line: item.start_position().row, end_line: item.end_position().row, path, function }
 }
 
 /// `#[test]`, `#[tokio::test(flavor = "multi_thread")]`; not `#[cfg(test)]`.
 fn is_test_attribute(attribute: &str) -> bool {
-    let path = attribute
-        .trim_start_matches("#[")
-        .split(['(', ']', ' '])
-        .next()
-        .unwrap_or_default();
+    let path = attribute.trim_start_matches("#[").split(['(', ']', ' ']).next().unwrap_or_default();
     let last = path.rsplit("::").next().unwrap_or_default();
     TEST_ATTRIBUTES.contains(&last)
 }
 
 /// Where the tests of `path` are built: the library, a binary or an integration test.
 fn test_target(path: &Path, package: &CargoPackage) -> Option<TestTarget> {
-    let cargo = |selection: Cargo| Cargo {
-        package: Some(package.name.clone()),
-        ..selection
-    };
+    let cargo = |selection: Cargo| Cargo { package: Some(package.name.clone()), ..selection };
     if let Some(Target::Bin(bin)) = package.main_target(path) {
         return Some(TestTarget {
-            cargo: cargo(Cargo {
-                bin: Some(bin),
-                ..Cargo::default()
-            }),
+            cargo: cargo(Cargo { bin: Some(bin), ..Cargo::default() }),
             module: Vec::new(),
         });
     }
-    let parts: Vec<&str> = path
-        .strip_prefix(&package.dir)
-        .ok()?
-        .iter()
-        .filter_map(|part| part.to_str())
-        .collect();
+    let parts: Vec<&str> =
+        path.strip_prefix(&package.dir).ok()?.iter().filter_map(|part| part.to_str()).collect();
     let (selection, files) = match parts.as_slice() {
         ["tests", name] => (
-            Cargo {
-                test: Some(name.strip_suffix(".rs")?.to_owned()),
-                ..Cargo::default()
-            },
+            Cargo { test: Some(name.strip_suffix(".rs")?.to_owned()), ..Cargo::default() },
             &[][..],
         ),
-        ["tests", name, files @ ..] => (
-            Cargo {
-                test: Some((*name).to_owned()),
-                ..Cargo::default()
-            },
-            files,
-        ),
-        ["src", "bin", name, files @ ..] => (
-            Cargo {
-                bin: Some((*name).to_owned()),
-                ..Cargo::default()
-            },
-            files,
-        ),
-        ["src", files @ ..] if package.dir.join("src/lib.rs").is_file() => (
-            Cargo {
-                lib: true,
-                ..Cargo::default()
-            },
-            files,
-        ),
-        ["src", files @ ..] => (
-            Cargo {
-                bin: Some(package.name.clone()),
-                ..Cargo::default()
-            },
-            files,
-        ),
+        ["tests", name, files @ ..] => {
+            (Cargo { test: Some((*name).to_owned()), ..Cargo::default() }, files)
+        }
+        ["src", "bin", name, files @ ..] => {
+            (Cargo { bin: Some((*name).to_owned()), ..Cargo::default() }, files)
+        }
+        ["src", files @ ..] if package.dir.join("src/lib.rs").is_file() => {
+            (Cargo { lib: true, ..Cargo::default() }, files)
+        }
+        ["src", files @ ..] => {
+            (Cargo { bin: Some(package.name.clone()), ..Cargo::default() }, files)
+        }
         _ => return None,
     };
-    Some(TestTarget {
-        cargo: cargo(selection),
-        module: module_of(files)?,
-    })
+    Some(TestTarget { cargo: cargo(selection), module: module_of(files)? })
 }
 
 /// The module a file is, from its path under the target's root: `store/mod.rs` and

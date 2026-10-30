@@ -141,11 +141,7 @@ impl Section for TerminalSettings {
             .into_iter()
             .find(|(_, padding)| !PADDINGS.contains(padding))
         {
-            return Err(format!(
-                "{name} must be {} to {}",
-                PADDINGS.start(),
-                PADDINGS.end()
-            ));
+            return Err(format!("{name} must be {} to {}", PADDINGS.start(), PADDINGS.end()));
         }
         if !SCROLLBACK_LINES.contains(&self.scrollback_lines) {
             return Err(format!(

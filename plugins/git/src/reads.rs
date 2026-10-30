@@ -57,17 +57,14 @@ fn start<T: Send + 'static>(
 /// Shows what finished reads read. Runs after every command.
 pub fn pick_up(editor: &mut Editor) {
     let mut done = Vec::new();
-    editor
-        .plugin_state::<Reads>()
-        .0
-        .retain(|(receiver, busy)| match receiver.try_recv() {
-            Ok(show) => {
-                done.push((show, *busy));
-                false
-            }
-            Err(TryRecvError::Empty) => true,
-            Err(TryRecvError::Disconnected) => false,
-        });
+    editor.plugin_state::<Reads>().0.retain(|(receiver, busy)| match receiver.try_recv() {
+        Ok(show) => {
+            done.push((show, *busy));
+            false
+        }
+        Err(TryRecvError::Empty) => true,
+        Err(TryRecvError::Disconnected) => false,
+    });
     for (show, busy) in done {
         if busy {
             editor.clear_message();

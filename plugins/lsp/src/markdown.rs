@@ -118,9 +118,7 @@ fn heading(line: &str) -> Option<&str> {
 }
 
 fn list_item(line: &str) -> Option<&str> {
-    ["- ", "* ", "+ "]
-        .iter()
-        .find_map(|bullet| line.strip_prefix(bullet))
+    ["- ", "* ", "+ "].iter().find_map(|bullet| line.strip_prefix(bullet))
 }
 
 const ENTITIES: [(&str, &str); 6] = [
@@ -162,9 +160,7 @@ fn inline(text: &str) -> String {
             _ => plain.push(character),
         }
     }
-    ENTITIES.iter().fold(plain, |plain, (entity, character)| {
-        plain.replace(entity, character)
-    })
+    ENTITIES.iter().fold(plain, |plain, (entity, character)| plain.replace(entity, character))
 }
 
 /// `(url)` or `[reference]` after a link's text.
@@ -188,10 +184,8 @@ fn skip_past(chars: &mut Peekable<Chars>, close: char) {
 mod tests {
     use super::*;
 
-    const MODES: CodeModes = CodeModes {
-        document: "C++",
-        languages: &[("C", "c"), ("C++", "cpp")],
-    };
+    const MODES: CodeModes =
+        CodeModes { document: "C++", languages: &[("C", "c"), ("C++", "cpp")] };
 
     #[test]
     fn markdown_becomes_paragraphs_and_code() {
@@ -214,10 +208,7 @@ mod tests {
         );
         assert_eq!(
             plain_blocks("int f(int x)\n\nParameters:"),
-            [
-                DocBlock::Text("int f(int x)".into()),
-                DocBlock::Text("Parameters:".into())
-            ]
+            [DocBlock::Text("int f(int x)".into()), DocBlock::Text("Parameters:".into())]
         );
     }
 }

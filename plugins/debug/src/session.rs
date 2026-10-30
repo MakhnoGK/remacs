@@ -144,17 +144,12 @@ impl Session {
     /// A line in the console, dimmed: the debugger's own words.
     pub fn note(&self, text: &str) {
         let text = text.trim_end_matches('\n');
-        self.say(Event::Output(
-            format!("\x1b[2m{text}\x1b[0m\n").into_bytes(),
-        ));
+        self.say(Event::Output(format!("\x1b[2m{text}\x1b[0m\n").into_bytes()));
     }
 }
 
 fn find_session(editor: &mut Editor, id: u64) -> Option<&mut Session> {
-    debugger(editor)
-        .sessions
-        .iter_mut()
-        .find(|session| session.id == id)
+    debugger(editor).sessions.iter_mut().find(|session| session.id == id)
 }
 
 pub fn find_link(editor: &mut Editor, address: Address) -> Option<&mut Link> {
@@ -197,20 +192,12 @@ pub fn start(
         exit_code: None,
         last_log: None,
     });
-    Ok(Box::new(DebugProgram {
-        events,
-        shared,
-        notifier,
-    }))
+    Ok(Box::new(DebugProgram { events, shared, notifier }))
 }
 
 /// Takes what preparations and adapters have to say; runs after every command.
 pub fn update(editor: &mut Editor) {
-    let ids: Vec<u64> = debugger(editor)
-        .sessions
-        .iter()
-        .map(|session| session.id)
-        .collect();
+    let ids: Vec<u64> = debugger(editor).sessions.iter().map(|session| session.id).collect();
     for id in ids {
         stop_if_asked(editor, id);
         // The preparation and every connection together take a backlog at once, as much as
@@ -245,10 +232,7 @@ fn stop_if_asked(editor: &mut Editor, id: u64) {
         Phase::Debugging => {
             session.phase = Phase::Stopping(Instant::now() + timeout);
             editor.refresh_after(timeout);
-            let address = Address {
-                session: id,
-                link: 0,
-            };
+            let address = Address { session: id, link: 0 };
             request(
                 editor,
                 address,
@@ -270,11 +254,7 @@ fn prepared(editor: &mut Editor, id: u64, budget: &mut usize) {
     // The result first: once it is in, all the output is too, at most a backlog of it, and
     // all of it goes to the console before the preparation is dropped.
     let result = preparation.try_result();
-    let limit = if result.is_some() {
-        usize::MAX
-    } else {
-        *budget
-    };
+    let limit = if result.is_some() { usize::MAX } else { *budget };
     for event in std::iter::from_fn(|| preparation.try_output()).take(limit) {
         session.say(event);
         *budget = budget.saturating_sub(1);
@@ -296,11 +276,8 @@ fn prepared(editor: &mut Editor, id: u64, budget: &mut usize) {
 /// Asks which of the test binaries built to debug.
 fn choose_target(editor: &mut Editor, id: u64, choices: Vec<(String, Target)>) -> CommandResult {
     let labels: Vec<String> = choices.iter().map(|(label, _)| label.clone()).collect();
-    let prompt = Prompt {
-        label: "Debug tests of".into(),
-        require_match: true,
-        ..Prompt::default()
-    };
+    let prompt =
+        Prompt { label: "Debug tests of".into(), require_match: true, ..Prompt::default() };
     editor.read(
         prompt,
         move |_, input| {
@@ -350,13 +327,9 @@ fn connect(editor: &mut Editor, id: u64, program: &Path, target: Target) {
         return;
     }
     let connection = match session.adapter {
-        Adapter::CodeLldb => Connection::stdio(
-            program,
-            &codelldb_args(),
-            &target.cwd,
-            session.backlog,
-            notifier,
-        ),
+        Adapter::CodeLldb => {
+            Connection::stdio(program, &codelldb_args(), &target.cwd, session.backlog, notifier)
+        }
         Adapter::JsDebug => free_port().and_then(|port| {
             let server = Command::new("node")
                 .arg(program)
@@ -368,28 +341,18 @@ fn connect(editor: &mut Editor, id: u64, program: &Path, target: Target) {
                 .stderr(Stdio::piped())
                 .spawn()?;
             session.port = Some(port);
-            Ok(Connection::tcp(
-                port,
-                Some(server),
-                session.backlog,
-                notifier,
-            ))
+            Ok(Connection::tcp(port, Some(server), session.backlog, notifier))
         }),
     };
     let connection = match connection {
         Ok(connection) => connection,
         Err(error) => {
-            session.note(&format!(
-                "Could not start {}: {error}",
-                session.adapter.tool()
-            ));
+            session.note(&format!("Could not start {}: {error}", session.adapter.tool()));
             finish(editor, id, Some(Exit::NotStarted));
             return;
         }
     };
-    let arguments = session
-        .adapter
-        .launch_arguments(&session.name, &target, session.rust);
+    let arguments = session.adapter.launch_arguments(&session.name, &target, session.rust);
     session.phase = Phase::Debugging;
     session.shared.set_state("debugging", Tone::Success);
     add_link(editor, id, connection, ("launch".into(), arguments));
@@ -415,10 +378,7 @@ fn add_link(editor: &mut Editor, id: u64, connection: Connection, opening: (Stri
         frame: 0,
         inspected: Inspected::default(),
     });
-    let address = Address {
-        session: id,
-        link: session.links.len() - 1,
-    };
+    let address = Address { session: id, link: session.links.len() - 1 };
     let adapter_id = session.adapter.id();
     let initialize = json!({
         "clientID": "remacs",
@@ -432,38 +392,22 @@ fn add_link(editor: &mut Editor, id: u64, connection: Connection, opening: (Stri
         "supportsRunInTerminalRequest": false,
         "supportsStartDebuggingRequest": true,
     });
-    request(
-        editor,
-        address,
-        "initialize",
-        initialize,
-        |editor, address, result| {
+    request(editor, address, "initialize", initialize, |editor, address, result| {
+        if let Err(error) = result {
+            fail(editor, address, &format!("The debug adapter did not start: {error}"));
+            return;
+        }
+        let Some((command, arguments)) =
+            find_link(editor, address).map(|link| link.request.clone())
+        else {
+            return;
+        };
+        request(editor, address, &command, arguments, |editor, address, result| {
             if let Err(error) = result {
-                fail(
-                    editor,
-                    address,
-                    &format!("The debug adapter did not start: {error}"),
-                );
-                return;
+                fail(editor, address, &error);
             }
-            let Some((command, arguments)) =
-                find_link(editor, address).map(|link| link.request.clone())
-            else {
-                return;
-            };
-            request(
-                editor,
-                address,
-                &command,
-                arguments,
-                |editor, address, result| {
-                    if let Err(error) = result {
-                        fail(editor, address, &error);
-                    }
-                },
-            );
-        },
-    );
+        });
+    });
 }
 
 /// Sends a request; `then` gets its response.
@@ -491,10 +435,7 @@ fn receive(editor: &mut Editor, id: u64, budget: &mut usize) {
     // Connections in a row with nothing waiting; a closed one has nothing ever again.
     let mut idle = 0;
     while idle < links && *budget > 0 {
-        let address = Address {
-            session: id,
-            link: index,
-        };
+        let address = Address { session: id, link: index };
         index = (index + 1) % links;
         let Some(incoming) =
             find_link(editor, address).and_then(|link| link.connection.try_receive())
@@ -567,9 +508,7 @@ fn event(editor: &mut Editor, address: Address, message: &Value) {
         "continued" => continued(editor, address),
         "exited" => {
             if let Some(session) = find_session(editor, address.session) {
-                session.exit_code = body["exitCode"]
-                    .as_i64()
-                    .and_then(|code| code.try_into().ok());
+                session.exit_code = body["exitCode"].as_i64().and_then(|code| code.try_into().ok());
             }
         }
         "terminated" if address.link == 0 => finish(editor, address.session, None),
@@ -584,39 +523,21 @@ fn configure(editor: &mut Editor, address: Address) {
     for file in files {
         send_breakpoints(editor, address, &file);
     }
-    request(
-        editor,
-        address,
-        "setExceptionBreakpoints",
-        json!({ "filters": [] }),
-        |_, _, _| {},
-    );
-    request(
-        editor,
-        address,
-        "configurationDone",
-        json!({}),
-        |_, _, _| {},
-    );
+    request(editor, address, "setExceptionBreakpoints", json!({ "filters": [] }), |_, _, _| {});
+    request(editor, address, "configurationDone", json!({}), |_, _, _| {});
 }
 
 /// Tells the adapter `file`'s breakpoints, and takes what it says of them.
 pub fn send_breakpoints(editor: &mut Editor, address: Address, file: &Path) {
     let arguments = debugger(editor).breakpoints.request(file);
     let file = file.to_path_buf();
-    request(
-        editor,
-        address,
-        "setBreakpoints",
-        arguments,
-        move |editor, _, result| {
-            if let Ok(body) = result
-                && let Some(answers) = body["breakpoints"].as_array()
-            {
-                debugger(editor).breakpoints.verify(&file, answers);
-            }
-        },
-    );
+    request(editor, address, "setBreakpoints", arguments, move |editor, _, result| {
+        if let Ok(body) = result
+            && let Some(answers) = body["breakpoints"].as_array()
+        {
+            debugger(editor).breakpoints.verify(&file, answers);
+        }
+    });
 }
 
 /// Sends `file`'s breakpoints to every connection debugging.
@@ -626,10 +547,7 @@ pub fn breakpoints_changed(editor: &mut Editor, file: &Path) {
         .iter()
         .filter(|session| matches!(session.phase, Phase::Debugging))
         .flat_map(|session| {
-            (0..session.links.len()).map(|link| Address {
-                session: session.id,
-                link,
-            })
+            (0..session.links.len()).map(|link| Address { session: session.id, link })
         })
         .collect();
     for address in addresses {
@@ -673,48 +591,34 @@ fn stopped(editor: &mut Editor, address: Address, body: &Value) {
     // A stop takes the pane slot from whatever had it, e.g. a terminal.
     editor.select_pane(crate::pane::NAME);
     let arguments = json!({ "threadId": thread, "startFrame": 0, "levels": 64 });
-    request(
-        editor,
-        address,
-        "stackTrace",
-        arguments,
-        |editor, address, result| {
-            let Ok(body) = result else {
-                return;
-            };
-            let Some(root) =
-                find_session(editor, address.session).map(|session| session.root.clone())
-            else {
-                return;
-            };
-            let frames: Vec<Frame> = body["stackFrames"]
-                .as_array()
-                .map(|frames| frames.iter().map(|value| frame(value, &root)).collect())
-                .unwrap_or_default();
-            let Some(link) = find_link(editor, address) else {
-                return;
-            };
-            link.frames = frames;
-            // The first frame of the program's own code, past those of libraries.
-            link.frame = link
-                .frames
-                .iter()
-                .position(|frame| !frame.subtle)
-                .unwrap_or(0);
-            show_frame(editor, address);
-            inspect::load(editor, address);
-        },
-    );
+    request(editor, address, "stackTrace", arguments, |editor, address, result| {
+        let Ok(body) = result else {
+            return;
+        };
+        let Some(root) = find_session(editor, address.session).map(|session| session.root.clone())
+        else {
+            return;
+        };
+        let frames: Vec<Frame> = body["stackFrames"]
+            .as_array()
+            .map(|frames| frames.iter().map(|value| frame(value, &root)).collect())
+            .unwrap_or_default();
+        let Some(link) = find_link(editor, address) else {
+            return;
+        };
+        link.frames = frames;
+        // The first frame of the program's own code, past those of libraries.
+        link.frame = link.frames.iter().position(|frame| !frame.subtle).unwrap_or(0);
+        show_frame(editor, address);
+        inspect::load(editor, address);
+    });
 }
 
 /// A frame of the stack; those outside the project at `root` are of libraries.
 fn frame(value: &Value, root: &Path) -> Frame {
     let path = value["source"]["path"].as_str().map(PathBuf::from);
     let number = |key: &str| {
-        value[key]
-            .as_u64()
-            .and_then(|number| usize::try_from(number).ok())
-            .unwrap_or(1)
+        value[key].as_u64().and_then(|number| usize::try_from(number).ok()).unwrap_or(1)
     };
     Frame {
         id: value["id"].as_i64().unwrap_or_default(),
@@ -766,41 +670,20 @@ pub fn resume(editor: &mut Editor, address: Address, command: &str) -> Result<()
         .map(|stop| stop.thread)
         .ok_or("The program is not paused")?;
     continued(editor, address);
-    request(
-        editor,
-        address,
-        command,
-        json!({ "threadId": thread }),
-        |editor, address, result| {
-            if let Err(error) = result {
-                fail(editor, address, &error);
-            }
-        },
-    );
+    request(editor, address, command, json!({ "threadId": thread }), |editor, address, result| {
+        if let Err(error) = result {
+            fail(editor, address, &error);
+        }
+    });
     Ok(())
 }
 
 /// Pauses every thread.
 pub fn pause(editor: &mut Editor, address: Address) {
-    request(
-        editor,
-        address,
-        "threads",
-        json!({}),
-        |editor, address, result| {
-            let thread = result
-                .ok()
-                .and_then(|body| body["threads"][0]["id"].as_i64())
-                .unwrap_or(1);
-            request(
-                editor,
-                address,
-                "pause",
-                json!({ "threadId": thread }),
-                |_, _, _| {},
-            );
-        },
-    );
+    request(editor, address, "threads", json!({}), |editor, address, result| {
+        let thread = result.ok().and_then(|body| body["threads"][0]["id"].as_i64()).unwrap_or(1);
+        request(editor, address, "pause", json!({ "threadId": thread }), |_, _, _| {});
+    });
 }
 
 /// js-debug asks for a session of each process it debugs, on a connection of its own.
@@ -813,28 +696,18 @@ fn reverse_request(editor: &mut Editor, address: Address, message: &Value) {
         return;
     };
     if message["command"] != "startDebugging" {
-        parent.connection.respond(
-            message,
-            Err(format!("{} is not supported", message["command"])),
-        );
+        parent.connection.respond(message, Err(format!("{} is not supported", message["command"])));
         return;
     }
     let Some(port) = session.port else {
-        parent
-            .connection
-            .respond(message, Err("no port to connect to".into()));
+        parent.connection.respond(message, Err("no port to connect to".into()));
         return;
     };
     parent.connection.respond(message, Ok(json!({})));
     let arguments = &message["arguments"];
     let command = arguments["request"].as_str().unwrap_or("launch").to_owned();
     let connection = Connection::tcp(port, None, session.backlog, notifier);
-    add_link(
-        editor,
-        address.session,
-        connection,
-        (command, arguments["configuration"].clone()),
-    );
+    add_link(editor, address.session, connection, (command, arguments["configuration"].clone()));
 }
 
 fn fail(editor: &mut Editor, address: Address, error: &str) {
@@ -849,18 +722,11 @@ fn fail(editor: &mut Editor, address: Address, error: &str) {
 /// Ends the session: the console is told how the program ended, and the adapter goes.
 fn finish(editor: &mut Editor, id: u64, exit: Option<Exit>) {
     let debugger = debugger(editor);
-    let Some(index) = debugger
-        .sessions
-        .iter()
-        .position(|session| session.id == id)
-    else {
+    let Some(index) = debugger.sessions.iter().position(|session| session.id == id) else {
         return;
     };
     let session = debugger.sessions.remove(index);
-    if debugger
-        .current
-        .is_some_and(|current| current.session == id)
-    {
+    if debugger.current.is_some_and(|current| current.session == id) {
         debugger.current = None;
     }
     let exit = exit.unwrap_or(Exit::Code(session.exit_code.unwrap_or(0)));
@@ -872,10 +738,7 @@ fn finish(editor: &mut Editor, id: u64, exit: Option<Exit>) {
 pub fn current_frame(editor: &Editor) -> Option<&Frame> {
     let debugger = editor.find_plugin_state::<Debugger>()?;
     let address = debugger.current?;
-    let session = debugger
-        .sessions
-        .iter()
-        .find(|session| session.id == address.session)?;
+    let session = debugger.sessions.iter().find(|session| session.id == address.session)?;
     let link = session.link(address.link)?;
     link.stopped.as_ref()?;
     link.frames.get(link.frame)
@@ -885,10 +748,7 @@ pub fn current(editor: &mut Editor) -> Option<Address> {
     let debugger = debugger(editor);
     debugger.current.or_else(|| {
         let session = debugger.sessions.last()?;
-        Some(Address {
-            session: session.id,
-            link: session.links.len().checked_sub(1)?,
-        })
+        Some(Address { session: session.id, link: session.links.len().checked_sub(1)? })
     })
 }
 

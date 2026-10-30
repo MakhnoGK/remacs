@@ -20,20 +20,13 @@ struct Stamp {
 
 impl Stamp {
     fn of(metadata: &Metadata) -> io::Result<Self> {
-        Ok(Self {
-            inode: metadata.ino(),
-            len: metadata.len(),
-            modified: metadata.modified()?,
-        })
+        Ok(Self { inode: metadata.ino(), len: metadata.len(), modified: metadata.modified()? })
     }
 }
 
 impl DiskFile {
     pub fn opened(path: &Path, file: &File) -> io::Result<Self> {
-        Ok(Self {
-            path: path.to_path_buf(),
-            stamp: Stamp::of(&file.metadata()?)?,
-        })
+        Ok(Self { path: path.to_path_buf(), stamp: Stamp::of(&file.metadata()?)? })
     }
 
     pub fn changed(&self) -> io::Result<bool> {
@@ -56,10 +49,7 @@ impl DiskFile {
         if written.is_err() {
             let _ = fs::remove_file(&temporary);
         }
-        Ok(Self {
-            path: path.to_path_buf(),
-            stamp: written?,
-        })
+        Ok(Self { path: path.to_path_buf(), stamp: written? })
     }
 }
 
@@ -77,10 +67,8 @@ pub fn open_regular_file(path: &Path) -> io::Result<File> {
         return Err(refused());
     }
     // Non-blocking in case the path became a FIFO since, so opening it returns at once.
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY)
-        .open(path)?;
+    let file =
+        OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY).open(path)?;
     if !file.metadata()?.is_file() {
         return Err(refused());
     }
@@ -107,9 +95,7 @@ fn write_and_rename(
     }
     let mut writer = BufWriter::with_capacity(1 << 20, file);
     contents(&mut writer)?;
-    let file = writer
-        .into_inner()
-        .map_err(io::IntoInnerError::into_error)?;
+    let file = writer.into_inner().map_err(io::IntoInnerError::into_error)?;
     file.sync_all()?;
     fs::rename(temporary, target)?;
     Stamp::of(&file.metadata()?)

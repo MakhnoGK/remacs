@@ -21,9 +21,8 @@ pub(crate) struct CompletionSupport {
 
 impl CompletionSupport {
     pub fn from_capabilities(capabilities: &Value) -> Option<Self> {
-        let provider = capabilities
-            .get("completionProvider")
-            .filter(|provider| provider.is_object())?;
+        let provider =
+            capabilities.get("completionProvider").filter(|provider| provider.is_object())?;
         let trigger_characters = provider["triggerCharacters"]
             .as_array()
             .into_iter()
@@ -33,10 +32,7 @@ impl CompletionSupport {
                 chars.next().filter(|_| chars.next().is_none())
             })
             .collect();
-        Some(Self {
-            trigger_characters,
-            resolves: provider["resolveProvider"] == true,
-        })
+        Some(Self { trigger_characters, resolves: provider["resolveProvider"] == true })
     }
 
     pub fn resolves(&self) -> bool {
@@ -51,21 +47,14 @@ impl CompletionSupport {
                 if !self.trigger_characters.contains(&typed) {
                     return None;
                 }
-                (
-                    CompletionTriggerKind::TRIGGER_CHARACTER,
-                    Some(typed.to_string()),
-                )
+                (CompletionTriggerKind::TRIGGER_CHARACTER, Some(typed.to_string()))
             }
             Trigger::Explicit | Trigger::Typed(_) => (CompletionTriggerKind::INVOKED, None),
-            Trigger::Incomplete => (
-                CompletionTriggerKind::TRIGGER_FOR_INCOMPLETE_COMPLETIONS,
-                None,
-            ),
+            Trigger::Incomplete => {
+                (CompletionTriggerKind::TRIGGER_FOR_INCOMPLETE_COMPLETIONS, None)
+            }
         };
-        Some(CompletionContext {
-            trigger_kind,
-            trigger_character,
-        })
+        Some(CompletionContext { trigger_kind, trigger_character })
     }
 }
 
@@ -91,13 +80,7 @@ pub(crate) fn list(
     };
     items.sort_by(|a, b| sort_text(a).cmp(sort_text(b)));
     let converted = items.iter().map(|item| convert(item, origin)).collect();
-    (
-        List {
-            items: converted,
-            incomplete,
-        },
-        items,
-    )
+    (List { items: converted, incomplete }, items)
 }
 
 fn sort_text(item: &CompletionItem) -> &str {
@@ -111,10 +94,7 @@ pub(crate) fn convert(item: &CompletionItem, origin: &Origin) -> Item {
         Some(CompletionTextEdit::InsertAndReplace(edit)) => {
             (offset(edit.insert.start), &edit.new_text)
         }
-        None => (
-            origin.start,
-            item.insert_text.as_ref().unwrap_or(&item.label),
-        ),
+        None => (origin.start, item.insert_text.as_ref().unwrap_or(&item.label)),
     };
     let (insert, cursor) = if item.insert_text_format == Some(InsertTextFormat::SNIPPET) {
         snippet::expand(text)
@@ -137,10 +117,7 @@ pub(crate) fn convert(item: &CompletionItem, origin: &Origin) -> Item {
         kind,
         swatch: swatch(item),
         detail,
-        filter_text: item
-            .filter_text
-            .clone()
-            .unwrap_or_else(|| item.label.clone()),
+        filter_text: item.filter_text.clone().unwrap_or_else(|| item.label.clone()),
         start,
         insert,
         cursor,
@@ -245,10 +222,7 @@ mod tests {
             text: Text::from(source).snapshot(),
             start,
             encoding: Encoding::Utf16,
-            modes: CodeModes {
-                document: "Rust",
-                languages: &[("Rust", "rust")],
-            },
+            modes: CodeModes { document: "Rust", languages: &[("Rust", "rust")] },
         }
     }
 
@@ -313,10 +287,7 @@ mod tests {
         assert_eq!(swatch(color("#fb2c36")), Some(0xfb2c36ff));
         assert_eq!(swatch(color("#fb2c3680")), Some(0xfb2c3680));
         assert_eq!(swatch(color("rgb(1, 2, 3)")), None);
-        assert_eq!(
-            swatch(json!({ "label": "x", "kind": 6, "documentation": "#fb2c36" })),
-            None
-        );
+        assert_eq!(swatch(json!({ "label": "x", "kind": 6, "documentation": "#fb2c36" })), None);
     }
 
     #[test]
@@ -325,16 +296,9 @@ mod tests {
         let support = CompletionSupport::from_capabilities(&capabilities).unwrap();
         assert!(support.resolves());
         let kind = |trigger| support.context(trigger).map(|context| context.trigger_kind);
+        assert_eq!(kind(Trigger::Typed('a')), Some(CompletionTriggerKind::INVOKED));
         assert_eq!(
-            kind(Trigger::Typed('a')),
-            Some(CompletionTriggerKind::INVOKED)
-        );
-        assert_eq!(
-            support
-                .context(Trigger::Typed('.'))
-                .unwrap()
-                .trigger_character
-                .as_deref(),
+            support.context(Trigger::Typed('.')).unwrap().trigger_character.as_deref(),
             Some(".")
         );
         assert_eq!(kind(Trigger::Typed(':')), None);

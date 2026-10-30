@@ -132,13 +132,13 @@ impl PromptChoice {
 
     fn next(&self) {
         if !self.values.is_empty() {
-            self.selected
-                .set((self.selected.get() + 1) % self.values.len());
+            self.selected.set((self.selected.get() + 1) % self.values.len());
         }
     }
 }
 
 /// A setting a prompt's answer depends on, switched by `M-` and `key`, or a click.
+#[derive(Default)]
 pub struct PromptOption {
     pub key: char,
     /// Off, then on: two labels make a switch between them, one a chip lit while on.
@@ -155,13 +155,7 @@ pub struct PromptOption {
 impl PromptOption {
     /// A chip lit while `state` is on, always shown.
     pub fn chip(key: char, label: &str, state: &Rc<Cell<bool>>) -> Self {
-        Self {
-            key,
-            labels: vec![label.into()],
-            state: Rc::clone(state),
-            shown_while: None,
-            hidden_while: None,
-        }
+        Self { key, labels: vec![label.into()], state: Rc::clone(state), ..Self::default() }
     }
 
     pub fn is_switch(&self) -> bool {
@@ -247,17 +241,13 @@ impl Minibuffer {
         source: Option<CompletionSource>,
         on_answer: AnswerHandler,
     ) -> Self {
-        let (subject, description) = match &prompt.message {
-            Some(_) => {
-                let (subject, description) = split_message(&prompt.initial_input);
-                (
-                    subject,
-                    Some(input_buffer(" *Minibuf-description*", description)),
-                )
-            }
-            None => (prompt.initial_input.as_str(), None),
+        let (subject, description) = match prompt.message {
+            Some(_) => split_message(&prompt.initial_input),
+            None => (prompt.initial_input.as_str(), ""),
         };
         let input = input_buffer(" *Minibuf*", subject);
+        let description =
+            (prompt.message.as_ref()).map(|_| input_buffer(" *Minibuf-description*", description));
         Self {
             prompt,
             input,
@@ -275,11 +265,7 @@ impl Minibuffer {
     }
 
     pub(crate) fn question(question: String, on_answer: AnswerHandler) -> Self {
-        let prompt = Prompt {
-            label: question,
-            hints: QUESTION_HINTS,
-            ..Prompt::default()
-        };
+        let prompt = Prompt { label: question, hints: QUESTION_HINTS, ..Prompt::default() };
         Self::new(prompt, None, on_answer)
     }
 
@@ -384,11 +370,7 @@ impl Minibuffer {
 
     /// The keymap active over the others now: the list's while keys go to it.
     pub fn keymap(&self) -> Option<&Keymap> {
-        if self.in_list {
-            self.prompt.list_keymap.as_ref()
-        } else {
-            None
-        }
+        self.prompt.list_keymap.as_ref().filter(|_| self.in_list)
     }
 
     /// Printable keys type into the input.
@@ -420,17 +402,10 @@ impl Minibuffer {
     /// The subject, and the description after a blank line if there is one.
     fn message_text(&self) -> String {
         let subject = self.input_text();
-        let description = self
-            .description
-            .as_ref()
-            .map(|buffer| buffer.contents(0..buffer.text().len()))
-            .unwrap_or_default();
+        let whole = |buffer: &Buffer| buffer.contents(0..buffer.text().len());
+        let description = self.description.as_ref().map(whole).unwrap_or_default();
         let description = description.trim_end();
-        if description.is_empty() {
-            subject
-        } else {
-            format!("{subject}\n\n{description}")
-        }
+        if description.is_empty() { subject } else { format!("{subject}\n\n{description}") }
     }
 
     pub fn is_question(&self) -> bool {
@@ -453,18 +428,12 @@ impl Minibuffer {
 
     /// The completions' label if they give one, else the prompt's.
     pub fn label(&self) -> &str {
-        self.completions
-            .label
-            .as_deref()
-            .unwrap_or(&self.prompt.label)
+        self.completions.label.as_deref().unwrap_or(&self.prompt.label)
     }
 
     /// The completions' subject if they give one, else the prompt's.
     pub fn subject(&self) -> &str {
-        self.completions
-            .subject
-            .as_deref()
-            .unwrap_or(&self.prompt.subject)
+        self.completions.subject.as_deref().unwrap_or(&self.prompt.subject)
     }
 
     pub fn completions(&self) -> &Completions {
@@ -489,10 +458,7 @@ impl Minibuffer {
 
     /// The choice `key` picks the next value of.
     pub(crate) fn choice_for_key(&self, key: Key) -> Option<usize> {
-        self.prompt
-            .choices
-            .iter()
-            .position(|choice| Key::parse(choice.key) == Some(key))
+        self.prompt.choices.iter().position(|choice| Key::parse(choice.key) == Some(key))
     }
 
     pub(crate) fn next_choice(&self, index: usize) {
@@ -502,13 +468,9 @@ impl Minibuffer {
     }
 
     pub(crate) fn toggle_prompt_option(&self, index: usize) {
-        if let Some(option) = self
-            .prompt
-            .options
-            .get(index)
-            .filter(|option| option.is_shown())
-        {
-            option.state.set(!option.state.get());
+        let option = self.prompt.options.get(index);
+        if let Some(option) = option.filter(|option| option.is_shown()) {
+            option.state.set(!option.is_on());
         }
     }
 
@@ -523,8 +485,7 @@ impl Minibuffer {
 
     /// Indices of the candidates on screen; the selection is always among them.
     pub fn visible(&self) -> Range<usize> {
-        self.selection
-            .visible(self.candidates().len(), VISIBLE_CANDIDATES)
+        self.selection.visible(self.candidates().len(), VISIBLE_CANDIDATES)
     }
 
     pub fn select(&mut self, index: usize) {
@@ -559,14 +520,9 @@ impl Minibuffer {
         let index = if input_changed {
             self.selection = Selection::default();
             let default = self.prompt.default.as_ref().filter(|_| input.is_empty());
-            default
-                .and_then(|default| {
-                    self.candidates()
-                        .iter()
-                        .position(|candidate| &candidate.value == default)
-                })
-                .or(self.completions.selected)
-                .unwrap_or(0)
+            let mut candidates = self.candidates().iter();
+            let found = candidates.position(|candidate| Some(&candidate.value) == default);
+            found.or(self.completions.selected).unwrap_or(0)
         } else {
             self.selection.selected()
         };
@@ -625,16 +581,7 @@ fn split_message(message: &str) -> (&str, &str) {
 /// `text` as a name in a prompt's or a dialog's text, drawn in the code font (ADR 0004);
 /// its backticks and backslashes are escaped.
 pub fn quote(text: &str) -> String {
-    let mut quoted = String::with_capacity(text.len() + 2);
-    quoted.push('`');
-    for character in text.chars() {
-        if matches!(character, '`' | '\\') {
-            quoted.push('\\');
-        }
-        quoted.push(character);
-    }
-    quoted.push('`');
-    quoted
+    format!("`{}`", text.replace('\\', "\\\\").replace('`', "\\`"))
 }
 
 /// The parts of a prompt's or a dialog's text, each with whether `quote` made it a name;
@@ -675,9 +622,6 @@ mod quoting_tests {
                 ("?".to_owned(), false),
             ]
         );
-        assert_eq!(
-            quoted_parts("C:\\ is not quoted"),
-            [("C:\\ is not quoted".to_owned(), false)]
-        );
+        assert_eq!(quoted_parts("C:\\ is not quoted"), [("C:\\ is not quoted".to_owned(), false)]);
     }
 }

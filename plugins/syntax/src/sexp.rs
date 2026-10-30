@@ -40,9 +40,7 @@ pub(crate) fn next_end(node: Node, offset: usize) -> Option<usize> {
     if node.child_count() == 0 {
         return Some(node.end_byte());
     }
-    inside(node)
-        .find(|child| child.end_byte() > offset)
-        .map(|child| child.end_byte())
+    inside(node).find(|child| child.end_byte() > offset).map(|child| child.end_byte())
 }
 
 /// Where the expression before `offset` in `node`, its innermost node, starts.
@@ -50,10 +48,7 @@ pub(crate) fn previous_start(node: Node, offset: usize) -> Option<usize> {
     if node.child_count() == 0 {
         return Some(node.start_byte());
     }
-    inside(node)
-        .filter(|child| child.start_byte() < offset)
-        .last()
-        .map(|child| child.start_byte())
+    inside(node).filter(|child| child.start_byte() < offset).last().map(|child| child.start_byte())
 }
 
 /// The list `offset` is in, from `node`, its innermost node.
@@ -67,10 +62,8 @@ pub(crate) fn down_list(editor: &mut Editor) -> CommandResult {
         editor,
         |node, point| {
             let after = expressions(node).filter(|child| child.start_byte() >= point);
-            first_list(after).map(|list| {
-                list.child(0)
-                    .map_or(list.start_byte(), |open| open.end_byte())
-            })
+            first_list(after)
+                .map(|list| list.child(0).map_or(list.start_byte(), |open| open.end_byte()))
         },
         "No list ahead",
     )
@@ -93,9 +86,8 @@ pub(crate) fn backward_list(editor: &mut Editor) -> CommandResult {
     move_by(
         editor,
         |node, point| {
-            let before: Vec<_> = expressions(node)
-                .filter(|child| child.end_byte() <= point)
-                .collect();
+            let before: Vec<_> =
+                expressions(node).filter(|child| child.end_byte() <= point).collect();
             last_list(before.into_iter().rev()).map(|list| list.start_byte())
         },
         "No list behind",
@@ -163,28 +155,21 @@ fn ancestors(node: Node) -> impl Iterator<Item = Node> {
 /// Whether the node is between brackets that open and close it.
 pub(crate) fn is_list(node: &Node) -> bool {
     let count = node.child_count();
-    let (Some(first), Some(last)) = (
-        node.child(0),
-        count.checked_sub(1).and_then(|last| node.child(last)),
-    ) else {
+    let (Some(first), Some(last)) =
+        (node.child(0), count.checked_sub(1).and_then(|last| node.child(last)))
+    else {
         return false;
     };
     count >= 2
         && !first.is_named()
-        && BRACKETS
-            .iter()
-            .any(|&(open, close)| first.kind() == open && last.kind() == close)
+        && BRACKETS.iter().any(|&(open, close)| first.kind() == open && last.kind() == close)
 }
 
 /// The first list among `nodes` and what they hold, the outermost one where lists nest.
 fn first_list<'tree>(nodes: impl Iterator<Item = Node<'tree>>) -> Option<Node<'tree>> {
-    nodes.into_iter().find_map(|node| {
-        if is_list(&node) {
-            Some(node)
-        } else {
-            first_list(expressions(node))
-        }
-    })
+    nodes
+        .into_iter()
+        .find_map(|node| if is_list(&node) { Some(node) } else { first_list(expressions(node)) })
 }
 
 /// Like [`first_list`] over `nodes` given last first.

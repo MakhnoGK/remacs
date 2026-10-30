@@ -43,7 +43,7 @@ pub use completion::{
     rank,
 };
 pub use decoration::{ConsoleColor, ConsoleStyle, Decorator, Face, Span};
-pub use echo::{EchoMessage, MessageKind, MessageLog};
+pub use echo::{EchoMessage, MessageKind, MessageLog, local_tm};
 pub use editor::{Editor, KeyOutcome, KeyReader, Notifier, SCRATCH_BUFFER, SELF_INSERT_COMMAND};
 pub use file_change::{ChangedFiles, FileChange};
 pub use folds::ShownLines;
@@ -80,8 +80,7 @@ pub use screen::{
 pub use status::{StatusItem, StatusProvider, StatusSegment, Tone};
 pub use syntax::{
     Block, BlockProbe, Embedded, EmbeddedProbe, IndentProbe, Indentation, SyntaxContext,
-    SyntaxProbe, blank_outside,
-    embedded_file,
+    SyntaxProbe, blank_outside, embedded_file,
 };
 pub use table::{
     Action, Button, CellStyle, Changes, Column, DiffLine, Elsewhere, Field, FileDiff, Mark, Notice,
@@ -90,3 +89,12 @@ pub use table::{
 pub use vc::{ChangedLines, FileState, FileStatus, LineChange, LineCounts, VersionControl};
 pub use viewport::Viewport;
 pub use window::{Axis, Layout, WindowId};
+
+/// Pushes those of `more` not in `list` yet, in order.
+fn push_new<T: PartialEq>(list: &mut Vec<T>, more: impl IntoIterator<Item = T>) {
+    for value in more {
+        if !list.contains(&value) {
+            list.push(value);
+        }
+    }
+}

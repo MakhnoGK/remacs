@@ -40,10 +40,8 @@ pub fn dired(editor: &mut Editor) -> CommandResult {
 /// Lists the directory of the window's file, with point on it, like Emacs `dired-jump`.
 pub fn dired_jump(editor: &mut Editor) -> CommandResult {
     let buffer = editor.window_buffer();
-    let file_name = buffer
-        .path()
-        .and_then(Path::file_name)
-        .map(|name| name.to_string_lossy().into_owned());
+    let file_name =
+        buffer.path().and_then(Path::file_name).map(|name| name.to_string_lossy().into_owned());
     let directory = default_directory(editor);
     let replace = buffer.mode() == DIRED_MODE;
     let (directory, select) = match (replace, directory.parent()) {
@@ -78,20 +76,13 @@ pub fn up_directory(editor: &mut Editor) -> CommandResult {
 
 /// Reads the directory again, though changes show up by themselves.
 pub fn revert(editor: &mut Editor) -> CommandResult {
-    let listing = editor
-        .window_buffer()
-        .local::<Listing>()
-        .ok_or(NOT_A_LISTING)?;
+    let listing = editor.window_buffer().local::<Listing>().ok_or(NOT_A_LISTING)?;
     listing.reader.reread();
     Ok(())
 }
 
 pub fn sort_toggle(editor: &mut Editor) -> CommandResult {
-    let current = editor
-        .window_buffer()
-        .local::<Listing>()
-        .ok_or(NOT_A_LISTING)?
-        .sort;
+    let current = editor.window_buffer().local::<Listing>().ok_or(NOT_A_LISTING)?.sort;
     sort_by(editor, current.next())
 }
 
@@ -229,16 +220,11 @@ pub fn open_directory(
 fn listing_directory(editor: &Editor) -> Result<PathBuf, &'static str> {
     let buffer = editor.window_buffer();
     buffer.local::<Listing>().ok_or(NOT_A_LISTING)?;
-    buffer
-        .default_directory()
-        .map(Path::to_path_buf)
-        .ok_or(NOT_A_LISTING)
+    buffer.default_directory().map(Path::to_path_buf).ok_or(NOT_A_LISTING)
 }
 
 fn directory_name(directory: &Path) -> Option<String> {
-    directory
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
+    directory.file_name().map(|name| name.to_string_lossy().into_owned())
 }
 
 /// Subdirectories of the directory typed so far, led by that directory itself if it
@@ -247,11 +233,8 @@ pub fn directory_completions(input: &str) -> Completions {
     let mut candidates = directory_candidates(input).candidates;
     candidates.retain(|candidate| candidate.icon == Some(Icon::Directory));
     if input.ends_with('/') && expand_home(input).is_dir() {
-        let itself = Candidate {
-            label: "./".into(),
-            icon: Some(Icon::Directory),
-            ..Candidate::new(input)
-        };
+        let itself =
+            Candidate { label: "./".into(), icon: Some(Icon::Directory), ..Candidate::new(input) };
         candidates.insert(0, itself);
     }
     candidates.into()

@@ -6,10 +6,7 @@ use remacs_text::{Encoding, Text, encodings};
 /// Saving then writes that encoding.
 pub fn revert_buffer_with_coding_system(editor: &mut Editor) -> CommandResult {
     let buffer = editor.window_buffer();
-    let path = buffer
-        .path()
-        .ok_or("The buffer visits no file")?
-        .to_path_buf();
+    let path = buffer.path().ok_or("The buffer visits no file")?.to_path_buf();
     if buffer.is_modified() {
         return Err("The buffer has unsaved changes; save or undo them first".into());
     }
@@ -25,9 +22,7 @@ pub fn revert_buffer_with_coding_system(editor: &mut Editor) -> CommandResult {
             .ok_or_else(|| format!("No encoding is called {name}"))?;
         let text = Text::open_with_encoding(&path, encoding)
             .map_err(|error| format!("{}: {error}", path.display()))?;
-        let buffer = editor
-            .find_file_noselect(&path)
-            .map_err(|error| error.to_string())?;
+        let buffer = editor.find_file_noselect(&path).map_err(|error| error.to_string())?;
         buffer.replace_text(text);
         buffer.set_read_only(false);
         editor.set_message(format!("Read as {}", encoding.name()));
@@ -40,10 +35,8 @@ pub fn visits_file(editor: &Editor) -> bool {
 }
 
 fn encoding_candidates(_: &Editor, input: &str) -> Completions {
-    let candidates = encodings()
-        .into_iter()
-        .map(|encoding| Candidate::new(encoding.name()))
-        .collect();
+    let candidates =
+        encodings().into_iter().map(|encoding| Candidate::new(encoding.name())).collect();
     filter_candidates(input, candidates, false)
 }
 
@@ -66,10 +59,7 @@ mod tests {
 
         editor.window_buffer_mut().insert("Ж");
         editor.window_buffer_mut().save().unwrap();
-        assert_eq!(
-            std::fs::read(&path).unwrap(),
-            b"\xc6\xcf\xf0\xe8\xe2\xe5\xf2\n"
-        );
+        assert_eq!(std::fs::read(&path).unwrap(), b"\xc6\xcf\xf0\xe8\xe2\xe5\xf2\n");
 
         // "Пока", read again in the encoding chosen.
         std::fs::write(&path, b"\xcf\xee\xea\xe0\n").unwrap();

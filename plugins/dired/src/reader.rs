@@ -62,13 +62,7 @@ fn run(
 ) {
     // Watching before the first read keeps changes made during it.
     let _watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
-        if !matches!(
-            event,
-            Ok(Event {
-                kind: EventKind::Access(_),
-                ..
-            })
-        ) {
+        if !matches!(event, Ok(Event { kind: EventKind::Access(_), .. })) {
             let _ = events.send(Message::Changed);
         }
     })
@@ -121,11 +115,7 @@ mod tests {
         );
         let log_size = |listing: io::Result<Vec<Entry>>| {
             let entries = listing.unwrap();
-            entries
-                .iter()
-                .find(|entry| entry.name == "log.txt")
-                .unwrap()
-                .size
+            entries.iter().find(|entry| entry.name == "log.txt").unwrap().size
         };
         notified.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(log_size(reader.latest().unwrap()), 0);
@@ -135,12 +125,7 @@ mod tests {
         // Like `echo line >> log.txt` in a loop: FSEvents tells of writes as files close.
         let writer = thread::spawn(move || {
             while !writing.load(Ordering::Relaxed) {
-                OpenOptions::new()
-                    .append(true)
-                    .open(&log)
-                    .unwrap()
-                    .write_all(b"line\n")
-                    .unwrap();
+                OpenOptions::new().append(true).open(&log).unwrap().write_all(b"line\n").unwrap();
                 thread::sleep(Duration::from_millis(20));
             }
         });

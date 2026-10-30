@@ -128,17 +128,11 @@ const CONFLICT_BINDINGS: &[(&str, &str)] = &[
     ("p", "git-previous-conflict"),
 ];
 
-const BINDINGS: &[(&str, &str)] = &[
-    ("C-x g", "git-status"),
-    ("C-x v l", "git-log-file"),
-    ("C-x v g", "git-blame"),
-];
+const BINDINGS: &[(&str, &str)] =
+    &[("C-x g", "git-status"), ("C-x v l", "git-log-file"), ("C-x v g", "git-blame")];
 
-const BLAME_BINDINGS: &[(&str, &str)] = &[
-    ("RET", blame::OPEN_COMMIT),
-    ("b", blame::PREVIOUS),
-    ("q", "git-quit"),
-];
+const BLAME_BINDINGS: &[(&str, &str)] =
+    &[("RET", blame::OPEN_COMMIT), ("b", blame::PREVIOUS), ("q", "git-quit")];
 
 const COMMIT_BINDINGS: &[(&str, &str)] = &[
     ("TAB", commit_view::TOGGLE),
@@ -275,34 +269,22 @@ impl Plugin for GitPlugin {
             keymap: blame_keymap,
         });
         registry.version_controls.push(Rc::new(Git));
-        registry
-            .settings_hooks
-            .push(Rc::new(settings::read_settings));
-        registry
-            .post_command_hooks
-            .push(Rc::new(repositories::track));
+        registry.settings_hooks.push(Rc::new(settings::read_settings));
+        registry.post_command_hooks.push(Rc::new(repositories::track));
         registry.post_command_hooks.push(Rc::new(status_view::sync));
         registry.post_command_hooks.push(Rc::new(reads::pick_up));
-        registry
-            .post_command_hooks
-            .push(Rc::new(buffer_changes::sync));
+        registry.post_command_hooks.push(Rc::new(buffer_changes::sync));
         registry.display_hooks.push(Rc::new(status_view::sync));
         registry.display_hooks.push(Rc::new(buffer_changes::sync));
         registry.outlines.push(Rc::new(status_view::outline));
         registry.decorators.push(Rc::new(commit_view::decorate));
-        registry
-            .decorators
-            .push(Rc::new(commit_view::decorate_changes));
+        registry.decorators.push(Rc::new(commit_view::decorate_changes));
         registry.line_extras.push(Rc::new(commit_view::line_extras));
         registry.text_controls.push(Rc::new(commit_view::controls));
         registry.line_extras.push(Rc::new(blame::line_extras));
         registry.text_controls.push(Rc::new(blame::controls));
-        registry
-            .status_providers
-            .push(Rc::new(status_view::branch_status));
-        registry
-            .status_providers
-            .push(Rc::new(status_view::sync_status));
+        registry.status_providers.push(Rc::new(status_view::branch_status));
+        registry.status_providers.push(Rc::new(status_view::sync_status));
     }
 }
 

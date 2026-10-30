@@ -159,10 +159,7 @@ fn find(search: &mut Search, term: &mut Term<Listener>, again: bool) {
         Some(current) if again => current,
         _ => {
             let origin = search.origin;
-            let first_after = search
-                .matches
-                .iter()
-                .position(|found| *found.start() >= origin);
+            let first_after = search.matches.iter().position(|found| *found.start() >= origin);
             let index = if search.forward {
                 first_after.unwrap_or(0)
             } else {
@@ -177,11 +174,7 @@ fn find(search: &mut Search, term: &mut Term<Listener>, again: bool) {
         }
     };
     let count = search.matches.len();
-    let index = if search.forward {
-        (from + 1) % count
-    } else {
-        (from + count - 1) % count
-    };
+    let index = if search.forward { (from + 1) % count } else { (from + count - 1) % count };
     search.current = Some(index);
     goto(term, *search.matches[index].start());
 }
@@ -191,11 +184,8 @@ fn all_matches(term: &Term<Listener>, input: &str) -> Vec<RangeInclusive<Point>>
         return Vec::new();
     }
     let escaped = regex_escape(input);
-    let pattern = if input.chars().any(char::is_uppercase) {
-        escaped
-    } else {
-        format!("(?i){escaped}")
-    };
+    let pattern =
+        if input.chars().any(char::is_uppercase) { escaped } else { format!("(?i){escaped}") };
     let Ok(mut regex) = RegexSearch::new(&pattern) else {
         return Vec::new();
     };
@@ -241,9 +231,7 @@ pub fn mode(term: &Term<Listener>) -> ScreenMode {
 pub fn search_bar(search: &Search) -> ScreenSearch {
     ScreenSearch {
         input: search.input.clone(),
-        found: search
-            .current
-            .map(|current| (current + 1, search.matches.len())),
+        found: search.current.map(|current| (current + 1, search.matches.len())),
         hints: SEARCH_HINTS,
     }
 }

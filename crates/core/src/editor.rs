@@ -15,7 +15,7 @@ use crate::history::History;
 use crate::key::Key;
 use crate::keymap::Keymap;
 use crate::kill_ring::KillRing;
-use crate::menu::{self, FrameRequest, MenuLayout};
+use crate::menu::{self, FrameRequest, MenuItem, MenuLayout};
 use crate::minibuffer::Minibuffer;
 use crate::plugin::{Plugin, Registry};
 use crate::viewport::Viewport;
@@ -44,6 +44,8 @@ pub type Notifier = Arc<dyn Fn() + Send + Sync>;
 /// [`Editor::read_key_sequence`].
 pub type KeyReader = Box<dyn FnOnce(&mut Editor, &[Key], Option<&'static str>)>;
 
+/// Made by [`Editor::new`]; `Default` alone has no buffer to show.
+#[derive(Default)]
 pub struct Editor {
     /// Most recently selected first; the first one is shown in the window.
     buffers: Vec<Buffer>,
@@ -80,7 +82,8 @@ pub struct Editor {
     plugin_states: HashMap<TypeId, Box<dyn Any>>,
     settings: Settings,
     cache_dir: Option<PathBuf>,
-    notifier: Arc<RwLock<Notifier>>,
+    /// None until the UI sets one.
+    notifier: Arc<RwLock<Option<Notifier>>>,
     refresh_at: Option<Instant>,
     /// Files moved since [`Editor::take_moved_files`], from and to.
     moved_files: Vec<(PathBuf, PathBuf)>,
@@ -103,47 +106,12 @@ impl Editor {
         for plugin in plugins {
             plugin.register(&mut registry);
         }
-        let scratch = Buffer::new(
-            SCRATCH_BUFFER,
-            Text::default(),
-            registry.modes.name_for(None),
-        );
+        let scratch = Buffer::new(SCRATCH_BUFFER, Text::default(), registry.modes.name_for(None));
         Self {
             buffers: vec![scratch],
-            minibuffer: None,
-            closed_minibuffer: None,
-            shown_in_prompt: Vec::new(),
-            viewport: Viewport::default(),
-            kill_ring: KillRing::default(),
             default_keymap: registry.keymap.clone(),
             registry,
-            pending_keys: Vec::new(),
-            key_reader: None,
-            last_key: None,
-            this_command: None,
-            last_command: None,
-            this_command_killed: false,
-            last_command_killed: false,
-            command_count: 0,
-            amalgamated_inserts: 0,
-            history: History::default(),
-            message: None,
-            messages: MessageLog::default(),
-            key_hints_listed: false,
-            quit_requested: false,
-            frame_requests: Vec::new(),
-            plugin_states: HashMap::new(),
-            settings: Settings::default(),
-            cache_dir: None,
-            notifier: Arc::new(RwLock::new(Arc::new(|| {}))),
-            refresh_at: None,
-            moved_files: Vec::new(),
-            selected_pane: None,
-            pane_focused: false,
-            scrolled_to: None,
-            windows: Windows::default(),
-            displayed: None,
-            next_error_source: None,
+            ..Self::default()
         }
     }
 
@@ -192,8 +160,7 @@ impl Editor {
         self.reveal(point);
         let buffer = self.window_buffer();
         let point_line = buffer.point_line();
-        self.viewport
-            .ensure_visible(point_line, &buffer.shown_lines());
+        self.viewport.ensure_visible(point_line, &buffer.shown_lines());
     }
 
     /// Centers `line` of the window buffer in the window unless it is shown already,
@@ -212,10 +179,7 @@ impl Editor {
     /// open, as its preview of a search's match, only until it is quit.
     fn reveal(&mut self, offset: usize) {
         let buffer = self.window_buffer_mut();
-        if !buffer
-            .shown_lines()
-            .is_hidden(buffer.text().line_of(offset))
-        {
+        if !buffer.shown_lines().is_hidden(buffer.text().line_of(offset)) {
             return;
         }
         let shown = buffer.reveal(offset);
@@ -228,7 +192,7 @@ impl Editor {
     /// Hides again what the prompt quit showed, in the buffers it did not change since.
     fn hide_shown_in_prompt(&mut self) {
         for (id, text, lines) in mem::take(&mut self.shown_in_prompt) {
-            let buffer = (self.buffers.iter_mut()).find(|buffer| buffer.id() == id);
+            let buffer = self.buffer_with_id_mut(id);
             if let Some(buffer) = buffer.filter(|buffer| buffer.text().snapshot().is_same(&text)) {
                 buffer.fold(lines);
             }
@@ -245,11 +209,7 @@ impl Editor {
 
     /// The buffers whose programs quitting now would end, all plugins' together.
     pub fn running_programs(&self) -> Vec<String> {
-        self.registry
-            .quit_queries
-            .iter()
-            .flat_map(|query| query(self))
-            .collect()
+        self.registry.quit_queries.iter().flat_map(|query| query(self)).collect()
     }
 
     pub fn request_frame(&mut self, request: FrameRequest) {
@@ -266,27 +226,24 @@ impl Editor {
 
     /// Whether the menu items running `command` can be chosen now.
     pub fn menu_command_enabled(&self, command: &str) -> bool {
-        self.registry.commands.get(command).is_some()
-            && self
-                .registry
-                .menu_items
-                .iter()
-                .filter(|item| item.command == command)
-                .all(|item| item.enabled.is_none_or(|enabled| enabled(self)))
+        let mut items = self.registry.menu_items.iter().filter(|item| item.command == command);
+        let enabled = |item: &MenuItem| item.enabled.is_none_or(|enabled| enabled(self));
+        self.registry.commands.get(command).is_some() && items.all(enabled)
     }
 
     pub fn set_notifier(&mut self, notifier: Notifier) {
-        *self
-            .notifier
-            .write()
-            .unwrap_or_else(PoisonError::into_inner) = notifier;
+        *self.notifier.write().unwrap_or_else(PoisonError::into_inner) = Some(notifier);
     }
 
     /// Calls whichever notifier is set when it is called, so work started before the UI
     /// exists, e.g. for a directory given on the command line, still wakes it.
     pub fn notifier(&self) -> Notifier {
         let notifier = Arc::clone(&self.notifier);
-        Arc::new(move || (notifier.read().unwrap_or_else(PoisonError::into_inner))())
+        Arc::new(move || {
+            if let Some(notify) = &*notifier.read().unwrap_or_else(PoisonError::into_inner) {
+                notify();
+            }
+        })
     }
 
     /// Asks the UI to call [`Editor::refresh`] once `delay` has passed, like an Emacs idle
@@ -313,6 +270,35 @@ impl Editor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An editor with one plugin, which registers what `register` does.
+    pub(super) fn editor_registering(register: fn(&mut Registry)) -> Editor {
+        struct Registering(fn(&mut Registry));
+        impl Plugin for Registering {
+            fn register(&self, registry: &mut Registry) {
+                (self.0)(registry);
+            }
+        }
+        Editor::new(&[&Registering(register)])
+    }
+
+    /// The names of all buffers, most recently selected first.
+    pub(super) fn buffer_names(editor: &Editor) -> Vec<&str> {
+        editor.buffers().iter().map(Buffer::name).collect()
+    }
+
+    /// The text of the buffer commands act on.
+    pub(super) fn buffer_text(editor: &Editor) -> String {
+        let buffer = editor.buffer();
+        buffer.contents(0..buffer.text().len())
+    }
+
+    /// A directory for a test's files, named after `name` and the process.
+    pub(super) fn temp_dir(name: &str) -> PathBuf {
+        let directory = std::env::temp_dir().join(format!("remacs-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        directory
+    }
 
     #[test]
     fn a_notifier_taken_early_calls_the_one_set_later() {

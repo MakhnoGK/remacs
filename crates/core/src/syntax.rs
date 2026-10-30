@@ -64,16 +64,12 @@ pub struct Embedded {
 impl Embedded {
     /// Whether `offset` is in one of the ranges or at its end.
     pub fn holds(&self, offset: usize) -> bool {
-        self.ranges
-            .iter()
-            .any(|range| range.start <= offset && offset <= range.end)
+        self.holds_range(&(offset..offset))
     }
 
     /// Whether `range` is within one of the ranges.
     pub fn holds_range(&self, range: &Range<usize>) -> bool {
-        self.ranges
-            .iter()
-            .any(|code| code.start <= range.start && range.end <= code.end)
+        self.ranges.iter().any(|code| code.start <= range.start && range.end <= code.end)
     }
 }
 
@@ -108,10 +104,7 @@ pub fn blank_outside(text: &Snapshot, range: Range<usize>, code: &[Range<usize>]
         }
     };
     let mut kept_to = start;
-    for code in code
-        .iter()
-        .filter(|code| code.end > start && code.start < range.end)
-    {
+    for code in code.iter().filter(|code| code.end > start && code.start < range.end) {
         blank(kept_to..code.start.max(kept_to));
         kept_to = code.end.min(range.end).max(kept_to);
     }
@@ -130,10 +123,7 @@ mod tests {
     fn embedded_documents_name_their_file() {
         let document = embedded_document(Path::new("/w/page.html"), "css");
         assert_eq!(document, Path::new("/w/page.html.remacs-embedded.css"));
-        assert_eq!(
-            embedded_file(&document).as_deref(),
-            Some(Path::new("/w/page.html"))
-        );
+        assert_eq!(embedded_file(&document).as_deref(), Some(Path::new("/w/page.html")));
         assert_eq!(embedded_file(Path::new("/w/page.html")), None);
     }
 
@@ -142,18 +132,10 @@ mod tests {
         let page = "<p>é</p>\n<style>a{}</style>\n";
         let code = page.find("a{}").unwrap();
         let text = Text::from(page).snapshot();
-        let blanked = blank_outside(
-            &text,
-            0..page.len(),
-            &[code..code + 3, page.len()..page.len()],
-        );
+        let blanked =
+            blank_outside(&text, 0..page.len(), &[code..code + 3, page.len()..page.len()]);
         assert_eq!(blanked.len(), page.len());
-        let expected = format!(
-            "{}\n{}a{{}}{}\n",
-            " ".repeat(9),
-            " ".repeat(7),
-            " ".repeat(8)
-        );
+        let expected = format!("{}\n{}a{{}}{}\n", " ".repeat(9), " ".repeat(7), " ".repeat(8));
         assert_eq!(blanked, expected);
 
         let codes = [1..3, 5..6, 8..20];

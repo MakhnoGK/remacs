@@ -12,33 +12,21 @@ const RANDOM_EDITS: usize = 10_000;
 
 fn main() -> std::io::Result<()> {
     let mut args = std::env::args().skip(1);
-    let size_mib: usize = args
+    let size_mib: usize = args.next().map_or(2048, |size| size.parse().expect("size in MiB"));
+    let path = args
         .next()
-        .map_or(2048, |size| size.parse().expect("size in MiB"));
-    let path = args.next().map_or_else(
-        || PathBuf::from(format!("target/bigfile-{size_mib}m.txt")),
-        PathBuf::from,
-    );
+        .map_or_else(|| PathBuf::from(format!("target/bigfile-{size_mib}m.txt")), PathBuf::from);
 
     if !path.exists() {
         measure("generate", || generate(&path, size_mib << 20))?;
     }
 
     let mut text = measure("open", || Text::open(&path))?;
-    println!(
-        "  {} bytes, {} lines, peak RSS {}",
-        text.len(),
-        text.line_count(),
-        peak_rss_mib()
-    );
+    println!("  {} bytes, {} lines, peak RSS {}", text.len(), text.line_count(), peak_rss_mib());
 
     let middle_line = text.line_count() / 2;
-    let middle = measure("seek to middle line", || {
-        text.line_start(middle_line).unwrap()
-    });
-    measure("read viewport", || {
-        read_lines(&text, middle_line, VIEWPORT_LINES)
-    });
+    let middle = measure("seek to middle line", || text.line_start(middle_line).unwrap());
+    measure("read viewport", || read_lines(&text, middle_line, VIEWPORT_LINES));
 
     let mut seed = middle as u64 | 1;
     measure("random edits", || {
@@ -56,9 +44,7 @@ fn main() -> std::io::Result<()> {
         }
     });
     measure("seek after edits", || text.line_start(middle_line).unwrap());
-    measure("read viewport after edits", || {
-        read_lines(&text, middle_line, VIEWPORT_LINES)
-    });
+    measure("read viewport after edits", || read_lines(&text, middle_line, VIEWPORT_LINES));
     measure("offset to line", || text.line_of(text.len() / 3));
     let snapshot = measure("snapshot", || text.snapshot());
     measure("read snapshot on a thread", || {
@@ -80,10 +66,8 @@ fn generate(path: &Path, target_len: usize) -> std::io::Result<()> {
             break;
         }
         let indent = "    ".repeat(line % 4);
-        let line = format!(
-            "{indent}let value_{line} = compute(&input[{line}..], {});\n",
-            line % 97
-        );
+        let line =
+            format!("{indent}let value_{line} = compute(&input[{line}..], {});\n", line % 97);
         writer.write_all(line.as_bytes())?;
         written += line.len();
     }
@@ -100,10 +84,7 @@ fn read_lines(text: &Snapshot, first_line: usize, count: usize) -> usize {
 fn measure<T>(label: &str, operation: impl FnOnce() -> T) -> T {
     let started = Instant::now();
     let result = operation();
-    println!(
-        "{label:<28} {:>10.3} ms",
-        started.elapsed().as_secs_f64() * 1e3
-    );
+    println!("{label:<28} {:>10.3} ms", started.elapsed().as_secs_f64() * 1e3);
     result
 }
 

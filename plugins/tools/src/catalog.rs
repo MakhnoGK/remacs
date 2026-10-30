@@ -97,10 +97,9 @@ pub struct Tool {
 impl Tool {
     pub fn asset_name(&self, tag: &str) -> String {
         match self.source {
-            Source::GitHub { asset, .. } => self
-                .fill(asset)
-                .replace("{tag}", tag)
-                .replace("{version}", &self.version_of(tag)),
+            Source::GitHub { asset, .. } => {
+                self.fill(asset).replace("{tag}", tag).replace("{version}", &self.version_of(tag))
+            }
             Source::Package { package, .. } => package.to_owned(),
         }
     }
@@ -123,9 +122,7 @@ impl Tool {
         match self.source {
             Source::GitHub { asset, .. } => {
                 cfg!(target_os = "macos")
-                    || !["darwin", "mac", "osx"]
-                        .iter()
-                        .any(|name| asset.contains(name))
+                    || !["darwin", "mac", "osx"].iter().any(|name| asset.contains(name))
             }
             Source::Package { .. } => true,
         }
@@ -151,12 +148,10 @@ impl Tool {
         match self.source {
             Source::GitHub { .. } => self.name.to_owned(),
             // A URL names no package, so its tool does.
-            Source::Package {
-                installer, package, ..
-            } if package.contains("://") => format!("{installer}-{}", self.name),
-            Source::Package {
-                installer, package, ..
-            } => {
+            Source::Package { installer, package, .. } if package.contains("://") => {
+                format!("{installer}-{}", self.name)
+            }
+            Source::Package { installer, package, .. } => {
                 format!("{installer}-{}", package.replace(['/', '@'], "+"))
             }
         }
@@ -174,21 +169,15 @@ impl Tool {
 const APPLE_SILICON: bool = cfg!(target_arch = "aarch64");
 
 /// The Rust target's OS part, as `{target}` names it.
-const TARGET_OS: &str = if cfg!(target_os = "macos") {
-    "apple-darwin"
-} else {
-    "unknown-linux-gnu"
-};
+const TARGET_OS: &str =
+    if cfg!(target_os = "macos") { "apple-darwin" } else { "unknown-linux-gnu" };
 
 /// Fills in what tells this machine's builds apart, as builds name them: `{arch}`
 /// (`arm64`, `x64`), `{cpu}` (`aarch64`, `x86_64`), `{goarch}` (`arm64`, `amd64`) and
 /// `{target}` (`aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`).
 pub fn fill(template: &str) -> String {
-    let (arch, cpu, goarch) = if APPLE_SILICON {
-        ("arm64", "aarch64", "arm64")
-    } else {
-        ("x64", "x86_64", "amd64")
-    };
+    let (arch, cpu, goarch) =
+        if APPLE_SILICON { ("arm64", "aarch64", "arm64") } else { ("x64", "x86_64", "amd64") };
     template
         .replace("{arch}", arch)
         .replace("{cpu}", cpu)
@@ -227,17 +216,11 @@ impl InstallSpec {
     pub fn tool(&self, name: &str, command: &str) -> Result<&'static Tool, String> {
         let leak = |text: &str| -> &'static str { text.to_owned().leak() };
         let leak_all = |texts: &[String]| -> &'static [&'static str] {
-            texts
-                .iter()
-                .map(|text| leak(text))
-                .collect::<Vec<_>>()
-                .leak()
+            texts.iter().map(|text| leak(text)).collect::<Vec<_>>().leak()
         };
         let source = if self.from == "github" {
             if !self.with.is_empty() {
-                return Err(format!(
-                    "{name}: only installers install packages `with` it"
-                ));
+                return Err(format!("{name}: only installers install packages `with` it"));
             }
             let asset = self
                 .asset
@@ -263,10 +246,7 @@ impl InstallSpec {
             kind: ToolKind::LanguageServer,
             source,
             program: leak(self.program.as_deref().unwrap_or(command)),
-            arch: self
-                .arch
-                .as_ref()
-                .map(|[apple, intel]| (leak(apple), leak(intel))),
+            arch: self.arch.as_ref().map(|[apple, intel]| (leak(apple), leak(intel))),
             needs: leak_all(&self.needs),
             version: None,
         })))

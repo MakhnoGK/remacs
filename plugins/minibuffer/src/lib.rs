@@ -23,10 +23,8 @@ const COMMANDS: &[Command] = &[
     Command::new("next-message", "Bring back the message after this one", next_message),
 ];
 
-const BINDINGS: &[(&str, &str)] = &[
-    ("M-x", "execute-extended-command"),
-    ("s-P", "execute-extended-command"),
-];
+const BINDINGS: &[(&str, &str)] =
+    &[("M-x", "execute-extended-command"), ("s-P", "execute-extended-command")];
 
 const MINIBUFFER_BINDINGS: &[(&str, &str)] = &[
     ("RET", "exit-minibuffer"),
@@ -117,12 +115,7 @@ fn preferred_keys(keymap: &Keymap, command: &str) -> Vec<String> {
         .sequences_for(command)
         .min_by_key(|keys| {
             let description = describe_sequence(keys);
-            (
-                uses_super(keys),
-                uses_named_key(keys),
-                description.len(),
-                description,
-            )
+            (uses_super(keys), uses_named_key(keys), description.len(), description)
         })
         .map(|keys| keys.iter().map(Key::to_string).collect())
         .unwrap_or_default()

@@ -129,9 +129,7 @@ impl Plugin for FilesPlugin {
         }
         registry.menu_items.extend_from_slice(MENU_ITEMS);
         registry.settings_hooks.push(Rc::new(read_settings));
-        registry
-            .post_command_hooks
-            .push(Rc::new(revert::follow_files));
+        registry.post_command_hooks.push(Rc::new(revert::follow_files));
     }
 }
 

@@ -20,12 +20,8 @@ use crate::status_view::{Section, StatusView, directory_label};
 const CONTEXT_LINES: usize = 8;
 const MAX_LINES: usize = 120;
 
-pub const OPERATION_HINTS: &[(&str, &str)] = &[
-    ("C-c C-c", "Continue"),
-    ("C-c C-k", "Abort"),
-    ("s", "Stage"),
-    ("u", "Unstage"),
-];
+pub const OPERATION_HINTS: &[(&str, &str)] =
+    &[("C-c C-c", "Continue"), ("C-c C-k", "Abort"), ("s", "Stage"), ("u", "Unstage")];
 const REBASE_CONFLICT_HINTS: &[(&str, &str)] = &[
     ("n p", "Next / previous"),
     ("o", "Upstream"),
@@ -63,11 +59,7 @@ pub struct Resolution {
 impl ConflictState {
     /// The conflict open in `path`, of `count` left.
     pub fn current(&self, path: &Path, count: usize) -> usize {
-        self.current
-            .get(path)
-            .copied()
-            .unwrap_or_default()
-            .min(count.saturating_sub(1))
+        self.current.get(path).copied().unwrap_or_default().min(count.saturating_sub(1))
     }
 
     pub fn set_current(&mut self, path: &Path, index: usize) {
@@ -84,17 +76,10 @@ impl ConflictState {
         said: &'static str,
     ) {
         let resolutions = self.resolutions.entry(path.to_path_buf()).or_default();
-        for resolution in resolutions
-            .iter_mut()
-            .filter(|resolution| resolution.start > start)
-        {
+        for resolution in resolutions.iter_mut().filter(|resolution| resolution.start > start) {
             resolution.start = (resolution.start + kept).saturating_sub(replaced);
         }
-        resolutions.push(Resolution {
-            start,
-            len: kept,
-            said,
-        });
+        resolutions.push(Resolution { start, len: kept, said });
     }
 
     pub fn resolutions(&self, path: &Path) -> &[Resolution] {
@@ -103,13 +88,7 @@ impl ConflictState {
 }
 
 pub fn is_rebase(snapshot: &Snapshot) -> bool {
-    matches!(
-        snapshot.operation,
-        Some(Operation {
-            kind: OperationKind::Rebase { .. },
-            ..
-        })
-    )
+    matches!(snapshot.operation, Some(Operation { kind: OperationKind::Rebase { .. }, .. }))
 }
 
 /// Conflicts left in all files; one whose markers were not read counts once.
@@ -123,26 +102,15 @@ pub fn conflicts_left(snapshot: &Snapshot) -> usize {
 }
 
 fn unmerged_files(snapshot: &Snapshot) -> usize {
-    snapshot
-        .files
-        .values()
-        .filter(|entry| entry.conflicted)
-        .count()
+    snapshot.files.values().filter(|entry| entry.conflicted).count()
 }
 
 pub fn hints(snapshot: Option<&Snapshot>) -> &'static [(&'static str, &'static str)] {
-    if snapshot.is_some_and(is_rebase) {
-        REBASE_CONFLICT_HINTS
-    } else {
-        MERGE_CONFLICT_HINTS
-    }
+    if snapshot.is_some_and(is_rebase) { REBASE_CONFLICT_HINTS } else { MERGE_CONFLICT_HINTS }
 }
 
 fn chip(name: &str, kind: RefKind) -> RefChip {
-    RefChip {
-        name: name.into(),
-        kind,
-    }
+    RefChip { name: name.into(), kind }
 }
 
 /// For the pill: `Rebase 2/3`, `Merging`.
@@ -220,22 +188,12 @@ pub fn banner(snapshot: &Snapshot) -> Option<Banner> {
     };
     let button =
         |label: &str, tone, enabled, action: fn(&mut Editor) -> remacs_core::CommandResult| {
-            BannerButton {
-                label: label.into(),
-                tone,
-                enabled,
-                action: Rc::new(action),
-            }
+            BannerButton { label: label.into(), tone, enabled, action: Rc::new(action) }
         };
     let ready = unmerged == 0;
     let continue_tone = if ready { Tone::Accent } else { Tone::Plain };
     let (title, parts, step, commit, mut buttons) = match &operation.kind {
-        OperationKind::Rebase {
-            step,
-            total,
-            applying,
-            ..
-        } => (
+        OperationKind::Rebase { step, total, applying, .. } => (
             "Rebasing",
             vec![
                 BannerPart::Chip(chip(branch, RefKind::Head)),
@@ -243,9 +201,7 @@ pub fn banner(snapshot: &Snapshot) -> Option<Banner> {
                 BannerPart::Chip(chip(other, RefKind::Main)),
             ],
             (*total > 0).then(|| format!("Step {step} of {total}")),
-            applying
-                .as_ref()
-                .map(|applying| (applying.id.clone(), applying.subject.clone())),
+            applying.as_ref().map(|applying| (applying.id.clone(), applying.subject.clone())),
             vec![button("Skip commit", Tone::Plain, true, resolve::skip)],
         ),
         OperationKind::Merge => (
@@ -261,20 +217,8 @@ pub fn banner(snapshot: &Snapshot) -> Option<Banner> {
         ),
     };
     buttons.push(button("Abort", Tone::Danger, true, resolve::abort));
-    buttons.push(button(
-        "Continue",
-        continue_tone,
-        ready,
-        resolve::continue_operation,
-    ));
-    Some(Banner {
-        title: title.into(),
-        parts,
-        step,
-        commit,
-        state,
-        buttons,
-    })
+    buttons.push(button("Continue", continue_tone, ready, resolve::continue_operation));
+    Some(Banner { title: title.into(), parts, step, commit, state, buttons })
 }
 
 /// Beside an unmerged file, how many conflicts are left in it; beside a resolved one, how
@@ -333,11 +277,7 @@ pub fn view(
         .take(current_region.saturating_sub(1))
         .filter(|region| matches!(region, Region::Conflict(_)))
         .count();
-    for (position, region) in file
-        .regions
-        .iter()
-        .enumerate()
-        .skip(current_region.saturating_sub(1))
+    for (position, region) in file.regions.iter().enumerate().skip(current_region.saturating_sub(1))
     {
         if shown >= MAX_LINES {
             break;
@@ -375,10 +315,7 @@ pub fn view(
     let previous: remacs_core::Action = Rc::new(resolve::previous_conflict);
     let next: remacs_core::Action = Rc::new(resolve::next_conflict);
     Some(ConflictView {
-        name: path
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_default(),
+        name: path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default(),
         directory: directory_label(path),
         mode: Some(editor.mode_for(Some(&view.root.join(path)))),
         resolved: resolutions.len(),
@@ -437,13 +374,7 @@ fn sides(snapshot: &Snapshot) -> (SideLabel, SideLabel) {
                     Some(other.id.clone()),
                     other.subject.clone(),
                 ),
-                SideLabel::new(
-                    &applying.id,
-                    RefKind::Head,
-                    "your commit",
-                    None,
-                    applying.subject,
-                ),
+                SideLabel::new(&applying.id, RefKind::Head, "your commit", None, applying.subject),
             )
         }
         OperationKind::Merge => {
@@ -486,12 +417,7 @@ impl SideLabel {
         id: Option<String>,
         subject: String,
     ) -> Self {
-        Self {
-            chip: chip(name, kind),
-            role,
-            id,
-            subject,
-        }
+        Self { chip: chip(name, kind), role, id, subject }
     }
 
     fn side(&self, first: usize, lines: &[String]) -> ConflictSide {
@@ -532,9 +458,5 @@ fn block(
 
 /// `1 conflict`, `2 files`.
 fn plural(count: usize, noun: &str) -> String {
-    if count == 1 {
-        format!("1 {noun}")
-    } else {
-        format!("{count} {noun}s")
-    }
+    if count == 1 { format!("1 {noun}") } else { format!("{count} {noun}s") }
 }

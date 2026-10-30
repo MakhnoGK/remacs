@@ -35,10 +35,7 @@ impl EntityInputHandler for EditorView {
         _: &mut Context<Self>,
     ) -> Option<UTF16Selection> {
         let end = self.composition.marked.encode_utf16().count();
-        Some(UTF16Selection {
-            range: end..end,
-            reversed: false,
-        })
+        Some(UTF16Selection { range: end..end, reversed: false })
     }
 
     fn marked_text_range(&self, _: &mut Window, _: &mut Context<Self>) -> Option<Range<usize>> {
@@ -222,21 +219,13 @@ impl EditorView {
             return;
         }
         let hide_after = self.bottom.echo.hide_after();
-        let due = self
-            .editor
-            .message()
-            .filter(|message| message.kind != MessageKind::Error)
-            .zip(hide_after)
-            .map(|(message, hide_after)| (message.at, hide_after));
+        let message = self.editor.message().filter(|message| message.kind != MessageKind::Error);
+        let due = message.zip(hide_after).map(|(message, hide_after)| (message.at, hide_after));
         let Some((at, hide_after)) = due else {
             self.message_timer = None;
             return;
         };
-        if self
-            .message_timer
-            .as_ref()
-            .is_some_and(|&(timed, _)| timed == at)
-        {
+        if self.message_timer.as_ref().is_some_and(|&(timed, _)| timed == at) {
             return;
         }
         let delay = hide_after.saturating_sub(at.elapsed().unwrap_or_default());
@@ -244,10 +233,7 @@ impl EditorView {
             cx.background_executor().timer(delay).await;
             let _ = view.update(cx, |view, cx| {
                 view.message_timer = None;
-                let current = view
-                    .editor
-                    .message()
-                    .is_some_and(|message| message.at == at);
+                let current = view.editor.message().is_some_and(|message| message.at == at);
                 // Opened whole, it goes once closed.
                 if current && !view.message_open {
                     view.editor.clear_message();
@@ -259,8 +245,7 @@ impl EditorView {
     }
 
     pub(super) fn prefix_keys_due(&self) -> bool {
-        self.prefix_since
-            .is_some_and(|since| since.elapsed() >= self.bottom.prefix_keys.delay())
+        self.prefix_since.is_some_and(|since| since.elapsed() >= self.bottom.prefix_keys.delay())
     }
 
     pub(super) fn after_input(&mut self, cx: &mut Context<Self>) {
@@ -274,8 +259,7 @@ impl EditorView {
         for request in &requests {
             if let FrameRequest::TextSize(change) = *request {
                 let settings = self.zoom;
-                self.zoom_with_keys()
-                    .change(change, font::code().size, settings);
+                self.zoom_with_keys().change(change, font::code().size, settings);
             }
         }
         frame::act(requests, self.window_handle, cx);
@@ -300,11 +284,7 @@ impl EditorView {
         let Some(at) = self.editor.take_refresh_at() else {
             return;
         };
-        if self
-            .refresh_timer
-            .as_ref()
-            .is_some_and(|&(pending, _)| pending <= at)
-        {
+        if self.refresh_timer.as_ref().is_some_and(|&(pending, _)| pending <= at) {
             return;
         }
         let timer = cx.spawn(async move |view, cx| {

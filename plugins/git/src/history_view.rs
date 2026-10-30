@@ -79,12 +79,7 @@ impl HistoryState {
     }
 
     fn show(&mut self, all: bool, search: Option<String>, file: Option<PathBuf>) {
-        *self = Self {
-            all,
-            search,
-            file,
-            ..Self::default()
-        };
+        *self = Self { all, search, file, ..Self::default() };
     }
 
     /// Shows only the commits that changed `file`, relative to the root.
@@ -115,10 +110,7 @@ impl HistoryState {
     /// the last one read.
     fn scroll(&mut self, rows: isize, log: &Log) {
         let read = log.commits.len();
-        self.first = self
-            .first
-            .saturating_add_signed(rows)
-            .min(read.saturating_sub(1));
+        self.first = self.first.saturating_add_signed(rows).min(read.saturating_sub(1));
         if !log.complete && self.first + SHOWN >= read {
             self.count = self.count.max(read + PAGE);
         }
@@ -134,9 +126,8 @@ pub fn history(view: &StatusView, snapshot: &Snapshot) -> History {
         .as_ref()
         .and_then(|details| details.base.as_ref())
         .map(|base| base.name.as_str());
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| since.as_secs() as i64);
+    let now =
+        SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs() as i64);
     let commits = log.map_or_else(Vec::new, |log| {
         log.commits
             .iter()
@@ -266,10 +257,7 @@ fn chips(commit: &Commit, head: &Head, base: Option<&str>) -> Vec<RefChip> {
     };
     let mut chips: Vec<RefChip> = Vec::new();
     if commit.is_head && current.is_none() {
-        chips.push(RefChip {
-            name: "HEAD".into(),
-            kind: RefKind::Head,
-        });
+        chips.push(RefChip { name: "HEAD".into(), kind: RefKind::Head });
     }
     for name in &commit.refs {
         let (short, kind) = if let Some(branch) = name.strip_prefix("refs/heads/") {
@@ -280,21 +268,14 @@ fn chips(commit: &Commit, head: &Head, base: Option<&str>) -> Vec<RefChip> {
             };
             (branch, kind)
         } else if let Some(remote) = name.strip_prefix("refs/remotes/") {
-            let kind = if Some(remote) == base {
-                RefKind::Main
-            } else {
-                RefKind::Remote
-            };
+            let kind = if Some(remote) == base { RefKind::Main } else { RefKind::Remote };
             (remote, kind)
         } else if let Some(tag) = name.strip_prefix("refs/tags/") {
             (tag, RefKind::Tag)
         } else {
             continue;
         };
-        chips.push(RefChip {
-            name: short.into(),
-            kind,
-        });
+        chips.push(RefChip { name: short.into(), kind });
     }
     chips.sort_by_key(|chip| match chip.kind {
         RefKind::Head => 0,
@@ -309,10 +290,7 @@ fn chips(commit: &Commit, head: &Head, base: Option<&str>) -> Vec<RefChip> {
 /// `Hryhorii K.` for `Hryhorii Khyzhniakov`.
 pub fn short_author(name: &str) -> String {
     let mut words = name.split_whitespace();
-    match (
-        words.next(),
-        words.next_back().and_then(|last| last.chars().next()),
-    ) {
+    match (words.next(), words.next_back().and_then(|last| last.chars().next())) {
         (Some(first), Some(initial)) => format!("{first} {initial}."),
         _ => name.to_owned(),
     }
@@ -347,19 +325,9 @@ pub fn ago(seconds: i64) -> String {
 /// Shows the status with only the commits that changed the visited file in its
 /// history, followed through renames, like Emacs `magit-log-buffer-file`.
 pub fn file_log(editor: &mut Editor) -> CommandResult {
-    let path = editor
-        .window_buffer()
-        .path()
-        .ok_or("Not visiting a file")?
-        .to_path_buf();
-    let root = path
-        .parent()
-        .and_then(working_tree)
-        .ok_or("Not in a Git working tree")?;
-    let relative = path
-        .strip_prefix(&root)
-        .map_err(|_| "Not in a Git working tree")?
-        .to_path_buf();
+    let path = editor.window_buffer().path().ok_or("Not visiting a file")?.to_path_buf();
+    let root = path.parent().and_then(working_tree).ok_or("Not in a Git working tree")?;
+    let relative = path.strip_prefix(&root).map_err(|_| "Not in a Git working tree")?.to_path_buf();
     commands::status(editor)?;
     let view = window_view(editor)?;
     view.show_tab(Tab::History, view.history.all());
@@ -451,20 +419,11 @@ fn scroll(editor: &mut Editor, rows: isize) -> CommandResult {
 
 fn window_log(editor: &Editor) -> Option<Arc<Log>> {
     let view = editor.window_buffer().local::<StatusView>()?;
-    editor
-        .find_plugin_state::<Repositories>()?
-        .get(&view.root)?
-        .snapshot
-        .as_ref()?
-        .history
-        .clone()
+    editor.find_plugin_state::<Repositories>()?.get(&view.root)?.snapshot.as_ref()?.history.clone()
 }
 
 fn window_view(editor: &mut Editor) -> Result<&mut StatusView, &'static str> {
-    editor
-        .window_buffer_mut()
-        .local_mut::<StatusView>()
-        .ok_or(NOT_A_STATUS_BUFFER)
+    editor.window_buffer_mut().local_mut::<StatusView>().ok_or(NOT_A_STATUS_BUFFER)
 }
 
 #[cfg(test)]
@@ -474,20 +433,11 @@ mod tests {
     #[test]
     fn dates_and_authors_are_said_briefly() {
         let days = |count: i64| count * 24 * 3600;
-        let said: Vec<String> = [
-            30,
-            12 * 60,
-            3600,
-            days(1) + 3600,
-            days(2),
-            days(8),
-            days(21),
-            days(60),
-            days(400),
-        ]
-        .into_iter()
-        .map(ago)
-        .collect();
+        let said: Vec<String> =
+            [30, 12 * 60, 3600, days(1) + 3600, days(2), days(8), days(21), days(60), days(400)]
+                .into_iter()
+                .map(ago)
+                .collect();
         assert_eq!(
             said,
             [

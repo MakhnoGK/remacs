@@ -18,12 +18,8 @@ use crate::listing::{Listing, redraw};
 use crate::references::{self, References, State};
 
 pub const NOTICE_KEYS: &[(&str, &str)] = &[("C-c C-c", "Apply"), ("C-c C-k", "Cancel")];
-pub const HINTS: &[(&str, &str)] = &[
-    ("⇥", "Next name"),
-    ("C-c C-c", "Apply"),
-    ("C-c C-k", "Cancel"),
-    ("M-%", "Replace in names"),
-];
+pub const HINTS: &[(&str, &str)] =
+    &[("⇥", "Next name"), ("C-c C-c", "Apply"), ("C-c C-k", "Cancel"), ("M-%", "Replace in names")];
 const NOT_EDITING: &str = "Not editing names";
 const REPLACE_CATEGORY: &str = "wdired-replace";
 const REPLACE_WITH_CATEGORY: &str = "wdired-replace-with";
@@ -39,11 +35,7 @@ pub struct Editing {
 
 impl Default for Editing {
     fn default() -> Self {
-        Self {
-            references: References::default(),
-            update_references: true,
-            record_moves: true,
-        }
+        Self { references: References::default(), update_references: true, record_moves: true }
     }
 }
 
@@ -56,10 +48,7 @@ pub struct Rename {
 }
 
 pub fn is_editing(editor: &Editor) -> bool {
-    editor
-        .buffer()
-        .local::<Listing>()
-        .is_some_and(|listing| listing.editing.is_some())
+    editor.buffer().local::<Listing>().is_some_and(|listing| listing.editing.is_some())
 }
 
 /// Makes the names editable, like Emacs `wdired-change-to-wdired-mode`.
@@ -97,10 +86,7 @@ pub fn cancel(editor: &mut Editor) -> CommandResult {
 pub fn apply(editor: &mut Editor) -> CommandResult {
     let buffer = editor.window_buffer();
     let editing = editing(buffer)?;
-    let directory = buffer
-        .default_directory()
-        .ok_or(NOT_A_LISTING)?
-        .to_path_buf();
+    let directory = buffer.default_directory().ok_or(NOT_A_LISTING)?.to_path_buf();
     let renames = edited_names(buffer);
     check(buffer, &renames)?;
     let updates = match &editing.references.state {
@@ -123,10 +109,7 @@ pub fn apply(editor: &mut Editor) -> CommandResult {
         [single] => format!("{} to {}", single.from, single.to),
         _ => describe_entries(&renamed, ""),
     };
-    let pairs: Vec<_> = renames
-        .into_iter()
-        .map(|rename| (rename.from, rename.to))
-        .collect();
+    let pairs: Vec<_> = renames.into_iter().map(|rename| (rename.from, rename.to)).collect();
     jobs::run(editor, "Renaming…", move || {
         let (moved, failures) = rename_all(&directory, &pairs);
         let message =
@@ -134,12 +117,7 @@ pub fn apply(editor: &mut Editor) -> CommandResult {
                 [] => format!("Renamed {what}"),
                 _ => format!("Renamed {what}; updated {}", updated.join(", ")),
             });
-        Report {
-            directories: vec![directory],
-            moved,
-            record_moves,
-            message,
-        }
+        Report { directories: vec![directory], moved, record_moves, message }
     });
     Ok(())
 }
@@ -233,19 +211,12 @@ pub fn changes(editor: &Editor, editing: &Editing) -> Changes {
         count => format!("{count} {}", plural(count, "rename")),
     };
     let shown = |name: &str, is_directory: bool| {
-        if is_directory {
-            format!("{name}/")
-        } else {
-            name.to_owned()
-        }
+        if is_directory { format!("{name}/") } else { name.to_owned() }
     };
     let edits = renames
         .iter()
         .map(|rename| {
-            (
-                shown(&rename.from, rename.is_directory),
-                shown(&rename.to, rename.is_directory),
-            )
+            (shown(&rename.from, rename.is_directory), shown(&rename.to, rename.is_directory))
         })
         .collect();
     let state = &editing.references.state;
@@ -275,12 +246,7 @@ pub fn changes(editor: &Editor, editing: &Editing) -> Changes {
         action: Rc::new(toggle_reference_updates),
     });
     let options = record_option.into_iter().chain(references_option).collect();
-    Changes {
-        summary,
-        edits,
-        elsewhere,
-        options,
-    }
+    Changes { summary, edits, elsewhere, options }
 }
 
 /// Lines whose names were edited, in order.
@@ -305,28 +271,15 @@ pub fn edited_names(buffer: &Buffer) -> Vec<Rename> {
 }
 
 fn editing(buffer: &Buffer) -> Result<&Editing, &'static str> {
-    buffer
-        .local::<Listing>()
-        .ok_or(NOT_A_LISTING)?
-        .editing
-        .as_ref()
-        .ok_or(NOT_EDITING)
+    buffer.local::<Listing>().ok_or(NOT_A_LISTING)?.editing.as_ref().ok_or(NOT_EDITING)
 }
 
 fn editing_mut(buffer: &mut Buffer) -> Result<&mut Editing, &'static str> {
-    buffer
-        .local_mut::<Listing>()
-        .ok_or(NOT_A_LISTING)?
-        .editing
-        .as_mut()
-        .ok_or(NOT_EDITING)
+    buffer.local_mut::<Listing>().ok_or(NOT_A_LISTING)?.editing.as_mut().ok_or(NOT_EDITING)
 }
 
 fn has_parent(listing: &Listing) -> bool {
-    listing
-        .entries
-        .first()
-        .is_some_and(|entry| entry.name == PARENT)
+    listing.entries.first().is_some_and(|entry| entry.name == PARENT)
 }
 
 /// Makes the buffer read-only again, its lines the entries' names.
@@ -359,10 +312,7 @@ fn invalid_name(name: &str) -> Option<&'static str> {
 fn check(buffer: &Buffer, renames: &[Rename]) -> Result<(), String> {
     for rename in renames {
         if let Some(reason) = invalid_name(&rename.to) {
-            return Err(format!(
-                "Cannot rename {}: the new name {reason}",
-                rename.from
-            ));
+            return Err(format!("Cannot rename {}: the new name {reason}", rename.from));
         }
     }
     let text = buffer.contents(0..buffer.text().len());
@@ -370,10 +320,7 @@ fn check(buffer: &Buffer, renames: &[Rename]) -> Result<(), String> {
     for name in text.split('\n') {
         *names.entry(name.to_lowercase()).or_default() += 1;
     }
-    match renames
-        .iter()
-        .find(|rename| names[&rename.to.to_lowercase()] > 1)
-    {
+    match renames.iter().find(|rename| names[&rename.to.to_lowercase()] > 1) {
         Some(rename) => Err(format!("Two files would be named {}", rename.to)),
         None => Ok(()),
     }
@@ -385,10 +332,7 @@ fn rename_entries(buffer: &mut Buffer, renames: &[Rename]) -> Vec<Entry> {
     let Some(listing) = buffer.local_mut::<Listing>() else {
         return Vec::new();
     };
-    let marks: Vec<_> = renames
-        .iter()
-        .map(|rename| listing.marks.remove(&rename.from))
-        .collect();
+    let marks: Vec<_> = renames.iter().map(|rename| listing.marks.remove(&rename.from)).collect();
     let mut renamed = Vec::new();
     for (rename, mark) in renames.iter().zip(marks) {
         let entry = &mut listing.entries[rename.line];
@@ -447,10 +391,7 @@ fn step_name(editor: &mut Editor, forward: bool) -> CommandResult {
         false if line > first => line - 1,
         false => count - 1,
     };
-    let end = buffer
-        .text()
-        .line_range(target)
-        .map_or(0, |range| range.end);
+    let end = buffer.text().line_range(target).map_or(0, |range| range.end);
     buffer.set_point(end);
     Ok(())
 }
@@ -490,9 +431,7 @@ fn keep_lines(editor: &mut Editor) {
     };
     if !buffer.undo() || line_problem(buffer).is_some() {
         // Nothing left to undo it with: back to the names on disk, still editing.
-        let editing = buffer
-            .local_mut::<Listing>()
-            .and_then(|listing| listing.editing.take());
+        let editing = buffer.local_mut::<Listing>().and_then(|listing| listing.editing.take());
         redraw(buffer);
         if let Some(listing) = buffer.local_mut::<Listing>() {
             listing.editing = editing;
@@ -508,9 +447,7 @@ fn line_problem(buffer: &Buffer) -> Option<&'static str> {
         return Some("Names stay one per line");
     }
     let parent_changed = has_parent(listing)
-        && text
-            .line_range(0)
-            .is_some_and(|range| buffer.contents(range) != PARENT);
+        && text.line_range(0).is_some_and(|range| buffer.contents(range) != PARENT);
     parent_changed.then_some(".. cannot be renamed")
 }
 

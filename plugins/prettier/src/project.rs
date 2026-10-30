@@ -66,16 +66,8 @@ mod tests {
             directory.join("src/index.ts")
         };
         assert!(uses_prettier(&project("config", ".prettierrc", "{}")));
-        assert!(uses_prettier(&project(
-            "key",
-            "package.json",
-            r#"{ "prettier": {} }"#
-        )));
-        assert!(uses_prettier(&project(
-            "own",
-            "node_modules/prettier/package.json",
-            "{}"
-        )));
+        assert!(uses_prettier(&project("key", "package.json", r#"{ "prettier": {} }"#)));
+        assert!(uses_prettier(&project("own", "node_modules/prettier/package.json", "{}")));
         assert!(!uses_prettier(&project("none", "package.json", "{}")));
         fs::remove_dir_all(root).unwrap();
     }

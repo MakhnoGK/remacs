@@ -35,18 +35,11 @@ struct Imenu {
 
 /// Reads the name of one of the file's symbols and goes to it.
 pub(crate) fn imenu(editor: &mut Editor) -> CommandResult {
-    let path = editor
-        .window_buffer()
-        .path()
-        .ok_or("Buffer is not visiting a file")?
-        .to_path_buf();
+    let path = editor.window_buffer().path().ok_or("Buffer is not visiting a file")?.to_path_buf();
     let preview = FilePreview::begin(editor);
     let state = editor.plugin_state::<Imenu>();
     state.next_id += 1;
-    let request = DocumentSymbolRequest {
-        id: state.next_id,
-        path,
-    };
+    let request = DocumentSymbolRequest { id: state.next_id, path };
     *state = Imenu {
         next_id: state.next_id,
         latest: Some(request.id),
@@ -143,9 +136,7 @@ pub fn deliver_document_symbols(editor: &mut Editor, id: u64, found: Result<Vec<
 
 /// The symbols matching `input`, in the order the backends listed them.
 fn candidates(editor: &Editor, input: &str) -> Completions {
-    let found = editor
-        .find_plugin_state::<Imenu>()
-        .and_then(|state| state.found.as_ref());
+    let found = editor.find_plugin_state::<Imenu>().and_then(|state| state.found.as_ref());
     let symbols = match found {
         None => return note("Asking the language server…"),
         Some(Err(failure)) => return note(failure),
@@ -156,11 +147,8 @@ fn candidates(editor: &Editor, input: &str) -> Completions {
         .iter()
         .enumerate()
         .filter_map(|(index, symbol)| {
-            let matches = if query.is_empty() {
-                Vec::new()
-            } else {
-                flex_match(query, &symbol.name)?
-            };
+            let matches =
+                if query.is_empty() { Vec::new() } else { flex_match(query, &symbol.name)? };
             Some(Candidate {
                 label: symbol.name.clone(),
                 matches,
@@ -178,8 +166,5 @@ fn candidates(editor: &Editor, input: &str) -> Completions {
 }
 
 fn note(text: &str) -> Completions {
-    Completions {
-        note: Some(text.to_owned()),
-        ..Completions::default()
-    }
+    Completions { note: Some(text.to_owned()), ..Completions::default() }
 }

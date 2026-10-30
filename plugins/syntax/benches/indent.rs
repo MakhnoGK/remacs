@@ -19,10 +19,8 @@ const GRAMMARS: &[Grammar] = &[Grammar {
         include_str!("../../languages/queries/rust/text.scm"),
     ],
 }];
-const INDENTS: &[Indents] = &[Indents::new(
-    "Rust",
-    &[include_str!("../../languages/queries/rust/indents.scm")],
-)];
+const INDENTS: &[Indents] =
+    &[Indents::new("Rust", &[include_str!("../../languages/queries/rust/indents.scm")])];
 static SYNTAX: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS, &[]).with_indents(INDENTS);
 
 /// A real file of the repo.
@@ -65,9 +63,7 @@ fn hide_all_blocks(bencher: Bencher, times: usize) {
     let mut editor = parsed_editor(times);
     let line_count = editor.window_buffer().text().line_count();
     bencher.bench_local(|| {
-        let blocks = editor
-            .blocks(editor.window_buffer(), 0..line_count)
-            .unwrap();
+        let blocks = editor.blocks(editor.window_buffer(), 0..line_count).unwrap();
         let buffer = editor.window_buffer_mut();
         buffer.fold(blocks.into_iter().map(|block| block.hidden));
         buffer.unfold_all();
@@ -87,10 +83,7 @@ fn blocks_of_a_screen(bencher: Bencher, times: usize) {
 #[divan::bench(sample_count = 30)]
 fn blocks_of_a_screen_in_a_long_list(bencher: Bencher) {
     static BRACKETS: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS, &[]);
-    let source = format!(
-        "const ITEMS: &[u32] = &[\n{}];\n",
-        "    1,\n".repeat(200_000)
-    );
+    let source = format!("const ITEMS: &[u32] = &[\n{}];\n", "    1,\n".repeat(200_000));
     let mut editor = Editor::new(&[&BRACKETS]);
     editor.add_buffer(Buffer::new("items.rs", Text::from(source.as_str()), "Rust"));
     for _ in 0..4000 {
@@ -109,12 +102,8 @@ fn blocks_of_a_screen_in_a_long_list(bencher: Bencher) {
 fn shown_lines_all_hidden(bencher: Bencher, times: usize) {
     let mut editor = parsed_editor(times);
     let line_count = editor.window_buffer().text().line_count();
-    let blocks = editor
-        .blocks(editor.window_buffer(), 0..line_count)
-        .unwrap();
-    editor
-        .window_buffer_mut()
-        .fold(blocks.into_iter().map(|block| block.hidden));
+    let blocks = editor.blocks(editor.window_buffer(), 0..line_count).unwrap();
+    editor.window_buffer_mut().fold(blocks.into_iter().map(|block| block.hidden));
     bencher.bench_local(|| black_box(editor.window_buffer().shown_lines()));
 }
 

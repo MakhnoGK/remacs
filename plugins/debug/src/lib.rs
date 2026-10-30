@@ -86,9 +86,7 @@ const MENU_ITEMS: &[MenuItem] = &[
 ];
 
 fn debugging(editor: &Editor) -> bool {
-    editor
-        .find_plugin_state::<Debugger>()
-        .is_some_and(|debugger| !debugger.sessions.is_empty())
+    editor.find_plugin_state::<Debugger>().is_some_and(|debugger| !debugger.sessions.is_empty())
 }
 
 fn stopped(editor: &Editor) -> bool {
@@ -114,16 +112,11 @@ impl Plugin for DebugPlugin {
         for &(keys, command) in pane::FOCUSED_BINDINGS {
             focused.bind(keys, command);
         }
-        registry.minor_keymaps.push(MinorKeymap {
-            active: pane::has_keys,
-            keymap: focused,
-        });
+        registry.minor_keymaps.push(MinorKeymap { active: pane::has_keys, keymap: focused });
         registry.typing_blockers.push(pane::has_keys);
         registry.settings_hooks.push(Rc::new(read_settings));
         registry.post_command_hooks.push(Rc::new(session::update));
-        registry
-            .post_command_hooks
-            .push(Rc::new(marks::follow_edits));
+        registry.post_command_hooks.push(Rc::new(marks::follow_edits));
         registry.gutters.push(Rc::new(marks::gutter_marks));
         registry.gutter_click.get_or_insert(TOGGLE_BREAKPOINT);
         registry.panes.push(PaneSource {

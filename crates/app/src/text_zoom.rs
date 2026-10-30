@@ -24,11 +24,7 @@ impl TextZoom {
             return code;
         }
         let size = code.size + self.offset;
-        CodeFont {
-            line_height: (code.line_height / code.size * size).round(),
-            size,
-            ..code
-        }
+        CodeFont { line_height: (code.line_height / code.size * size).round(), size, ..code }
     }
 
     /// The zoomed size in percent of `configured`, none while not zoomed.
@@ -61,11 +57,7 @@ impl TextZoom {
         self.scrolled += pixels;
         let steps = (self.scrolled / settings.wheel_step).trunc();
         self.scrolled -= steps * settings.wheel_step;
-        let change = if steps > 0.0 {
-            TextSize::Larger
-        } else {
-            TextSize::Smaller
-        };
+        let change = if steps > 0.0 { TextSize::Larger } else { TextSize::Smaller };
         let mut changed = false;
         for _ in 0..steps.abs() as usize {
             changed |= self.change(change, configured, settings);
@@ -77,11 +69,7 @@ impl TextZoom {
     fn stepped(&self, direction: f32, configured: f32, settings: ZoomSettings) -> f32 {
         let size = configured + self.offset;
         let target = (size + direction * settings.step).clamp(settings.min_size, settings.max_size);
-        if (target - size) * direction < 0.0 {
-            self.offset
-        } else {
-            target - configured
-        }
+        if (target - size) * direction < 0.0 { self.offset } else { target - configured }
     }
 }
 
@@ -91,19 +79,11 @@ mod tests {
 
     use super::*;
 
-    const SETTINGS: ZoomSettings = ZoomSettings {
-        step: 1.0,
-        min_size: 8.0,
-        max_size: 16.0,
-        wheel_step: 100.0,
-    };
+    const SETTINGS: ZoomSettings =
+        ZoomSettings { step: 1.0, min_size: 8.0, max_size: 16.0, wheel_step: 100.0 };
 
     fn code(size: f32, line_height: f32) -> CodeFont {
-        CodeFont {
-            size,
-            line_height,
-            ..CodeFont::default()
-        }
+        CodeFont { size, line_height, ..CodeFont::default() }
     }
 
     fn size(zoom: &TextZoom) -> f32 {

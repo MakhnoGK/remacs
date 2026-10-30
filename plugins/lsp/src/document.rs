@@ -58,13 +58,7 @@ struct Gathering<T> {
 impl<T: Default> Gathering<T> {
     /// Waits for the documents asked; the others answered nothing already.
     fn new(id: u64, asked: &[bool]) -> Option<Self> {
-        Some(Self {
-            id,
-            answers: asked
-                .iter()
-                .map(|&asked| (!asked).then(T::default))
-                .collect(),
-        })
+        Some(Self { id, answers: asked.iter().map(|&asked| (!asked).then(T::default)).collect() })
     }
 }
 
@@ -112,11 +106,7 @@ impl Documents {
             };
             match offered.actions.get(index) {
                 Some(action) => {
-                    return Some((
-                        Rc::clone(&document.client),
-                        action.clone(),
-                        offered.encoding,
-                    ));
+                    return Some((Rc::clone(&document.client), action.clone(), offered.encoding));
                 }
                 None => index -= offered.actions.len(),
             }
@@ -226,9 +216,7 @@ impl Document {
 
     /// The language of what it holds: the buffer's or the embedded code's.
     fn speaks<'a>(&self, buffer_mode: &'a str) -> &'a str {
-        self.mirror
-            .as_ref()
-            .map_or(buffer_mode, |mirror| mirror.mode)
+        self.mirror.as_ref().map_or(buffer_mode, |mirror| mirror.mode)
     }
 
     /// What its problems are listed under.
@@ -241,11 +229,7 @@ impl Document {
 
     /// The text the server has now.
     fn sent_text(&self) -> Snapshot {
-        self.pending
-            .back()
-            .expect("the sent text is pending")
-            .1
-            .clone()
+        self.pending.back().expect("the sent text is pending").1.clone()
     }
 
     /// Sends what changed in `buffer` since the last call, or in its code of the embedded
@@ -289,9 +273,7 @@ impl Document {
             color::shift(&mut self.semantic, edit);
         }
         if self.modified && !modified {
-            self.client.send(Outgoing::Save {
-                uri: self.uri.clone(),
-            });
+            self.client.send(Outgoing::Save { uri: self.uri.clone() });
             if self.client.pulls_diagnostics() {
                 self.client.pull_all_again();
             }
@@ -352,10 +334,7 @@ impl Document {
 
     /// How many items completion list `id` has from this server.
     fn listed_count(&self, id: u64) -> usize {
-        self.listed
-            .as_ref()
-            .filter(|listed| listed.id == id)
-            .map_or(0, |listed| listed.items.len())
+        self.listed.as_ref().filter(|listed| listed.id == id).map_or(0, |listed| listed.items.len())
     }
 
     fn resolve_when_settled(&mut self) {
@@ -363,10 +342,7 @@ impl Document {
             return;
         }
         if let Some((id, action)) = self.unresolved.take() {
-            self.client.send(Outgoing::ResolveAction {
-                id,
-                action: Box::new(action),
-            });
+            self.client.send(Outgoing::ResolveAction { id, action: Box::new(action) });
         }
     }
 
@@ -387,16 +363,10 @@ impl Document {
 
     /// Diagnostics for a version no longer pending are stale and dropped.
     fn take_diagnostics(&mut self) -> Option<(Snapshot, Vec<Diagnostic>)> {
-        let Published {
-            version,
-            diagnostics,
-            encoding,
-        } = self.client.take_published(&self.path)?;
+        let Published { version, diagnostics, encoding } =
+            self.client.take_published(&self.path)?;
         let index = match version {
-            Some(version) => self
-                .pending
-                .iter()
-                .position(|(sent, ..)| *sent == version)?,
+            Some(version) => self.pending.iter().position(|(sent, ..)| *sent == version)?,
             None => self.pending.len() - 1,
         };
         self.pending.drain(..index);
@@ -458,12 +428,7 @@ impl Document {
 
     fn request(&self, request: Request) {
         let message = match request {
-            Request::Complete {
-                id,
-                start,
-                offset,
-                trigger,
-            } => Outgoing::Complete {
+            Request::Complete { id, start, offset, trigger } => Outgoing::Complete {
                 uri: self.uri.clone(),
                 id,
                 text: self.sent_text(),
@@ -497,26 +462,15 @@ impl Document {
     /// older actions arriving late do not replace newer ones.
     fn keep(&mut self, answer: &mut Answer) {
         match answer {
-            Answer::Listed {
-                id, items, origin, ..
-            } => {
-                self.listed = Some(Listed {
-                    id: *id,
-                    items: mem::take(items),
-                    origin: origin.clone(),
-                });
+            Answer::Listed { id, items, origin, .. } => {
+                self.listed =
+                    Some(Listed { id: *id, items: mem::take(items), origin: origin.clone() });
             }
-            Answer::CodeActions {
-                id,
-                actions,
-                encoding,
-                ..
-            } if self.offered.as_ref().is_none_or(|offered| offered.id < *id) => {
-                self.offered = Some(Offered {
-                    id: *id,
-                    actions: mem::take(actions),
-                    encoding: *encoding,
-                });
+            Answer::CodeActions { id, actions, encoding, .. }
+                if self.offered.as_ref().is_none_or(|offered| offered.id < *id) =>
+            {
+                self.offered =
+                    Some(Offered { id: *id, actions: mem::take(actions), encoding: *encoding });
             }
             _ => {}
         }
@@ -569,9 +523,7 @@ fn waits<T>(gathering: &Option<Gathering<T>>, id: u64, index: usize) -> bool {
 
 impl Drop for Document {
     fn drop(&mut self) {
-        self.client.send(Outgoing::Close {
-            uri: self.uri.clone(),
-        });
+        self.client.send(Outgoing::Close { uri: self.uri.clone() });
         self.client.take_published(&self.path);
     }
 }
@@ -609,9 +561,7 @@ pub(crate) enum NotStarted {
 impl Clients {
     /// The running servers and their project roots.
     pub(crate) fn running(&self) -> impl Iterator<Item = (&Path, &Rc<Client>)> {
-        self.running
-            .iter()
-            .map(|((_, root), client)| (root.as_path(), client))
+        self.running.iter().map(|((_, root), client)| (root.as_path(), client))
     }
 
     /// Each server started so far, with the project roots it runs for; none for one that
@@ -650,11 +600,7 @@ impl Clients {
         };
         self.failed.contains(server.name)
             || known(self.declined.get(server.name))
-            || known(
-                self.missing
-                    .get(server.name)
-                    .map(|(_, directories)| directories),
-            )
+            || known(self.missing.get(server.name).map(|(_, directories)| directories))
     }
 
     /// The servers whose programs were missing for files in `directory`.
@@ -683,17 +629,12 @@ impl Clients {
             return Some(Some(target));
         }
         let server = |name: &str| servers.iter().find(|server| server.name == name);
-        let starts_beside = server(name)
-            .zip(server(tsserver))
-            .is_some_and(|(asker, target)| {
-                // A group's member starts only when no earlier one is found.
-                target.group.is_none()
-                    && target.root_markers == asker.root_markers
-                    && asker
-                        .languages
-                        .iter()
-                        .any(|&(mode, _)| target.language_id(mode).is_some())
-            });
+        let starts_beside = server(name).zip(server(tsserver)).is_some_and(|(asker, target)| {
+            // A group's member starts only when no earlier one is found.
+            target.group.is_none()
+                && target.root_markers == asker.root_markers
+                && asker.languages.iter().any(|&(mode, _)| target.language_id(mode).is_some())
+        });
         let gave_up = !starts_beside
             || self.failed.contains(tsserver)
             || self.missing.contains_key(tsserver)
@@ -730,28 +671,21 @@ impl Clients {
         if let Some(client) = self.running.get(&(server.name, root.clone())) {
             return Ok(Some(Rc::clone(client)));
         }
-        let Program {
-            path: program,
-            mut env,
-        } = match program(server, &root, downloaded, &self.versions, &notifier) {
-            Found::Program(program) => program,
-            Found::Asking => return Ok(None),
-            Found::Nowhere { too_old } => {
-                // Said once per server, until it is downloaded or restarted.
-                let too_old = too_old.filter(|_| !self.missing.contains_key(server.name));
-                let (_, missing) = self
-                    .missing
-                    .entry(server.name)
-                    .or_insert_with(|| (server, HashSet::new()));
-                missing.insert(directory.to_path_buf());
-                return Err(NotStarted::Missing(too_old));
-            }
-        };
+        let Program { path: program, mut env } =
+            match program(server, &root, downloaded, &self.versions, &notifier) {
+                Found::Program(program) => program,
+                Found::Asking => return Ok(None),
+                Found::Nowhere { too_old } => {
+                    // Said once per server, until it is downloaded or restarted.
+                    let too_old = too_old.filter(|_| !self.missing.contains_key(server.name));
+                    let (_, missing) =
+                        self.missing.entry(server.name).or_insert_with(|| (server, HashSet::new()));
+                    missing.insert(directory.to_path_buf());
+                    return Err(NotStarted::Missing(too_old));
+                }
+            };
         if server.env_when.holds(&root) {
-            let own = server
-                .env
-                .iter()
-                .map(|&(name, value)| (name.into(), value.into()));
+            let own = server.env.iter().map(|&(name, value)| (name.into(), value.into()));
             env.extend(own);
         }
         match Client::start(server, &program, &env, &root, notifier) {
@@ -780,10 +714,7 @@ fn program(
     versions: &Versions,
     notifier: &Notifier,
 ) -> Found {
-    let own = |path: PathBuf| Program {
-        path,
-        env: Vec::new(),
-    };
+    let own = |path: PathBuf| Program { path, env: Vec::new() };
     if let Some(program) = server.own_program {
         return Found::Program(own(program.to_path_buf()));
     }
@@ -796,14 +727,7 @@ fn program(
         .flatten();
     let on_path = std::iter::once_with(|| remacs_tools::find_on_path(server.command).map(own));
     let found = project.into_iter().chain(on_path.flatten());
-    first_suitable(
-        found,
-        server.min_version,
-        root,
-        downloaded,
-        versions,
-        notifier,
-    )
+    first_suitable(found, server.min_version, root, downloaded, versions, notifier)
 }
 
 /// The first of `found` whose major version is at least `minimum`, asked in turn; else
@@ -860,9 +784,10 @@ fn node_program(node_modules: &Path, server: &LanguageServer) -> Option<Program>
         .map(|directory| directory.join(".bin").join(server.command))
         .find(|program| program.is_file())?;
     let bin = path.parent()?.to_path_buf();
-    let path_variable = std::env::join_paths(std::iter::once(bin).chain(std::env::split_paths(
-        &std::env::var_os("PATH").unwrap_or_default(),
-    )));
+    let path_variable = std::env::join_paths(
+        std::iter::once(bin)
+            .chain(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())),
+    );
     let env = path_variable
         .ok()
         .map(|joined| ("PATH".into(), joined.to_string_lossy().into_owned()))
@@ -909,15 +834,13 @@ pub(crate) fn restart(editor: &mut Editor, name: &'static str) {
 fn report_exits(editor: &mut Editor) {
     let clients = editor.plugin_state::<Clients>();
     let mut exited = Vec::new();
-    clients
-        .running
-        .retain(|&(name, _), client| match client.take_exit() {
-            Some(reason) => {
-                exited.push((name, reason));
-                false
-            }
-            None => true,
-        });
+    clients.running.retain(|&(name, _), client| match client.take_exit() {
+        Some(reason) => {
+            exited.push((name, reason));
+            false
+        }
+        None => true,
+    });
     for (name, _) in &exited {
         clients.failed.insert(name);
     }
@@ -955,12 +878,7 @@ fn detach(editor: &mut Editor, name: &'static str) {
 
 /// The colors the buffer's servers found in `range`; where two found one, the first's.
 pub(crate) fn swatch_spans(buffer: &Buffer, range: Range<usize>) -> Vec<Span> {
-    found_spans(
-        buffer,
-        range,
-        |document| &document.colors,
-        |&rgba| Face::Swatch(rgba),
-    )
+    found_spans(buffer, range, |document| &document.colors, |&rgba| Face::Swatch(rgba))
 }
 
 /// The faces of the semantic tokens the buffer's servers found in `range`, over
@@ -986,14 +904,9 @@ fn found_spans<T>(
             // Each server's are in order, so a file's thousands are not all looked at.
             let found = found(document);
             let first = found.partition_point(|(span, _)| span.end <= range.start);
-            found[first..]
-                .iter()
-                .take_while(|(span, _)| span.start < range.end)
+            found[first..].iter().take_while(|(span, _)| span.start < range.end)
         })
-        .map(|(span, value)| Span {
-            range: span.clone(),
-            face: face(value),
-        })
+        .map(|(span, value)| Span { range: span.clone(), face: face(value) })
         .collect();
     spans.sort_by_key(|span| span.range.start);
     let mut end = 0;
@@ -1012,13 +925,7 @@ pub(crate) fn window_servers(editor: &Editor) -> Vec<&'static str> {
     editor
         .window_buffer()
         .local::<Documents>()
-        .map(|documents| {
-            documents
-                .list
-                .iter()
-                .map(|document| document.server.name)
-                .collect()
-        })
+        .map(|documents| documents.list.iter().map(|document| document.server.name).collect())
         .unwrap_or_default()
 }
 
@@ -1034,21 +941,13 @@ pub(crate) fn server_at(
     let asked = asked_at(editor, buffer, offset);
     let document =
         (list.iter().zip(asked)).find_map(|(document, asked)| asked.then_some(document))?;
-    Some((
-        Rc::clone(&document.client),
-        document.uri.clone(),
-        document.sent_text(),
-    ))
+    Some((Rc::clone(&document.client), document.uri.clone(), document.sent_text()))
 }
 
 /// Which of `buffer`'s documents a question about the code at `offset` goes to.
 fn asked_at(editor: &Editor, buffer: &Buffer, offset: usize) -> Vec<bool> {
-    let list = buffer
-        .local::<Documents>()
-        .map_or(&[][..], |documents| &documents.list);
-    let speakers: Vec<_> = (list.iter())
-        .map(|document| document.speaks(buffer.mode()))
-        .collect();
+    let list = buffer.local::<Documents>().map_or(&[][..], |documents| &documents.list);
+    let speakers: Vec<_> = (list.iter()).map(|document| document.speaks(buffer.mode())).collect();
     routed(&speakers, editor.language_at(buffer, offset), buffer.mode())
 }
 
@@ -1074,17 +973,12 @@ fn formatter(editor: &Editor, path: &Path) -> Option<(Rc<Client>, Uri, Snapshot)
         .list;
     // Without a server of its own, embedded code is the file's server's, at the same offsets.
     // Embedded code is formatted by regions, which formatters ahead of the server may lack.
-    let document = (list.iter())
-        .find(|document| file.is_some() && document.path == path)
-        .or_else(|| {
+    let document =
+        (list.iter()).find(|document| file.is_some() && document.path == path).or_else(|| {
             let whole = || list.iter().filter(|document| document.mirror.is_none());
             (whole().find(|document| document.server.formats_first)).or_else(|| whole().next())
         })?;
-    Some((
-        Rc::clone(&document.client),
-        document.uri.clone(),
-        document.sent_text(),
-    ))
+    Some((Rc::clone(&document.client), document.uri.clone(), document.sent_text()))
 }
 
 /// The text the server of embedded code has of document `path`, whose positions refer
@@ -1096,10 +990,7 @@ pub(crate) fn embedded_text(editor: &Editor, path: &Path) -> Option<Snapshot> {
         .iter()
         .find(|buffer| buffer.path() == Some(file.as_path()))?
         .local::<Documents>()?;
-    let document = documents
-        .list
-        .iter()
-        .find(|document| document.path == path)?;
+    let document = documents.list.iter().find(|document| document.path == path)?;
     Some(document.sent_text())
 }
 
@@ -1174,10 +1065,7 @@ fn hand_over_answers(editor: &mut Editor) {
         let client = Rc::clone(&documents.list[first].client);
         // A server holding several of the buffer's documents answers for all at once.
         let earlier = &documents.list[..first];
-        if earlier
-            .iter()
-            .any(|document| Rc::ptr_eq(&document.client, &client))
-        {
+        if earlier.iter().any(|document| Rc::ptr_eq(&document.client, &client)) {
             continue;
         }
         for mut answer in client.take_answers() {
@@ -1205,16 +1093,9 @@ fn hand_over(editor: &mut Editor, index: usize, client: &Client, answer: Answer)
                 remacs_completion::deliver(editor, id, list);
             }
         }
-        Answer::Resolved {
-            id,
-            index: item_index,
-            item,
-        } => {
+        Answer::Resolved { id, index: item_index, item } => {
             let before: usize = documents.map_or(0, |documents| {
-                documents.list[..index]
-                    .iter()
-                    .map(|document| document.listed_count(id))
-                    .sum()
+                documents.list[..index].iter().map(|document| document.listed_count(id)).sum()
             });
             remacs_completion::resolved(editor, id, before + item_index, item);
         }
@@ -1225,11 +1106,7 @@ fn hand_over(editor: &mut Editor, index: usize, client: &Client, answer: Answer)
                 remacs_documentation::deliver(editor, id, answer);
             }
         }
-        Answer::Locations {
-            id,
-            targets,
-            encoding,
-        } => {
+        Answer::Locations { id, targets, encoding } => {
             let locations = definition::locations(editor, targets, encoding);
             remacs_xref::deliver(editor, id, locations);
         }
@@ -1237,12 +1114,7 @@ fn hand_over(editor: &mut Editor, index: usize, client: &Client, answer: Answer)
             remacs_documentation::deliver_signatures(editor, id, signatures);
         }
         Answer::CodeActions { id, menu, .. } => gather_actions(editor, id, index, menu),
-        Answer::ResolvedAction {
-            id,
-            action,
-            encoding,
-            settled,
-        } => {
+        Answer::ResolvedAction { id, action, encoding, settled } => {
             if !settled && action.edit.is_none() && action.data.is_some() {
                 let documents = editor.window_buffer_mut().local_mut::<Documents>();
                 if let Some(document) =
@@ -1260,11 +1132,7 @@ fn hand_over(editor: &mut Editor, index: usize, client: &Client, answer: Answer)
         }
         Answer::ActionFailed { id, message } => remacs_actions::failed(editor, id, &message),
         Answer::Formatted { id, formatted } => remacs_format::deliver(editor, id, formatted),
-        Answer::ApplyEdit {
-            reply,
-            edit,
-            encoding,
-        } => {
+        Answer::ApplyEdit { reply, edit, encoding } => {
             let result = match client.executing() {
                 Some(id) => code_action::apply(editor, id, edit, encoding),
                 None => Err("No code action asked for edits".into()),
@@ -1428,10 +1296,8 @@ fn send_requests(editor: &mut Editor) {
     for id in no_actions {
         remacs_actions::deliver(editor, id, Vec::new());
     }
-    let documents = editor
-        .window_buffer_mut()
-        .local_mut::<Documents>()
-        .expect("the buffer has documents");
+    let documents =
+        editor.window_buffer_mut().local_mut::<Documents>().expect("the buffer has documents");
     if let Some((id, asked)) = completing {
         documents.completions = Gathering::new(id, &asked);
     }
@@ -1479,12 +1345,7 @@ fn send_formats(editor: &mut Editor) {
             editor.plugin_state::<HeldFormats>().0.push(request);
             continue;
         }
-        client.send(Outgoing::Format {
-            uri,
-            id: request.id,
-            text,
-            range: request.range,
-        });
+        client.send(Outgoing::Format { uri, id: request.id, text, range: request.range });
     }
 }
 
@@ -1518,10 +1379,7 @@ struct Want {
 /// each embedded language for a document of that code.
 fn wants(editor: &Editor, index: usize, servers: &'static [LanguageServer]) -> Vec<Want> {
     let buffer = &editor.buffers()[index];
-    let Some(path) = buffer
-        .path()
-        .filter(|_| buffer.text().len() <= MAX_SYNCED_BYTES)
-    else {
+    let Some(path) = buffer.path().filter(|_| buffer.text().len() <= MAX_SYNCED_BYTES) else {
         return Vec::new();
     };
     let clients = editor.find_plugin_state::<Clients>();
@@ -1579,22 +1437,15 @@ fn attach(editor: &mut Editor, index: usize, servers: &'static [LanguageServer])
 /// `attach`; true when a server of a group was found missing.
 fn attach_once(editor: &mut Editor, index: usize, servers: &'static [LanguageServer]) -> bool {
     let wanted = wants(editor, index, servers);
-    let attached = editor.buffers()[index]
-        .local::<Documents>()
-        .map_or(&[][..], |documents| &documents.list);
+    let attached =
+        editor.buffers()[index].local::<Documents>().map_or(&[][..], |documents| &documents.list);
     if attached.len() == wanted.len()
-        && attached
-            .iter()
-            .zip(&wanted)
-            .all(|(document, want)| document.serves(want))
+        && attached.iter().zip(&wanted).all(|(document, want)| document.serves(want))
     {
         return false;
     }
     let buffer = &mut editor.buffers_mut()[index];
-    let mut previous = buffer
-        .local_mut::<Documents>()
-        .map(mem::take)
-        .unwrap_or_default();
+    let mut previous = buffer.local_mut::<Documents>().map(mem::take).unwrap_or_default();
     let (mut kept, closed): (Vec<_>, Vec<_>) = mem::take(&mut previous.list)
         .into_iter()
         .partition(|document| wanted.iter().any(|want| document.serves(want)));
@@ -1618,9 +1469,7 @@ fn attach_once(editor: &mut Editor, index: usize, servers: &'static [LanguageSer
             }
             None => {
                 next_of_group |= want.server.group.is_some()
-                    && editor
-                        .plugin_state::<Clients>()
-                        .passes_over(want.server, &want.path);
+                    && editor.plugin_state::<Clients>().passes_over(want.server, &want.path);
             }
         }
     }
@@ -1628,11 +1477,7 @@ fn attach_once(editor: &mut Editor, index: usize, servers: &'static [LanguageSer
     if list.is_empty() {
         buffer.remove_local::<Documents>();
     } else {
-        let requests = if unchanged {
-            previous
-        } else {
-            Documents::default()
-        };
+        let requests = if unchanged { previous } else { Documents::default() };
         buffer.set_local(Documents { list, ..requests });
     }
     next_of_group
@@ -1643,55 +1488,44 @@ fn attach_once(editor: &mut Editor, index: usize, servers: &'static [LanguageSer
 fn open(editor: &mut Editor, index: usize, want: &Want) -> Option<Document> {
     let server = want.server;
     let notifier = editor.notifier();
-    let downloaded = server
-        .tool
-        .and_then(|tool| remacs_tools::installed(editor, tool.name));
-    let client = match editor
-        .plugin_state::<Clients>()
-        .client_for(server, &want.path, downloaded, notifier)
-    {
-        Ok(client) => client?,
-        Err(NotStarted::Missing(too_old)) => {
-            if let Some(program) = too_old {
-                let (name, minimum) = (server.name, server.min_version);
-                // That command, unlike the Tools panel, starts the server once downloaded;
-                // with offers off it offers nothing.
-                let offers = editor
-                    .plugin_state::<Clients>()
-                    .settings()
-                    .offer_downloads();
-                let download = if offers
-                    && server
-                        .tool
-                        .is_some_and(|tool| remacs_tools::can_install(editor, tool))
-                {
-                    ": download it with Edit ▸ Download Language Servers"
-                } else {
-                    ""
-                };
-                editor.set_error(format!(
-                    "{name} needs version {minimum} or later, and {} does not say it is \
+    let downloaded = server.tool.and_then(|tool| remacs_tools::installed(editor, tool.name));
+    let client =
+        match editor.plugin_state::<Clients>().client_for(server, &want.path, downloaded, notifier)
+        {
+            Ok(client) => client?,
+            Err(NotStarted::Missing(too_old)) => {
+                if let Some(program) = too_old {
+                    let (name, minimum) = (server.name, server.min_version);
+                    // That command, unlike the Tools panel, starts the server once downloaded;
+                    // with offers off it offers nothing.
+                    let offers = editor.plugin_state::<Clients>().settings().offer_downloads();
+                    let download = if offers
+                        && server.tool.is_some_and(|tool| remacs_tools::can_install(editor, tool))
+                    {
+                        ": download it with Edit ▸ Download Language Servers"
+                    } else {
+                        ""
+                    };
+                    editor.set_error(format!(
+                        "{name} needs version {minimum} or later, and {} does not say it is \
                      one{download}",
-                    program.display(),
-                ));
+                        program.display(),
+                    ));
+                }
+                let mode = editor.buffers()[index].mode();
+                let mode = want.embedded.as_ref().map_or(mode, |code| code.mode);
+                offer::missing(editor, server, &want.path, mode);
+                return None;
             }
-            let mode = editor.buffers()[index].mode();
-            let mode = want.embedded.as_ref().map_or(mode, |code| code.mode);
-            offer::missing(editor, server, &want.path, mode);
-            return None;
-        }
-        Err(NotStarted::Failed(message)) => {
-            editor.set_error(message);
-            return None;
-        }
-    };
+            Err(NotStarted::Failed(message)) => {
+                editor.set_error(message);
+                return None;
+            }
+        };
     let buffer = &mut editor.buffers_mut()[index];
     let text = buffer.text().snapshot();
     let modes = CodeModes {
-        document: want
-            .embedded
-            .as_ref()
-            .map_or(buffer.mode(), |code| code.mode),
+        document: want.embedded.as_ref().map_or(buffer.mode(), |code| code.mode),
         languages: server.languages,
     };
     let document = Document::open(want, client, modes, text.clone(), buffer.is_modified());
@@ -1799,15 +1633,9 @@ mod tests {
         assert_eq!(answer(&clients, &[vue()]), Some(false));
         let for_typescript = server("vue-ts", None, &[("TypeScript", "typescript")]);
         assert_eq!(answer(&clients, &[vue(), for_typescript]), Some(false));
-        let other_root = LanguageServer {
-            root_markers: &["tsconfig.json"],
-            ..vue_ts()
-        };
+        let other_root = LanguageServer { root_markers: &["tsconfig.json"], ..vue_ts() };
         assert_eq!(answer(&clients, &[vue(), other_root]), Some(false));
-        let grouped = LanguageServer {
-            group: Some("typescript"),
-            ..vue_ts()
-        };
+        let grouped = LanguageServer { group: Some("typescript"), ..vue_ts() };
         assert_eq!(answer(&clients, &[vue(), grouped]), Some(false));
         clients.failed.insert("vue-ts");
         assert_eq!(answer(&clients, &[vue(), vue_ts()]), Some(false));
@@ -1821,10 +1649,7 @@ mod tests {
         std::fs::write(bin.join("oxlint"), "").unwrap();
         let server = |dependencies: &'static [&'static str]| LanguageServer {
             command: "oxlint",
-            when: crate::catalog::When {
-                dependencies,
-                ..Default::default()
-            },
+            when: crate::catalog::When { dependencies, ..Default::default() },
             ..LanguageServer::default()
         };
 
@@ -1864,21 +1689,14 @@ mod tests {
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
             &*path.to_string_lossy().into_owned().leak()
         };
-        let downloaded = Program {
-            path: PathBuf::from("/downloaded/tsc"),
-            env: Vec::new(),
-        };
+        let downloaded = Program { path: PathBuf::from("/downloaded/tsc"), env: Vec::new() };
         let versions = Versions::default();
         let (answered, answers) = mpsc::channel();
         let notifier: Notifier = Arc::new(move || {
             let _ = answered.send(());
         });
         let look = |command: &'static str, downloaded: Option<Program>| {
-            let server = LanguageServer {
-                command,
-                min_version: 7,
-                ..LanguageServer::default()
-            };
+            let server = LanguageServer { command, min_version: 7, ..LanguageServer::default() };
             let found = || program(&server, &root, downloaded.clone(), &versions, &notifier);
             assert!(matches!(found(), Found::Asking));
             answers.recv_timeout(Duration::from_secs(10)).unwrap();
@@ -1921,10 +1739,7 @@ mod tests {
 
         // A project's own copy too old, the one on `PATH` is asked next.
         let versions = Versions::default();
-        let own = |path: &str| Program {
-            path: PathBuf::from(path),
-            env: Vec::new(),
-        };
+        let own = |path: &str| Program { path: PathBuf::from(path), env: Vec::new() };
         let pick = || first_suitable([own(old), own(new)], 7, &root, None, &versions, &notifier);
         for _ in [old, new] {
             assert!(matches!(pick(), Found::Asking));
@@ -1958,9 +1773,8 @@ mod tests {
         let file = root.join("notes.txt");
         editor.add_buffer(Buffer::new("notes.txt", Text::default(), "Fundamental").with_file(file));
         editor.refresh();
-        let index = (editor.buffers().iter())
-            .position(|buffer| buffer.name() == "notes.txt")
-            .unwrap();
+        let index =
+            (editor.buffers().iter()).position(|buffer| buffer.name() == "notes.txt").unwrap();
         fn documents(
             editor: &mut Editor,
             index: usize,
@@ -2001,10 +1815,7 @@ mod tests {
             "rustc · E0599"
         );
         let lint = NumberOrString::String("clippy::len_without_is_empty".into());
-        assert_eq!(
-            label(Some("clippy"), Some(lint)),
-            "clippy · len_without_is_empty"
-        );
+        assert_eq!(label(Some("clippy"), Some(lint)), "clippy · len_without_is_empty");
         assert_eq!(label(None, Some(NumberOrString::Number(2304))), "2304");
         assert_eq!(label(Some("ts"), None), "ts");
     }

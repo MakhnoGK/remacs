@@ -21,11 +21,7 @@ const MAX_MATCH: usize = 4 * 1024;
     reason = "one per search; x86_64's SIMD finder is the large one, boxing it costs a pointer chase per line"
 )]
 pub enum Query {
-    Literal {
-        finder: Finder<'static>,
-        ignore_case: bool,
-        len: usize,
-    },
+    Literal { finder: Finder<'static>, ignore_case: bool, len: usize },
     Regex(Regex),
 }
 
@@ -59,10 +55,7 @@ pub fn regex(input: &str) -> Result<Regex, String> {
 
 /// What a prompt lists in place of candidates: only `text`, e.g. why its input is invalid.
 pub fn note(text: String) -> Completions {
-    Completions {
-        note: Some(text),
-        ..Completions::default()
-    }
+    Completions { note: Some(text), ..Completions::default() }
 }
 
 /// `line` without the spaces around it, and `ranges` of it moved to match.
@@ -89,11 +82,7 @@ impl Query {
             return self::regex(text).map(|regex| Some(Self::Regex(regex)));
         }
         let ignore_case = !text.chars().any(char::is_uppercase);
-        let needle = if ignore_case {
-            text.to_ascii_lowercase()
-        } else {
-            text.to_owned()
-        };
+        let needle = if ignore_case { text.to_ascii_lowercase() } else { text.to_owned() };
         Ok(Some(Self::Literal {
             finder: Finder::new(needle.as_bytes()).into_owned(),
             ignore_case,
@@ -121,11 +110,9 @@ impl Query {
         each: impl FnMut(Range<usize>) -> bool,
     ) {
         match self {
-            Self::Literal {
-                finder,
-                ignore_case,
-                len,
-            } => find_literal(finder, *ignore_case, *len, text, range, each),
+            Self::Literal { finder, ignore_case, len } => {
+                find_literal(finder, *ignore_case, *len, text, range, each)
+            }
             Self::Regex(regex) => find_regex(regex, text, range, each),
         }
     }
@@ -133,20 +120,10 @@ impl Query {
     /// Byte ranges of the matches in `line`, empty ones left out.
     pub fn ranges_in(&self, line: &str) -> Vec<Range<usize>> {
         match self {
-            Self::Literal {
-                finder,
-                ignore_case,
-                len,
-            } => {
-                let haystack = if *ignore_case {
-                    line.to_ascii_lowercase()
-                } else {
-                    line.to_owned()
-                };
-                finder
-                    .find_iter(haystack.as_bytes())
-                    .map(|start| start..start + len)
-                    .collect()
+            Self::Literal { finder, ignore_case, len } => {
+                let haystack =
+                    if *ignore_case { line.to_ascii_lowercase() } else { line.to_owned() };
+                finder.find_iter(haystack.as_bytes()).map(|start| start..start + len).collect()
             }
             Self::Regex(regex) => regex
                 .find_iter(line.as_bytes())
@@ -249,10 +226,7 @@ fn find_literal(
     // Matches do not overlap: the next may start only after the last one reported.
     let mut next_allowed = range.start;
     let searched = range.start..(range.end + overlap).min(text.len());
-    for block in text
-        .chunks(searched)
-        .flat_map(|chunk| chunk.chunks(SEARCHED_BLOCK))
-    {
+    for block in text.chunks(searched).flat_map(|chunk| chunk.chunks(SEARCHED_BLOCK)) {
         let kept = window.len().min(overlap);
         window_start += window.len() - kept;
         window.drain(..window.len() - kept);
@@ -291,10 +265,7 @@ fn find_regex(
     let mut position = range.start - from;
     // Like Rust's regex and Emacs, no empty match right where the last one ended.
     let mut last_end = None;
-    for block in text
-        .chunks(from..to)
-        .flat_map(|chunk| chunk.chunks(SEARCHED_BLOCK))
-    {
+    for block in text.chunks(from..to).flat_map(|chunk| chunk.chunks(SEARCHED_BLOCK)) {
         window.extend_from_slice(block);
         let last = window_start + window.len() == to;
         // Small pieces of an edited buffer are gathered, so that the text after the cut,
@@ -303,11 +274,7 @@ fn find_regex(
             continue;
         }
         // Matches starting before here have MAX_MATCH bytes to end in.
-        let cut = if last {
-            window.len() + 1
-        } else {
-            window.len() - MAX_MATCH
-        };
+        let cut = if last { window.len() + 1 } else { window.len() - MAX_MATCH };
         while position < cut {
             let Some(found) = regex.find_at(&window, position) else {
                 break;
@@ -350,7 +317,5 @@ fn is_continuation(byte: u8) -> bool {
 
 /// Bytes of the character starting at `offset`, 1 past the end.
 fn char_len(bytes: &[u8], offset: usize) -> usize {
-    bytes
-        .get(offset)
-        .map_or(1, |byte| (byte.leading_ones() as usize).max(1))
+    bytes.get(offset).map_or(1, |byte| (byte.leading_ones() as usize).max(1))
 }

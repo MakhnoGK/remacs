@@ -118,10 +118,7 @@ fn commit(root: &Path, revision: &str) -> Option<Commit> {
     .unwrap_or_default();
     let branches = String::from_utf8_lossy(&branches);
     Some(Commit {
-        name: branches
-            .lines()
-            .find(|name| !name.ends_with("/HEAD"))
-            .map(str::to_owned),
+        name: branches.lines().find(|name| !name.ends_with("/HEAD")).map(str::to_owned),
         id: id.to_owned(),
         subject: subject.to_owned(),
     })
