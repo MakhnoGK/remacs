@@ -1,6 +1,8 @@
 use gpui::{Action, App, KeyBinding, Menu, MenuItem, SharedString};
 use remacs_core::{Editor, Key, KeyCode, describe_sequence};
 
+use crate::key_input::NAMED_KEYS;
+
 /// A menu item's command, run by the editor view.
 #[derive(Clone, Debug, PartialEq, Action)]
 #[action(namespace = remacs, no_json)]
@@ -71,31 +73,24 @@ fn shown_menus(editor: &Editor) -> Vec<ShownMenu> {
             groups: menu
                 .groups
                 .iter()
-                .map(|group| {
-                    group
-                        .iter()
-                        .map(|item| {
-                            let item_title = item.title_in(editor);
-                            let (title, key_equivalent) = match shown_keys(editor, item.command) {
-                                Some(Shown::Native(keystroke)) => {
-                                    (item_title.to_owned(), Some(keystroke))
-                                }
-                                Some(Shown::InTitle(keys)) => {
-                                    (format!("{item_title} ({keys})"), None)
-                                }
-                                None => (item_title.to_owned(), None),
-                            };
-                            ShownItem {
-                                title,
-                                command: item.command,
-                                key_equivalent,
-                            }
-                        })
-                        .collect()
-                })
+                .map(|group| group.iter().map(|item| shown_item(editor, item)).collect())
                 .collect(),
         })
         .collect()
+}
+
+fn shown_item(editor: &Editor, item: &remacs_core::MenuItem) -> ShownItem {
+    let title = item.title_in(editor);
+    let (title, key_equivalent) = match shown_keys(editor, item.command) {
+        Some(Shown::Native(keystroke)) => (title.to_owned(), Some(keystroke)),
+        Some(Shown::InTitle(keys)) => (format!("{title} ({keys})"), None),
+        None => (title.to_owned(), None),
+    };
+    ShownItem {
+        title,
+        command: item.command,
+        key_equivalent,
+    }
 }
 
 /// Whether a menu item may be chosen: its command can run now.
@@ -137,24 +132,17 @@ fn to_keystroke(key: Key) -> Option<String> {
         KeyCode::Char(character) if character.is_ascii_uppercase() => {
             format!("shift-{}", character.to_ascii_lowercase())
         }
-        KeyCode::Char(' ') => "space".to_owned(),
         KeyCode::Char(character) if !character.is_whitespace() && character != '-' => {
             character.to_string()
         }
-        KeyCode::Backspace => "backspace".to_owned(),
-        KeyCode::Delete => "delete".to_owned(),
-        KeyCode::Escape => "escape".to_owned(),
-        KeyCode::Up => "up".to_owned(),
-        KeyCode::Down => "down".to_owned(),
-        KeyCode::Left => "left".to_owned(),
-        KeyCode::Right => "right".to_owned(),
-        KeyCode::Home => "home".to_owned(),
-        KeyCode::End => "end".to_owned(),
-        KeyCode::PageUp => "pageup".to_owned(),
-        KeyCode::PageDown => "pagedown".to_owned(),
         KeyCode::Function(number) => format!("f{number}"),
-        // macOS menus have no key equivalent for them.
-        KeyCode::Char(_) | KeyCode::Return | KeyCode::Tab => return None,
+        // macOS menus have no key equivalent for them, nor for `-` and whitespace but space.
+        KeyCode::Return | KeyCode::Tab => return None,
+        code => NAMED_KEYS
+            .iter()
+            .find(|&&(_, named)| named == code)?
+            .0
+            .to_owned(),
     };
     let chord = modifiers.control || modifiers.meta || modifiers.super_key;
     if !chord && !matches!(key.code, KeyCode::Function(_)) {

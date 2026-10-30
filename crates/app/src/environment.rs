@@ -14,6 +14,8 @@ use remacs_config::Section;
 use remacs_terminal::find_program;
 use serde::Deserialize;
 
+use crate::settings::settings_sections;
+
 /// Printed before the environment, so that whatever the shell's startup files print is
 /// told apart from it.
 const MARKER: &str = "__remacs_environment__";
@@ -34,25 +36,15 @@ const FALLBACK_SHELL: &str = if cfg!(target_os = "macos") {
     "/bin/sh"
 };
 
-/// `environment.toml`.
-#[derive(Debug, Deserialize, PartialEq)]
-#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
-pub struct EnvironmentSettings {
-    pub from_login_shell: FromLoginShell,
-    /// The shell whose environment is taken, a path or a name, in place of the account's
-    /// login shell, e.g. when terminals run another one.
-    pub shell: String,
-    /// Milliseconds the shell may take to start.
-    pub timeout: u64,
-}
-
-impl Default for EnvironmentSettings {
-    fn default() -> Self {
-        Self {
-            from_login_shell: FromLoginShell::Auto,
-            shell: String::new(),
-            timeout: 5000,
-        }
+settings_sections! {
+    /// `environment.toml`.
+    pub struct EnvironmentSettings {
+        pub from_login_shell: FromLoginShell = FromLoginShell::Auto,
+        /// The shell whose environment is taken, a path or a name, in place of the account's
+        /// login shell, e.g. when terminals run another one.
+        pub shell: String = String::new(),
+        /// Milliseconds the shell may take to start.
+        pub timeout: u64 = 5000,
     }
 }
 

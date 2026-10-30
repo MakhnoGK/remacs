@@ -14,8 +14,8 @@ use std::time::SystemTime;
 
 use futures::channel::mpsc::UnboundedSender;
 use remacs_config::Section;
-use serde::Deserialize;
 
+use crate::settings::settings_sections;
 use crate::version::{COMMIT, VERSION};
 
 const LOG: &str = "remacs.log";
@@ -27,22 +27,13 @@ const SHOWN: &str = ".shown";
 /// Where the panic hook sends each report it writes, once the window is open.
 static REPORTED: OnceLock<UnboundedSender<PathBuf>> = OnceLock::new();
 
-/// `logs.toml`.
-#[derive(Debug, Deserialize, PartialEq)]
-#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
-pub struct LogSettings {
-    /// Bytes `remacs.log` may reach before the next start moves it to `remacs.log.old`.
-    pub log_size: u64,
-    /// Crash reports kept; each start removes the oldest past it.
-    pub crash_reports: usize,
-}
-
-impl Default for LogSettings {
-    fn default() -> Self {
-        Self {
-            log_size: 1024 * 1024,
-            crash_reports: 20,
-        }
+settings_sections! {
+    /// `logs.toml`.
+    pub struct LogSettings {
+        /// Bytes `remacs.log` may reach before the next start moves it to `remacs.log.old`.
+        pub log_size: u64 = 1024 * 1024,
+        /// Crash reports kept; each start removes the oldest past it.
+        pub crash_reports: usize = 20,
     }
 }
 

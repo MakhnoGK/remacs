@@ -35,11 +35,11 @@ mod widgets;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use futures::StreamExt;
 use futures::channel::mpsc;
+use futures::{Stream, StreamExt};
 use gpui::{
-    App, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions, point, prelude::*, px,
-    size,
+    App, Application, Bounds, TitlebarOptions, WindowBounds, WindowHandle, WindowOptions, point,
+    prelude::*, px, size,
 };
 use remacs_actions::ActionsPlugin;
 use remacs_completion::CompletionPlugin;
@@ -75,7 +75,7 @@ use editor_view::EditorView;
 use environment::EnvironmentSettings;
 use logs::LogSettings;
 use opening::{file_paths, open};
-use settings::{ReadSettings, read_settings, report, watch_settings};
+use settings::{ReadSettings, read_settings, report, section, watch_settings};
 use version::{COMMIT, VERSION};
 
 const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
@@ -113,10 +113,8 @@ const BUILTIN_PLUGINS: &[&dyn Plugin] = &[
 ];
 
 fn main() -> ExitCode {
-    if std::env::args_os()
-        .nth(1)
-        .is_some_and(|arg| arg == "--version")
-    {
+    let argument = std::env::args_os().nth(1);
+    if argument.as_ref().is_some_and(|arg| arg == "--version") {
         println!("remacs {VERSION} ({COMMIT})");
         return ExitCode::SUCCESS;
     }
@@ -125,28 +123,17 @@ fn main() -> ExitCode {
         ui,
         mut errors,
     } = read_settings(frame::system_appearance());
-    let logs = settings
-        .section::<LogSettings>()
-        .unwrap_or_else(|(error, defaults)| {
-            errors.push(error);
-            defaults
-        });
+    let logs: LogSettings = section(&settings, &mut errors);
     // First, so that what goes wrong from here on is kept.
     let crashed = home().and_then(|home| logs::start(&state_dir(&home), &logs));
     // Before the plugins start their threads; shown once the window is open.
-    let (reported, mut reports) = mpsc::unbounded();
+    let (reported, reports) = mpsc::unbounded();
     logs::report_to(reported);
-    let environment =
-        settings
-            .section::<EnvironmentSettings>()
-            .unwrap_or_else(|(error, defaults)| {
-                errors.push(error);
-                defaults
-            });
+    let environment: EnvironmentSettings = section(&settings, &mut errors);
     // Before the plugins, which start programs that look for others on `PATH`.
     let imported = environment::import(&environment);
 
-    let path = std::env::args_os().nth(1).map(PathBuf::from);
+    let path = argument.map(PathBuf::from);
     let mut editor = Editor::new(BUILTIN_PLUGINS);
     editor.set_settings(settings);
     if let Some(home) = home() {
@@ -177,7 +164,7 @@ fn main() -> ExitCode {
     }
 
     // Finder's and the Dock's, which may come before the window is open.
-    let (opened, mut to_open) = mpsc::unbounded();
+    let (opened, to_open) = mpsc::unbounded();
     let app = Application::new().with_assets(Assets);
     app.on_open_urls(move |urls| {
         let _ = opened.unbounded_send(file_paths(&urls));
@@ -218,30 +205,30 @@ fn main() -> ExitCode {
                 .update(cx, |view, _, cx| view.may_quit(cx))
                 .unwrap_or(true)
         });
-        cx.spawn(async move |cx| {
-            while let Some(paths) = to_open.next().await {
-                if window
-                    .update(cx, |view, _, cx| view.open_paths(paths, cx))
-                    .is_err()
-                {
-                    break;
-                }
-            }
-        })
-        .detach();
-        cx.spawn(async move |cx| {
-            while let Some(report) = reports.next().await {
-                let text = logs::reported(&report);
-                if window
-                    .update(cx, |view, _, cx| view.show_error(text, cx))
-                    .is_err()
-                {
-                    break;
-                }
-            }
-        })
-        .detach();
+        forward(window, to_open, EditorView::open_paths, cx);
+        let texts = reports.map(|report| logs::reported(&report));
+        forward(window, texts, EditorView::show_error, cx);
         cx.activate(true);
     });
     ExitCode::SUCCESS
+}
+
+/// Hands each of `items` to the view with `hand`, for as long as `window` is open.
+fn forward<T: 'static>(
+    window: WindowHandle<EditorView>,
+    mut items: impl Stream<Item = T> + Unpin + 'static,
+    hand: fn(&mut EditorView, T, &mut Context<EditorView>),
+    cx: &mut App,
+) {
+    cx.spawn(async move |cx| {
+        while let Some(item) = items.next().await {
+            if window
+                .update(cx, |view, _, cx| hand(view, item, cx))
+                .is_err()
+            {
+                break;
+            }
+        }
+    })
+    .detach();
 }
