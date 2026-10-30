@@ -89,11 +89,8 @@ impl Original {
                 detect(&sample, sample.len() == file_len)
             }
         };
-        let mut format = Format {
-            encoding: sniffed,
-            byte_order_mark: byte_order_mark == Some(sniffed),
-            ..Format::crlf()
-        };
+        let byte_order_mark = byte_order_mark == Some(sniffed);
+        let mut format = Format { encoding: sniffed, byte_order_mark, ..Format::crlf() };
         loop {
             match Self::decode(file, file_len, format)? {
                 Ok(original) => return Ok(original),
@@ -153,10 +150,8 @@ impl Original {
     /// A notice in place of the file's bytes, which aren't read.
     fn binary(file_len: usize) -> Self {
         let notice = format!("Binary file of {file_len} bytes: not shown.\n");
-        Self {
-            format: Format { binary: true, ..Format::default() },
-            ..Self::from(notice.into_bytes())
-        }
+        let format = Format { binary: true, ..Format::default() };
+        Self { format, ..Self::from(notice.into_bytes()) }
     }
 
     pub fn bytes(&self) -> &[u8] {
@@ -184,11 +179,8 @@ fn not_in(encoding: &'static Encoding) -> io::Error {
 // windows-1251 file, ~7 GB) and opening fails without the room; decode lazily if it bites.
 fn temporary_file() -> io::Result<File> {
     static MADE: AtomicUsize = AtomicUsize::new(0);
-    let path = env::temp_dir().join(format!(
-        "remacs-decoded-{}-{}",
-        process::id(),
-        MADE.fetch_add(1, Ordering::Relaxed)
-    ));
+    let made = MADE.fetch_add(1, Ordering::Relaxed);
+    let path = env::temp_dir().join(format!("remacs-decoded-{}-{made}", process::id()));
     let file = OpenOptions::new().read(true).write(true).create_new(true).open(&path)?;
     fs::remove_file(&path)?;
     Ok(file)

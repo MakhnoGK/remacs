@@ -48,10 +48,8 @@ impl Folds {
         };
         let folds = self.folds.iter().filter_map(|fold| {
             if edit.old_end < fold.bytes.start {
-                Some(Fold {
-                    bytes: shift(&fold.bytes, grown),
-                    lines: shift(&fold.lines, grown_lines),
-                })
+                let (bytes, lines) = (shift(&fold.bytes, grown), shift(&fold.lines, grown_lines));
+                Some(Fold { bytes, lines })
             } else {
                 (edit.start > fold.bytes.end).then(|| fold.clone())
             }
@@ -118,10 +116,8 @@ impl ShownLines {
         let row = row.min(self.rows() - 1);
         // A range's start less the lines hidden before it is the row of the line after it.
         let index = (self.hidden).partition_point(|(range, before)| range.start - before <= row);
-        match index.checked_sub(1).map(|index| &self.hidden[index]) {
-            Some((range, before)) => row + before + range.len(),
-            None => row,
-        }
+        let fold = index.checked_sub(1).map(|index| &self.hidden[index]);
+        fold.map_or(row, |(range, before)| row + before + range.len())
     }
 
     /// The shown line `rows` rows from `line`, which may be hidden, within the lines.

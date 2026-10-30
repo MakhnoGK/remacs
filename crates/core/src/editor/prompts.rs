@@ -56,9 +56,7 @@ impl Editor {
             return;
         }
         let answer = if yes { "y" } else { "n" };
-        if let Err(error) = self.finish_minibuffer(answer.to_owned()) {
-            self.set_error(error.0);
-        }
+        self.finish_minibuffer(answer.to_owned()).unwrap_or_else(|error| self.set_error(error.0));
         self.after_command();
     }
 
@@ -125,9 +123,7 @@ impl Editor {
         if let Some(minibuffer) = &mut self.minibuffer {
             minibuffer.select(index);
         }
-        if let Err(error) = self.exit_minibuffer(false) {
-            self.set_error(error.0);
-        }
+        self.exit_minibuffer(false).unwrap_or_else(|error| self.set_error(error.0));
         self.after_command();
     }
 
@@ -162,9 +158,7 @@ impl Editor {
     /// Keeps the minibuffer history in `path` across sessions: reads it now and writes it
     /// after each answer.
     pub fn keep_history_in(&mut self, path: PathBuf) {
-        if let Err(error) = self.history.keep_in(path) {
-            self.set_error(error);
-        }
+        self.history.keep_in(path).unwrap_or_else(|error| self.set_error(error));
     }
 
     pub(super) fn answer_question_key(&mut self, key: Key) {

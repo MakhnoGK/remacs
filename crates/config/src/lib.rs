@@ -13,11 +13,9 @@ use serde::de::DeserializeOwned;
 
 /// `$XDG_CONFIG_HOME/remacs`, else `~/.config/remacs`.
 pub fn home() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .filter(|dir| !dir.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
-    Some(base.join("remacs"))
+    let xdg = std::env::var_os("XDG_CONFIG_HOME").filter(|dir| !dir.is_empty()).map(PathBuf::from);
+    let home_config = || Some(PathBuf::from(std::env::var_os("HOME")?).join(".config"));
+    Some(xdg.or_else(home_config)?.join("remacs"))
 }
 
 macro_rules! home_dirs {
@@ -113,10 +111,8 @@ pub const DEFAULT_FILES: &[(&str, &str)] = &[
 /// settings files are read, to exactly `T::default()`.
 pub fn assert_default_file<T: Section + PartialEq + fmt::Debug>() {
     let file = format!("{}.toml", T::NAME);
-    let (_, text) = DEFAULT_FILES
-        .iter()
-        .find(|(name, _)| *name == T::NAME)
-        .unwrap_or_else(|| panic!("no {file} in DEFAULT_FILES"));
+    let default_file = DEFAULT_FILES.iter().find(|(name, _)| *name == T::NAME);
+    let (_, text) = default_file.unwrap_or_else(|| panic!("no {file} in DEFAULT_FILES"));
     let settings = Settings::from_files([(PathBuf::from(&file), (*text).to_owned())]);
     let section = settings.section::<T>().map_err(|(error, _)| error.to_string());
     assert_eq!(section, Ok(T::default()), "{file}");
@@ -169,12 +165,8 @@ pub struct Settings {
 impl Settings {
     /// A missing directory means all defaults; unreadable files are left out and reported.
     pub fn load(dir: &Path) -> (Self, Vec<SettingsError>) {
-        let mut files = Vec::new();
-        let mut errors = Vec::new();
-        let Ok(entries) = fs::read_dir(dir) else {
-            return (Self::default(), errors);
-        };
-        let paths = entries.flatten().map(|entry| entry.path());
+        let (mut files, mut errors) = (Vec::new(), Vec::new());
+        let paths = fs::read_dir(dir).into_iter().flatten().flatten().map(|entry| entry.path());
         for path in paths.filter(|path| is_toml(path)) {
             match fs::read_to_string(&path) {
                 Ok(text) => files.push((path, text)),
@@ -190,14 +182,10 @@ impl Settings {
 
     /// Settings from files' paths and texts, each file a section named after it.
     pub fn from_files(files: impl IntoIterator<Item = (PathBuf, String)>) -> Self {
-        let files = files
-            .into_iter()
-            .filter_map(|(path, text)| {
-                let name = path.file_stem()?.to_str()?.to_owned();
-                Some((name, SectionFile { path, text }))
-            })
-            .collect();
-        Self { files }
+        let section_file = |(path, text): (PathBuf, String)| {
+            Some((path.file_stem()?.to_str()?.to_owned(), SectionFile { path, text }))
+        };
+        Self { files: files.into_iter().filter_map(section_file).collect() }
     }
 
     /// The section's settings; when its file does not parse or check, the error and the
@@ -320,11 +308,9 @@ mod tests {
             }
         }
         assert!(names.len() >= DEFAULT_FILES.len(), "{names:?}");
+        let listed = |name: &str| DEFAULT_FILES.iter().any(|(file, _)| *file == name);
         for name in names {
-            assert!(
-                DEFAULT_FILES.iter().any(|(file, _)| *file == name),
-                "no config/defaults/{name}.toml"
-            );
+            assert!(listed(&name), "no config/defaults/{name}.toml");
         }
     }
 

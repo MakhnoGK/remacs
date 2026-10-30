@@ -187,23 +187,17 @@ impl Editor {
     /// knows.
     pub fn line_changes(&self, lines: Range<usize>) -> Vec<ChangedLines> {
         let buffer = self.window_buffer();
-        buffer
-            .path()
-            .and_then(|path| self.version_control(path))
-            .map(|control| control.line_changes(buffer, lines))
-            .unwrap_or_default()
+        let control = buffer.path().and_then(|path| self.version_control(path));
+        control.map(|control| control.line_changes(buffer, lines)).unwrap_or_default()
     }
 
     /// Tells version control of files moved, from and to, as its move command would.
     pub fn record_moves(&mut self, moves: &[(PathBuf, PathBuf)]) {
         for control in self.registry.version_controls.clone() {
-            let kept: Vec<_> = moves
-                .iter()
-                .filter(|(from, _)| {
-                    self.version_control(from).is_some_and(|keeper| Rc::ptr_eq(&keeper, &control))
-                })
-                .cloned()
-                .collect();
+            let keeps = |(from, _): &&(PathBuf, PathBuf)| {
+                self.version_control(from).is_some_and(|keeper| Rc::ptr_eq(&keeper, &control))
+            };
+            let kept: Vec<_> = moves.iter().filter(keeps).cloned().collect();
             if !kept.is_empty() {
                 control.record_moves(self, &kept);
             }
@@ -212,11 +206,8 @@ impl Editor {
 
     /// Faces for `range` of the window buffer, one sorted list per decorator.
     pub fn decorations(&self, range: Range<usize>) -> Vec<Vec<Span>> {
-        self.registry
-            .decorators
-            .iter()
-            .map(|decorate| decorate(self.window_buffer(), range.clone()))
-            .collect()
+        let decorators = self.registry.decorators.iter();
+        decorators.map(|decorate| decorate(self.window_buffer(), range.clone())).collect()
     }
 
     /// Faces for each of the sorted `lines` (byte ranges) of the window buffer, one list
@@ -309,16 +300,12 @@ mod tests {
         };
         assert_eq!(decorate(&[0..10, 11..21]), (vec![vec![0..10], vec![11..21]], vec![0..21]));
         let far = 100_000..100_010;
-        assert_eq!(
-            decorate(&[0..10, far.clone()]),
-            (vec![vec![0..10], vec![far.clone()]], vec![0..10, far])
-        );
+        let decorated = decorate(&[0..10, far.clone()]);
+        assert_eq!(decorated, (vec![vec![0..10], vec![far.clone()]], vec![0..10, far]));
         // Lines on each side of lines folded away, each side asked for once.
         let after_fold = [100_000..100_010, 100_011..100_021];
-        assert_eq!(
-            decorate(&[0..10, 11..21, after_fold[0].clone(), after_fold[1].clone()]).1,
-            vec![0..21, 100_000..100_021]
-        );
+        let (_, asked) = decorate(&[0..10, 11..21, after_fold[0].clone(), after_fold[1].clone()]);
+        assert_eq!(asked, vec![0..21, 100_000..100_021]);
         assert_eq!(decorate(&[]), (Vec::new(), Vec::new()));
     }
 

@@ -402,11 +402,8 @@ impl Minibuffer {
     /// The subject, and the description after a blank line if there is one.
     fn message_text(&self) -> String {
         let subject = self.input_text();
-        let description = self
-            .description
-            .as_ref()
-            .map(|buffer| buffer.contents(0..buffer.text().len()))
-            .unwrap_or_default();
+        let whole = |buffer: &Buffer| buffer.contents(0..buffer.text().len());
+        let description = self.description.as_ref().map(whole).unwrap_or_default();
         let description = description.trim_end();
         if description.is_empty() { subject } else { format!("{subject}\n\n{description}") }
     }
@@ -523,12 +520,9 @@ impl Minibuffer {
         let index = if input_changed {
             self.selection = Selection::default();
             let default = self.prompt.default.as_ref().filter(|_| input.is_empty());
-            default
-                .and_then(|default| {
-                    self.candidates().iter().position(|candidate| &candidate.value == default)
-                })
-                .or(self.completions.selected)
-                .unwrap_or(0)
+            let mut candidates = self.candidates().iter();
+            let found = candidates.position(|candidate| Some(&candidate.value) == default);
+            found.or(self.completions.selected).unwrap_or(0)
         } else {
             self.selection.selected()
         };

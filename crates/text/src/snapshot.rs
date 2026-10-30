@@ -86,12 +86,9 @@ impl Snapshot {
     }
 
     pub fn is_char_boundary(&self, offset: usize) -> bool {
-        offset == 0
-            || offset == self.len()
-            || self
-                .chunks(offset..offset + 1)
-                .next()
-                .is_some_and(|chunk| !is_continuation(chunk[0]))
+        let starts_char = |chunk: &[u8]| !is_continuation(chunk[0]);
+        let first_chunk = || self.chunks(offset..offset + 1).next();
+        offset == 0 || offset == self.len() || first_chunk().is_some_and(starts_char)
     }
 
     pub fn next_char_boundary(&self, offset: usize) -> usize {
@@ -115,15 +112,8 @@ impl Snapshot {
         let Some(range) = self.line_range(line) else {
             return self.len();
         };
-        let mut chars_seen = 0;
-        for (offset, &byte) in (range.start..).zip(self.chunks(range.clone()).flatten()) {
-            if !is_continuation(byte) {
-                if chars_seen == column {
-                    return offset;
-                }
-                chars_seen += 1;
-            }
-        }
-        range.end
+        let bytes = (range.start..).zip(self.chunks(range.clone()).flatten());
+        let mut char_starts = bytes.filter(|&(_, &byte)| !is_continuation(byte));
+        char_starts.nth(column).map_or(range.end, |(offset, _)| offset)
     }
 }

@@ -38,11 +38,8 @@ impl Utf8Check {
     pub fn feed(&mut self, mut bytes: &[u8]) {
         self.fed = true;
         if !self.head_done {
-            let head_len = bytes
-                .iter()
-                .take(3 - self.head.len)
-                .take_while(|&&byte| is_continuation(byte))
-                .count();
+            let head = bytes.iter().take(3 - self.head.len);
+            let head_len = head.take_while(|&&byte| is_continuation(byte)).count();
             self.head = Partial::of(&[self.head.as_slice(), &bytes[..head_len]].concat());
             bytes = &bytes[head_len..];
             self.head_done = self.head.len == 3 || !bytes.is_empty();

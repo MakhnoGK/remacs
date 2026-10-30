@@ -43,7 +43,7 @@ pub use completion::{
     rank,
 };
 pub use decoration::{ConsoleColor, ConsoleStyle, Decorator, Face, Span};
-pub use echo::{EchoMessage, MessageKind, MessageLog};
+pub use echo::{EchoMessage, MessageKind, MessageLog, local_tm};
 pub use editor::{Editor, KeyOutcome, KeyReader, Notifier, SCRATCH_BUFFER, SELF_INSERT_COMMAND};
 pub use file_change::{ChangedFiles, FileChange};
 pub use folds::ShownLines;

@@ -49,13 +49,8 @@ impl Text {
     fn from_original(original: Original) -> Self {
         let sources = Sources::new(original);
         let pieces = PieceTree::new(sources.original_piece());
-        Self {
-            saved: pieces.clone(),
-            snapshot: Snapshot { sources, pieces },
-            history: History::default(),
-            saves: 0,
-            disk_file: None,
-        }
+        let (saved, snapshot) = (pieces.clone(), Snapshot { sources, pieces });
+        Self { saved, snapshot, history: History::default(), saves: 0, disk_file: None }
     }
 
     pub fn snapshot(&self) -> Snapshot {
@@ -159,15 +154,7 @@ impl Text {
             let edit = after.edit_from(&before);
             mem::swap(&mut after, &mut before);
             let edit = edit?;
-            let offset = later.iter().rev().fold(edit.start, |offset, later| {
-                if offset <= later.start {
-                    offset
-                } else if offset >= later.old_end {
-                    offset + later.new_end - later.old_end
-                } else {
-                    later.start
-                }
-            });
+            let offset = later.iter().rev().fold(edit.start, |offset, later| later.moved(offset));
             later.push(edit);
             Some(offset)
         })
@@ -187,10 +174,8 @@ impl Text {
     }
 
     pub fn save(&mut self) -> io::Result<()> {
-        let path = self
-            .path()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "text has no file"))?
-            .to_path_buf();
+        let no_file = || io::Error::new(io::ErrorKind::NotFound, "text has no file");
+        let path = self.path().ok_or_else(no_file)?.to_path_buf();
         self.save_as(path)
     }
 
@@ -259,10 +244,8 @@ mod tests {
     }
 
     fn char_boundary_below(model: &[u8], offset: usize) -> usize {
-        (0..=offset)
-            .rev()
-            .find(|&candidate| std::str::from_utf8(&model[..candidate]).is_ok())
-            .unwrap()
+        let is_boundary = |&candidate: &usize| std::str::from_utf8(&model[..candidate]).is_ok();
+        (0..=offset).rev().find(is_boundary).unwrap()
     }
 
     fn all(text: &Snapshot) -> Vec<u8> {

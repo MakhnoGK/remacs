@@ -58,14 +58,11 @@ impl Layout {
         match self {
             Layout::Window(id) => (*id == window).then_some(1.0),
             Layout::Split { axis, ratio, first, second } => {
-                let same = *axis == along;
-                first
-                    .share(window, along)
-                    .map(|share| if same { share * ratio } else { share })
-                    .or_else(|| {
-                        let share = second.share(window, along)?;
-                        Some(if same { share * (1.0 - ratio) } else { share })
-                    })
+                let (share, part) = match first.share(window, along) {
+                    Some(share) => (share, *ratio),
+                    None => (second.share(window, along)?, 1.0 - ratio),
+                };
+                Some(if *axis == along { share * part } else { share })
             }
         }
     }
@@ -100,13 +97,8 @@ impl Layout {
             return Some(inner);
         }
         let delta = if in_first { delta } else { -delta };
-        let Some(new) = clamp_ratio(*ratio + delta / extent, first, second, along, min / extent)
-        else {
-            return Some(false);
-        };
-        let resized = new != *ratio;
-        *ratio = new;
-        Some(resized)
+        let new = clamp_ratio(*ratio + delta / extent, first, second, along, min / extent);
+        Some(new.is_some_and(|new| new != mem::replace(ratio, new)))
     }
 
     /// Sets the ratio of the `index`th split, counted depth first, keeping each window at
@@ -142,12 +134,9 @@ impl Layout {
     fn split(&mut self, window: WindowId, axis: Axis, new: WindowId) {
         match self {
             Layout::Window(id) if *id == window => {
-                *self = Layout::Split {
-                    axis,
-                    ratio: 0.5,
-                    first: Box::new(Layout::Window(window)),
-                    second: Box::new(Layout::Window(new)),
-                };
+                let (first, second) =
+                    (Box::new(Layout::Window(window)), Box::new(Layout::Window(new)));
+                *self = Layout::Split { axis, ratio: 0.5, first, second };
             }
             Layout::Window(_) => {}
             Layout::Split { first, second, .. } => {
@@ -199,12 +188,8 @@ pub(crate) struct Windows {
 
 impl Default for Windows {
     fn default() -> Self {
-        Self {
-            layout: Layout::Window(WindowId(0)),
-            recent: vec![WindowId(0)],
-            others: Vec::new(),
-            next_id: 1,
-        }
+        let first = WindowId(0);
+        Self { layout: Layout::Window(first), recent: vec![first], others: Vec::new(), next_id: 1 }
     }
 }
 

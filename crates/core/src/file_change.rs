@@ -83,9 +83,7 @@ impl Editor {
 }
 
 fn create(path: &Path) -> io::Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
+    path.parent().map_or(Ok(()), fs::create_dir_all)?;
     match fs::File::create_new(path) {
         Err(error) if error.kind() != io::ErrorKind::AlreadyExists => Err(error),
         _ => Ok(()),
@@ -97,9 +95,7 @@ fn rename(from: &Path, to: &Path) -> io::Result<()> {
         let message = format!("{} already exists", to.display());
         return Err(io::Error::new(io::ErrorKind::AlreadyExists, message));
     }
-    if let Some(parent) = to.parent() {
-        fs::create_dir_all(parent)?;
-    }
+    to.parent().map_or(Ok(()), fs::create_dir_all)?;
     fs::rename(from, to)
 }
 

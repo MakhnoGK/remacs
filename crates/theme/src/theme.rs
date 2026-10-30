@@ -131,14 +131,10 @@ pub fn appearance() -> Appearance {
 /// The built-in themes' names and those of the user's files in `dir`, sorted.
 pub fn names(dir: Option<&Path>) -> Vec<String> {
     let mut names: Vec<String> = BUILT_IN.iter().map(|(name, _)| name.to_string()).collect();
-    if let Some(entries) = dir.and_then(|dir| fs::read_dir(dir).ok()) {
-        names.extend(entries.flatten().filter_map(|entry| {
-            let path = entry.path();
-            (path.extension() == Some(OsStr::new("toml")))
-                .then(|| path.file_stem()?.to_str().map(str::to_owned))
-                .flatten()
-        }));
-    }
+    let paths = dir.and_then(|dir| fs::read_dir(dir).ok()).into_iter().flatten().flatten();
+    let files = paths.map(|entry| entry.path());
+    let themes = files.filter(|path| path.extension() == Some(OsStr::new("toml")));
+    names.extend(themes.filter_map(|path| Some(path.file_stem()?.to_str()?.to_owned())));
     names.sort();
     names.dedup();
     names
@@ -265,16 +261,9 @@ mod tests {
 
     #[test]
     fn a_users_theme_takes_what_it_leaves_out_from_the_built_in_one_of_its_appearance() {
-        let dir = themes_dir(
-            "appearance",
-            &[
-                (
-                    "paper.toml",
-                    "name = \"Paper\"\nappearance = \"light\"\n[colors]\nkeyword = \"#123456\"\n",
-                ),
-                ("night.toml", "name = \"Night\"\n[glass]\nregion = \"#11223344\"\n"),
-            ],
-        );
+        let paper = "name = \"Paper\"\nappearance = \"light\"\n[colors]\nkeyword = \"#123456\"\n";
+        let night = "name = \"Night\"\n[glass]\nregion = \"#11223344\"\n";
+        let dir = themes_dir("appearance", &[("paper.toml", paper), ("night.toml", night)]);
         let paper = Theme::load("paper", Some(&dir)).unwrap();
         assert_eq!(paper.name, "Paper");
         assert_eq!(paper.colors.keyword, Rgb(0x123456));
@@ -288,16 +277,14 @@ mod tests {
 
     #[test]
     fn a_users_theme_may_inherit_another_and_change_a_built_in_one() {
-        let dir = themes_dir(
-            "inherits",
-            &[
-                ("base.toml", "name = \"Base\"\n[colors]\nstring = \"#00ff00\"\n"),
-                ("child.toml", "inherits = \"base\"\nname = \"Child\"\n"),
-                ("modus-operandi.toml", "opacity = 0.5\n"),
-                ("loop.toml", "inherits = \"loop-too\"\n"),
-                ("loop-too.toml", "inherits = \"loop\"\n"),
-            ],
-        );
+        let files = [
+            ("base.toml", "name = \"Base\"\n[colors]\nstring = \"#00ff00\"\n"),
+            ("child.toml", "inherits = \"base\"\nname = \"Child\"\n"),
+            ("modus-operandi.toml", "opacity = 0.5\n"),
+            ("loop.toml", "inherits = \"loop-too\"\n"),
+            ("loop-too.toml", "inherits = \"loop\"\n"),
+        ];
+        let dir = themes_dir("inherits", &files);
         let child = Theme::load("child", Some(&dir)).unwrap();
         assert_eq!((child.name.as_str(), child.colors.string), ("Child", Rgb(0x00ff00)));
         let changed = Theme::load(LIGHT, Some(&dir)).unwrap();
@@ -310,15 +297,13 @@ mod tests {
 
     #[test]
     fn rejects_unknown_tokens_bad_colors_and_missing_themes() {
-        let dir = themes_dir(
-            "errors",
-            &[
-                ("unknown.toml", "[colors]\nkeywords = \"#000000\"\n"),
-                ("alpha.toml", "[colors]\nkeyword = \"#00000080\"\n"),
-                ("syntax.toml", "name = \"A\"\n[colors\n"),
-                ("opacity.toml", "opacity = 2.0\n"),
-            ],
-        );
+        let files = [
+            ("unknown.toml", "[colors]\nkeywords = \"#000000\"\n"),
+            ("alpha.toml", "[colors]\nkeyword = \"#00000080\"\n"),
+            ("syntax.toml", "name = \"A\"\n[colors\n"),
+            ("opacity.toml", "opacity = 2.0\n"),
+        ];
+        let dir = themes_dir("errors", &files);
         let message = |name| Theme::load(name, Some(&dir)).unwrap_err().to_string();
         for (name, part) in
             [("unknown", "keywords"), ("alpha", "not a color"), ("opacity", "outside")]

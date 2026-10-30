@@ -55,9 +55,7 @@ fn read(path: &Path) -> io::Result<BTreeMap<String, Vec<String>>> {
 
 /// Through a temporary file, so that a crash never leaves half a history.
 fn write(path: &Path, answers: &BTreeMap<String, Vec<String>>) -> io::Result<()> {
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
-    }
+    path.parent().map_or(Ok(()), fs::create_dir_all)?;
     let temporary = path.with_extension("json.tmp");
     fs::write(&temporary, serde_json::to_vec_pretty(answers)?)?;
     fs::rename(temporary, path)

@@ -136,10 +136,8 @@ mod tests {
         };
         let (file_index, utf8) = index_file(&bytes);
         assert!(utf8);
-        assert_eq!(
-            file_index.newlines_before_block,
-            LineIndex::from_bytes(&bytes).newlines_before_block
-        );
+        let bytes_index = LineIndex::from_bytes(&bytes);
+        assert_eq!(file_index.newlines_before_block, bytes_index.newlines_before_block);
 
         // "€" across the block a worker starts at, then a Latin-1 "é" after it.
         let boundary = BLOCK_SIZE * 2;

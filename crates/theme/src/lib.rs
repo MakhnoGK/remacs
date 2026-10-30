@@ -557,13 +557,8 @@ pub mod font {
 
     impl Default for CodeFont {
         fn default() -> Self {
-            Self {
-                family: Arc::from("Monaco"),
-                size: 13.0,
-                line_height: 22.0,
-                weight: 400.0,
-                ligatures: true,
-            }
+            let family = Arc::from("Monaco");
+            Self { family, size: 13.0, line_height: 22.0, weight: 400.0, ligatures: true }
         }
     }
 

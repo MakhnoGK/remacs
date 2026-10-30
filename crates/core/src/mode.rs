@@ -157,14 +157,12 @@ impl Modes {
 fn head_and_tail(text: &Text) -> Vec<String> {
     let count = text.line_count();
     let tail = count.saturating_sub(MODELINE_LINES).max(MODELINE_LINES.min(count));
-    (0..MODELINE_LINES.min(count))
-        .chain(tail..count)
-        .filter_map(|line| {
-            let range = text.line_range(line)?;
-            let end = range.end.min(range.start + MODELINE_BYTES);
-            Some(String::from_utf8_lossy(&text.bytes_in(range.start..end)).into_owned())
-        })
-        .collect()
+    let cut_short = |line| {
+        let range = text.line_range(line)?;
+        let end = range.end.min(range.start + MODELINE_BYTES);
+        Some(String::from_utf8_lossy(&text.bytes_in(range.start..end)).into_owned())
+    };
+    (0..MODELINE_LINES.min(count)).chain(tail..count).filter_map(cut_short).collect()
 }
 
 /// The mode of `-*- mode: python -*-` or `-*- python -*-`, without Emacs's `-mode` or `-ts`.

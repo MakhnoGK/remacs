@@ -234,31 +234,21 @@ impl Format {
     /// them; fails at a character the encoding has none for.
     pub fn write<'a>(
         self,
-        chunks: impl Iterator<Item = &'a [u8]>,
+        mut chunks: impl Iterator<Item = &'a [u8]>,
         output: &mut impl Write,
     ) -> io::Result<()> {
         if self.binary {
-            return Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "A binary file isn't shown, so it can't be saved",
-            ));
+            let message = "A binary file isn't shown, so it can't be saved";
+            return Err(io::Error::new(io::ErrorKind::Unsupported, message));
+        }
+        if self.encoding == UTF_8 && self.crlf {
+            return chunks.try_for_each(|chunk| write_with_cr(chunk, output));
         }
         if self.encoding == UTF_8 {
-            for chunk in chunks {
-                if self.crlf {
-                    write_with_cr(chunk, output)?;
-                } else {
-                    output.write_all(chunk)?;
-                }
-            }
-            return Ok(());
+            return chunks.try_for_each(|chunk| output.write_all(chunk));
         }
-        let mut encoded = Encoded {
-            format: self,
-            encoder: self.encoding.new_encoder(),
-            buffer: vec![0; CHUNK_LEN],
-            output,
-        };
+        let encoder = self.encoding.new_encoder();
+        let mut encoded = Encoded { format: self, encoder, buffer: vec![0; CHUNK_LEN], output };
         if self.byte_order_mark {
             encoded.put("\u{feff}", false)?;
         }
@@ -307,13 +297,10 @@ impl<W: Write> Encoded<'_, W> {
                 EncoderResult::InputEmpty => return Ok(()),
                 EncoderResult::OutputFull => {}
                 EncoderResult::Unmappable(character) => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        format!(
-                            "{character:?} can't be saved in this file's encoding, {}",
-                            self.format.encoding.name()
-                        ),
-                    ));
+                    let name = encoding.name();
+                    let message =
+                        format!("{character:?} can't be saved in this file's encoding, {name}");
+                    return Err(io::Error::new(io::ErrorKind::InvalidData, message));
                 }
             }
         }
@@ -361,12 +348,8 @@ mod tests {
     }
 
     fn format(encoding: &'static Encoding, crlf: bool) -> Format {
-        Format {
-            encoding,
-            crlf,
-            byte_order_mark: encoding == UTF_16LE || encoding == UTF_16BE,
-            ..Format::default()
-        }
+        let byte_order_mark = encoding == UTF_16LE || encoding == UTF_16BE;
+        Format { encoding, crlf, byte_order_mark, ..Format::default() }
     }
 
     fn assert_round_trip(file: &[u8], format: Format, text: &str) {
@@ -414,20 +397,16 @@ mod tests {
         let crlf = utf16([0xFF, 0xFE], "x\r\ny\r\n", u16::to_le_bytes);
         assert_round_trip(&crlf, format(UTF_16LE, true), "x\ny\n");
         // An unpaired surrogate.
-        assert_eq!(
-            read(&[0xFF, 0xFE, 0x00, 0xD8, b'a', 0], format(UTF_16LE, false)),
-            Err(Stop::Malformed)
-        );
+        let unpaired = read(&[0xFF, 0xFE, 0x00, 0xD8, b'a', 0], format(UTF_16LE, false));
+        assert_eq!(unpaired, Err(Stop::Malformed));
     }
 
     #[test]
     fn crlf_is_dropped_on_reading_and_written_back() {
         assert_round_trip(b"a\r\nb\r\n", format(UTF_8, true), "a\nb\n");
         assert_eq!(read(b"a\r\nb\nc\r\n", format(UTF_8, true)), Err(Stop::LoneLf));
-        assert_eq!(
-            read(b"no line end\r", format(UTF_8, true)),
-            Ok((false, b"no line end\r".to_vec()))
-        );
+        let unended = read(b"no line end\r", format(UTF_8, true));
+        assert_eq!(unended, Ok((false, b"no line end\r".to_vec())));
         assert!(first_line_ends_in_crlf(b"a\r\nb") && !first_line_ends_in_crlf(b"a\nb\r\n"));
     }
 

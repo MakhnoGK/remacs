@@ -86,12 +86,7 @@ fn duration(seconds: f32) -> String {
 
 /// `10:41` in local time.
 fn clock(at: SystemTime) -> String {
-    let seconds =
-        at.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs() as libc::time_t;
-    // SAFETY: `tm` is plain data, valid zeroed.
-    let mut local: libc::tm = unsafe { std::mem::zeroed() };
-    // SAFETY: both pointers are to locals that outlive the call.
-    unsafe { libc::localtime_r(&seconds, &mut local) };
+    let local = remacs_core::local_tm(at);
     format!("{}:{:02}", local.tm_hour, local.tm_min)
 }
 

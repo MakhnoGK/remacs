@@ -8,7 +8,7 @@ use std::ops::{Range, RangeInclusive};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use remacs_text::{Text, UTF_8};
+use remacs_text::{Edit, Text, UTF_8};
 
 use crate::command::CommandResult;
 use crate::kill_ring::KillRing;
@@ -81,13 +81,8 @@ impl Cursor {
 impl Buffer {
     pub fn new(name: impl Into<String>, text: Text, mode: &'static str) -> Self {
         static NEXT_ID: AtomicU64 = AtomicU64::new(1);
-        Self {
-            id: BufferId(NEXT_ID.fetch_add(1, Ordering::Relaxed)),
-            name: name.into(),
-            mode,
-            text,
-            ..Self::default()
-        }
+        let id = BufferId(NEXT_ID.fetch_add(1, Ordering::Relaxed));
+        Self { id, name: name.into(), mode, text, ..Self::default() }
     }
 
     /// State a plugin keeps for this buffer, like an Emacs buffer-local variable; it is
@@ -411,12 +406,10 @@ impl Buffer {
         let end = self.text.len();
         self.text.append_output(text);
         let new_end = self.text.len();
-        for point in
-            iter::once(&mut self.point).chain(self.window_points.iter_mut().map(|(_, point)| point))
+        let window_points = self.window_points.iter_mut().map(|(_, point)| point);
+        for point in iter::once(&mut self.point).chain(window_points).filter(|point| **point == end)
         {
-            if *point == end {
-                *point = new_end;
-            }
+            *point = new_end;
         }
     }
 
@@ -510,20 +503,14 @@ impl Buffer {
     }
 
     pub fn save(&mut self) -> io::Result<()> {
-        let path = self
-            .file
-            .clone()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "buffer has no file"))?;
+        let path = self.file.clone().ok_or_else(no_file)?;
         self.text.save_as(path)
     }
 
     /// Reads the file again in the encoding it was read in, dropping unsaved changes and
     /// undo history; point keeps its line and column.
     pub fn revert(&mut self) -> io::Result<()> {
-        let path = self
-            .file
-            .as_deref()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "buffer has no file"))?;
+        let path = self.file.as_deref().ok_or_else(no_file)?;
         let format = self.text.format();
         let text = if format.binary || format.encoding == UTF_8 {
             Text::open(path)?
@@ -563,6 +550,10 @@ impl Buffer {
     }
 }
 
+fn no_file() -> io::Error {
+    io::Error::new(io::ErrorKind::NotFound, "buffer has no file")
+}
+
 fn on_character(text: &Text, offset: usize) -> usize {
     let offset = offset.min(text.len());
     if text.is_char_boundary(offset) { offset } else { text.previous_char_boundary(offset) }
@@ -579,11 +570,5 @@ pub struct FileEdits {
 /// Where `offset` ends up when `range` is replaced with `inserted` bytes: text inserted
 /// at it goes after it, like an Emacs marker.
 fn shift(offset: usize, range: &Range<usize>, inserted: usize) -> usize {
-    if offset <= range.start {
-        offset
-    } else if offset >= range.end {
-        offset - range.len() + inserted
-    } else {
-        range.start
-    }
+    Edit { start: range.start, old_end: range.end, new_end: range.start + inserted }.moved(offset)
 }

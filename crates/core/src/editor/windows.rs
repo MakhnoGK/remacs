@@ -3,7 +3,7 @@ use std::mem;
 use std::path::Path;
 
 use super::Editor;
-use crate::buffer::BufferId;
+use crate::buffer::{Buffer, BufferId};
 use crate::command::CommandResult;
 use crate::window::{Axis, Layout, WindowId};
 
@@ -42,11 +42,9 @@ impl Editor {
         if !in_windows.contains(&shown) {
             return false;
         }
-        let replacement = self
-            .buffers
-            .iter()
-            .position(|buffer| buffer.id() != shown && !in_windows.contains(&buffer.id()))
-            .or((self.buffers.len() > 1).then_some(1));
+        let free = |buffer: &Buffer| buffer.id() != shown && !in_windows.contains(&buffer.id());
+        let replacement =
+            self.buffers.iter().position(free).or((self.buffers.len() > 1).then_some(1));
         replacement.inspect(|&index| self.select_buffer(index)).is_some()
     }
 
@@ -196,12 +194,8 @@ impl Editor {
     pub(super) fn replace_in_windows(&mut self, killed: BufferId) {
         let mut shown: Vec<BufferId> = self.windows.other_buffers().collect();
         shown.push(self.buffers[0].id());
-        let replacement = self
-            .buffers
-            .iter()
-            .find(|buffer| !shown.contains(&buffer.id()))
-            .unwrap_or(&self.buffers[0])
-            .id();
+        let unshown = self.buffers.iter().find(|buffer| !shown.contains(&buffer.id()));
+        let replacement = unshown.unwrap_or(&self.buffers[0]).id();
         let showing: Vec<WindowId> = self.windows.showing(killed).collect();
         for window in showing {
             self.show_in_window(window, replacement);
@@ -268,7 +262,6 @@ mod tests {
     use remacs_text::Text;
 
     use super::*;
-    use crate::buffer::Buffer;
     use crate::editor::SCRATCH_BUFFER;
     use crate::editor::tests::{buffer_names, editor_registering, temp_dir};
 

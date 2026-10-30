@@ -41,13 +41,8 @@ impl Sources {
     pub fn split(&self, piece: &Piece, offset_in_piece: usize) -> (Piece, Piece) {
         let middle = piece.start + offset_in_piece;
         let left = self.piece(piece.source, piece.start..middle);
-        let right = Piece {
-            start: middle,
-            len: piece.len - offset_in_piece,
-            newlines: piece.newlines - left.newlines,
-            ..*piece
-        };
-        (left, right)
+        let (len, newlines) = (piece.len - offset_in_piece, piece.newlines - left.newlines);
+        (left, Piece { start: middle, len, newlines, ..*piece })
     }
 
     pub fn newlines_in_prefix(&self, piece: &Piece, prefix_len: usize) -> usize {
@@ -66,12 +61,8 @@ impl Sources {
     }
 
     fn piece(&self, source: SourceKind, range: Range<usize>) -> Piece {
-        Piece {
-            source,
-            start: range.start,
-            len: range.len(),
-            newlines: self.newlines_in(source, range),
-        }
+        let (start, len) = (range.start, range.len());
+        Piece { source, start, len, newlines: self.newlines_in(source, range) }
     }
 
     fn newlines_in(&self, source: SourceKind, range: Range<usize>) -> usize {

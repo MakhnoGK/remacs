@@ -70,12 +70,10 @@ impl PieceTree {
     }
 
     pub fn newlines_before(&self, offset: usize, sources: &Sources) -> usize {
-        match self.seek(|end| offset < end.len) {
-            Some((piece, before)) => {
-                before.newlines + sources.newlines_in_prefix(piece, offset - before.len)
-            }
-            None => self.summary().newlines,
-        }
+        let Some((piece, before)) = self.seek(|end| offset < end.len) else {
+            return self.summary().newlines;
+        };
+        before.newlines + sources.newlines_in_prefix(piece, offset - before.len)
     }
 
     fn replace(&mut self, range: Range<usize>, insertion: Option<Piece>, sources: &Sources) {

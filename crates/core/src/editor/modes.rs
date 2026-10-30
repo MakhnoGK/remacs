@@ -73,21 +73,15 @@ impl Editor {
     /// when no plugin can tell.
     pub fn syntax_at(&self, offset: usize) -> SyntaxContext {
         let buffer = self.buffer();
-        self.registry
-            .syntax_probes
-            .iter()
-            .find_map(|probe| probe(buffer, offset))
-            .unwrap_or(SyntaxContext::Code)
+        let context = self.registry.syntax_probes.iter().find_map(|probe| probe(buffer, offset));
+        context.unwrap_or(SyntaxContext::Code)
     }
 
     /// Faces for `code` written in `mode`, sorted and non-overlapping; none when no
     /// highlighter knows the mode.
     pub fn highlight_code(&self, mode: &'static str, code: &str) -> Vec<Span> {
-        self.registry
-            .code_highlighters
-            .iter()
-            .find_map(|highlight| highlight(mode, code))
-            .unwrap_or_default()
+        let highlighters = &self.registry.code_highlighters;
+        highlighters.iter().find_map(|highlight| highlight(mode, code)).unwrap_or_default()
     }
 
     /// What [`Editor::highlight_code`] asks, for a decorator, which has only the buffer.

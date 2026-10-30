@@ -410,10 +410,8 @@ mod tests {
         editor.sync_buffers_with_disk(|_| true);
         assert_eq!(buffer_text(&editor), "edit two, longer");
         let message = editor.message().map(|message| message.text.clone());
-        assert_eq!(
-            message.as_deref(),
-            Some("file.txt: its file changed on disk; saving asks before writing over it")
-        );
+        let expected = "file.txt: its file changed on disk; saving asks before writing over it";
+        assert_eq!(message.as_deref(), Some(expected));
         editor.clear_message();
         editor.sync_buffers_with_disk(|_| true);
         assert!(editor.message().is_none(), "reported once");

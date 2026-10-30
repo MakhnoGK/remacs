@@ -15,7 +15,7 @@ use crate::history::History;
 use crate::key::Key;
 use crate::keymap::Keymap;
 use crate::kill_ring::KillRing;
-use crate::menu::{self, FrameRequest, MenuLayout};
+use crate::menu::{self, FrameRequest, MenuItem, MenuLayout};
 use crate::minibuffer::Minibuffer;
 use crate::plugin::{Plugin, Registry};
 use crate::viewport::Viewport;
@@ -226,13 +226,9 @@ impl Editor {
 
     /// Whether the menu items running `command` can be chosen now.
     pub fn menu_command_enabled(&self, command: &str) -> bool {
-        self.registry.commands.get(command).is_some()
-            && self
-                .registry
-                .menu_items
-                .iter()
-                .filter(|item| item.command == command)
-                .all(|item| item.enabled.is_none_or(|enabled| enabled(self)))
+        let mut items = self.registry.menu_items.iter().filter(|item| item.command == command);
+        let enabled = |item: &MenuItem| item.enabled.is_none_or(|enabled| enabled(self));
+        self.registry.commands.get(command).is_some() && items.all(enabled)
     }
 
     pub fn set_notifier(&mut self, notifier: Notifier) {

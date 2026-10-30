@@ -30,9 +30,7 @@ impl Keymap {
         if let Some(bound) = clash {
             panic!("{notation:?} is bound to {command} and {bound}");
         }
-        if !self.try_bind(notation, command) {
-            panic!("invalid key sequence {notation:?}");
-        }
+        assert!(self.try_bind(notation, command), "invalid key sequence {notation:?}");
     }
 
     /// Like [`Keymap::bind`], for notation that may be wrong, e.g. from a settings file;
@@ -65,11 +63,8 @@ impl Keymap {
     /// Looks `keys` up in active keymaps, highest priority first; the first that binds
     /// them wins, as in Emacs.
     pub fn lookup_in(keymaps: &[&Keymap], keys: &[Key]) -> Binding {
-        keymaps
-            .iter()
-            .map(|keymap| keymap.lookup(keys))
-            .find(|binding| !matches!(binding, Binding::Unbound))
-            .unwrap_or(Binding::Unbound)
+        let mut bindings = keymaps.iter().map(|keymap| keymap.lookup(keys));
+        bindings.find(|binding| !matches!(binding, Binding::Unbound)).unwrap_or(Binding::Unbound)
     }
 
     /// The keys that may follow `prefix`, each with what the sequence then is.
@@ -90,10 +85,8 @@ impl Keymap {
     }
 
     pub fn sequences_for<'a>(&'a self, command: &'a str) -> impl Iterator<Item = &'a [Key]> {
-        self.commands
-            .iter()
-            .filter(move |(_, bound)| **bound == command)
-            .map(|(keys, _)| keys.as_slice())
+        let bound = self.commands.iter().filter(move |(_, bound)| **bound == command);
+        bound.map(|(keys, _)| keys.as_slice())
     }
 }
 

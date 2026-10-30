@@ -285,14 +285,10 @@ impl FuzzyQuery {
 /// Byte ranges of the chars of `text` at the sorted `char_indices`.
 fn byte_ranges(text: &str, char_indices: &[u32]) -> Vec<Range<usize>> {
     let mut wanted = char_indices.iter().peekable();
-    let ranges = text
-        .char_indices()
-        .zip(0u32..)
-        .filter_map(|((start, character), index)| {
-            wanted.next_if_eq(&&index).map(|_| start..start + character.len_utf8())
-        })
-        .collect();
-    merge(ranges)
+    let wanted_range = |((start, character), index): ((usize, char), u32)| {
+        wanted.next_if_eq(&&index).map(|_| start..start + character.len_utf8())
+    };
+    merge(text.char_indices().zip(0u32..).filter_map(wanted_range).collect())
 }
 
 pub struct Match<T> {
@@ -309,15 +305,13 @@ pub fn filter<T>(
     label: impl Fn(&T) -> &str,
 ) -> Vec<Match<T>> {
     let query = FuzzyQuery::new(query);
-    items
-        .into_iter()
-        .filter_map(|item| {
-            let text = label(&item);
-            let (score, ranges) = query.score_and_ranges(text)?;
-            let length = if query.is_empty() { 0 } else { text.len() };
-            Some(Match { ranges, item, rank: (Reverse(score), length) })
-        })
-        .collect()
+    let matched = |item: T| {
+        let text = label(&item);
+        let (score, ranges) = query.score_and_ranges(text)?;
+        let length = if query.is_empty() { 0 } else { text.len() };
+        Some(Match { ranges, item, rank: (Reverse(score), length) })
+    };
+    items.into_iter().filter_map(matched).collect()
 }
 
 /// Orders matches best first; ties keep source order.
@@ -361,11 +355,8 @@ pub fn filter_candidates(query: &str, candidates: Vec<Candidate>, ranked: bool) 
     if ranked {
         rank(&mut matches);
     }
-    matches
-        .into_iter()
-        .map(|matched| Candidate { matches: matched.ranges, ..matched.item })
-        .collect::<Vec<_>>()
-        .into()
+    let marked = |matched: Match<Candidate>| Candidate { matches: matched.ranges, ..matched.item };
+    matches.into_iter().map(marked).collect::<Vec<_>>().into()
 }
 
 /// Byte ranges of `text` matching the characters of `query` in order, like the Emacs
@@ -411,9 +402,7 @@ pub fn flex_rank(query: &str, text: &str) -> Option<bool> {
 /// uppercase letter.
 fn same_char(query: &str) -> impl Fn(char, char) -> bool {
     let case_sensitive = query.chars().any(char::is_uppercase);
-    move |a, b| {
-        if case_sensitive { a == b } else { a.eq_ignore_ascii_case(&b) }
-    }
+    move |a, b| if case_sensitive { a == b } else { a.eq_ignore_ascii_case(&b) }
 }
 
 fn find(text: &str, term: &str) -> Option<usize> {

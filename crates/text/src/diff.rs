@@ -9,6 +9,20 @@ pub struct Edit {
     pub new_end: usize,
 }
 
+impl Edit {
+    /// Where `offset` of the old text is in the new one, like an Emacs marker: onto the
+    /// start when the edit replaced it, before text inserted at it.
+    pub fn moved(&self, offset: usize) -> usize {
+        if offset <= self.start {
+            offset
+        } else if offset >= self.old_end {
+            offset - self.old_end + self.new_end
+        } else {
+            self.start
+        }
+    }
+}
+
 impl Snapshot {
     /// The smallest single edit from `old` to `self`, on char boundaries; `None` when the
     /// contents are equal. Chunks both share compare by address, so the cost follows the
@@ -25,11 +39,8 @@ impl Snapshot {
         let prefix = prefix.min(shorter);
         let mut suffix =
             common_len(old.chunks_rev(), self.chunks_rev(), true).min(shorter - prefix);
-        let start = if self.is_char_boundary(prefix) {
-            prefix
-        } else {
-            self.previous_char_boundary(prefix)
-        };
+        // The boundary at or before `prefix`.
+        let start = self.previous_char_boundary(prefix + 1);
         while suffix > 0 && !old.is_char_boundary(old.len() - suffix) {
             suffix -= 1;
         }

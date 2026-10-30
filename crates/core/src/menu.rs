@@ -75,22 +75,20 @@ pub fn layout<'a>(menus: &[Menu], items: &'a [MenuItem]) -> Vec<MenuLayout<'a>> 
     let mut titles = declared(false).collect();
     push_new(&mut titles, undeclared);
     titles.extend(declared(true));
-    titles
-        .into_iter()
-        .filter_map(|title| {
-            let declared =
-                menus.iter().find(|menu| menu.title == title).map_or(&[][..], |menu| menu.groups);
-            let menu_items = items.iter().filter(|item| item.menu == title);
-            let mut order = declared.to_vec();
-            push_new(&mut order, menu_items.clone().map(|item| item.group));
-            let groups: Vec<Vec<&MenuItem>> = (order.into_iter())
-                .map(|group| menu_items.clone().filter(move |item| item.group == group))
-                .map(Iterator::collect)
-                .filter(|group: &Vec<_>| !group.is_empty())
-                .collect();
-            (!groups.is_empty()).then_some(MenuLayout { title, groups })
-        })
-        .collect()
+    let menu = |title: &'static str| {
+        let declared =
+            menus.iter().find(|menu| menu.title == title).map_or(&[][..], |menu| menu.groups);
+        let menu_items = items.iter().filter(|item| item.menu == title);
+        let mut order = declared.to_vec();
+        push_new(&mut order, menu_items.clone().map(|item| item.group));
+        let groups: Vec<Vec<&MenuItem>> = (order.into_iter())
+            .map(|group| menu_items.clone().filter(move |item| item.group == group))
+            .map(Iterator::collect)
+            .filter(|group: &Vec<_>| !group.is_empty())
+            .collect();
+        (!groups.is_empty()).then_some(MenuLayout { title, groups })
+    };
+    titles.into_iter().filter_map(menu).collect()
 }
 
 /// What a command asks of the window or the application, which only the view can do.
@@ -120,17 +118,8 @@ mod tests {
     use super::*;
 
     fn titles(layout: &[MenuLayout]) -> Vec<(&'static str, Vec<Vec<&'static str>>)> {
-        layout
-            .iter()
-            .map(|menu| {
-                let groups = menu
-                    .groups
-                    .iter()
-                    .map(|group| group.iter().map(|item| item.title).collect())
-                    .collect();
-                (menu.title, groups)
-            })
-            .collect()
+        let titles = |group: &Vec<&MenuItem>| group.iter().map(|item| item.title).collect();
+        layout.iter().map(|menu| (menu.title, menu.groups.iter().map(titles).collect())).collect()
     }
 
     #[test]
