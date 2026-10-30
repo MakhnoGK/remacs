@@ -13,6 +13,39 @@ Emacs-inspired IDE from scratch in Rust + gpui. Everything is a plugin.
   `config/defaults/` (a new section adds its file there and to `DEFAULT_FILES` in
   `crates/config`); each section's test checks its file reads as its `Default`.
   `write-default-settings` copies a file into the user's `~/.config/remacs/config/`.
+- Write it compact the first time; a refactor that only cuts lines means the first draft
+  was wrong:
+  - Before writing a helper, grep `crates/` and `plugins/` for one that exists. The second
+    copy of any logic goes into one shared function, a table, or a `macro_rules!` when a
+    function can't (see `settings_sections!`, `check_ranges!`, `icons!`, `hex_colors!`).
+  - Functions that differ by one value become one function taking it; parallel match arms
+    become a table iterated in a loop.
+  - Prefer `#[derive(Default, Clone, Copy)]` and `..Default::default()` over hand-written
+    impls and field-by-field copies; store a settings sub-struct whole.
+  - Use `let … else`, `?` and `Option`/`Result` combinators over nested `match`/`if let`,
+    and iterator adaptors over hand-written loops.
+  - No dead code: every `pub` item has a caller somewhere in the workspace.
+  - Keep files under 1000 lines. Past ~700, split by responsibility into `foo.rs` +
+    `foo/<part>.rs` with `pub(super)` items, as `minibuffer_view/`, `outline_view/` and
+    `settings/` do.
+  - Tests share setup through helpers in the test module. Never weaken an assertion to
+    save lines: compare whole structs with `assert_eq!`.
+- gpui views (`crates/app`): build elements from `widgets.rs`.
+  - `StyleExt` replaces common chains: `.text(size, color)`, `.status_text`,
+    `.mono_status`, `.row(gap)`, `.column()`, `.pad(top, x, bottom)`, `.bar(height, padding)`,
+    `.rounded_fill(radius, rgba)`, `.bordered(rgba)`, `.top_border(rgba)`, `.fg(color)`,
+    `.mono()`, `.ui()`, `.fill_truncated()`, `.across()`.
+  - `PressExt::on_press(cx, |view, cx| …)` replaces `on_mouse_down` + `stop_propagation` +
+    `cx.listener`.
+  - Reuse the existing builders: `kbd`, `icon`, `pill`, `segment`, `option_chip`,
+    `list_items`, `glass_surface`, `modal_surface`, `shadow`, `outline_view::chip_frame`,
+    `outline_view::lift_selected`, `preview_view::code_well`, `changes_view::diff_line`.
+  - A style shorthand two views would use goes into `StyleExt`, never a second trait.
+- Shared non-UI helpers live in their crates; reuse them instead of rewriting:
+  `remacs_core::local_tm` for local time, `remacs_text::Edit::moved` to shift an offset
+  past an edit.
+- Formatting is `rustfmt.toml` (`use_small_heuristics = "Max"`); run `cargo fmt --all`
+  before every commit.
 - Menus follow commands: when adding, renaming or removing a command a person would look
   for, update the menu items its plugin declares (`MenuItem` in `Registry::menu_items`,
   with `enabled_when` if it cannot always run); a new group or menu goes into the `frame`
