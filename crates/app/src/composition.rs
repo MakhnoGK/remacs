@@ -28,12 +28,9 @@ impl Composition {
 
     /// The cursor's bounds, or `fallback` before one was drawn.
     pub fn caret_or(&self, fallback: Bounds<Pixels>) -> Bounds<Pixels> {
-        let caret = self.caret.get();
-        if caret.size.width > Pixels::ZERO {
-            caret
-        } else {
-            fallback
-        }
+        Some(self.caret.get())
+            .filter(|caret| caret.size.width > Pixels::ZERO)
+            .unwrap_or(fallback)
     }
 
     /// The marked text underlined, as macOS draws it; none while nothing is composed.

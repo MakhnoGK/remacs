@@ -4,14 +4,17 @@
 //! width only, and a message is cut where the keys begin.
 
 use gpui::{
-    AnyElement, Context, Div, IntoElement, MouseButton, MouseDownEvent, ParentElement, Pixels,
-    SharedString, TextRun, Window, black, div, font, prelude::*, px, rgb, rgba,
+    AnyElement, Context, Div, IntoElement, MouseButton, ParentElement, Pixels, SharedString,
+    Window, black, div, font, prelude::*, px, rgb, rgba,
 };
 use remacs_core::{Binding, EchoMessage, Key, MessageKind, describe_sequence};
 use remacs_theme::{color, font as theme_font, glass};
 
 use crate::editor_view::EditorView;
-use crate::widgets::{glass_surface, kbd, key_caps, pill, pill_separator};
+use crate::widgets::{
+    PressExt, StyleExt, bottom_centered, glass_surface, kbd, key_caps, key_hint, pill,
+    pill_separator, text_run,
+};
 
 /// Keys and what they do.
 pub type Hints = &'static [(&'static str, &'static str)];
@@ -87,12 +90,13 @@ impl PrefixKeys {
 /// As many of `hints` as fit between `side_room` kept on each side of a window this
 /// wide; the rest go under a chip.
 pub fn fit_hints(hints: Hints, show: bool, side_room: f32, window: &Window) -> FittedHints {
+    let fitted = |shown, width| FittedHints {
+        hints,
+        shown,
+        width,
+    };
     if !show || hints.is_empty() {
-        return FittedHints {
-            hints,
-            shown: 0,
-            width: px(0.0),
-        };
+        return fitted(0, px(0.0));
     }
     let room = window.viewport_size().width - px(2.0 * (SIDE + GAP + side_room));
     let widths: Vec<Pixels> = hints
@@ -109,25 +113,17 @@ pub fn fit_hints(hints: Hints, show: bool, side_room: f32, window: &Window) -> F
     };
     let all = pill_width(&widths, None);
     if all <= room {
-        return FittedHints {
-            hints,
-            shown: hints.len(),
-            width: all,
-        };
+        return fitted(hints.len(), all);
     }
-    let fitting = (0..hints.len())
+    let (shown, width) = (0..hints.len())
         .rev()
         .map(|shown| {
             let chip = chip_width(&chip_label(shown, hints.len() - shown), window);
             (shown, pill_width(&widths[..shown], Some(chip)))
         })
-        .find(|&(shown, width)| width <= room || shown == 0);
-    let (shown, width) = fitting.unwrap_or((0, px(0.0)));
-    FittedHints {
-        hints,
-        shown,
-        width,
-    }
+        .find(|&(shown, width)| width <= room || shown == 0)
+        .unwrap_or((0, px(0.0)));
+    fitted(shown, width)
 }
 
 /// The row, its three slots side by side; the middle one stays centered while the
@@ -138,9 +134,7 @@ pub fn render_row(echo: Option<AnyElement>, hints: Option<Div>, status: AnyEleme
         .left(px(SIDE))
         .right(px(SIDE))
         .bottom(px(BOTTOM))
-        .flex()
-        .items_center()
-        .gap(px(GAP))
+        .row(GAP)
         .child(div().flex_1().min_w_0().flex().children(echo))
         .child(div().flex_none().flex().children(hints))
         .child(div().flex_1().flex().justify_end().child(status))
@@ -151,24 +145,19 @@ pub fn echo_room(fitted: &FittedHints, window: &Window) -> Pixels {
     (window.viewport_size().width - px(2.0 * (SIDE + GAP)) - fitted.width) / 2.0
 }
 
+/// An item of a pill, its children `gap` apart.
+fn pill_item(gap: f32) -> Div {
+    div().row(gap).bar(ITEM_HEIGHT, ITEM_PADDING)
+}
+
 /// The keys of a prefix typed so far, with a caret waiting for the next one.
 pub fn render_prefix_echo(pending: &[Key]) -> Div {
-    pill().child(
-        div()
-            .flex()
-            .items_center()
-            .gap(px(ITEM_GAP))
-            .h(px(ITEM_HEIGHT))
-            .px(px(ITEM_PADDING))
-            .children(pending.iter().map(|key| kbd(&key.to_string(), true)))
-            .child(
-                div()
-                    .w(px(7.0))
-                    .h(px(14.0))
-                    .rounded(px(1.0))
-                    .bg(rgba(color::fg_main() << 8 | 0xd9)),
-            ),
-    )
+    let caret = div()
+        .w(px(7.0))
+        .h(px(14.0))
+        .rounded_fill(1.0, color::fg_main() << 8 | 0xd9);
+    let keys = pending.iter().map(|key| kbd(&key.to_string(), true));
+    pill().child(pill_item(ITEM_GAP).children(keys).child(caret))
 }
 
 /// A message on one line, cut to `room` with the key that shows it whole; a click opens
@@ -187,51 +176,26 @@ pub fn render_message_echo(
     let cut = message.text.contains('\n') || full_width + overhead > room;
     let whole_key = whole_key.filter(|_| cut);
     let border = match message.kind {
-        MessageKind::Error => rgba(color::error() << 8 | 0x66),
-        _ => rgba(glass::pill_border()),
+        MessageKind::Error => color::error() << 8 | 0x66,
+        _ => glass::pill_border(),
     };
+    let label = div().fill_truncated().text_color(rgb(color::fg_body()));
     pill()
         .min_w_0()
-        .border_color(border)
+        .border_color(rgba(border))
         .when(open, |pill| pill.bg(rgba(glass::selection())))
-        .font_family(theme_font::ui())
+        .ui()
         .cursor_pointer()
-        .on_mouse_down(
-            MouseButton::Left,
-            cx.listener(|view, _: &MouseDownEvent, _, cx| {
-                cx.stop_propagation();
-                view.toggle_message_open(cx);
-            }),
-        )
+        .on_press(cx, |view, cx| view.toggle_message_open(cx))
         .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(MARK_GAP))
+            pill_item(MARK_GAP)
                 .min_w_0()
-                .h(px(ITEM_HEIGHT))
-                .px(px(ITEM_PADDING))
                 .children(kind_mark(message.kind))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .text_color(rgb(color::fg_body()))
-                        .child(text),
-                ),
+                .child(label.child(text)),
         )
         .when_some(whole_key, |pill, key| {
-            pill.child(pill_separator().flex_none()).child(
-                div()
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .gap(px(ITEM_GAP))
-                    .h(px(ITEM_HEIGHT))
-                    .px(px(ITEM_PADDING))
-                    .children(key_caps(key)),
-            )
+            pill.child(pill_separator().flex_none())
+                .child(pill_item(ITEM_GAP).flex_none().children(key_caps(key)))
         })
 }
 
@@ -245,45 +209,23 @@ pub fn render_hints(
     if fitted.shown == 0 && (hidden == 0 || fitted.width == px(0.0)) {
         return None;
     }
-    let items = fitted.hints[..fitted.shown].iter().map(|&(keys, label)| {
-        div()
-            .flex()
-            .items_center()
-            .gap(px(ITEM_GAP))
-            .h(px(ITEM_HEIGHT))
-            .px(px(ITEM_PADDING))
-            .children(key_caps(keys))
-            .child(label)
-    });
+    let items = fitted.hints[..fitted.shown]
+        .iter()
+        .map(|&(keys, label)| pill_item(ITEM_GAP).children(key_caps(keys)).child(label));
     let chip = (hidden > 0).then(|| {
-        div()
-            .flex()
-            .items_center()
-            .h(px(ITEM_HEIGHT))
-            .px(px(ITEM_PADDING))
-            .rounded(px(6.0))
-            .bg(if listed {
-                rgba(glass::selection())
-            } else {
-                rgba(glass::control())
-            })
+        let background = if listed {
+            glass::selection()
+        } else {
+            glass::control()
+        };
+        pill_item(0.0)
+            .rounded_fill(6.0, background)
             .text_color(rgb(color::fg_main()))
             .cursor_pointer()
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|view, _: &MouseDownEvent, _, cx| {
-                    cx.stop_propagation();
-                    view.toggle_hints_open(cx);
-                }),
-            )
+            .on_press(cx, |view, cx| view.toggle_hints_open(cx))
             .child(chip_label(fitted.shown, hidden))
     });
-    Some(
-        pill()
-            .font_family(theme_font::ui())
-            .children(items)
-            .children(chip),
-    )
+    Some(pill().ui().children(items).children(chip))
 }
 
 /// The keys that did not fit, or all of them when none show, over the row.
@@ -292,38 +234,21 @@ pub fn render_hints_list(fitted: &FittedHints, title: &str) -> Option<impl IntoE
     if listed.is_empty() {
         return None;
     }
-    let rows = listed.iter().map(|&(keys, label)| {
-        div()
-            .flex()
-            .items_center()
-            .gap(px(10.0))
-            .h(px(LIST_ROW_HEIGHT))
-            .px(px(ITEM_PADDING))
-            .children(key_caps(keys))
-            .child(label)
-    });
+    let rows = listed
+        .iter()
+        .map(|&(keys, label)| key_hint(keys, label, 10.0).bar(LIST_ROW_HEIGHT, ITEM_PADDING));
     let list = glass_surface(glass::HINT_RADIUS)
         .w(px(LIST_WIDTH))
         .p(px(6.0))
         .flex()
         .flex_col()
         .gap(px(1.0))
-        .font_family(theme_font::ui())
-        .text_size(px(theme_font::status_size()))
-        .text_color(rgb(color::fg_body()))
+        .ui()
+        .status_text(color::fg_body())
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(section_heading(title))
         .children(rows);
-    Some(
-        div()
-            .absolute()
-            .left_0()
-            .right_0()
-            .bottom(px(ABOVE_ROW))
-            .flex()
-            .justify_center()
-            .child(list),
-    )
+    Some(bottom_centered(ABOVE_ROW, list))
 }
 
 /// What the keys of the card do.
@@ -346,70 +271,33 @@ pub fn render_message_card(
         MessageKind::Done => "Done",
         MessageKind::Error => "Error",
     };
+    let command = |command| div().mono_status(color::fg_dim()).child(command);
     let title = div()
-        .flex()
-        .items_center()
-        .gap(px(MARK_GAP))
+        .row(MARK_GAP)
         .children(kind_mark(message.kind))
         .child(div().child(kind))
-        .children(message.command.map(|command| {
-            div()
-                .font_family(theme_font::mono())
-                .text_size(px(theme_font::status_size()))
-                .text_color(rgb(color::fg_dim()))
-                .child(command)
-        }));
-    let header = card_heading(title).child(
-        div()
-            .font_family(theme_font::mono())
-            .text_size(px(theme_font::status_size()))
-            .text_color(rgb(color::fg_placeholder()))
-            .child(message.clock()),
-    );
+        .children(message.command.map(command));
+    let clock = div()
+        .mono_status(color::fg_placeholder())
+        .child(message.clock());
     let body = div()
         .id("echo-message")
         .max_h(px(CARD_LINE_HEIGHT * lines as f32 + 20.0))
         .overflow_y_scroll()
         .px(px(14.0))
         .py(px(10.0))
-        .font_family(theme_font::mono())
-        .text_size(px(theme_font::status_size()))
+        .mono_status(color::fg_body())
         .line_height(px(CARD_LINE_HEIGHT))
-        .text_color(rgb(color::fg_body()))
         .child(message.text.clone());
-    let key = |keys: &str, label: &'static str| {
-        div()
-            .flex()
-            .items_center()
-            .gap(px(ITEM_GAP))
-            .children(key_caps(keys))
-            .child(label)
-            .into_any_element()
-    };
-    let footer = div()
-        .flex()
-        .items_center()
-        .gap(px(14.0))
-        .h(px(36.0))
-        .px(px(14.0))
-        .border_t_1()
-        .border_color(rgba(glass::ink(0x12)))
-        .text_size(px(theme_font::status_size()))
-        .text_color(rgb(color::fg_dim()))
+    let key = |keys, label| key_hint(keys, label, ITEM_GAP);
+    let footer = card_footer(14.0, 36.0, 14.0)
         .children(keys.all_messages.map(|keys| key(keys, "All messages")))
         .child(key(keys.copy, "Copy"))
         .child(key(keys.close, "Close"));
-    glass_surface(glass::HINT_RADIUS)
-        .absolute()
-        .left(px(SIDE))
-        .bottom(px(ABOVE_ROW))
+    card()
         .w(width)
-        .flex()
-        .flex_col()
-        .overflow_hidden()
-        .font_family(theme_font::ui())
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .child(header)
+        .child(card_heading(title).child(clock))
         .child(body)
         .child(footer)
 }
@@ -431,7 +319,8 @@ pub fn render_prefix_keys(
     let count = continuations.len();
     let capacity = columns * max_rows;
     let more = count.saturating_sub(capacity);
-    let mut entries: Vec<AnyElement> = continuations
+    let prefix_row = |gap| div().row(gap).bar(PREFIX_ROW_HEIGHT, ITEM_PADDING);
+    let mut entries: Vec<Div> = continuations
         .iter()
         .take(if more > 0 { capacity - 1 } else { capacity })
         .map(|&(key, binding)| {
@@ -445,86 +334,51 @@ pub fn render_prefix_keys(
                         .child(format!("{} …", describe_sequence(&sequence)))
                 }
             };
-            div()
+            let cap = div()
                 .flex()
-                .items_center()
-                .gap(px(10.0))
-                .h(px(PREFIX_ROW_HEIGHT))
-                .px(px(ITEM_PADDING))
-                .child(
-                    div()
-                        .flex()
-                        .flex_none()
-                        .min_w(px(40.0))
-                        .child(kbd(&key.to_string(), false)),
-                )
+                .flex_none()
+                .min_w(px(40.0))
+                .child(kbd(&key.to_string(), false));
+            prefix_row(10.0)
+                .child(cap)
                 .child(label.min_w_0().truncate())
-                .into_any_element()
         })
         .collect();
     if more > 0 {
-        entries.push(
-            div()
-                .flex()
-                .items_center()
-                .h(px(PREFIX_ROW_HEIGHT))
-                .px(px(ITEM_PADDING))
-                .text_color(rgb(color::fg_dim()))
-                .child(format!("and {} more", more + 1))
-                .into_any_element(),
-        );
+        let more = format!("and {} more", more + 1);
+        entries.push(prefix_row(0.0).text_color(rgb(color::fg_dim())).child(more));
     }
     let rows = entries.len().div_ceil(columns).max(1);
     let mut entries = entries.into_iter();
+    let column = |entries: Vec<Div>| {
+        div()
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            .children(entries)
+    };
     let grid = div()
         .flex()
         .gap(px(24.0))
         .px(px(16.0))
         .py(px(12.0))
-        .children((0..columns).map(|_| {
-            div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .gap(px(2.0))
-                .children(entries.by_ref().take(rows).collect::<Vec<_>>())
-        }));
+        .children((0..columns).map(|_| column(entries.by_ref().take(rows).collect())));
     let title = div()
-        .flex()
-        .items_center()
-        .gap(px(10.0))
+        .row(10.0)
         .children(pending.iter().map(|key| kbd(&key.to_string(), true)))
         .child(div().child("then"));
-    let header = card_heading(title).child(
-        div()
-            .text_size(px(theme_font::status_size()))
-            .text_color(rgb(color::fg_placeholder()))
-            .child(format!("{count} keys")),
-    );
-    let footer = div()
-        .flex()
-        .items_center()
-        .gap(px(ITEM_GAP))
-        .h(px(34.0))
-        .px(px(16.0))
-        .border_t_1()
-        .border_color(rgba(glass::ink(0x12)))
-        .text_size(px(theme_font::status_size()))
-        .text_color(rgb(color::fg_dim()))
+    let counted = div()
+        .status_text(color::fg_placeholder())
+        .child(format!("{count} keys"));
+    let footer = card_footer(ITEM_GAP, 34.0, 16.0)
         .children(key_caps(cancel_key))
         .child("Cancel");
-    glass_surface(glass::HINT_RADIUS)
-        .absolute()
-        .left(px(SIDE))
+    card()
         .right(px(SIDE))
-        .bottom(px(ABOVE_ROW))
-        .flex()
-        .flex_col()
-        .overflow_hidden()
-        .font_family(theme_font::ui())
         .text_size(px(theme_font::status_size()))
-        .child(header)
+        .child(card_heading(title).child(counted))
         .child(grid)
         .child(footer)
 }
@@ -544,29 +398,45 @@ fn kind_mark(kind: MessageKind) -> Option<Div> {
     )
 }
 
+/// A card over the row, from its left side up.
+fn card() -> Div {
+    glass_surface(glass::HINT_RADIUS)
+        .absolute()
+        .left(px(SIDE))
+        .bottom(px(ABOVE_ROW))
+        .flex()
+        .flex_col()
+        .overflow_hidden()
+        .ui()
+}
+
 /// The top line of a card: `title` on the left, then what is added on the right.
 fn card_heading(title: Div) -> Div {
     div()
-        .flex()
-        .items_center()
+        .row(0.0)
         .justify_between()
-        .h(px(40.0))
-        .px(px(14.0))
+        .bar(40.0, 14.0)
         .border_b_1()
         .border_color(rgba(glass::ink(0x12)))
-        .text_size(px(theme_font::ui_size()))
-        .text_color(rgb(color::fg_main()))
+        .text(theme_font::ui_size(), color::fg_main())
         .child(title)
+}
+
+/// The bottom line of a card, `height` tall, its keys `gap` apart.
+fn card_footer(gap: f32, height: f32, padding: f32) -> Div {
+    div()
+        .row(gap)
+        .bar(height, padding)
+        .border_t_1()
+        .border_color(rgba(glass::ink(0x12)))
+        .status_text(color::fg_dim())
 }
 
 fn section_heading(title: &str) -> Div {
     div()
-        .flex()
-        .items_center()
-        .h(px(24.0))
-        .px(px(ITEM_PADDING))
-        .text_size(px(theme_font::small_size()))
-        .text_color(rgb(color::fg_placeholder()))
+        .row(0.0)
+        .bar(24.0, ITEM_PADDING)
+        .text(theme_font::small_size(), color::fg_placeholder())
         .child(title.to_uppercase())
 }
 
@@ -598,14 +468,7 @@ fn text_width(text: &str, family: impl Into<SharedString>, size: f32, window: &W
     if text.is_empty() {
         return px(0.0);
     }
-    let run = TextRun {
-        len: text.len(),
-        font: font(family),
-        color: black(),
-        background_color: None,
-        underline: None,
-        strikethrough: None,
-    };
+    let run = text_run(text.len(), font(family), black());
     window
         .text_system()
         .shape_line(SharedString::from(text.to_owned()), px(size), &[run], None)

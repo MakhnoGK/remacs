@@ -3,13 +3,14 @@
 
 use std::rc::Rc;
 
-use gpui::{Context, Div, ParentElement, Styled, div, prelude::*, px, rgb, rgba, svg};
+use gpui::{Context, Div, ParentElement, Styled, div, prelude::*, px, rgb, rgba};
 use remacs_core::{Editor, Tab, TabState, Tabs};
 use remacs_theme::{color, font, glass};
 
 use crate::assets::{CHEVRON_DOWN_ICON, PLUS_ICON};
 use crate::editor_view::EditorView;
 use crate::table_view::clickable;
+use crate::widgets::{StyleExt, svg_icon};
 
 const CHIP_HEIGHT: f32 = 26.0;
 const GAP: f32 = 6.0;
@@ -48,20 +49,40 @@ pub fn render_tabs(tabs: Tabs, width: f32, cx: &mut Context<EditorView>) -> Div 
         .zip(shown)
         .filter_map(|(tab, shown)| shown.then(|| render_tab(tab, cx)))
         .collect();
-    div()
+    let add_button = div()
         .flex()
         .flex_none()
         .items_center()
-        .gap(px(GAP))
+        .justify_center()
+        .size(px(CHIP_HEIGHT))
+        .rounded(px(7.0))
+        .bordered(glass::ink(0x2e))
+        .border_dashed()
+        .cursor_pointer()
+        .child(svg_icon(PLUS_ICON, 12.0, color::fg_dim()));
+    div()
+        .row(GAP)
+        .flex_none()
         .children(chips)
         .when(hidden > 0, |row| {
             row.child(render_overflow(hidden, list, cx))
         })
-        .child(render_add(add, cx))
+        .child(clickable(add_button, command_action(add), cx))
 }
 
 fn chip_width(tab: &Tab) -> f32 {
     CHIP_CHROME + tab.label.chars().count() as f32 * font::status_size() * CHAR_ADVANCE
+}
+
+/// A chip `gap` apart from its children, on `background` within `border`.
+fn chip(gap: f32, background: u32, border: u32) -> Div {
+    div()
+        .row(gap)
+        .flex_none()
+        .bar(CHIP_HEIGHT, 9.0)
+        .rounded_fill(7.0, background)
+        .bordered(border)
+        .cursor_pointer()
 }
 
 fn render_tab(tab: Tab, cx: &mut Context<EditorView>) -> Div {
@@ -84,36 +105,22 @@ fn render_tab(tab: Tab, cx: &mut Context<EditorView>) -> Div {
         TabState::Exited(_) => (glass::ink(0x0d), glass::ink(0x17), color::fg_faint()),
         _ => (glass::ink(0x0d), glass::ink(0x17), color::fg_body()),
     };
-    let chip = div()
+    let dot = if bell {
+        color::warning()
+    } else {
+        color::accent()
+    };
+    let chip = chip(7.0, background, border)
         .relative()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(7.0))
-        .h(px(CHIP_HEIGHT))
-        .px(px(9.0))
-        .rounded(px(7.0))
-        .bg(rgba(background))
-        .border_1()
-        .border_color(rgba(border))
         .whitespace_nowrap()
-        .font_family(font::mono())
-        .text_size(px(font::status_size()))
-        .text_color(rgb(text))
-        .cursor_pointer()
+        .mono_status(text)
         .when(state == TabState::Running, |chip| chip.child(running_dot()))
         .child(editing.unwrap_or(label))
         .map(|chip| match state {
             TabState::Exited(code) => chip.child(exit_badge(code)),
             _ => chip,
         })
-        .when(activity || bell, |chip| {
-            chip.child(corner_dot(if bell {
-                color::warning()
-            } else {
-                color::accent()
-            }))
-        });
+        .when(activity || bell, |chip| chip.child(corner_dot(dot)));
     clickable(chip, action, cx)
 }
 
@@ -134,14 +141,10 @@ fn exit_badge(code: i32) -> Div {
         (color::error() << 8 | 0x38, color::fg_flagged())
     };
     div()
-        .flex()
-        .items_center()
-        .h(px(16.0))
-        .px(px(4.0))
-        .rounded(px(4.0))
-        .bg(rgba(background))
-        .text_size(px(10.0))
-        .text_color(rgb(text))
+        .row(0.0)
+        .bar(16.0, 4.0)
+        .rounded_fill(4.0, background)
+        .text(10.0, text)
         .child(code.to_string())
 }
 
@@ -159,50 +162,12 @@ fn corner_dot(tone: u32) -> Div {
 }
 
 fn render_overflow(hidden: usize, list: &'static str, cx: &mut Context<EditorView>) -> Div {
-    let chip = div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(5.0))
-        .h(px(CHIP_HEIGHT))
-        .px(px(9.0))
-        .rounded(px(7.0))
-        .bg(rgba(color::accent() << 8 | 0x1f))
-        .border_1()
-        .border_color(rgba(color::accent() << 8 | 0x66))
-        .font_family(font::mono())
-        .text_size(px(font::status_size()))
-        .text_color(rgb(color::fg_main()))
-        .cursor_pointer()
+    let accent = color::accent() << 8;
+    let chip = chip(5.0, accent | 0x1f, accent | 0x66)
+        .mono_status(color::fg_main())
         .child(format!("+{hidden}"))
-        .child(
-            svg()
-                .path(CHEVRON_DOWN_ICON)
-                .size(px(9.0))
-                .text_color(rgb(color::fg_main())),
-        );
+        .child(svg_icon(CHEVRON_DOWN_ICON, 9.0, color::fg_main()));
     clickable(chip, command_action(list), cx)
-}
-
-fn render_add(add: &'static str, cx: &mut Context<EditorView>) -> Div {
-    let button = div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .size(px(CHIP_HEIGHT))
-        .rounded(px(7.0))
-        .border_1()
-        .border_dashed()
-        .border_color(rgba(glass::ink(0x2e)))
-        .cursor_pointer()
-        .child(
-            svg()
-                .path(PLUS_ICON)
-                .size(px(12.0))
-                .text_color(rgb(color::fg_dim())),
-        );
-    clickable(button, command_action(add), cx)
 }
 
 fn command_action(command: &'static str) -> remacs_core::Action {

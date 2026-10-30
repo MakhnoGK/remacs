@@ -15,12 +15,9 @@ const CONSOLE_DIM_FADE: f32 = 0.4;
 pub type Highlights = Vec<(Range<usize>, HighlightStyle)>;
 
 pub fn face_style(face: Face) -> HighlightStyle {
-    let underline = |color| HighlightStyle {
-        underline: Some(UnderlineStyle {
-            thickness: px(UNDERLINE_THICKNESS),
-            color: Some(hsla(color)),
-            wavy: false,
-        }),
+    let underline = |color: u32| swatch_style(color << 8 | 0xff, UNDERLINE_THICKNESS);
+    let background = |color: u32| HighlightStyle {
+        background_color: Some(rgba(color).into()),
         ..Default::default()
     };
     match face {
@@ -36,33 +33,19 @@ pub fn face_style(face: Face) -> HighlightStyle {
         Face::Error => underline(color::error()),
         Face::Warning => underline(color::warning()),
         Face::Info => underline(color::info()),
-        Face::Highlight => HighlightStyle {
-            background_color: Some(rgba(color::accent() << 8 | 0x2e).into()),
-            ..Default::default()
-        },
-        Face::SearchMatch => HighlightStyle {
-            background_color: Some(rgba(color::warning() << 8 | 0x38).into()),
-            ..Default::default()
-        },
+        Face::Highlight => background(color::accent() << 8 | 0x2e),
+        Face::SearchMatch => background(color::warning() << 8 | 0x38),
         Face::SearchCurrent => HighlightStyle {
-            background_color: Some(rgba(color::warning() << 8 | 0xb3).into()),
             color: Some(hsla(color::bg_main())),
-            ..Default::default()
+            ..background(color::warning() << 8 | 0xb3)
         },
         Face::MatchingPair => HighlightStyle {
-            background_color: Some(rgba(color::accent() << 8 | 0x40).into()),
             color: Some(hsla(color::accent_on_selection())),
-            ..Default::default()
+            ..background(color::accent() << 8 | 0x40)
         },
         // Over the band of their line, which is the same color.
-        Face::Added => HighlightStyle {
-            background_color: Some(rgba(color::fg_added() << 8 | 0x40).into()),
-            ..Default::default()
-        },
-        Face::Removed => HighlightStyle {
-            background_color: Some(rgba(color::fg_removed() << 8 | 0x40).into()),
-            ..Default::default()
-        },
+        Face::Added => background(color::fg_added() << 8 | 0x40),
+        Face::Removed => background(color::fg_removed() << 8 | 0x40),
         Face::Console(style) => console_style(style),
         Face::Link => HighlightStyle {
             color: Some(hsla(color::link())),
@@ -85,11 +68,16 @@ pub fn swatch_style(color: u32, thickness: f32) -> HighlightStyle {
 }
 
 fn syntax_style(color: u32, style: Style) -> HighlightStyle {
+    text_style(Some(color), style.bold, style.italic, style.underline)
+}
+
+/// Text in `color`, bold, italic and underlined in its color as asked.
+fn text_style(color: Option<u32>, bold: bool, italic: bool, underline: bool) -> HighlightStyle {
     HighlightStyle {
-        color: Some(hsla(color)),
-        font_weight: style.bold.then_some(FontWeight::BOLD),
-        font_style: style.italic.then_some(FontStyle::Italic),
-        underline: style.underline.then(|| UnderlineStyle {
+        color: color.map(hsla),
+        font_weight: bold.then_some(FontWeight::BOLD),
+        font_style: italic.then_some(FontStyle::Italic),
+        underline: underline.then(|| UnderlineStyle {
             thickness: px(1.0),
             color: None,
             wavy: false,
@@ -106,16 +94,8 @@ fn console_style(style: ConsoleStyle) -> HighlightStyle {
         (None, false) => None,
     };
     HighlightStyle {
-        color: color.map(hsla),
-        font_weight: style.bold.then_some(FontWeight::BOLD),
-        font_style: style.italic.then_some(FontStyle::Italic),
-        underline: style.underline.then(|| UnderlineStyle {
-            thickness: px(1.0),
-            color: None,
-            wavy: false,
-        }),
         fade_out: (style.dim && style.color.is_some()).then_some(CONSOLE_DIM_FADE),
-        ..Default::default()
+        ..text_style(color, style.bold, style.italic, style.underline)
     }
 }
 

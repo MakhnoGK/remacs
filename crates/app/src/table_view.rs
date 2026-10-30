@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use gpui::{
     AnyElement, Context, Div, FontWeight, IntoElement, MouseButton, MouseDownEvent, ParentElement,
-    Pixels, StyledText, div, prelude::*, px, rgb, rgba, svg,
+    Pixels, StyledText, div, prelude::*, px, rgb, rgba,
 };
 use remacs_core::{Action, Button, CellStyle, Column, Field, Mark, Notice, Row, RowFace, Table};
 use remacs_theme::{color, font, glass};
@@ -15,8 +15,8 @@ use crate::editor_view::EditorView;
 use crate::highlights::region_style;
 use crate::preview_view::PREVIEW_WIDTH;
 use crate::widgets::{
-    Scrolled, fade_scrolled, icon, kbd, mark_badge, modified_dot, scrolled_by, segment, segmented,
-    shadow, state_letter, text_with_cursor,
+    PressExt, Scrolled, StyleExt, fade_scrolled, icon, kbd, mark_badge, modified_dot, scrolled_by,
+    segment, segmented, shadow, state_letter, svg_icon, text_with_cursor,
 };
 
 const LIST_TOP: f32 = 52.0;
@@ -148,50 +148,33 @@ fn render_bar(
     cx: &mut Context<EditorView>,
 ) -> Div {
     let crumb_count = crumbs.len();
-    let crumbs = crumbs.into_iter().enumerate().flat_map(|(index, crumb)| {
-        let chevron = (index + 1 < crumb_count).then(|| {
-            svg()
-                .path(CHEVRON_ICON)
-                .flex_none()
-                .size(px(10.0))
-                .text_color(rgb(color::fg_muted()))
-                .into_any_element()
-        });
-        [Some(render_crumb(crumb, cx)), chevron]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-    });
-    let crumbs: Vec<AnyElement> = crumbs.collect();
-    let options: Vec<AnyElement> = sort
+    let crumbs: Vec<AnyElement> = crumbs
         .into_iter()
-        .map(|option| render_sort_option(option, cx))
+        .enumerate()
+        .flat_map(|(index, crumb)| {
+            let chevron = (index + 1 < crumb_count).then(|| {
+                svg_icon(CHEVRON_ICON, 10.0, color::fg_muted())
+                    .flex_none()
+                    .into_any_element()
+            });
+            [Some(render_crumb(crumb, cx)), chevron]
+        })
+        .flatten()
         .collect();
+    let options: Vec<Div> = sort
+        .into_iter()
+        .map(|option| clickable(segment(&option.label, option.selected), option.action, cx))
+        .collect();
+    let sort_label = div().ui().status_text(color::fg_faint()).child("Sort");
     div()
-        .flex()
-        .items_center()
-        .gap(px(12.0))
+        .row(12.0)
         .h(px(BAR_HEIGHT))
         .pl(px(8.0))
         .pr(px(4.0))
-        .child(
-            div()
-                .flex()
-                .min_w_0()
-                .items_center()
-                .gap(px(2.0))
-                .children(crumbs),
-        )
+        .child(div().row(2.0).min_w_0().children(crumbs))
         .child(div().flex_1())
         .when(!options.is_empty(), |bar| {
-            bar.child(
-                div()
-                    .font_family(font::ui())
-                    .text_size(px(font::status_size()))
-                    .text_color(rgb(color::fg_faint()))
-                    .child("Sort"),
-            )
-            .child(segmented().children(options))
+            bar.child(sort_label).child(segmented().children(options))
         })
         .children(notice.map(render_notice))
 }
@@ -204,27 +187,20 @@ fn render_notice(notice: Notice) -> Div {
             .text_color(rgb(color::fg_on_warning()))
     };
     div()
-        .flex()
+        .row(8.0)
         .flex_none()
-        .items_center()
-        .gap(px(8.0))
         .h(px(28.0))
         .pl(px(10.0))
         .pr(px(6.0))
-        .rounded(px(8.0))
-        .bg(rgba(color::warning() << 8 | 0x1a))
-        .border_1()
-        .border_color(rgba(color::warning() << 8 | 0x4d))
-        .font_family(font::ui())
-        .text_size(px(font::status_size()))
-        .text_color(rgb(color::fg_on_warning()))
+        .rounded_fill(8.0, color::warning() << 8 | 0x1a)
+        .bordered(color::warning() << 8 | 0x4d)
+        .ui()
+        .status_text(color::fg_on_warning())
         .child(modified_dot())
         .child(notice.label)
         .children(notice.keys.iter().map(|&(keys, label)| {
             div()
-                .flex()
-                .items_center()
-                .gap(px(6.0))
+                .row(6.0)
                 .ml(px(4.0))
                 .children(keys.split_whitespace().map(notice_kbd))
                 .child(label)
@@ -232,60 +208,38 @@ fn render_notice(notice: Notice) -> Div {
 }
 
 fn render_crumb(crumb: Button, cx: &mut Context<EditorView>) -> AnyElement {
+    let selected = crumb.selected;
     clickable(div(), crumb.action, cx)
-        .flex()
-        .items_center()
-        .h(px(26.0))
-        .px(px(8.0))
+        .row(0.0)
+        .bar(26.0, 8.0)
         .rounded(px(6.0))
-        .border_1()
-        .border_color(rgba(0x00000000))
-        .text_size(px(font::mono_size()))
-        .text_color(rgb(color::fg_dim()))
-        .when(crumb.selected, |crumb| {
-            crumb
+        .bordered(0x00000000)
+        .text(font::mono_size(), color::fg_dim())
+        // On a long path the outer directories give way, so the sort controls stay.
+        .when(!selected, |element| element.min_w_0())
+        .when(selected, |element| {
+            element
+                .flex_none()
                 .bg(rgba(glass::control()))
                 .border_color(rgba(glass::control_border()))
                 .text_color(rgb(color::fg_main()))
                 .shadow(vec![shadow(glass::shadow(0x99), 1.0, 2.0, 0.0)])
         })
-        // On a long path the outer directories give way, so the sort controls stay.
-        .map(|element| {
-            if crumb.selected {
-                element.flex_none()
-            } else {
-                element.min_w_0()
-            }
-        })
         .child(div().min_w_0().truncate().child(crumb.label))
         .into_any_element()
 }
 
-fn render_sort_option(option: Button, cx: &mut Context<EditorView>) -> AnyElement {
-    clickable(segment(&option.label, option.selected), option.action, cx).into_any_element()
-}
-
 pub fn clickable(element: Div, action: Action, cx: &mut Context<EditorView>) -> Div {
-    element.on_mouse_down(
-        MouseButton::Left,
-        cx.listener(move |view, _: &MouseDownEvent, _, cx| {
-            cx.stop_propagation();
-            view.run_action(&action, cx);
-        }),
-    )
+    element.on_press(cx, move |view, cx| view.run_action(&action, cx))
 }
 
 fn render_header(columns: &[Column]) -> Div {
     div()
-        .flex()
-        .items_center()
-        .gap(px(CELL_GAP))
-        .h(px(HEADER_HEIGHT))
-        .px(px(12.0))
-        .font_family(font::ui())
+        .row(CELL_GAP)
+        .bar(HEADER_HEIGHT, 12.0)
+        .ui()
         .font_weight(FontWeight::SEMIBOLD)
-        .text_size(px(font::small_size()))
-        .text_color(rgb(color::fg_faint()))
+        .text(font::small_size(), color::fg_faint())
         .child(div().flex_none().w(px(MARK_WIDTH)))
         .child(div().flex_none().w(px(ICON_WIDTH)))
         .children(
@@ -333,6 +287,7 @@ fn render_row(
     let mut field = row.field;
     let state = row.state;
     let cells = row.cells.into_iter().zip(columns).map(|(text, column)| {
+        let primary = column.style == CellStyle::Primary;
         let (family, size, text_color) = match column.style {
             CellStyle::Primary => (font::mono(), font::mono_size(), primary_color),
             CellStyle::Figure => (font::mono(), font::status_size(), color::fg_dim()),
@@ -342,43 +297,28 @@ fn render_row(
                 return state_letter(state, highlighted).w(px(column.width.unwrap_or_default()));
             }
         };
-        let text_color = if highlighted && column.style != CellStyle::Primary {
+        let text_color = if highlighted && !primary {
             color::fg_alt()
         } else {
             text_color
         };
-        if column.style == CellStyle::Primary
-            && let Some(field) = field.take()
-        {
+        if primary && let Some(field) = field.take() {
             let at_point = selected.then_some(cursor.column);
             let composition = cursor.composition.filter(|_| selected);
-            return render_field(
-                text,
-                field,
-                text_color,
-                at_point,
-                cursor.region.clone(),
-                composition,
-            );
+            let region = cursor.region.clone();
+            return render_field(text, field, text_color, at_point, region, composition);
         }
         cell(column)
             .font_family(family)
-            .text_size(px(size))
-            .text_color(rgb(text_color))
-            .when(
-                flagged && column.style == CellStyle::Primary,
-                Styled::line_through,
-            )
+            .text(size, text_color)
+            .when(flagged && primary, Styled::line_through)
             .child(text)
     });
     let cells: Vec<_> = cells.collect();
     div()
-        .flex()
+        .row(CELL_GAP)
         .flex_none()
-        .items_center()
-        .gap(px(CELL_GAP))
-        .h(px(ROW_HEIGHT))
-        .px(px(12.0))
+        .bar(ROW_HEIGHT, 12.0)
         .rounded(px(8.0))
         .when_some(mark_tint.filter(|_| !highlighted), |row, tint| {
             row.bg(rgba(tint << 8 | 0x14))
@@ -437,25 +377,20 @@ fn render_field(
         }
         None => div().child(StyledText::new(display.text).with_highlights(highlights)),
     };
-    let edited = field.original.is_some();
     let input = div()
-        .flex()
+        .row(0.0)
         .flex_1()
         .min_w_0()
-        .items_center()
         .h(px(24.0))
         .ml(px(-7.0))
         .px(px(6.0))
         .overflow_hidden()
         .whitespace_nowrap()
-        .rounded(px(6.0))
-        .border_1()
-        .border_color(rgba(glass::ink(0x14)))
-        .bg(rgba(glass::field()))
-        .font_family(font::mono())
-        .text_size(px(font::mono_size()))
-        .text_color(rgb(text_color))
-        .when(edited, |input| {
+        .rounded_fill(6.0, glass::field())
+        .bordered(glass::ink(0x14))
+        .mono()
+        .text(font::mono_size(), text_color)
+        .when(field.original.is_some(), |input| {
             input
                 .border_color(rgba(color::warning() << 8 | 0x80))
                 .bg(rgba(color::warning() << 8 | 0x14))
@@ -467,18 +402,15 @@ fn render_field(
         })
         .child(content);
     div()
-        .flex()
+        .row(CELL_GAP)
         .flex_1()
         .min_w_0()
-        .items_center()
-        .gap(px(CELL_GAP))
         .child(input)
         .children(field.original.map(|original| {
             div()
                 .flex_none()
-                .font_family(font::ui())
-                .text_size(px(font::status_size()))
-                .text_color(rgb(color::fg_faint()))
+                .ui()
+                .status_text(color::fg_faint())
                 .child(format!("was {original}"))
         }))
 }

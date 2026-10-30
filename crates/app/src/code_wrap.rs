@@ -63,6 +63,7 @@ fn wrap_line(line: &str, columns: usize) -> String {
 
 fn breaks(line: &str) -> Vec<Break> {
     let mut breaks = Vec::new();
+    let mut push = |end, next, depth| breaks.push(Break { end, next, depth });
     let mut depth = 0usize;
     let mut previous = None;
     for (index, character) in line.char_indices() {
@@ -76,26 +77,12 @@ fn breaks(line: &str) -> Vec<Break> {
             _ => {}
         }
         match character {
-            '(' if !rest.is_empty() && !rest.starts_with(')') => breaks.push(Break {
-                end: after,
-                next: after,
-                depth,
-            }),
-            ',' | ';' | '{' if rest.starts_with(' ') => breaks.push(Break {
-                end: after,
-                next: after + 1,
-                depth,
-            }),
-            ':' if previous == Some(')') && rest.starts_with(' ') => breaks.push(Break {
-                end: index,
-                next: index,
-                depth,
-            }),
-            ' ' if index > 0 && (starts(ARROWS) || starts(OPERATORS)) => breaks.push(Break {
-                end: index,
-                next: after,
-                depth: depth + usize::from(starts(OPERATORS)),
-            }),
+            '(' if !rest.is_empty() && !rest.starts_with(')') => push(after, after, depth),
+            ',' | ';' | '{' if rest.starts_with(' ') => push(after, after + 1, depth),
+            ':' if previous == Some(')') && rest.starts_with(' ') => push(index, index, depth),
+            ' ' if index > 0 && (starts(ARROWS) || starts(OPERATORS)) => {
+                push(index, after, depth + usize::from(starts(OPERATORS)))
+            }
             _ => {}
         }
         previous = Some(character);

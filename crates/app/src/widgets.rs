@@ -22,6 +22,18 @@ pub fn hsla(hex: u32) -> Hsla {
     rgb(hex).into()
 }
 
+/// A run of `len` bytes of text in `font` and `color`.
+pub fn text_run(len: usize, font: Font, color: Hsla) -> TextRun {
+    TextRun {
+        len,
+        font,
+        color,
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    }
+}
+
 /// Interface text whose names, as `quote` marks them, are set in the code font; it wraps
 /// as one text, breaking a name too long for a line.
 pub fn ui_text(text: &str, weight: FontWeight, color: u32) -> StyledText {
@@ -30,17 +42,11 @@ pub fn ui_text(text: &str, weight: FontWeight, color: u32) -> StyledText {
     for (part, quoted) in quoted_parts(text) {
         let family = if quoted { font::mono() } else { font::ui() };
         shown.push_str(&part);
-        runs.push(TextRun {
-            len: part.len(),
-            font: Font {
-                weight,
-                ..gpui::font(family)
-            },
-            color: hsla(color),
-            background_color: None,
-            underline: None,
-            strikethrough: None,
-        });
+        let font = Font {
+            weight,
+            ..gpui::font(family)
+        };
+        runs.push(text_run(part.len(), font, hsla(color)));
     }
     StyledText::new(shown).with_runs(runs)
 }
@@ -89,6 +95,31 @@ pub trait StyleExt: Styled + Sized {
     /// A one-pixel border in `color`, with alpha.
     fn bordered(self, color: u32) -> Self {
         self.border_1().border_color(rgba(color))
+    }
+
+    /// `height` pixels tall, its content `padding` in from its sides.
+    fn bar(self, height: f32, padding: f32) -> Self {
+        self.h(px(height)).px(px(padding))
+    }
+
+    /// Corners rounded by `radius` over a fill of `color`, with alpha.
+    fn rounded_fill(self, radius: f32, color: u32) -> Self {
+        self.rounded(px(radius)).bg(rgba(color))
+    }
+
+    /// In the code font.
+    fn mono(self) -> Self {
+        self.font_family(font::mono())
+    }
+
+    /// In the interface font.
+    fn ui(self) -> Self {
+        self.font_family(font::ui())
+    }
+
+    /// Placed out of the flow, across its parent from side to side.
+    fn across(self) -> Self {
+        self.absolute().left_0().right_0()
     }
 }
 
@@ -142,23 +173,17 @@ pub enum Edge {
 /// `list`, its content dissolving into `under`, what it is drawn on, at the edges with more
 /// beyond them.
 pub fn fade_scrolled(list: Div, scrolled: Scrolled, under: Hsla) -> Div {
+    let fade = |edge| edge_fade(edge, SCROLL_FADE_SIZE, under);
     list.relative()
-        .when(scrolled.above, |list| {
-            list.child(edge_fade(Edge::Top, SCROLL_FADE_SIZE, under))
-        })
-        .when(scrolled.below, |list| {
-            list.child(edge_fade(Edge::Bottom, SCROLL_FADE_SIZE, under))
-        })
+        .when(scrolled.above, |list| list.child(fade(Edge::Top)))
+        .when(scrolled.below, |list| list.child(fade(Edge::Bottom)))
 }
 
 /// `list` moved up by `shift` pixels, its first row partly scrolled past, in a box that
 /// takes the room left and clips it.
 pub fn scrolled_by(list: Div, shift: f32) -> Div {
-    div()
-        .flex_1()
-        .min_h_0()
-        .overflow_hidden()
-        .child(list.relative().top(px(-shift)))
+    let list = list.relative().top(px(-shift));
+    div().flex_1().min_h_0().overflow_hidden().child(list)
 }
 
 /// Mixes what its parent drew within `size` of `edge` toward `under`: wholly at the edge,
@@ -170,18 +195,17 @@ pub fn edge_fade(edge: Edge, size: f32, under: Hsla) -> impl IntoElement {
         Edge::Left => 90.0,
         Edge::Right => 270.0,
     };
-    let amount = linear_gradient(
-        angle,
-        linear_color_stop(hsla(0x000000), 0.0),
-        linear_color_stop(rgba(0x00000000), 1.0),
-    );
+    let gradient = |from: Hsla, to: Hsla| {
+        linear_gradient(
+            angle,
+            linear_color_stop(from, 0.0),
+            linear_color_stop(to, 1.0),
+        )
+    };
+    let amount = gradient(hsla(0x000000), rgba(0x00000000).into());
     // Only Metal mixes (ADR 0038); elsewhere surfaces are opaque, so a gradient over the
     // content looks the same.
-    let over_content = linear_gradient(
-        angle,
-        linear_color_stop(under, 0.0),
-        linear_color_stop(under.opacity(0.0), 1.0),
-    );
+    let over_content = gradient(under, under.opacity(0.0));
     let fade = canvas(
         |_, _, _| {},
         move |bounds, _, window, _| {
@@ -220,6 +244,11 @@ pub fn over(top: u32, bottom: u32) -> Hsla {
     .into()
 }
 
+/// The icon at `path`, `size` pixels square, in `color`.
+pub fn svg_icon(path: &'static str, size: f32, color: u32) -> Svg {
+    svg().path(path).size(px(size)).text_color(rgb(color))
+}
+
 /// File icons take the text color they stand next to; severity icons keep their own.
 pub fn icon(icon: Icon, text_color: u32) -> Svg {
     let (path, size, color) = match icon {
@@ -240,11 +269,7 @@ pub fn icon(icon: Icon, text_color: u32) -> Svg {
         Icon::Script => (SCRIPT_ICON, 12.0, text_color),
         Icon::Terminal => (TERMINAL_ICON, 12.0, text_color),
     };
-    svg()
-        .path(path)
-        .flex_none()
-        .size(px(size))
-        .text_color(rgb(color))
+    svg_icon(path, size, color).flex_none()
 }
 
 /// The theme's color for `tone`; a plain one takes `plain`.
@@ -260,29 +285,30 @@ pub fn tone_color(tone: Tone, plain: u32) -> u32 {
     }
 }
 
+/// The small shadow that lifts controls off what they sit on.
+fn lift() -> Vec<BoxShadow> {
+    vec![shadow(glass::shadow(0x80), 1.0, 2.0, 0.0)]
+}
+
 /// A check for a marked row, a `D` for one flagged for deletion.
 pub fn mark_badge(mark: Mark) -> Div {
     let badge = div()
-        .flex()
+        .row(0.0)
         .flex_none()
-        .items_center()
         .justify_center()
         .rounded(px(4.0))
-        .shadow(vec![shadow(glass::shadow(0x80), 1.0, 2.0, 0.0)]);
+        .shadow(lift());
     match mark {
-        Mark::Marked => badge.size(px(14.0)).bg(rgb(color::accent())).child(
-            svg()
-                .path(CHECK_ICON)
-                .size(px(10.0))
-                .text_color(rgb(color::bg_main())),
-        ),
+        Mark::Marked => badge
+            .size(px(14.0))
+            .bg(rgb(color::accent()))
+            .child(svg_icon(CHECK_ICON, 10.0, color::bg_main())),
         Mark::Flagged => badge
             .size(px(16.0))
             .bg(rgb(color::bg_danger()))
-            .font_family(font::mono())
-            .text_size(px(10.0))
+            .mono()
+            .text(10.0, color::fg_on_danger())
             .line_height(px(16.0))
-            .text_color(rgb(color::fg_on_danger()))
             .child("D"),
     }
 }
@@ -302,40 +328,37 @@ pub fn state_color(state: FileState, selected: bool) -> u32 {
 
 /// A file's version control state as its letter, centered in its slot.
 pub fn state_letter(state: Option<FileState>, selected: bool) -> Div {
+    let letter = |slot: Div, state: FileState| {
+        slot.text_color(rgb(state_color(state, selected)))
+            .child(state.letter())
+    };
     div()
         .flex_none()
         .text_center()
-        .font_family(font::mono())
+        .mono()
         .text_size(px(font::status_size()))
-        .when_some(state, |slot, state| {
-            slot.text_color(rgb(state_color(state, selected)))
-                .child(state.letter())
-        })
+        .when_some(state, letter)
 }
 
 /// `+24 −3`, the zero side left out.
 pub fn line_counts(lines: LineCounts, selected: bool) -> Div {
     let (added, removed) = if selected {
-        (
-            color::vc_added_on_selection(),
-            color::vc_removed_on_selection(),
-        )
+        let added = color::vc_added_on_selection();
+        (added, color::vc_removed_on_selection())
     } else {
         (color::vc_added(), color::vc_removed())
     };
     let count = |text: String, text_color| div().text_color(rgb(text_color)).child(text);
+    let added = (lines.added > 0).then(|| count(format!("+{}", lines.added), added));
+    let removed = (lines.removed > 0).then(|| count(format!("−{}", lines.removed), removed));
     div()
         .flex()
         .flex_none()
         .gap(px(10.0))
-        .font_family(font::mono())
+        .mono()
         .text_size(px(font::status_size()))
-        .when(lines.added > 0, |counts| {
-            counts.child(count(format!("+{}", lines.added), added))
-        })
-        .when(lines.removed > 0, |counts| {
-            counts.child(count(format!("−{}", lines.removed), removed))
-        })
+        .children(added)
+        .children(removed)
 }
 
 /// Rows of `items` `row_height` tall, at most `max` of them and a line saying how many
@@ -344,60 +367,31 @@ pub fn list_items(items: Vec<ListItem>, max: usize, row_height: f32) -> Vec<Div>
     let hidden = items.len().saturating_sub(max);
     let rows = items.into_iter().take(max).map(|item| {
         let row = div()
-            .flex()
-            .items_center()
-            .gap(px(10.0))
-            .h(px(row_height))
-            .px(px(10.0))
+            .row(10.0)
+            .bar(row_height, 10.0)
             .children(item.mark.map(mark_badge))
             .children(item.icon.map(|item_icon| icon(item_icon, color::fg_dim())));
+        let label = div().mono().child(item.label);
         if let Some(state) = item.state {
             // A changed file: its name, then where it is and how many lines changed.
+            let detail = div().fill_truncated().status_text(color::fg_dim());
             return row
                 .child(state_letter(Some(state), false).w(px(12.0)))
-                .child(
-                    div()
-                        .flex_none()
-                        .font_family(font::mono())
-                        .text_size(px(font::mono_size()))
-                        .child(item.label),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .text_size(px(font::status_size()))
-                        .text_color(rgb(color::fg_dim()))
-                        .child(item.detail),
-                )
+                .child(label.flex_none().text_size(px(font::mono_size())))
+                .child(detail.child(item.detail))
                 .children(item.lines.map(|lines| line_counts(lines, false)));
         }
-        row.child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .font_family(font::mono())
-                .text_size(px(font::mono_size()))
-                .text_color(rgb(color::fg_kbd()))
-                .child(item.label),
-        )
-        .child(
-            div()
-                .flex_none()
-                .font_family(font::mono())
-                .text_size(px(font::status_size()))
-                .text_color(rgb(color::fg_dim()))
-                .child(item.detail),
-        )
+        let detail = div().flex_none().mono_status(color::fg_dim());
+        let label = label
+            .fill_truncated()
+            .text(font::mono_size(), color::fg_kbd());
+        row.child(label).child(detail.child(item.detail))
     });
     let more = (hidden > 0).then(|| {
         div()
             .px(px(10.0))
             .py(px(4.0))
-            .text_size(px(font::status_size()))
-            .text_color(rgb(color::fg_dim()))
+            .status_text(color::fg_dim())
             .child(format!("and {hidden} more"))
     });
     rows.chain(more).collect()
@@ -409,28 +403,24 @@ pub fn segmented() -> Div {
         .flex()
         .flex_none()
         .p(px(2.0))
-        .rounded(px(8.0))
-        .bg(rgba(glass::field()))
-        .border_1()
-        .border_color(rgba(glass::ink(0x0f)))
+        .rounded_fill(8.0, glass::field())
+        .bordered(glass::ink(0x0f))
 }
 
 pub fn segment(label: &str, selected: bool) -> Div {
+    let selected_look = |segment: Div| {
+        segment
+            .bg(rgba(glass::segment()))
+            .text_color(rgb(color::fg_main()))
+            .shadow(lift())
+    };
     div()
-        .flex()
-        .items_center()
-        .h(px(24.0))
-        .px(px(10.0))
+        .row(0.0)
+        .bar(24.0, 10.0)
         .rounded(px(6.0))
-        .font_family(font::ui())
-        .text_size(px(font::status_size()))
-        .text_color(rgb(color::fg_dim()))
-        .when(selected, |segment| {
-            segment
-                .bg(rgba(glass::segment()))
-                .text_color(rgb(color::fg_main()))
-                .shadow(vec![shadow(glass::shadow(0x80), 1.0, 2.0, 0.0)])
-        })
+        .ui()
+        .status_text(color::fg_dim())
+        .when(selected, selected_look)
         .child(label.to_owned())
 }
 
@@ -441,59 +431,53 @@ pub fn option_chip(label: &str, key: &str, on: bool) -> Div {
 
 /// A choice's chip: its label and value, which a click changes.
 pub fn choice_chip(label: &str, value: &str) -> Div {
+    let value = div()
+        .mono()
+        .text_color(rgb(color::fg_main()))
+        .child(value.to_owned());
     toggle_chip(&format!("{label}:"), false)
-        .child(
-            div()
-                .font_family(font::mono())
-                .text_color(rgb(color::fg_main()))
-                .child(value.to_owned()),
-        )
-        .child(
-            svg()
-                .path(CHEVRON_DOWN_ICON)
-                .size(px(10.0))
-                .text_color(rgb(color::fg_kbd())),
-        )
+        .child(value)
+        .child(svg_icon(CHEVRON_DOWN_ICON, 10.0, color::fg_kbd()))
 }
 
 /// A setting's chip, lit and checked while it is on.
 pub fn toggle_chip(label: &str, on: bool) -> Div {
     let (background, border, text) = if on {
-        (
-            rgba(color::accent() << 8 | 0x29),
-            rgba(color::accent() << 8 | 0x66),
-            color::fg_alt(),
-        )
+        let accent = color::accent() << 8;
+        (accent | 0x29, accent | 0x66, color::fg_alt())
     } else {
-        (
-            rgba(glass::control()),
-            rgba(glass::control_border()),
-            color::fg_kbd(),
-        )
+        (glass::control(), glass::control_border(), color::fg_kbd())
     };
     div()
-        .flex()
+        .row(6.0)
         .flex_none()
-        .items_center()
-        .gap(px(6.0))
-        .h(px(26.0))
-        .px(px(10.0))
-        .rounded(px(6.0))
-        .bg(background)
-        .border_1()
-        .border_color(border)
-        .font_family(font::ui())
-        .text_size(px(font::status_size()))
-        .text_color(rgb(text))
-        .when(on, |chip| {
-            chip.child(svg().path(CHECK_ICON).size(px(10.0)).text_color(rgb(text)))
-        })
+        .bar(26.0, 10.0)
+        .rounded_fill(6.0, background)
+        .bordered(border)
+        .ui()
+        .status_text(text)
+        .when(on, |chip| chip.child(svg_icon(CHECK_ICON, 10.0, text)))
         .child(label.to_owned())
 }
 
 /// A cap for each key of a sequence, e.g. two for `C-c C-c`.
 pub fn key_caps(sequence: &str) -> impl Iterator<Item = Div> + '_ {
     sequence.split_whitespace().map(|key| kbd(key, false))
+}
+
+/// The caps of `keys` and then what they do, `gap` pixels apart.
+pub fn key_hint(keys: &str, label: &'static str, gap: f32) -> Div {
+    div().row(gap).children(key_caps(keys)).child(label)
+}
+
+/// `child` centered across its parent, `bottom` pixels over the parent's bottom.
+pub fn bottom_centered(bottom: f32, child: impl IntoElement) -> Div {
+    div()
+        .across()
+        .bottom(px(bottom))
+        .flex()
+        .justify_center()
+        .child(child)
 }
 
 /// The block cursor's quad, which a text highlight cannot round; text in it is inverted.
@@ -526,19 +510,17 @@ pub fn text_with_cursor(
 ) -> Div {
     let part = |range: Range<usize>| {
         let styled = slice(highlights, range.clone());
-        div()
-            .flex_none()
-            .child(StyledText::new(text[range].to_owned()).with_highlights(styled))
+        let text = StyledText::new(text[range].to_owned()).with_highlights(styled);
+        div().flex_none().child(text)
     };
+    let cursor = block_cursor()
+        .children(composition.map(Composition::track_caret))
+        .child(text[at.clone()].to_owned());
     div()
         .flex()
         .child(part(0..at.start))
         .children(composition.and_then(Composition::render_marked))
-        .child(
-            block_cursor()
-                .children(composition.map(Composition::track_caret))
-                .child(text[at.clone()].to_owned()),
-        )
+        .child(cursor)
         .child(part(at.end..text.len()))
 }
 
@@ -552,32 +534,29 @@ pub fn cursor_text_style() -> HighlightStyle {
     }
 }
 
+/// Glass of `fill` blurring what is under it by `blur`, lifted and casting `outer`.
+fn floating(fill: u32, border: u32, blur: f32, outer: BoxShadow) -> Div {
+    let mut shadows = lift();
+    shadows.push(outer);
+    div()
+        .bg(rgba(fill))
+        .glass_blur(blur, glass::SURFACE_SATURATION)
+        .bordered(border)
+        .shadow(shadows)
+}
+
 /// A floating surface of glass, showing the editor under it blurred.
 pub fn glass_surface(radius: f32) -> Div {
-    div()
-        .bg(rgba(glass::surface()))
-        .glass_blur(glass::SURFACE_BLUR, glass::SURFACE_SATURATION)
-        .border_1()
-        .border_color(rgba(glass::surface_border()))
-        .rounded(px(radius))
-        .shadow(vec![
-            shadow(glass::shadow(0x80), 1.0, 2.0, 0.0),
-            shadow(glass::shadow(0x80), 24.0, 60.0, 0.0),
-        ])
+    let outer = shadow(glass::shadow(0x80), 24.0, 60.0, 0.0);
+    let (fill, border) = (glass::surface(), glass::surface_border());
+    floating(fill, border, glass::SURFACE_BLUR, outer).rounded(px(radius))
 }
 
 /// A modal surface: thicker glass than a floating one, lifted further.
 pub fn modal_surface() -> Div {
-    div()
-        .bg(rgba(glass::modal()))
-        .glass_blur(glass::MODAL_BLUR, glass::SURFACE_SATURATION)
-        .border_1()
-        .border_color(rgba(glass::modal_border()))
-        .rounded(px(glass::SURFACE_RADIUS))
-        .shadow(vec![
-            shadow(glass::shadow(0x80), 1.0, 2.0, 0.0),
-            shadow(glass::shadow(0x99), 30.0, 80.0, 0.0),
-        ])
+    let outer = shadow(glass::shadow(0x99), 30.0, 80.0, 0.0);
+    let (fill, border) = (glass::modal(), glass::modal_border());
+    floating(fill, border, glass::MODAL_BLUR, outer).rounded(px(glass::SURFACE_RADIUS))
 }
 
 pub fn shadow(color: u32, y: f32, blur: f32, spread: f32) -> BoxShadow {
@@ -601,18 +580,13 @@ pub fn modified_dot() -> impl IntoElement {
 /// A translucent floating bar over the bottom of the window, like the status pill.
 pub fn pill() -> Div {
     div()
-        .flex()
-        .items_center()
-        .gap(px(2.0))
+        .row(2.0)
         .p(px(3.0))
-        .rounded(px(9.0))
-        .bg(rgba(glass::pill()))
+        .rounded_fill(9.0, glass::pill())
         .glass_blur(glass::PILL_BLUR, 1.0)
-        .border_1()
-        .border_color(rgba(glass::pill_border()))
+        .bordered(glass::pill_border())
         .shadow(vec![shadow(glass::shadow(0x59), 4.0, 14.0, 0.0)])
-        .text_size(px(font::status_size()))
-        .text_color(rgb(color::fg_faint()))
+        .status_text(color::fg_faint())
 }
 
 pub fn pill_separator() -> Div {
@@ -627,19 +601,15 @@ pub fn kbd(key: &str, selected: bool) -> Div {
         (rgba(glass::control()), color::fg_kbd())
     };
     div()
-        .flex()
+        .row(0.0)
         .flex_none()
-        .items_center()
-        .h(px(20.0))
-        .px(px(6.0))
+        .bar(20.0, 6.0)
         .rounded(px(5.0))
         .bg(background)
-        .border_1()
-        .border_color(rgba(glass::control_border()))
+        .bordered(glass::control_border())
         .shadow(vec![shadow(glass::shadow(0x99), 1.0, 0.0, 0.0)])
-        .font_family(font::mono())
-        .text_size(px(font::small_size()))
-        .text_color(rgb(foreground))
+        .mono()
+        .text(font::small_size(), foreground)
         .child(key_label(key))
 }
 
