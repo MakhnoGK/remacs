@@ -3,8 +3,8 @@ use std::ops::{Range, RangeInclusive};
 use std::time::Instant;
 
 use gpui::{
-    AnyElement, Context, Div, MouseButton, MouseDownEvent, Pixels, StyledText, Window, div, font,
-    prelude::*, px, rgb, rgba, svg,
+    AnyElement, Bounds, Context, Div, Pixels, Point, StyledText, Window, div, font, point,
+    prelude::*, px, rgb, rgba, size, svg,
 };
 use remacs_core::{
     BreakpointIcon, Buffer, ChangedLines, Cursor, Face, GutterIcon, GutterMark, Icon, LineChange,
@@ -15,14 +15,15 @@ use remacs_theme::{color, font, glass};
 
 use super::{
     EditorView, FOOTER_FADE_HEIGHT, MeasuredFonts, Metrics, ROW_MARGIN, ROW_RADIUS, TEXT_TOP,
+    placed,
 };
 use crate::assets::{CHEVRON_DOWN_ICON, CHEVRON_ICON, EXECUTION_POINT_ICON, LOGPOINT_ICON};
 use crate::display_line::{DisplayLine, display_width, slice_line};
 use crate::highlights::{Highlights, combine, face_style, region_style, swatch_style};
 use crate::settings::{CursorHeight, FoldToggles, SwatchesSettings};
 use crate::widgets::{
-    Edge, SCROLL_FADE_SIZE, block_cursor, cursor_text_style, edge_fade, hollow_cursor, icon, over,
-    tone_color,
+    Edge, PressExt, SCROLL_FADE_SIZE, StyleExt, block_cursor, cursor_text_style, edge_fade,
+    hollow_cursor, icon, over, tone_color,
 };
 
 /// Minified files can hold megabytes on one line; lay out only what can be on screen.
@@ -47,13 +48,6 @@ const CHANGE_BAR_GAP: f32 = 2.0;
 const HS_TOGGLE_HIDING: &str = "hs-toggle-hiding";
 /// The gutter, over which the toggles of shown blocks appear.
 const GUTTER_GROUP: &str = "gutter";
-
-/// The fold toggles over the gutter, and the counts of lines hidden blocks hide after the
-/// text of the line each starts on.
-struct FoldControls {
-    toggles: AnyElement,
-    hidden: HashMap<usize, Div>,
-}
 
 fn gutter_padding(digit_width: Pixels) -> Pixels {
     digit_width * (NUMBER_GAP + FOLD_COLUMN + CHANGE_COLUMN + TEXT_GAP)
@@ -80,19 +74,14 @@ impl EditorView {
             .to_string()
             .len()
             .max(self.window_state.number_width.unwrap_or(0));
-        let marks = if self.has_marks_column() {
-            px(MARKS_WIDTH)
-        } else {
-            px(0.0)
-        };
+        // Some plugin may mark lines of the window buffer, so the gutter makes room for it.
+        let marks = self
+            .editor
+            .gutter_marks(0..0)
+            .map_or(px(0.0), |_| px(MARKS_WIDTH));
         marks
             + metrics.digit_width * digits.max(MIN_GUTTER_DIGITS) as f32
             + gutter_padding(metrics.digit_width)
-    }
-
-    /// Some plugin may mark lines of the window buffer, so the gutter makes room for it.
-    fn has_marks_column(&self) -> bool {
-        self.editor.gutter_marks(0..0).is_some()
     }
 
     /// Puts point on `line` and runs the command of its gutter mark.
@@ -284,44 +273,24 @@ impl EditorView {
                     .child(label.text)
             })
             .collect();
-        let marks_width = if mark_slot.is_some() {
-            px(MARKS_WIDTH)
-        } else {
-            px(0.0)
-        };
+        let marks_width = mark_slot.as_ref().map_or(px(0.0), |_| px(MARKS_WIDTH));
         let scrolled_past = self.window_state.sideways.shown() - display_line.first_column() as f32;
         let (hidden_start, continues) = (display_line.has_hidden_start(), display_line.continues);
         let content = StyledText::new(display_line.text).with_highlights(combine(&layers));
-        let number_color = if is_current {
-            color::fg_main()
-        } else {
-            color::fg_line_number()
-        };
         // The text fades into what the row is drawn on.
-        let under = if is_current {
-            over(glass::line_highlight(), glass::window_tint())
-        } else {
-            rgba(glass::window_tint()).into()
+        let (number_color, under) = match is_current {
+            true => (
+                color::fg_main(),
+                over(glass::line_highlight(), glass::window_tint()),
+            ),
+            false => (color::fg_line_number(), rgba(glass::window_tint()).into()),
         };
         // Over the text after point, which it does not move, with the cursor after it.
-        let marked = marked_at.and_then(|(left, under_cursor)| {
+        let marked = marked_at.and_then(|(left, covered)| {
             let text = self.composition.render_marked()?;
-            Some(
-                div()
-                    .absolute()
-                    .left(left)
-                    .h(row_height)
-                    .flex()
-                    .items_center()
-                    .bg(under)
-                    .child(text)
-                    .child(
-                        block_cursor()
-                            .w(metrics.char_width)
-                            .h(height)
-                            .child(under_cursor),
-                    ),
-            )
+            let cursor = block_cursor().w(metrics.char_width).h(height);
+            let marked = div().absolute().left(left).h(row_height).bg(under);
+            Some(marked.row(0.0).child(text).child(cursor.child(covered)))
         });
 
         let text = div().flex().child(content).children(folded);
@@ -342,18 +311,13 @@ impl EditorView {
             .when_some(band, |row, tone| {
                 let band = tone_color(tone, color::fg_main());
                 row.bg(rgba((band << 8) | 0x26))
-                    .border_1()
-                    .border_color(rgba((band << 8) | 0x4d))
+                    .bordered((band << 8) | 0x4d)
             })
             .whitespace_nowrap()
             .line_height(row_height)
             .children(mark_slot.map(|slot| {
-                slot.flex_none()
-                    .w(px(MARKS_WIDTH))
-                    .h(row_height)
-                    .flex()
-                    .items_center()
-                    .justify_center()
+                let slot = slot.flex_none().w(px(MARKS_WIDTH)).h(row_height);
+                slot.flex().items_center().justify_center()
             }))
             .child(
                 div()
@@ -361,8 +325,7 @@ impl EditorView {
                     .w(gutter_width - marks_width)
                     .pr(gutter_padding(metrics.digit_width))
                     .text_right()
-                    .text_size(px(code_font.line_number_size()))
-                    .text_color(rgb(number_color))
+                    .text(code_font.line_number_size(), number_color)
                     .child(number.unwrap_or_else(|| (line + 1).to_string())),
             )
             .child(
@@ -381,11 +344,8 @@ impl EditorView {
                             // Before the text, so that it is drawn under it.
                             .children(cursor)
                             .child(text.children(note.map(|note| {
-                                div()
-                                    .ml(metrics.char_width * 4.0)
-                                    .text_size(px(font::status_size()))
-                                    .text_color(rgb(color::fg_faint()))
-                                    .child(note)
+                                let note_text = div().status_text(color::fg_faint()).child(note);
+                                note_text.ml(metrics.char_width * 4.0)
                             })))
                             .children(label_elements)
                             .children(marked),
@@ -428,26 +388,19 @@ impl EditorView {
                     .map(|mark| mark.command)
                     .or(empty_click)
                     .or(execution.as_ref().map(|mark| mark.command));
+                let execution = execution.map(|_| {
+                    let arrow = div().absolute().left(px(4.0)).top(px(5.0));
+                    arrow.child(gutter_glyph(GutterIcon::ExecutionPoint))
+                });
                 let slot = div()
                     .relative()
                     .children(shown.map(|mark| gutter_glyph(mark.icon)))
-                    .children(execution.map(|_| {
-                        div()
-                            .absolute()
-                            .left(px(4.0))
-                            .top(px(5.0))
-                            .child(gutter_glyph(GutterIcon::ExecutionPoint))
-                    }));
-                let slot = match command {
-                    Some(command) => slot.cursor_pointer().on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |view, _: &MouseDownEvent, _, cx| {
-                            cx.stop_propagation();
-                            view.click_gutter_mark(line, command, cx);
-                        }),
-                    ),
-                    None => slot,
-                };
+                    .children(execution)
+                    .when_some(command, |slot, command| {
+                        slot.cursor_pointer().on_press(cx, move |view, cx| {
+                            view.click_gutter_mark(line, command, cx)
+                        })
+                    });
                 (line, slot)
             })
             .collect();
@@ -456,30 +409,21 @@ impl EditorView {
 
     /// The controls of the blocks that start on the `drawn` lines, over a gutter that
     /// ends at `text_left`; a click on one shows or hides its block, as `hs-toggle-hiding`
-    /// on its line does.
+    /// on its line does. The toggles go over the gutter; the counts of lines hidden blocks
+    /// hide go after the text of the line each starts on.
     fn render_fold_controls(
         &self,
         drawn: &[usize],
         shown_lines: &ShownLines,
         (metrics, text_left): (Metrics, Pixels),
         cx: &mut Context<Self>,
-    ) -> FoldControls {
+    ) -> (AnyElement, HashMap<usize, Div>) {
         let row_height = px(self.text_font().line_height);
-        let gutter = div()
-            .absolute()
-            .top_0()
-            .left_0()
-            .w(text_left)
-            .h(row_height * drawn.len() as f32)
-            .group(GUTTER_GROUP);
-        let (Some(&first), Some(&last)) = (drawn.first(), drawn.last()) else {
-            return FoldControls {
-                toggles: gutter.into_any_element(),
-                hidden: HashMap::new(),
-            };
-        };
+        let gutter_size = size(text_left, row_height * drawn.len() as f32);
+        let gutter = placed(Bounds::new(Point::default(), gutter_size)).group(GUTTER_GROUP);
         let buffer = self.editor.window_buffer();
-        let starts: Vec<usize> = (self.editor.blocks(buffer, first..last + 1))
+        let starts: Vec<usize> = (drawn.first().zip(drawn.last()))
+            .and_then(|(&first, &last)| self.editor.blocks(buffer, first..last + 1))
             .unwrap_or_default()
             .into_iter()
             .filter(|block| !block.hidden.is_empty())
@@ -494,60 +438,54 @@ impl EditorView {
             if hidden.is_none() && !starts.contains(&line) {
                 continue;
             }
-            let clickable = |element: Div| {
-                element.cursor_pointer().on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |view, _: &MouseDownEvent, _, cx| {
-                        cx.stop_propagation();
-                        view.click_gutter_mark(line, HS_TOGGLE_HIDING, cx);
-                    }),
-                )
+            let clickable = |element: Div, cx: &mut Context<Self>| {
+                (element.cursor_pointer()).on_press(cx, move |view, cx| {
+                    view.click_gutter_mark(line, HS_TOGGLE_HIDING, cx)
+                })
             };
             let always = hidden.is_some()
                 || self.folds.toggles == FoldToggles::Always
                 || point_line == Some(line);
-            let toggle = div()
-                .absolute()
-                .top(row_height * row as f32)
-                .left(text_left - digit_width * (TEXT_GAP + CHANGE_COLUMN + FOLD_COLUMN))
-                .w(digit_width * FOLD_COLUMN)
-                .h(row_height)
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(
-                    svg()
-                        .path(if hidden.is_some() {
-                            CHEVRON_ICON
-                        } else {
-                            CHEVRON_DOWN_ICON
-                        })
-                        .size(digit_width * FOLD_COLUMN)
-                        .text_color(rgb(color::fg_line_number())),
-                )
-                .when(!always, |toggle| {
-                    toggle
-                        .opacity(0.0)
-                        .group_hover(GUTTER_GROUP, |style| style.opacity(1.0))
-                });
-            toggles.push(clickable(toggle));
-            let folded = hidden.map(|hidden| {
-                div()
+            let chevron = if hidden.is_some() {
+                CHEVRON_ICON
+            } else {
+                CHEVRON_DOWN_ICON
+            };
+            let origin = point(
+                text_left - digit_width * (TEXT_GAP + CHANGE_COLUMN + FOLD_COLUMN),
+                row_height * row as f32,
+            );
+            let toggle = placed(Bounds::new(
+                origin,
+                size(digit_width * FOLD_COLUMN, row_height),
+            ))
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(
+                svg()
+                    .path(chevron)
+                    .size(digit_width * FOLD_COLUMN)
+                    .text_color(rgb(color::fg_line_number())),
+            )
+            .when(!always, |toggle| {
+                toggle
+                    .opacity(0.0)
+                    .group_hover(GUTTER_GROUP, |style| style.opacity(1.0))
+            });
+            toggles.push(clickable(toggle, cx));
+            if let Some(hidden) = hidden {
+                let folded = div()
                     .ml(metrics.char_width * 2.0)
                     .px(metrics.char_width * 0.5)
                     .rounded(px(ROW_RADIUS))
                     .bg(rgba(glass::line_highlight()))
                     .text_color(rgb(color::fg_faint()))
-                    .child(format!("⋯ {hidden} lines"))
-            });
-            if let Some(folded) = folded {
-                counts.insert(line, clickable(folded));
+                    .child(format!("⋯ {hidden} lines"));
+                counts.insert(line, clickable(folded, cx));
             }
         }
-        FoldControls {
-            toggles: gutter.children(toggles).into_any_element(),
-            hidden: counts,
-        }
+        (gutter.children(toggles).into_any_element(), counts)
     }
 
     /// The window buffer's lines from the viewport on, with the popups placed over them.
@@ -598,10 +536,8 @@ impl EditorView {
         };
         let mut mark_slots = self.render_mark_slots(first_line..last_line, cx);
         let text_left = px(ROW_MARGIN) + gutter_width;
-        let FoldControls {
-            toggles,
-            hidden: mut folded,
-        } = self.render_fold_controls(&drawn, &shown_lines, (metrics, text_left), cx);
+        let (toggles, mut folded) =
+            self.render_fold_controls(&drawn, &shown_lines, (metrics, text_left), cx);
         let mut extras: HashMap<usize, LineExtra> = self
             .editor
             .line_extras(first_line..last_line)
@@ -817,9 +753,8 @@ fn gutter_glyph(mark: GutterIcon) -> AnyElement {
             .items_center()
             .justify_center()
             .font_family(font::mono())
-            .text_size(px(9.0))
+            .text(9.0, color::fg_main())
             .font_weight(gpui::FontWeight::BOLD)
-            .text_color(rgb(color::fg_main()))
             .child("?")
             .into_any_element(),
         GutterIcon::Breakpoint(BreakpointIcon::Log) => svg()

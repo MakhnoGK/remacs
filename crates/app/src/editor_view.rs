@@ -61,6 +61,19 @@ const ROW_RADIUS: f32 = 6.0;
 const COPY_MESSAGE_KEY: &str = "M-w";
 const CLOSE_KEY: &str = "C-g";
 
+/// View methods that call the editor's method of the same name, then take the call as
+/// input or only draw again.
+macro_rules! forward_to_editor {
+    ($($name:ident($($arg:ident: $type:ty),*) then $after:ident;)*) => {$(
+        pub fn $name(&mut self, $($arg: $type,)* cx: &mut Context<Self>) {
+            self.editor.$name($($arg),*);
+            forward_to_editor!(@$after self, cx);
+        }
+    )*};
+    (@input $view:ident, $cx:ident) => { $view.after_input($cx) };
+    (@redraw $view:ident, $cx:ident) => { $cx.notify() };
+}
+
 pub struct EditorView {
     editor: Editor,
     focus_handle: FocusHandle,
@@ -281,6 +294,17 @@ struct Divider {
     min: Pixels,
 }
 
+/// An element drawn over `bounds` of its parent.
+fn placed(bounds: Bounds<Pixels>) -> gpui::Div {
+    let Bounds { origin, size } = bounds;
+    div()
+        .absolute()
+        .left(origin.x)
+        .top(origin.y)
+        .w(size.width)
+        .h(size.height)
+}
+
 impl EditorView {
     pub fn new(
         mut editor: Editor,
@@ -423,39 +447,14 @@ impl EditorView {
         cx.notify();
     }
 
-    pub fn choose_candidate(&mut self, index: usize, cx: &mut Context<Self>) {
-        self.editor.choose_candidate(index);
-        self.after_input(cx);
-    }
-
-    pub fn focus_candidate(&mut self, index: usize, cx: &mut Context<Self>) {
-        self.editor.focus_candidate(index);
-        cx.notify();
-    }
-
-    pub fn answer_question(&mut self, yes: bool, cx: &mut Context<Self>) {
-        self.editor.answer_question(yes);
-        self.after_input(cx);
-    }
-
-    pub fn toggle_dialog_option(&mut self, cx: &mut Context<Self>) {
-        self.editor.toggle_dialog_option();
-        cx.notify();
-    }
-
-    pub fn toggle_prompt_option(&mut self, index: usize, cx: &mut Context<Self>) {
-        self.editor.toggle_prompt_option(index);
-        cx.notify();
-    }
-
-    pub fn next_prompt_choice(&mut self, index: usize, cx: &mut Context<Self>) {
-        self.editor.next_prompt_choice(index);
-        cx.notify();
-    }
-
-    pub fn run_command(&mut self, name: &str, cx: &mut Context<Self>) {
-        self.editor.run_command(name);
-        self.after_input(cx);
+    forward_to_editor! {
+        choose_candidate(index: usize) then input;
+        focus_candidate(index: usize) then redraw;
+        answer_question(yes: bool) then input;
+        toggle_dialog_option() then redraw;
+        toggle_prompt_option(index: usize) then redraw;
+        next_prompt_choice(index: usize) then redraw;
+        run_command(name: &str) then input;
     }
 
     /// Whether the app may quit now, for the close button, the Dock and logout: once the
@@ -541,9 +540,9 @@ impl Render for EditorView {
         }
         self.follow_selection();
         let shown_pane = self.editor.pane();
-        let reserved = shown_pane
+        let reserved = px(shown_pane
             .as_ref()
-            .map_or(px(0.0), |pane| px(pane.height + PANE_BOTTOM + PANE_GAP));
+            .map_or(0.0, |pane| pane.height + PANE_BOTTOM + PANE_GAP));
         let frame_size = window.viewport_size();
         let layout = self.editor.layout().clone();
         let windows = layout.windows();
@@ -556,13 +555,8 @@ impl Render for EditorView {
         // Set as the window at the bottom right is drawn.
         self.side_beside = false;
         // Windows share what the pane and the bottom row leave.
-        let area = Bounds {
-            origin: Point::default(),
-            size: size(
-                frame_size.width,
-                frame_size.height - reserved.max(px(FOOTER_FADE_HEIGHT)),
-            ),
-        };
+        let bottom = frame_size.height - reserved.max(px(FOOTER_FADE_HEIGHT));
+        let area = Bounds::new(Point::default(), size(frame_size.width, bottom));
         let (mut areas, mut dividers) = (Vec::new(), Vec::new());
         lay_out(&layout, area, &mut areas, &mut dividers);
         let settings = self
@@ -600,32 +594,28 @@ impl Render for EditorView {
             // under it, hidden past its bottom.
             // Elsewhere than on macOS, whose buttons it holds, a title bar with nothing in
             // it is left out; that shows once the window is drawn, so the last drawing tells.
-            let title_height =
-                if at_top && cfg!(not(target_os = "macos")) && !split && state.bare_title_bar {
-                    px(0.0)
-                } else if at_top {
-                    px(TITLE_BAR_HEIGHT)
-                } else {
-                    px(header_height)
-                };
+            let bare = cfg!(not(target_os = "macos")) && !split && state.bare_title_bar;
+            let title_height = px(match (at_top, bare) {
+                (true, true) => 0.0,
+                (true, false) => TITLE_BAR_HEIGHT,
+                (false, _) => header_height,
+            });
             let hidden_top = px(TITLE_BAR_HEIGHT) - title_height;
-            let clip_bottom = if at_bottom {
-                frame_size.height
-            } else {
-                window_area.bottom()
+            let (clip_bottom, frame_bottom, reserved) = match at_bottom {
+                true => (frame_size.height, frame_size.height, reserved),
+                false => (
+                    window_area.bottom(),
+                    window_area.bottom() + px(FOOTER_FADE_HEIGHT),
+                    px(0.0),
+                ),
             };
             state.clip =
                 Bounds::from_corners(window_area.origin, point(window_area.right(), clip_bottom));
-            let frame_bottom = if at_bottom {
-                frame_size.height
-            } else {
-                window_area.bottom() + px(FOOTER_FADE_HEIGHT)
-            };
             state.frame = Bounds::from_corners(
                 point(window_area.origin.x, window_area.origin.y - hidden_top),
                 point(window_area.right(), frame_bottom),
             );
-            state.reserved = if at_bottom { reserved } else { px(0.0) };
+            state.reserved = reserved;
             let parts = self.render_window(&screen_owners, window, cx);
             let bare_title_bar = parts.toolbar.is_none() && !parts.tabbed;
             if self.window_state.bare_title_bar != bare_title_bar {
@@ -634,16 +624,15 @@ impl Render for EditorView {
             }
             let state = &self.window_state;
             let (clip, frame) = (state.clip, state.frame);
-            let header = self
+            let header_parts = self
                 .render_header(!parts.tabbed, split)
                 .children(parts.toolbar);
+            let body = placed(Bounds::new(point(px(0.0), -hidden_top), frame.size))
+                .when(id != selected, |body| {
+                    body.opacity(settings.inactive_opacity)
+                });
             bodies.push(
-                div()
-                    .absolute()
-                    .left(clip.origin.x)
-                    .top(clip.origin.y)
-                    .w(clip.size.width)
-                    .h(clip.size.height)
+                placed(clip)
                     .overflow_hidden()
                     // The pane and the bottom row over a window's bottom take the mouse
                     // without blocking it, and with it the header over its top.
@@ -654,37 +643,16 @@ impl Render for EditorView {
                             }
                         },
                     ))
-                    .child(
-                        div()
-                            .absolute()
-                            .left_0()
-                            .top(-hidden_top)
-                            .w(frame.size.width)
-                            .h(frame.size.height)
-                            .when(id != selected, |body| {
-                                body.opacity(settings.inactive_opacity)
-                            })
-                            .child(parts.body),
-                    ),
+                    .child(body.child(parts.body)),
             );
             // A title bar's contents, centered on the strip that shows.
+            let header_size = size(clip.size.width, px(TITLE_BAR_HEIGHT));
+            let header = placed(Bounds::new(point(px(0.0), -hidden_top / 2.0), header_size));
+            let strip = Bounds::new(clip.origin, size(clip.size.width, title_height));
             headers.push(
-                div()
-                    .absolute()
-                    .left(clip.origin.x)
-                    .top(clip.origin.y)
-                    .w(clip.size.width)
-                    .h(title_height)
+                placed(strip)
                     .overflow_hidden()
-                    .child(
-                        div()
-                            .absolute()
-                            .left_0()
-                            .top(-hidden_top / 2.0)
-                            .w(clip.size.width)
-                            .h(px(TITLE_BAR_HEIGHT))
-                            .child(header),
-                    ),
+                    .child(header.child(header_parts)),
             );
             if id == selected {
                 let popups = div().absolute().inset_0().children(parts.popups);
@@ -728,11 +696,7 @@ impl Render for EditorView {
         // The row and what opens from it stand where the windows end: on the pane while one
         // shows, else on the window's bottom; and keep clear of a side beside the rows of
         // the window at the bottom right.
-        let right = if self.side_beside {
-            px(SIDE_ROOM)
-        } else {
-            px(0.0)
-        };
+        let right = px(if self.side_beside { SIDE_ROOM } else { 0.0 });
         let row_layer =
             move |lift: Pixels| div().absolute().top_0().left_0().right(right).bottom(lift);
         let pane_look = self.pane_lift();
@@ -757,11 +721,8 @@ impl Render for EditorView {
         };
         let row_popups = row_layer(lift).children(row_popups);
         // The status pill stays lit above the scrim while the list it opened is shown.
-        let (row_below_scrim, row_above_scrim) = if listing {
-            (None, Some(row))
-        } else {
-            (Some(row), None)
-        };
+        let mut row_below_scrim = Some(row);
+        let row_above_scrim = row_below_scrim.take_if(|_| listing);
         let (scrim, prompt) = prompt.map_or((None, None), |prompt| {
             let surface = if listing {
                 row_layer(lift).child(prompt.surface).into_any_element()

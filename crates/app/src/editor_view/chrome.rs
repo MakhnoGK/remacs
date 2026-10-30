@@ -3,12 +3,12 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use gpui::{
-    AnyElement, Context, Div, MouseButton, MouseDownEvent, Pixels, Point, SharedString, Size,
-    Window, div, prelude::*, px, rgb, rgba,
+    AnyElement, Context, Div, MouseButton, Pixels, Point, SharedString, Size, Window, div,
+    prelude::*, px, rgb, rgba,
 };
 use remacs_core::{
-    Action, Code, Editor, Outline, Pane, PaneBody, Popup, Preview, StatusItem, StatusSegment,
-    WindowId, describe_sequence,
+    Action, Code, Editor, Pane, PaneBody, Popup, Preview, StatusItem, StatusSegment, WindowId,
+    describe_sequence,
 };
 use remacs_echo::VIEW_MESSAGES;
 use remacs_frame::TEXT_CONFIGURED;
@@ -33,7 +33,9 @@ use crate::pane_view::{PANE_BOTTOM, PANE_GAP, PaneChrome, render_pane, screen_bo
 use crate::popup_view::{Placement, PopupView, render_popup};
 use crate::preview_view::render_preview;
 use crate::transition::{Look, Retained, Side};
-use crate::widgets::{Scrolled, icon, modified_dot, over, pill, pill_separator, tone_color};
+use crate::widgets::{
+    PressExt, Scrolled, StyleExt, icon, modified_dot, over, pill, pill_separator, tone_color,
+};
 
 /// Per mode; one popup shows a handful.
 const MAX_HIGHLIGHTED_SNIPPETS: usize = 64;
@@ -131,15 +133,13 @@ impl EditorView {
         // A screen is sized to one place a frame: a window's, if one shows it too.
         let screen = match &pane.body {
             PaneBody::Screen(name) if !screen_owners.contains_key(name) => {
-                Some((name.clone(), pane.height))
+                let name = name.clone();
+                let bounds = screen_bounds(window.viewport_size(), pane.height);
+                let under = over(glass::pane(), glass::window_tint());
+                self.render_screen_in(&name, bounds, Point::default(), under, window, cx)
             }
             _ => None,
         };
-        let screen = screen.and_then(|(name, height)| {
-            let bounds = screen_bounds(window.viewport_size(), height);
-            let under = over(glass::pane(), glass::window_tint());
-            self.render_screen_in(&name, bounds, Point::default(), under, window, cx)
-        });
         let shown = self.surfaces.pane.shown(transition)?;
         let (pane, chrome) = shown.content;
         let element = render_pane(pane, chrome, screen, cx)
@@ -156,10 +156,9 @@ impl EditorView {
         retained.update_owned(open, closed, Instant::now(), transition.duration);
         let minibuffer = self.editor.minibuffer().or(retained.leaving())?;
         let problem_list = is_problem_list(minibuffer);
-        let side = if problem_list {
-            Side::Below
-        } else {
-            Side::Above
+        let side = match problem_list {
+            true => Side::Below,
+            false => Side::Above,
         };
         let look = retained.look(transition.coming_from(side))?;
         let scrim = render_scrim(minibuffer.dialog().is_some());
@@ -216,10 +215,8 @@ impl EditorView {
             .left_0()
             .right_0()
             .h(px(TITLE_BAR_HEIGHT))
-            .flex()
-            .items_center()
+            .row(6.0)
             .justify_center()
-            .gap(px(6.0))
             .font_family(font::ui())
             .text_size(px(font::ui_size()));
         // Elsewhere than on macOS the desktop's title bar already says it.
@@ -227,17 +224,11 @@ impl EditorView {
             return header;
         }
         if split {
-            let selected = self.drawing_selected();
-            return header.child(
-                div()
-                    .when(selected, |name| name.font_weight(gpui::FontWeight::MEDIUM))
-                    .text_color(rgb(if selected {
-                        color::fg_main()
-                    } else {
-                        color::fg_dim()
-                    }))
-                    .child(name),
-            );
+            let name = div().text_color(rgb(color::fg_dim())).child(name);
+            return header.child(name.when(self.drawing_selected(), |name| {
+                name.font_weight(gpui::FontWeight::MEDIUM)
+                    .text_color(rgb(color::fg_main()))
+            }));
         }
         header
             .child(div().font_weight(gpui::FontWeight::MEDIUM).child(name))
@@ -255,51 +246,37 @@ impl EditorView {
         let history_shown = self.advance_history(window, cx);
         // Without room beside the pane, the rows stay in it and the side is left out.
         let narrow = !fits_history(self.window_state.frame.size.width);
-        let narrowed = |mut outline: Outline| {
+        // The outline from `first_line`, and how many of its rows fit.
+        let fitted = |editor: &Editor, first_line: usize| {
+            let mut outline = editor.outline(first_line..first_line + outline_lines)?;
             if narrow {
                 outline.history = None;
                 outline.conflict = None;
                 outline.side = None;
             }
-            outline
-        };
-        let mut outline = narrowed(self.editor.outline(
-            self.editor.viewport.first_line..self.editor.viewport.first_line + outline_lines,
-        )?);
-        self.window_state.history_scroll = outline
-            .history
-            .as_ref()
-            .map(|history| history.scroll.clone());
-        let fit = |outline: &Outline| {
             let has_banner = outline.banner.is_some();
-            match outline.side {
+            let fitting = match outline.side {
                 Some(_) => fitting_rows_in(&outline.rows, beside_height(height, has_banner)),
                 None => fitting_rows(&outline.rows, outline.facts.len(), has_banner, height),
-            }
+            };
+            Some((outline, fitting))
         };
-        let mut fitting = fit(&outline);
-        let point_line = self.editor.window_buffer().point_line();
         let shown_from = self.editor.viewport.first_line;
+        let (mut outline, mut fitting) = fitted(&self.editor, shown_from)?;
+        self.window_state.history_scroll =
+            (outline.history.as_ref()).map(|history| history.scroll.clone());
+        let point_line = self.editor.window_buffer().point_line();
         self.editor.viewport.set_height(fitting);
         self.editor.viewport.margins = (1, 1);
         self.editor.show_point();
         if self.editor.viewport.first_line != shown_from {
-            let first_line = self.editor.viewport.first_line;
-            outline = narrowed(
-                self.editor
-                    .outline(first_line..first_line + outline_lines)?,
-            );
-            fitting = fit(&outline);
+            (outline, fitting) = fitted(&self.editor, self.editor.viewport.first_line)?;
         }
         self.editor.viewport.set_height(fitting);
         let top = self.advance_scroll(fitting, window);
         let first_line = top as usize;
         if first_line != self.editor.viewport.first_line {
-            outline = narrowed(
-                self.editor
-                    .outline(first_line..first_line + outline_lines)?,
-            );
-            fitting = fit(&outline);
+            (outline, fitting) = fitted(&self.editor, first_line)?;
         }
         let mut scrolled = OutlineScrolled {
             rows: Scrolled {
@@ -359,9 +336,7 @@ impl EditorView {
             (false, None, false) => color::fg_faint(),
         };
         div()
-            .flex()
-            .items_center()
-            .gap(px(10.0))
+            .row(10.0)
             .h(px(24.0))
             .px(px(8.0))
             .rounded(px(6.0))
@@ -373,20 +348,12 @@ impl EditorView {
             })
             .text_color(rgb(text_color))
             .when_some(segment.command, |button, command| {
-                button.on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |view, _: &MouseDownEvent, _, cx| {
-                        cx.stop_propagation();
-                        view.run_command(command, cx);
-                    }),
-                )
+                button.on_press(cx, move |view, cx| view.run_command(command, cx))
             })
             .children(segment.items.into_iter().map(|item| {
                 let item_color = tone_color(item.tone, text_color);
                 div()
-                    .flex()
-                    .items_center()
-                    .gap(px(5.0))
+                    .row(5.0)
                     .text_color(rgb(item_color))
                     .children(item.icon.map(|item_icon| icon(item_icon, item_color)))
                     .child(item.text)
@@ -611,9 +578,7 @@ impl EditorView {
                     status
                         .child(
                             div()
-                                .flex()
-                                .items_center()
-                                .gap(px(6.0))
+                                .row(6.0)
                                 .px(px(8.0))
                                 .font_family(font::mono())
                                 .when(buffer.is_modified(), |position| {

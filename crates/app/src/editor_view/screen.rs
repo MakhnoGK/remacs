@@ -75,13 +75,8 @@ pub(super) fn full_screen_bounds(
 ) -> Bounds<Pixels> {
     let origin = point(px(SCREEN_SIDE), px(TITLE_BAR_HEIGHT));
     let bottom = if fills { SCREEN_SIDE } else { SCREEN_BOTTOM };
-    Bounds {
-        origin,
-        size: size(
-            frame.width - px(2.0 * SCREEN_SIDE),
-            frame.height - origin.y - px(bottom) - reserved,
-        ),
-    }
+    let height = frame.height - origin.y - px(bottom) - reserved;
+    Bounds::new(origin, size(frame.width - px(2.0 * SCREEN_SIDE), height))
 }
 
 impl EditorView {
@@ -106,11 +101,12 @@ impl EditorView {
         };
         let padding = self.editor.screen_padding(name);
         let inset = point(px(padding.horizontal), px(padding.vertical));
-        let room = size(
-            (bounds.size.width - inset.x * 2.0).max(px(0.0)),
-            (bounds.size.height - inset.y * 2.0).max(px(0.0)),
+        let room = |length: Pixels, inset: Pixels| (length - inset * 2.0).max(px(0.0));
+        let (width, height) = (
+            room(bounds.size.width, inset.x),
+            room(bounds.size.height, inset.y),
         );
-        let size = screen_size(room.width, room.height, cell);
+        let size = screen_size(width, height, cell);
         let screen = self.editor.screen(name, size)?;
         self.screen_drawn = true;
         let transition = self.transitions.popup();
