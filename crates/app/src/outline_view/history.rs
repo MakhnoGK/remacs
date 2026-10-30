@@ -15,15 +15,8 @@ use crate::widgets::{Scrolled, StyleExt, fade_scrolled, kbd, scrolled_by, segmen
 
 /// The column at the right of the pane, its tabs atop it.
 fn beside_column() -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_w_0()
-        .gap(px(HISTORY_HEADER_GAP))
-        .overflow_hidden()
-        .font_family(font::ui())
-        .text_size(px(font::ui_size()))
+    let column = div().column().flex_1().min_w_0().gap(px(HISTORY_HEADER_GAP)).overflow_hidden();
+    column.ui().text_size(px(font::ui_size()))
 }
 
 /// `list` dissolving into the window at the edges with more beyond them.
@@ -35,13 +28,8 @@ fn fade_beside(list: Div, scrolled: Scrolled) -> Div {
 fn tabs_header(tabs: Vec<Button>, cx: &mut Context<EditorView>) -> Div {
     let tabs = tabs.into_iter();
     let tabs = tabs.map(|tab| clickable(segment(&tab.label, tab.selected), tab.action, cx));
-    div()
-        .row(12.0)
-        .flex_none()
-        .h(px(HISTORY_HEADER_HEIGHT))
-        .pl(px(12.0))
-        .pr(px(4.0))
-        .child(segmented().children(tabs))
+    let header = div().row(12.0).flex_none().h(px(HISTORY_HEADER_HEIGHT)).pl(px(12.0)).pr(px(4.0));
+    header.child(segmented().children(tabs))
 }
 
 /// An outline's rows at the right under its tabs, moved up by `shift` pixels.
@@ -83,14 +71,13 @@ pub(super) fn render_history(
         .child(div().flex_1())
         .child(search.child(kbd("/", false)).child(search_hint));
     let list = if history.commits.is_empty() {
-        let empty = div().pl(px(12.0)).pt(px(8.0)).child(history.empty);
-        empty.text_color(rgb(color::fg_faint()))
+        div().pl(px(12.0)).pt(px(8.0)).fg(color::fg_faint()).child(history.empty)
     } else {
         let selected = history.selected;
         let commits = history.commits.into_iter().enumerate();
         let commits =
             commits.map(|(index, commit)| commit_row(commit, indent, selected == Some(index), cx));
-        let commits = div().flex().flex_col().children(commits);
+        let commits = div().column().children(commits);
         fade_beside(scrolled_by(commits, shift), scrolled)
     };
     beside_column()
@@ -104,13 +91,10 @@ pub(super) fn render_history(
 
 /// The file a history shows the commits of, with what clears it, which a click runs.
 fn file_chip(file: Button, cx: &mut Context<EditorView>) -> Div {
-    let chip = chip_frame(22.0, 8.0, 6.0)
-        .gap(px(6.0))
-        .bg(rgba(glass::chip()))
-        .font_family(font::mono())
-        .text(font::small_size(), color::fg_body())
-        .child(div().max_w(px(220.0)).truncate().child(file.label))
-        .child(div().text_color(rgb(color::fg_faint())).child("×"));
+    let label = div().max_w(px(220.0)).truncate().child(file.label);
+    let close = div().fg(color::fg_faint()).child("×");
+    let chip = chip_frame(22.0, 8.0, 6.0).gap(px(6.0)).bg(rgba(glass::chip())).mono();
+    let chip = chip.text(font::small_size(), color::fg_body()).child(label).child(close);
     clickable(chip, file.action, cx)
 }
 
@@ -121,26 +105,14 @@ fn commit_column(width: Pixels, color: u32, text: String) -> Div {
 
 fn commit_row(commit: CommitRow, indent: f32, selected: bool, cx: &mut Context<EditorView>) -> Div {
     let graph = commit.graph;
-    let row = div()
-        .relative()
-        .row(12.0)
-        .flex_none()
-        .h(px(COMMIT_HEIGHT))
-        .pl(px(indent))
-        .pr(px(12.0))
-        .rounded(px(8.0))
-        .when(selected, |row| row.bg(rgba(glass::selection())))
-        .whitespace_nowrap();
+    let row = div().relative().row(12.0).flex_none().h(px(COMMIT_HEIGHT)).pl(px(indent));
+    let row = row.pr(px(12.0)).rounded(px(8.0)).whitespace_nowrap();
+    let row = row.when(selected, |row| row.bg(rgba(glass::selection())));
     let graph =
         canvas(|_, _, _| {}, move |bounds, _, window, _| paint_graph(&graph, bounds, window));
-    let subject = div()
-        .row(6.0)
-        .flex_1()
-        .min_w_0()
-        .overflow_hidden()
-        .text_color(rgb(color::fg_main()))
-        .children(commit.refs.into_iter().map(ref_chip))
-        .child(div().min_w_0().truncate().child(commit.subject));
+    let subject = div().row(6.0).flex_1().min_w_0().overflow_hidden().fg(color::fg_main());
+    let subject = subject.children(commit.refs.into_iter().map(ref_chip));
+    let subject = subject.child(div().min_w_0().truncate().child(commit.subject));
     let author = commit_column(px(112.0), color::fg_dim(), commit.author).truncate();
     let date = commit_column(px(84.0), color::fg_faint(), commit.date).text_right();
     let id = commit_column(px(64.0), color::fg_line_number(), commit.id);
@@ -149,7 +121,7 @@ fn commit_row(commit: CommitRow, indent: f32, selected: bool, cx: &mut Context<E
         .child(subject)
         .child(author)
         .child(date)
-        .child(id.text_right().font_family(font::mono()))
+        .child(id.text_right().mono())
 }
 
 /// The lines through a commit's row, curving where they change lanes, and its node.

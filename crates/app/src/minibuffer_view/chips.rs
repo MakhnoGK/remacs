@@ -9,11 +9,8 @@ pub(super) fn render_segmented_choices(
     let choices: Vec<Div> = shown_choices(minibuffer, true)
         .map(|(index, choice)| {
             let selected = choice.selected.get();
-            let segments = choice
-                .values
-                .iter()
-                .enumerate()
-                .map(|(position, value)| segment(value, position == selected));
+            let values = choice.values.iter().enumerate();
+            let segments = values.map(|(position, value)| segment(value, position == selected));
             choice_click(segmented().children(segments), index, cx)
         })
         .collect();
@@ -27,11 +24,8 @@ pub(super) fn render_switches(minibuffer: &Minibuffer, cx: &mut Context<EditorVi
             let selected = (position == 1) == option.is_on();
             option_click(segment(label, selected), index, cx)
         });
-        div()
-            .row(6.0)
-            .flex_none()
-            .child(segmented().children(segments))
-            .child(kbd(&format!("M-{}", option.key), false))
+        let key = kbd(&format!("M-{}", option.key), false);
+        div().row(6.0).flex_none().child(segmented().children(segments)).child(key)
     });
     let subject = plain_text(minibuffer.subject(), font::ui_size(), color::fg_body());
     div().row(12.0).pad(2.0, 2.0, 10.0).children(switches).child(subject.min_w_0().truncate())
@@ -44,7 +38,11 @@ pub(super) fn render_chips(
     with_subject: bool,
     cx: &mut Context<EditorView>,
 ) -> Option<Div> {
-    let footnote = minibuffer.completions().footnote.clone();
+    let footnote = minibuffer.completions().footnote.clone().map(|footnote| {
+        let ring = div().size(px(9.0)).rounded_full().border(px(1.6));
+        let mark = ring.border_color(rgb(color::info()));
+        div().row(6.0).flex_none().status_text(color::fg_dim()).child(mark).child(footnote)
+    });
     let mut chips: Vec<Div> = shown_choices(minibuffer, false)
         .map(|(index, choice)| {
             let chip = choice_chip(choice.label, choice.value().unwrap_or_default());
@@ -58,27 +56,11 @@ pub(super) fn render_chips(
     }));
     (!chips.is_empty()).then(|| {
         div()
-            .flex()
+            .row(6.0)
             .flex_wrap()
-            .items_center()
-            .gap(px(6.0))
             .pad(12.0, 10.0, 2.0)
             .children(chips)
-            .when_some(footnote, |chips, footnote| {
-                let mark = div()
-                    .size(px(9.0))
-                    .rounded_full()
-                    .border(px(1.6))
-                    .border_color(rgb(color::info()));
-                chips.child(div().flex_1()).child(
-                    div()
-                        .row(6.0)
-                        .flex_none()
-                        .status_text(color::fg_dim())
-                        .child(mark)
-                        .child(footnote),
-                )
-            })
+            .when_some(footnote, |chips, footnote| chips.child(div().flex_1()).child(footnote))
             .when(with_subject && !minibuffer.subject().is_empty(), |chips| {
                 let subject =
                     plain_text(minibuffer.subject(), font::status_size(), color::fg_faint());
@@ -108,20 +90,12 @@ fn shown_options(
 /// What choosing would make: a summary, then the base, a dot per commit and the tip.
 pub(super) fn render_outcome((summary, chain): (String, CommitChain)) -> impl IntoElement {
     let dot = |color_hex: u32| {
-        div()
-            .flex_none()
-            .size(px(10.0))
-            .rounded_full()
-            .bg(rgb(color_hex))
-            .border_2()
-            .border_color(rgb(color::bg_popup()))
+        let dot = div().flex_none().size(px(10.0)).rounded_full().bg(rgb(color_hex)).border_2();
+        dot.border_color(rgb(color::bg_popup()))
     };
     let line = |from: u32, to: u32| {
-        div().w(px(36.0)).h(px(2.0)).bg(linear_gradient(
-            90.0,
-            linear_color_stop(hsla(from), 0.0),
-            linear_color_stop(hsla(to), 1.0),
-        ))
+        let (from, to) = (linear_color_stop(hsla(from), 0.0), linear_color_stop(hsla(to), 1.0));
+        div().w(px(36.0)).h(px(2.0)).bg(linear_gradient(90.0, from, to))
     };
     // A remote's commit, like a merge base, is grey; what comes in is the base's color.
     let base_color = match chain.base.kind {
@@ -129,13 +103,8 @@ pub(super) fn render_outcome((summary, chain): (String, CommitChain)) -> impl In
         _ => color::graph(1),
     };
     let (incoming_color, tip_color) = (color::graph(1), color::graph(0));
-    let mut chain_row = div()
-        .flex()
-        .items_center()
-        .py(px(6.0))
-        .px(px(10.0))
-        .child(ref_chip(chain.base).mr(px(12.0)))
-        .child(dot(base_color));
+    let base = ref_chip(chain.base).mr(px(12.0));
+    let mut chain_row = div().row(0.0).py(px(6.0)).px(px(10.0)).child(base).child(dot(base_color));
     let mut previous = base_color;
     let colors = std::iter::repeat_n(incoming_color, chain.incoming)
         .chain(std::iter::repeat_n(tip_color, chain.commits));

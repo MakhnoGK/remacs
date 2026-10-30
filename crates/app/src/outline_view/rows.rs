@@ -9,24 +9,18 @@ use super::{
     lift_selected,
 };
 use crate::assets::{CHEVRON_DOWN_ICON, CHEVRON_ICON};
+use crate::changes_view::diff_line as diff_text;
 use crate::editor_view::EditorView;
+use crate::preview_view::code_well;
 use crate::table_view::clickable;
 use crate::widgets::{StyleExt, line_counts, shadow, state_letter, tone_color};
 
 /// The facts over a rule, if there are any.
 pub(super) fn render_facts(facts: Vec<Fact>, cx: &mut Context<EditorView>) -> Option<Div> {
     (!facts.is_empty()).then(|| {
-        div()
-            .flex()
-            .flex_col()
-            .flex_none()
-            .pt(px(FACTS_TOP))
-            .px(px(4.0))
-            .pb(px(10.0))
-            .mb(px(6.0))
-            .border_b_1()
-            .border_color(rgba(glass::ink(0x0f)))
-            .children(facts.into_iter().map(|fact| render_fact(fact, cx)))
+        let facts = facts.into_iter().map(|fact| render_fact(fact, cx));
+        let column = div().column().flex_none().pad(FACTS_TOP, 4.0, 10.0).mb(px(6.0));
+        column.border_b_1().border_color(rgba(glass::ink(0x0f))).children(facts)
     })
 }
 
@@ -51,15 +45,8 @@ fn render_fact(fact: Fact, cx: &mut Context<EditorView>) -> Div {
             .child(button.label);
         clickable(element, button.action, cx)
     });
-    div()
-        .row(10.0)
-        .h(px(FACT_HEIGHT))
-        .px(px(6.0))
-        .whitespace_nowrap()
-        .child(label.child(fact.label))
-        .child(value)
-        .child(note.child(fact.note))
-        .children(buttons)
+    let row = div().row(10.0).bar(FACT_HEIGHT, 6.0).whitespace_nowrap();
+    row.child(label.child(fact.label)).child(value).child(note.child(fact.note)).children(buttons)
 }
 
 /// A branch or tag, colored by what it is.
@@ -74,12 +61,8 @@ pub fn ref_chip(chip: RefChip) -> Div {
         RefKind::Remote => (0, color::fg_ref_remote(), glass::ink(0x29)),
         RefKind::Tag => (glass::chip(), color::fg_body(), 0),
     };
-    chip_frame(20.0, 7.0, 5.0)
-        .bordered(border)
-        .bg(rgba(background))
-        .font_family(font::mono())
-        .text(font::small_size(), foreground)
-        .child(chip.name)
+    let frame = chip_frame(20.0, 7.0, 5.0).bordered(border).bg(rgba(background)).mono();
+    frame.text(font::small_size(), foreground).child(chip.name)
 }
 
 /// The selection's text color on a selected row, `plain` on another.
@@ -111,24 +94,8 @@ fn row_frame(selected: bool) -> Div {
 /// A run of diff lines in their frame, if there are any.
 fn diff_frame(lines: Vec<Div>) -> Option<AnyElement> {
     (!lines.is_empty()).then(|| {
-        div()
-            .flex()
-            .flex_col()
-            .flex_none()
-            .ml(px(DIFF_INDENT))
-            .mr(px(4.0))
-            .mt(px(2.0))
-            .mb(px(6.0))
-            .py(px(4.0))
-            .rounded(px(8.0))
-            .overflow_hidden()
-            .bg(rgba(glass::well()))
-            .bordered(glass::ink(0x0f))
-            .font_family(font::mono())
-            .text_size(px(font::status_size()))
-            .line_height(px(DIFF_LINE_HEIGHT))
-            .children(lines)
-            .into_any_element()
+        let frame = code_well(4.0, DIFF_LINE_HEIGHT).flex_none().ml(px(DIFF_INDENT)).mr(px(4.0));
+        frame.mt(px(2.0)).mb(px(6.0)).children(lines).into_any_element()
     })
 }
 
@@ -150,7 +117,7 @@ fn row_body(row: OutlineRow, selected: bool) -> Div {
             };
             row_frame(selected)
                 .child(state_letter(Some(state), selected).w(px(12.0)))
-                .child(div().flex_none().font_family(font::mono()).child(name))
+                .child(div().flex_none().mono().child(name))
                 .child(div().fill_truncated().status_text(faint).child(directory))
                 .children(end)
         }
@@ -196,15 +163,8 @@ fn diff_line(diff: DiffRow, selected: bool) -> Div {
         DiffRow::Added(text) => ("+", text, color::fg_added(), Some(rgba(glass::added()))),
         DiffRow::Removed(text) => ("-", text, color::fg_removed(), Some(rgba(glass::removed()))),
     };
-    div()
-        .flex()
-        .flex_none()
-        .h(px(DIFF_LINE_HEIGHT))
-        .whitespace_nowrap()
-        .overflow_hidden()
-        .text_color(rgb(foreground))
+    let line = diff_text(prefix, text, foreground).h(px(DIFF_LINE_HEIGHT)).overflow_hidden();
+    line.whitespace_nowrap()
         .when_some(background, |row, background| row.bg(background))
         .when(selected, |row| row.bg(rgba(glass::selection())))
-        .child(div().flex_none().w(px(16.0)).text_center().child(prefix))
-        .child(text)
 }

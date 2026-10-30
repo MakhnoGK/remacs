@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use gpui::{Div, HighlightStyle, ParentElement, StyledText, div, prelude::*, px, rgba};
+use gpui::{Div, HighlightStyle, ParentElement, StyledText, div, prelude::*, px};
 use remacs_core::{Code, FileStatus, Preview, PreviewBody, PreviewItem, RowFace};
 use remacs_theme::{color, font, glass};
 
@@ -17,24 +17,14 @@ const ITEM_HEIGHT: f32 = 24.0;
 /// The selected row's contents under its name, and details such as its size below.
 pub fn render_preview(preview: Preview, code_faces: &dyn Fn(&Code) -> Highlights) -> Div {
     let version = preview.version;
-    let title = div()
-        .min_w_0()
-        .truncate()
-        .font_family(font::mono())
-        .text_size(px(font::mono_size()))
-        .child(preview.title);
-    let kind = div()
-        .flex_none()
-        .font_family(font::ui())
-        .status_text(color::fg_faint())
-        .child(preview.kind);
+    let title = div().min_w_0().truncate().mono().text_size(px(font::mono_size()));
+    let kind = div().flex_none().ui().status_text(color::fg_faint()).child(preview.kind);
     let header = div()
         .row(10.0)
         .flex_none()
-        .h(px(HEADER_HEIGHT))
-        .px(px(PADDING))
+        .bar(HEADER_HEIGHT, PADDING)
         .child(icon(preview.icon, color::fg_faint()))
-        .child(title)
+        .child(title.child(preview.title))
         .children(version.map(|(_, status)| state_letter(Some(status.state), false)))
         .child(div().flex_1())
         .child(kind);
@@ -46,44 +36,29 @@ pub fn render_preview(preview: Preview, code_faces: &dyn Fn(&Code) -> Highlights
 
 /// The frame of what is shown beside a table's rows.
 pub fn pane() -> Div {
-    div()
-        .column()
-        .flex_none()
-        .w(px(PREVIEW_WIDTH))
-        .p(px(PADDING))
-        .gap(px(PADDING))
-        .bg(rgba(glass::pane()))
-        .bordered(glass::pane_border())
-        .rounded(px(12.0))
-        .overflow_hidden()
+    let pane = div().column().flex_none().w(px(PREVIEW_WIDTH)).p(px(PADDING)).gap(px(PADDING));
+    pane.rounded_fill(12.0, glass::pane()).bordered(glass::pane_border()).overflow_hidden()
+}
+
+/// A sunken well of code lines `line_height` tall, `padding_y` in from its top and bottom.
+pub(crate) fn code_well(padding_y: f32, line_height: f32) -> Div {
+    let well = div().column().py(px(padding_y)).rounded_fill(8.0, glass::well()).overflow_hidden();
+    let well = well.bordered(glass::ink(0x0f)).mono().text_size(px(font::status_size()));
+    well.line_height(px(line_height))
 }
 
 /// Fills the room the header and details leave; what does not fit is cut off.
 fn render_body(body: PreviewBody, code_faces: &dyn Fn(&Code) -> Highlights) -> Div {
-    let frame = div()
-        .column()
-        .flex_1()
-        .min_h_0()
-        .overflow_hidden()
-        .py(px(PADDING))
-        .rounded_fill(8.0, glass::well())
-        .bordered(glass::ink(0x0f))
-        .whitespace_nowrap()
-        .font_family(font::mono())
-        .text_size(px(font::status_size()))
-        .line_height(px(CODE_LINE_HEIGHT));
+    let frame = code_well(PADDING, CODE_LINE_HEIGHT).flex_1().min_h_0().whitespace_nowrap();
     match body {
         PreviewBody::Code(code) => {
             let faces = code_faces(&code);
             frame.children(numbered_lines(&code.text, &faces))
         }
         PreviewBody::Items(items) => frame.children(items.into_iter().map(render_item)),
-        PreviewBody::Message(message) => frame
-            .items_center()
-            .justify_center()
-            .font_family(font::ui())
-            .fg(color::fg_faint())
-            .child(message),
+        PreviewBody::Message(message) => {
+            frame.items_center().justify_center().ui().fg(color::fg_faint()).child(message)
+        }
     }
 }
 
@@ -92,13 +67,8 @@ fn numbered_lines<'a>(text: &'a str, faces: &'a Highlights) -> impl Iterator<Ite
     text.split('\n').enumerate().map(move |(index, line)| {
         let range = start..start + line.len();
         start = range.end + 1;
-        let number = div()
-            .flex_none()
-            .w(px(LINE_NUMBER_WIDTH))
-            .pr(px(14.0))
-            .text_right()
-            .fg(color::fg_line_number())
-            .child((index + 1).to_string());
+        let number = div().flex_none().w(px(LINE_NUMBER_WIDTH)).pr(px(14.0)).text_right();
+        let number = number.fg(color::fg_line_number()).child((index + 1).to_string());
         let text = StyledText::new(line.to_owned()).with_highlights(faces_in(faces, range));
         div().flex().flex_none().child(number).child(text)
     })
@@ -126,8 +96,7 @@ fn render_item(item: PreviewItem) -> Div {
     div()
         .row(PADDING)
         .flex_none()
-        .h(px(ITEM_HEIGHT))
-        .px(px(12.0))
+        .bar(ITEM_HEIGHT, 12.0)
         .fg(text_color)
         .child(icon(item.icon, icon_color))
         .child(div().min_w_0().truncate().child(item.name))
@@ -163,22 +132,11 @@ fn render_details(
         (name, value().flex_none().child(styled))
     });
     let rows = plain.chain(version).enumerate().map(|(index, (label, value))| {
-        div()
-            .flex()
-            .justify_between()
-            .gap(px(12.0))
-            .p(px(PADDING))
-            .when(index > 0, |row| row.top_border(glass::ink(0x0f)))
-            .child(div().flex_none().child(label))
-            .child(value)
+        let label = div().flex_none().child(label);
+        let row = div().flex().justify_between().gap(px(12.0)).p(px(PADDING)).child(label);
+        row.when(index > 0, |row| row.top_border(glass::ink(0x0f))).child(value)
     });
-    div()
-        .column()
-        .flex_none()
-        .px(px(2.0))
-        .font_family(font::ui())
-        .status_text(color::fg_faint())
-        .children(rows)
+    div().column().flex_none().px(px(2.0)).ui().status_text(color::fg_faint()).children(rows)
 }
 
 #[cfg(test)]

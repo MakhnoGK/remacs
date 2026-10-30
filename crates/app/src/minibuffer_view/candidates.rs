@@ -43,15 +43,8 @@ pub(super) fn render_candidates(
 
 /// A row that answers the prompt with candidate `index` when clicked.
 fn candidate_row(index: usize, selected: bool, cx: &mut Context<EditorView>) -> Div {
-    let lift = shadow(glass::shadow(0x73), 1.0, 3.0, 0.0);
-    div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .px(px(10.0))
-        .rounded(px(8.0))
-        .when(selected, |row| row.bg(rgba(glass::selection())).shadow(vec![lift]))
-        .on_press(cx, move |view, cx| view.choose_candidate(index, cx))
+    let row = div().flex().flex_none().items_center().px(px(10.0)).rounded(px(8.0));
+    lift_selected(row, selected).on_press(cx, move |view, cx| view.choose_candidate(index, cx))
 }
 
 pub(crate) fn secondary_color(selected: bool) -> u32 {
@@ -90,10 +83,8 @@ fn annotation(candidate: &Candidate) -> Div {
 fn render_problem(row: Div, candidate: &Candidate, selected: bool) -> Div {
     let secondary = secondary_color(selected);
     let source = candidate.detail.clone().map(Cow::into_owned);
-    let position = status_label(candidate.annotation.clone(), secondary)
-        .w(px(POSITION_WIDTH))
-        .text_right()
-        .font_family(font::mono());
+    let position = status_label(candidate.annotation.clone(), secondary).w(px(POSITION_WIDTH));
+    let position = position.text_right().mono();
     row.gap(px(12.0))
         .h(px(WIDE_ROW_HEIGHT))
         .children(candidate.icon.map(|severity| icon(severity, secondary)))
@@ -111,20 +102,10 @@ fn render_step(
 ) -> Div {
     let action_color = tone_color(tone, color::fg_body());
     let id_color = if selected { color::fg_alt() } else { color::fg_line_number() };
-    let chevron = svg().path(CHEVRON_DOWN_ICON).size(px(10.0));
-    let button = div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_between()
-        .w(px(88.0))
-        .h(px(24.0))
-        .px(px(8.0))
-        .rounded_fill(6.0, glass::control())
-        .bordered(glass::ink(0x14))
-        .mono_status(action_color)
-        .child(action)
-        .child(chevron.text_color(rgb(action_color)));
+    let chevron = svg().path(CHEVRON_DOWN_ICON).size(px(10.0)).fg(action_color);
+    let button = div().row(0.0).flex_none().justify_between().w(px(88.0)).bar(24.0, 8.0);
+    let button = button.rounded_fill(6.0, glass::control()).bordered(glass::ink(0x14));
+    let button = button.mono_status(action_color).child(action).child(chevron);
     let id = div().flex_none().w(px(64.0)).mono_status(id_color);
     row.gap(px(12.0))
         .h(px(WIDE_ROW_HEIGHT))
@@ -143,24 +124,15 @@ fn render_entry(
     in_list: bool,
     cx: &mut Context<EditorView>,
 ) -> Div {
-    let id = div()
-        .flex_none()
-        .px(px(6.0))
-        .py(px(2.0))
-        .rounded_fill(5.0, glass::ink(0x0f))
-        .mono_status(color::fg_alt())
-        .child(candidate.label.clone());
+    let id = div().flex_none().px(px(6.0)).py(px(2.0)).rounded_fill(5.0, glass::ink(0x0f));
+    let id = id.mono_status(color::fg_alt()).child(candidate.label.clone());
     let detail = match selected {
         true => expansion.detail.clone(),
         false => candidate.detail.clone().unwrap_or_default().into_owned(),
     };
-    let header = div()
-        .row(10.0)
-        .flex_none()
-        .child(id)
-        .child(annotation(candidate))
-        .child(status_label(detail, color::fg_faint()))
-        .on_press(cx, move |view, cx| view.focus_candidate(index, cx));
+    let header = div().row(10.0).flex_none().child(id).child(annotation(candidate));
+    let header = header.child(status_label(detail, color::fg_faint()));
+    let header = header.on_press(cx, move |view, cx| view.focus_candidate(index, cx));
     if !selected {
         return header.h(px(WIDE_ROW_HEIGHT)).px(px(10.0)).rounded(px(8.0));
     }
@@ -220,14 +192,8 @@ fn render_message(candidate: &Candidate, selected: bool) -> impl IntoElement {
     } else {
         (color::fg_alt(), glass::ink(0x12))
     };
-    let mut message = div()
-        .flex()
-        .flex_1()
-        .min_w_0()
-        .items_center()
-        .overflow_hidden()
-        .whitespace_nowrap()
-        .text_size(px(font::ui_size()));
+    let message = div().row(0.0).flex_1().min_w_0().overflow_hidden().whitespace_nowrap();
+    let mut message = message.text_size(px(font::ui_size()));
     let mut start = 0;
     for (index, part) in candidate.label.split('`').enumerate() {
         let range = start..start + part.len();
@@ -237,15 +203,11 @@ fn render_message(candidate: &Candidate, selected: bool) -> impl IntoElement {
         }
         let highlights = matches_in(&candidate.matches, range, selected);
         let text = StyledText::new(part.to_owned()).with_highlights(highlights);
-        let is_code = index % 2 == 1;
-        message = message.child(
-            div()
-                .flex_none()
-                .when(is_code, |code| {
-                    code.px(px(5.0)).rounded_fill(4.0, code_background).mono_status(code_color)
-                })
-                .child(text),
-        );
+        // Odd parts are what the backticks quote.
+        let piece = div().flex_none().when(index % 2 == 1, |code| {
+            code.px(px(5.0)).rounded_fill(4.0, code_background).mono_status(code_color)
+        });
+        message = message.child(piece.child(text));
     }
     message
 }
@@ -255,15 +217,10 @@ fn render_candidate(row: Div, prompt: &Prompt, candidate: &Candidate, selected: 
     let secondary = secondary_color(selected);
     let matches = matches_in(&candidate.matches, 0..candidate.label.len(), selected);
     // Gives way to nothing but its own length: a long path is cut short.
-    let name = div()
-        .flex_initial()
-        .min_w_0()
-        .truncate()
-        .font_family(font::mono())
-        .text(font::mono_size(), color::fg_main())
-        .when(candidate.dim, |name| name.fg(color::fg_dim()))
-        .when(is_command, |name| name.w(px(COMMAND_NAME_WIDTH)))
-        .child(StyledText::new(candidate.label.clone()).with_highlights(matches));
+    let name_color = if candidate.dim { color::fg_dim() } else { color::fg_main() };
+    let label = StyledText::new(candidate.label.clone()).with_highlights(matches);
+    let name = div().flex_initial().min_w_0().truncate().mono().text(font::mono_size(), name_color);
+    let name = name.when(is_command, |name| name.w(px(COMMAND_NAME_WIDTH))).child(label);
     let annotation = div().fill_truncated().status_text(secondary);
     let detail = candidate.detail.clone().map(Cow::into_owned);
     let keys = div().flex().flex_none().gap(px(4.0));
@@ -290,11 +247,6 @@ fn render_tag(tag: &'static str, selected: bool) -> impl IntoElement {
     } else {
         (color::accent() << 8 | 0x24, color::fg_alt())
     };
-    div()
-        .flex_none()
-        .px(px(7.0))
-        .py(px(2.0))
-        .rounded_fill(5.0, background)
-        .text(font::small_size(), foreground)
-        .child(tag)
+    let chip = div().flex_none().px(px(7.0)).py(px(2.0)).rounded_fill(5.0, background);
+    chip.text(font::small_size(), foreground).child(tag)
 }

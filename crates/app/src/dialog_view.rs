@@ -18,33 +18,16 @@ const MAX_SHOWN_ITEMS: usize = 8;
 pub fn render_dialog(dialog: Dialog, cx: &mut Context<EditorView>) -> Div {
     let destructive = dialog.destructive;
     let explanation = plain_text(&dialog.explanation, font::status_size(), color::fg_dim());
-    let header = div()
-        .flex()
-        .gap(px(14.0))
-        .pad(12.0, 10.0, 8.0)
-        .when(destructive, |header| header.child(warning_icon()))
-        .child(
-            div()
-                .column()
-                .min_w_0()
-                .gap(px(4.0))
-                .child(title_text(&dialog.title))
-                .child(explanation.line_height(px(17.0))),
-        );
-    let items = div().column().gap(px(2.0)).pt(px(4.0)).pl(px(ITEMS_INSET)).children(list_items(
-        dialog.items,
-        MAX_SHOWN_ITEMS,
-        32.0,
-    ));
-    let buttons = div()
-        .flex()
-        .justify_end()
-        .gap(px(8.0))
-        .mt(px(14.0))
-        .pad(12.0, 6.0, 4.0)
-        .top_border(glass::ink(0x0f))
-        .child(render_button(dialog.no_label.into(), false, false, cx))
-        .child(render_button(dialog.yes_label, true, destructive, cx));
+    let text = div().column().min_w_0().gap(px(4.0)).child(title_text(&dialog.title));
+    let text = text.child(explanation.line_height(px(17.0)));
+    let header = div().flex().gap(px(14.0)).pad(12.0, 10.0, 8.0);
+    let header = header.when(destructive, |header| header.child(warning_icon())).child(text);
+    let items = list_items(dialog.items, MAX_SHOWN_ITEMS, 32.0);
+    let items = div().column().gap(px(2.0)).pt(px(4.0)).pl(px(ITEMS_INSET)).children(items);
+    let no = render_button(dialog.no_label.into(), false, false, cx);
+    let buttons = div().flex().justify_end().gap(px(8.0)).mt(px(14.0)).pad(12.0, 6.0, 4.0);
+    let buttons = buttons.top_border(glass::ink(0x0f)).child(no);
+    let buttons = buttons.child(render_button(dialog.yes_label, true, destructive, cx));
     modal(DIALOG_WIDTH)
         .child(header)
         .child(items)
@@ -53,15 +36,9 @@ pub fn render_dialog(dialog: Dialog, cx: &mut Context<EditorView>) -> Div {
 }
 
 fn warning_icon() -> Div {
-    let trash = svg().path(TRASH_ICON).size(px(16.0));
-    div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .size(px(34.0))
-        .rounded_fill(9.0, color::error() << 8 | 0x24)
-        .child(trash.text_color(rgb(color::danger())))
+    let trash = svg().path(TRASH_ICON).size(px(16.0)).fg(color::danger());
+    let badge = div().row(0.0).flex_none().justify_center().size(px(34.0));
+    badge.rounded_fill(9.0, color::error() << 8 | 0x24).child(trash)
 }
 
 fn render_option(option: DialogOption, cx: &mut Context<EditorView>) -> Div {

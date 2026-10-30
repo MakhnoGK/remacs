@@ -18,6 +18,7 @@ use rows::{render_facts, render_rows};
 use crate::conflict_view::render_conflict;
 use crate::editor_view::EditorView;
 use crate::highlights::Highlights;
+use crate::preview_view::pane;
 use crate::table_view::{LIST_BOTTOM, clickable};
 use crate::widgets::{Scrolled, StyleExt, fade_scrolled, over, scrolled_by, shadow};
 
@@ -182,8 +183,7 @@ pub fn render_outline(
             }),
         )
     });
-    let conflict = outline.conflict;
-    let conflict = conflict.map(|conflict| render_conflict(conflict, code_faces, cx));
+    let conflict = outline.conflict.map(|conflict| render_conflict(conflict, code_faces, cx));
     let (pane, side) = match outline.side {
         Some(mut side) => {
             side.facts = outline.facts;
@@ -204,17 +204,14 @@ pub fn render_outline(
             (pane_column(facts, rows, scrolled, shift, PANE_WIDTH), side)
         }
     };
-    let panes = div()
-        .absolute()
-        .top(px(pane_top(has_banner)))
-        .left(px(PANE_SIDE))
-        .right(px(PANE_SIDE))
-        .bottom(px(LIST_BOTTOM))
-        .flex()
-        .gap(px(HISTORY_GAP))
-        .child(pane)
-        .children(side);
+    let panes = between_sides(pane_top(has_banner)).bottom(px(LIST_BOTTOM)).flex();
+    let panes = panes.gap(px(HISTORY_GAP)).child(pane).children(side);
     div().absolute().inset_0().children(banner).child(panes)
+}
+
+/// Out of the flow from `top` down, `PANE_SIDE` in from the window's sides.
+fn between_sides(top: f32) -> Div {
+    div().absolute().top(px(top)).left(px(PANE_SIDE)).right(px(PANE_SIDE))
 }
 
 /// Children in a row, centered across it, that keeps its size: `height` tall, padded
@@ -232,8 +229,7 @@ pub(crate) fn lift_selected(row: Div, selected: bool) -> Div {
 
 /// `rows` in a column, moved up by `shift` pixels.
 fn shifted(rows: Vec<AnyElement>, shift: f32) -> Div {
-    let column = div().flex().flex_col().gap(px(ROW_GAP)).children(rows);
-    scrolled_by(column, shift)
+    scrolled_by(div().column().gap(px(ROW_GAP)).children(rows), shift)
 }
 
 /// A pane `width` wide: `facts` over `rows`, the rows moved up by `shift` pixels.
@@ -245,21 +241,9 @@ fn pane_column(
     width: f32,
 ) -> Div {
     let under = over(glass::pane(), glass::window_tint());
-    div()
-        .flex()
-        .flex_col()
-        .flex_none()
-        .w(px(width))
-        .p(px(PANE_PADDING))
-        .gap(px(ROW_GAP))
-        .overflow_hidden()
-        .bg(rgba(glass::pane()))
-        .bordered(glass::pane_border())
-        .rounded(px(12.0))
-        .font_family(font::ui())
-        .text_size(px(font::ui_size()))
-        .children(facts)
-        .child(fade_scrolled(shifted(rows, shift), scrolled, under))
+    let pane = pane().w(px(width)).p(px(PANE_PADDING)).gap(px(ROW_GAP));
+    let pane = pane.ui().text_size(px(font::ui_size())).children(facts);
+    pane.child(fade_scrolled(shifted(rows, shift), scrolled, under))
 }
 
 /// The column a plugin puts at the left of a buffer drawn as text, `width` wide, in a
@@ -270,11 +254,8 @@ pub fn render_text_side(
     height: Pixels,
     cx: &mut Context<EditorView>,
 ) -> AnyElement {
-    div()
-        .absolute()
-        .top(px(PANE_TOP))
-        .left(px(PANE_SIDE))
-        .bottom(px(LIST_BOTTOM))
+    let column = div().absolute().top(px(PANE_TOP)).left(px(PANE_SIDE)).bottom(px(LIST_BOTTOM));
+    column
         .flex()
         // Clicks between rows stay off the text.
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())

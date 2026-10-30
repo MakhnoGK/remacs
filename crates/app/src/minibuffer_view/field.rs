@@ -11,13 +11,8 @@ pub(super) fn render_field(
         keys if parse_sequence(keys).is_some() => quote(keys),
         label => label.to_owned(),
     };
-    let label = plain_text(&label, font::status_size(), color::fg_alt())
-        .flex()
-        .flex_none()
-        .items_center()
-        .h(px(24.0))
-        .px(px(8.0))
-        .rounded_fill(6.0, glass::chip());
+    let label = plain_text(&label, font::status_size(), color::fg_alt()).row(0.0).flex_none();
+    let label = label.bar(24.0, 8.0).rounded_fill(6.0, glass::chip());
     let end = if is_problem_list(minibuffer) {
         render_severity_counts(minibuffer.candidates()).into_any_element()
     } else {
@@ -39,12 +34,8 @@ pub(super) fn render_field(
         div().flex_none().font_family(family).status_text(text_color).child(text).into_any_element()
     };
     let input = render_input(minibuffer, input_scroll, composition, input_margin);
-    field_frame(!minibuffer.in_description() && !minibuffer.in_list())
-        .row(10.0)
-        .h(px(FIELD_HEIGHT))
-        .child(label)
-        .child(input)
-        .child(end)
+    let active = !minibuffer.in_description() && !minibuffer.in_list();
+    field_frame(active).row(10.0).h(px(FIELD_HEIGHT)).child(label).child(input).child(end)
 }
 
 /// A field's well, lit while it is the one being typed in.
@@ -64,15 +55,9 @@ fn render_severity_counts(candidates: &[Candidate]) -> impl IntoElement {
         candidates.iter().filter(of_severity).count().to_string()
     };
     let counts = SEVERITY_ICONS.map(|severity| {
-        div()
-            .row(6.0)
-            .h(px(26.0))
-            .px(px(9.0))
-            .rounded_fill(6.0, glass::control())
-            .bordered(glass::ink(0x12))
-            .mono_status(color::fg_kbd())
-            .child(icon(severity, color::fg_kbd()))
-            .child(count(severity))
+        let chip = div().row(6.0).bar(26.0, 9.0).rounded_fill(6.0, glass::control());
+        let chip = chip.bordered(glass::ink(0x12)).mono_status(color::fg_kbd());
+        chip.child(icon(severity, color::fg_kbd())).child(count(severity))
     });
     div().flex().flex_none().gap(px(4.0)).children(counts)
 }
@@ -110,15 +95,9 @@ fn render_input(
         .children(composition.and_then(Composition::render_marked))
         .child(cursor_part.child(line.text[cursor.clone()].to_owned()));
     scroll.scroll_to_item(CURSOR_CHILD);
-    div()
-        .id("minibuffer-input")
-        .flex()
-        .flex_1()
-        .min_w_0()
-        .overflow_x_scroll()
-        .track_scroll(scroll)
-        .whitespace_nowrap()
-        .font_family(font::mono())
+    let field = div().id("minibuffer-input").flex().flex_1().min_w_0().overflow_x_scroll();
+    let field = field.track_scroll(scroll).whitespace_nowrap().mono();
+    field
         .text_size(px(font::input_size()))
         .child(part(0..cursor.start))
         .child(cursor_with_margin)

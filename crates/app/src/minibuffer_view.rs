@@ -21,11 +21,12 @@ use crate::composition::Composition;
 use crate::dialog_view::render_dialog;
 use crate::display_line::DisplayLine;
 use crate::editor_view::EditorView;
-use crate::outline_view::ref_chip;
+use crate::outline_view::{lift_selected, ref_chip};
+use crate::popup_view::render_hints;
 use crate::settings::{DirectoryPosition, PromptsSettings};
 use crate::widgets::{
     GlassBlur, PressExt, StyleExt, block_cursor, choice_chip, glass_surface, hsla, icon, kbd,
-    key_caps, list_items, modal_surface, modified_dot, option_chip, segment, segmented, shadow,
+    list_items, modal_surface, modified_dot, option_chip, segment, segmented, shadow,
     text_with_cursor, tone_color, ui_text,
 };
 
@@ -167,7 +168,7 @@ pub fn render_minibuffer(
             popover.child(render_group_title(prompt.items_title, summary, false)).children(items)
         })
         .children(chips_last)
-        .child(render_hints(minibuffer.hints()));
+        .child(render_hints(minibuffer.hints()).gap(px(18.0)).mt(px(6.0)).pad(10.0, 10.0, 4.0));
     let corner = if is_problem_list(minibuffer) {
         div().right(px(STATUS_POPOVER_RIGHT)).bottom(px(STATUS_POPOVER_BOTTOM))
     } else if prompt.from_toolbar {
@@ -181,14 +182,9 @@ pub fn render_minibuffer(
 /// In place of the field: what the prompt does or asks, as a dialog's title, and a note
 /// on the right.
 fn render_title(title: &str, note: &str) -> Div {
-    div()
-        .flex()
-        .items_baseline()
-        .justify_between()
-        .gap(px(12.0))
-        .pad(6.0, 10.0, 8.0)
-        .child(title_text(title).min_w_0())
-        .child(plain_text(note, font::status_size(), color::fg_dim()).flex_none())
+    let row = div().flex().items_baseline().justify_between().gap(px(12.0)).pad(6.0, 10.0, 8.0);
+    let note = plain_text(note, font::status_size(), color::fg_dim()).flex_none();
+    row.child(title_text(title).min_w_0()).child(note)
 }
 
 /// `in <directory>`: the parents give way to an ellipsis so the last directory stays
@@ -199,23 +195,12 @@ fn render_directory(directory: &str, position: DirectoryPosition) -> Div {
         DirectoryPosition::Above => (2.0, 8.0),
         DirectoryPosition::Below => (8.0, 2.0),
     };
-    let path = div()
-        .flex()
-        .min_w_0()
-        .font_family(font::mono())
-        .fg(color::fg_prompt_directory())
-        .child(div().min_w_0().truncate().child(parents.to_owned()))
-        .child(div().flex_none().child(last.to_owned()));
-    div()
-        .flex()
-        .items_baseline()
-        .gap(px(6.0))
-        .pad(top, 10.0, bottom)
-        .overflow_hidden()
-        .whitespace_nowrap()
-        .text_size(px(font::status_size()))
-        .child(div().flex_none().fg(color::fg_dim()).child("in"))
-        .child(path)
+    let parents = div().min_w_0().truncate().child(parents.to_owned());
+    let path = div().flex().min_w_0().mono().fg(color::fg_prompt_directory()).child(parents);
+    let path = path.child(div().flex_none().child(last.to_owned()));
+    let label = div().flex_none().fg(color::fg_dim()).child("in");
+    let row = div().flex().items_baseline().gap(px(6.0)).pad(top, 10.0, bottom).overflow_hidden();
+    row.whitespace_nowrap().text_size(px(font::status_size())).child(label).child(path)
 }
 
 /// `~/a/b/` into `~/a` and `/b/`: the slash stays with the last directory, so the
@@ -227,58 +212,23 @@ fn split_last_directory(directory: &str) -> (&str, &str) {
 
 /// Chips and words under the title, e.g. how far two branches are apart.
 fn render_summary(parts: &[BannerPart]) -> Div {
-    div()
-        .flex()
-        .flex_wrap()
-        .items_center()
-        .gap(px(8.0))
-        .px(px(10.0))
-        .pb(px(10.0))
-        .status_text(color::fg_dim())
-        .children(parts.iter().map(|part| match part {
-            BannerPart::Chip(chip) => ref_chip(chip.clone()),
-            BannerPart::Word(word) => div().child(word.clone()),
-        }))
+    let row = div().row(8.0).flex_wrap().px(px(10.0)).pb(px(10.0)).status_text(color::fg_dim());
+    row.children(parts.iter().map(|part| match part {
+        BannerPart::Chip(chip) => ref_chip(chip.clone()),
+        BannerPart::Word(word) => div().child(word.clone()),
+    }))
 }
 
 /// Near the top of the window, centered across it.
 fn centered(popover: impl IntoElement) -> AnyElement {
-    div()
-        .absolute()
-        .top(px(POPOVER_TOP))
-        .left_0()
-        .right_0()
-        .flex()
-        .justify_center()
-        .child(popover)
-        .into_any_element()
+    div().across().top(px(POPOVER_TOP)).flex().justify_center().child(popover).into_any_element()
 }
 
 /// Upper case, unless it is a name; `summary` goes on the right.
 fn render_group_title(title: &str, summary: Option<String>, is_name: bool) -> impl IntoElement {
     let title = if is_name { title.to_owned() } else { title.to_uppercase() };
-    div()
-        .flex()
-        .justify_between()
-        .pad(12.0, 10.0, 4.0)
-        .text(font::small_size(), color::fg_faint())
-        .font_weight(FontWeight::SEMIBOLD)
-        .child(title)
-        .children(summary)
-}
-
-fn render_hints(hints: &'static [(&'static str, &'static str)]) -> impl IntoElement {
-    let hint = |&(keys, action): &(&str, &'static str)| {
-        div().row(6.0).children(key_caps(keys)).child(action)
-    };
-    div()
-        .flex()
-        .gap(px(18.0))
-        .mt(px(6.0))
-        .pad(10.0, 10.0, 4.0)
-        .top_border(glass::ink(0x0f))
-        .status_text(color::fg_dim())
-        .children(hints.iter().map(hint))
+    let row = div().flex().justify_between().pad(12.0, 10.0, 4.0).font_weight(FontWeight::SEMIBOLD);
+    row.text(font::small_size(), color::fg_faint()).child(title).children(summary)
 }
 
 #[cfg(test)]

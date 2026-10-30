@@ -48,22 +48,9 @@ pub fn render_conflict(
             }
         }
     }
-    let well = div()
-        .column()
-        .flex_1()
-        .min_h_0()
-        .overflow_hidden()
-        .py(px(6.0))
-        .rounded_fill(12.0, glass::well())
-        .bordered(glass::well_border());
-    div()
-        .column()
-        .flex_1()
-        .min_w_0()
-        .gap(px(8.0))
-        .font_family(font::ui())
-        .child(header)
-        .child(well.children(body))
+    let well = div().column().flex_1().min_h_0().overflow_hidden().py(px(6.0));
+    let well = well.rounded_fill(12.0, glass::well()).bordered(glass::well_border());
+    div().column().flex_1().min_w_0().gap(px(8.0)).ui().child(header).child(well.children(body))
 }
 
 /// A raised control, as buttons are drawn.
@@ -80,17 +67,10 @@ fn render_header(view: &ConflictView, cx: &mut Context<EditorView>) -> Div {
         let button = control(7.0).flex().items_center().justify_center().size(px(28.0)).child(icon);
         clickable(button, action, cx)
     };
-    let name = div()
-        .font_family(font::mono())
-        .text(font::mono_size(), color::fg_main())
-        .child(view.name.clone());
+    let name = div().mono().text(font::mono_size(), color::fg_main()).child(view.name.clone());
     let progress = format!("Conflict {} of {}", view.current, view.left);
-    div()
-        .row(10.0)
-        .flex_none()
-        .h(px(32.0))
-        .pl(px(12.0))
-        .pr(px(4.0))
+    let header = div().row(10.0).flex_none().h(px(32.0)).pl(px(12.0)).pr(px(4.0));
+    header
         .text_size(px(font::status_size()))
         .child(svg().path(FILE_ICON).size(px(16.0)).fg(color::fg_faint()))
         .child(name)
@@ -117,42 +97,19 @@ fn numbered<'a>(
     lines.iter().enumerate().map(move |(index, line)| {
         let range = start..start + line.len();
         start = range.end + 1;
-        let number = div()
-            .flex_none()
-            .w(px(NUMBER_WIDTH))
-            .pr(px(16.0))
-            .text_right()
-            .mono_status(number_color)
-            .child((first + index).to_string());
-        let text = div()
-            .flex_1()
-            .min_w_0()
-            .font_family(font::mono())
-            .text(font::mono_size(), color::fg_main())
-            .child(StyledText::new(line.clone()).with_highlights(faces_in(faces, range)));
-        div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .h(px(LINE_HEIGHT))
-            .mx(px(8.0))
-            .rounded(px(6.0))
-            .whitespace_nowrap()
-            .overflow_hidden()
-            .child(number)
-            .child(text)
+        let number = div().flex_none().w(px(NUMBER_WIDTH)).pr(px(16.0)).text_right();
+        let number = number.mono_status(number_color).child((first + index).to_string());
+        let styled = StyledText::new(line.clone()).with_highlights(faces_in(faces, range));
+        let text = div().flex_1().min_w_0().mono().text(font::mono_size(), color::fg_main());
+        let row = div().row(0.0).flex_none().h(px(LINE_HEIGHT)).mx(px(8.0)).rounded(px(6.0));
+        row.whitespace_nowrap().overflow_hidden().child(number).child(text.child(styled))
     })
 }
 
 fn resolved_chip(said: &str) -> Div {
-    div()
-        .flex_none()
-        .mr(px(8.0))
-        .px(px(8.0))
-        .py(px(1.0))
-        .rounded_fill(5.0, color::vc_added() << 8 | RESOLVED_CHIP_ALPHA)
-        .text(font::small_size(), color::fg_added())
-        .child(said.to_owned())
+    let chip = div().flex_none().mr(px(8.0)).px(px(8.0)).py(px(1.0));
+    let chip = chip.rounded_fill(5.0, color::vc_added() << 8 | RESOLVED_CHIP_ALPHA);
+    chip.text(font::small_size(), color::fg_added()).child(said.to_owned())
 }
 
 /// Both sides of a conflict in a card: each under its header with a button keeping it,
@@ -172,11 +129,8 @@ fn render_block(
     let keep_theirs = key_button("Keep this", key("t"), block.keep_theirs, cx);
     let border =
         if current { color::accent() << 8 | CURRENT_BORDER_ALPHA } else { glass::card_border() };
-    let footer = div()
-        .row(8.0)
-        .py(px(8.0))
-        .px(px(12.0))
-        .top_border(glass::divider())
+    let footer = div().row(8.0).py(px(8.0)).px(px(12.0)).top_border(glass::divider());
+    let footer = footer
         .bg(rgba(glass::card_footer()))
         .child(key_button("Keep both", key("b"), block.keep_both, cx))
         .child(key_button("Edit manually", key("e"), block.edit, cx));
@@ -211,7 +165,7 @@ fn render_side(
         RefKind::Main => color::fg_ref_main(),
         _ => color::fg_ref_branch(),
     };
-    let id = side.id.map(|id| div().font_family(font::mono()).fg(color::fg_faint()).child(id));
+    let id = side.id.map(|id| div().mono().fg(color::fg_faint()).child(id));
     let header = div()
         .row(10.0)
         .h(px(34.0))
@@ -241,14 +195,8 @@ fn key_button(
     cx: &mut Context<EditorView>,
 ) -> Div {
     let key_cap = key.map(|key| kbd(key, false).h(px(18.0)).bg(rgba(glass::key_on_control())));
-    let button = control(6.0)
-        .row(8.0)
-        .flex_none()
-        .h(px(26.0))
-        .pl(px(10.0))
-        .pr(px(if key.is_some() { 5.0 } else { 10.0 }))
-        .status_text(color::fg_main())
-        .child(label)
-        .children(key_cap);
-    clickable(button, action, cx)
+    let button = control(6.0).row(8.0).flex_none().h(px(26.0)).pl(px(10.0));
+    let button =
+        button.pr(px(if key.is_some() { 5.0 } else { 10.0 })).status_text(color::fg_main());
+    clickable(button.child(label).children(key_cap), action, cx)
 }
