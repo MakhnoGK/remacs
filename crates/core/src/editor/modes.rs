@@ -51,12 +51,9 @@ impl Editor {
     /// The mode of the language at `offset` in `buffer`: code of another language there,
     /// else the buffer's own.
     pub fn language_at(&self, buffer: &Buffer, offset: usize) -> &'static str {
-        self.embedded(buffer)
-            .and_then(|embedded| {
-                let code = embedded.into_iter().find(|code| code.holds(offset))?;
-                Some(code.mode)
-            })
-            .unwrap_or(buffer.mode())
+        let embedded = self.embedded(buffer).unwrap_or_default();
+        let code = embedded.into_iter().find(|code| code.holds(offset));
+        code.map_or(buffer.mode(), |code| code.mode)
     }
 
     /// The major mode of the language at `offset` in the current buffer, as

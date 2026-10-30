@@ -173,13 +173,25 @@ impl Viewport {
 mod tests {
     use super::*;
 
+    fn rows(first_line: usize, height: usize) -> Viewport {
+        Viewport {
+            first_line,
+            height,
+            ..Viewport::default()
+        }
+    }
+
+    fn columns(width: usize, column_margin: usize) -> Viewport {
+        Viewport {
+            width,
+            column_margin,
+            ..Viewport::default()
+        }
+    }
+
     #[test]
     fn scrolls_only_as_far_as_needed() {
-        let mut viewport = Viewport {
-            first_line: 10,
-            height: 5,
-            ..Viewport::default()
-        };
+        let mut viewport = rows(10, 5);
         let all = &ShownLines::all(100);
         viewport.ensure_visible(16, all);
         assert_eq!(viewport.first_line, 12);
@@ -194,11 +206,7 @@ mod tests {
 
     #[test]
     fn counts_rows_of_the_lines_shown() {
-        let mut viewport = Viewport {
-            first_line: 0,
-            height: 5,
-            ..Viewport::default()
-        };
+        let mut viewport = rows(0, 5);
         // Lines 2 to 51 folded into line 1.
         let shown = &ShownLines::new(100, Some(2..52));
         assert_eq!(viewport.last_line(shown), 54);
@@ -217,12 +225,8 @@ mod tests {
 
     #[test]
     fn keeps_point_out_of_margins_with_lines_beyond() {
-        let mut viewport = Viewport {
-            first_line: 10,
-            height: 5,
-            margins: (1, 1),
-            ..Viewport::default()
-        };
+        let mut viewport = rows(10, 5);
+        viewport.margins = (1, 1);
         let all = &ShownLines::all(100);
         viewport.ensure_visible(14, all);
         assert_eq!(viewport.first_line, 11);
@@ -240,11 +244,7 @@ mod tests {
 
     #[test]
     fn scrolls_sideways_before_point_reaches_an_edge() {
-        let mut viewport = Viewport {
-            width: 20,
-            column_margin: 7,
-            ..Viewport::default()
-        };
+        let mut viewport = columns(20, 7);
         viewport.ensure_column_visible(12);
         assert_eq!(viewport.first_column, 0);
         viewport.ensure_column_visible(13);
@@ -261,11 +261,7 @@ mod tests {
 
     #[test]
     fn drops_side_margins_that_leave_no_column_clear() {
-        let mut viewport = Viewport {
-            width: 10,
-            column_margin: 7,
-            ..Viewport::default()
-        };
+        let mut viewport = columns(10, 7);
         viewport.ensure_column_visible(10);
         assert_eq!(viewport.first_column, 1);
     }

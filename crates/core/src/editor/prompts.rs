@@ -232,9 +232,9 @@ mod tests {
         };
         let label = |minibuffer: Option<Minibuffer>| minibuffer.map(|m| m.prompt().label.clone());
         let none = |_: &Editor, _: &str| Completions::default();
-        editor
-            .read(prompt("cancelled"), none, |_, _| Ok(()))
-            .unwrap();
+        let read =
+            move |editor: &mut Editor, label| editor.read(prompt(label), none, |_, _| Ok(()));
+        read(&mut editor, "cancelled").unwrap();
         assert!(editor.take_closed_minibuffer().is_none(), "still open");
         editor.cancel_minibuffer();
         assert_eq!(
@@ -243,9 +243,7 @@ mod tests {
         );
         assert!(editor.take_closed_minibuffer().is_none(), "taken once");
 
-        editor
-            .read(prompt("answered"), none, |_, _| Ok(()))
-            .unwrap();
+        read(&mut editor, "answered").unwrap();
         editor.exit_minibuffer(true).unwrap();
         assert_eq!(
             label(editor.take_closed_minibuffer()).as_deref(),
@@ -254,7 +252,7 @@ mod tests {
 
         editor
             .read(prompt("first"), none, move |editor, _| {
-                editor.read(prompt("second"), none, |_, _| Ok(()))
+                read(editor, "second")
             })
             .unwrap();
         editor.exit_minibuffer(true).unwrap();

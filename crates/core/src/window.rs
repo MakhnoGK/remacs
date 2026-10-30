@@ -37,11 +37,7 @@ impl Layout {
     pub fn windows(&self) -> Vec<WindowId> {
         match self {
             Layout::Window(id) => vec![*id],
-            Layout::Split { first, second, .. } => {
-                let mut windows = first.windows();
-                windows.extend(second.windows());
-                windows
-            }
+            Layout::Split { first, second, .. } => [first.windows(), second.windows()].concat(),
         }
     }
 
@@ -141,8 +137,7 @@ impl Layout {
 
     /// Sets the ratio of the `index`th split, counted depth first, keeping each window at
     /// least `min` of that split.
-    pub(crate) fn set_ratio(&mut self, index: usize, new: f32, min: f32) {
-        let mut index = index;
+    pub(crate) fn set_ratio(&mut self, mut index: usize, new: f32, min: f32) {
         self.set_ratio_in(&mut index, new, min);
     }
 
@@ -262,6 +257,20 @@ impl Windows {
 
     pub fn other_mut(&mut self, id: WindowId) -> Option<&mut Window> {
         self.others.iter_mut().find(|window| window.id == id)
+    }
+
+    /// The buffers the windows but the selected one show.
+    pub fn other_buffers(&self) -> impl Iterator<Item = BufferId> {
+        self.others.iter().map(|window| window.buffer)
+    }
+
+    /// The windows but the selected one that show `buffer`.
+    pub fn showing(&self, buffer: BufferId) -> impl Iterator<Item = WindowId> {
+        let showing = self
+            .others
+            .iter()
+            .filter(move |window| window.buffer == buffer);
+        showing.map(|window| window.id)
     }
 
     /// Splits the selected window; the new one comes second, and second most recent.
