@@ -17,7 +17,7 @@ use futures::channel::mpsc;
 use gpui::{
     AnyElement, AnyWindowHandle, Bounds, Context, FocusHandle, MouseButton, MouseDownEvent, Pixels,
     Point, Render, ScrollHandle, Subscription, Task, Window, div, inert, point, prelude::*, px,
-    rgb, rgba, size,
+    rgba, size,
 };
 
 use remacs_core::{
@@ -47,7 +47,7 @@ use crate::smooth_scroll::{Glide, SmoothScroll};
 use crate::table_view::SIDE_ROOM;
 use crate::text_zoom::TextZoom;
 use crate::transition::Retained;
-use crate::widgets::{Scrolled, code_font_features};
+use crate::widgets::{Scrolled, StyleExt, code_font_features};
 use screen::ScreenArea;
 use windows::{lay_out, render_dividers};
 
@@ -489,23 +489,23 @@ impl EditorView {
         activate: &'static str,
         cx: &mut Context<Self>,
     ) {
-        if self.editor.minibuffer().is_some() {
-            return;
-        }
-        self.editor.set_point_at(line, 0);
-        if click_count == 2 {
-            self.editor.run_command(activate);
-        }
-        self.after_input(cx);
+        self.click_line(line, (click_count == 2).then_some(activate), cx);
     }
 
     /// Selects an outline's heading and runs `toggle`, folding or unfolding it.
     pub fn click_heading(&mut self, line: usize, toggle: &'static str, cx: &mut Context<Self>) {
+        self.click_line(line, Some(toggle), cx);
+    }
+
+    /// Puts point on `line` and runs `command` there, unless a prompt is open.
+    fn click_line(&mut self, line: usize, command: Option<&'static str>, cx: &mut Context<Self>) {
         if self.editor.minibuffer().is_some() {
             return;
         }
         self.editor.set_point_at(line, 0);
-        self.editor.run_command(toggle);
+        if let Some(command) = command {
+            self.editor.run_command(command);
+        }
         self.after_input(cx);
     }
 }
@@ -560,10 +560,7 @@ impl Render for EditorView {
             + self.gutter_width(metrics)
             + px(2.0 * ROW_MARGIN + ROW_RADIUS);
         for divider in &mut dividers {
-            divider.min = match divider.axis {
-                Axis::Rows => min_height,
-                Axis::Columns => min_width,
-            };
+            divider.min = if divider.axis == Axis::Rows { min_height } else { min_width };
         }
         let screen_owners = self.screen_owners(&windows);
         let selected = self.editor.selected_window();
@@ -588,11 +585,10 @@ impl Render for EditorView {
                 (false, _) => header_height,
             });
             let hidden_top = px(TITLE_BAR_HEIGHT) - title_height;
+            let below = window_area.bottom();
             let (clip_bottom, frame_bottom, reserved) = match at_bottom {
                 true => (frame_size.height, frame_size.height, reserved),
-                false => {
-                    (window_area.bottom(), window_area.bottom() + px(FOOTER_FADE_HEIGHT), px(0.0))
-                }
+                false => (below, below + px(FOOTER_FADE_HEIGHT), px(0.0)),
             };
             state.clip =
                 Bounds::from_corners(window_area.origin, point(window_area.right(), clip_bottom));
@@ -612,20 +608,15 @@ impl Render for EditorView {
             let header_parts = self.render_header(!parts.tabbed, split).children(parts.toolbar);
             let body = placed(Bounds::new(point(px(0.0), -hidden_top), frame.size))
                 .when(id != selected, |body| body.opacity(settings.inactive_opacity));
-            bodies.push(
-                placed(clip)
-                    .overflow_hidden()
-                    // The pane and the bottom row over a window's bottom take the mouse
-                    // without blocking it, and with it the header over its top.
-                    .capture_any_mouse_down(cx.listener(
-                        move |view, event: &MouseDownEvent, _, cx| {
-                            if window_area.contains(&event.position) {
-                                view.select_clicked(id, cx);
-                            }
-                        },
-                    ))
-                    .child(body.child(parts.body)),
-            );
+            // The pane and the bottom row over a window's bottom take the mouse without
+            // blocking it, and with it the header over its top.
+            let select = cx.listener(move |view, event: &MouseDownEvent, _, cx| {
+                if window_area.contains(&event.position) {
+                    view.select_clicked(id, cx);
+                }
+            });
+            let clipped = placed(clip).overflow_hidden().capture_any_mouse_down(select);
+            bodies.push(clipped.child(body.child(parts.body)));
             // A title bar's contents, centered on the strip that shows.
             let header_size = size(clip.size.width, px(TITLE_BAR_HEIGHT));
             let header = placed(Bounds::new(point(px(0.0), -hidden_top / 2.0), header_size));
@@ -710,8 +701,7 @@ impl Render for EditorView {
         // forever, the fade moving on only as the screen is drawn.
         if !std::mem::take(&mut self.screen_drawn) {
             self.hovered_mark = None;
-            let tip = &mut self.surfaces.mark_tip;
-            tip.update(None, Instant::now(), Duration::ZERO);
+            self.surfaces.mark_tip.update(None, Instant::now(), Duration::ZERO);
         }
         // Windows are drawn before the pane moves on, so a side going down to the row lags
         // a frame behind it: one more once the pane is all there or gone.
@@ -721,7 +711,9 @@ impl Render for EditorView {
             window.request_animation_frame();
         }
 
-        div()
+        let root = div().size_full().relative().overflow_hidden().bg(rgba(glass::window_tint()));
+        let root = root.mono().font_features(code_font_features()).fg(color::fg_main());
+        root.line_height(px(font::LINE_HEIGHT))
             .track_focus(&self.focus_handle)
             .on_key_down(cx.listener(Self::on_key_down))
             .on_action(cx.listener(Self::run_menu_command))
@@ -731,14 +723,6 @@ impl Render for EditorView {
             .capture_any_mouse_down(cx.listener(|view, _: &MouseDownEvent, _, cx| {
                 view.cancel_composition(cx);
             }))
-            .size_full()
-            .relative()
-            .overflow_hidden()
-            .bg(rgba(glass::window_tint()))
-            .font_family(font::mono())
-            .font_features(code_font_features())
-            .text_color(rgb(color::fg_main()))
-            .line_height(px(font::LINE_HEIGHT))
             .children(bodies)
             .children(dividers)
             .children(pane)

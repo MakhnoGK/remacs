@@ -219,12 +219,8 @@ impl EditorView {
             return;
         }
         let hide_after = self.bottom.echo.hide_after();
-        let due = self
-            .editor
-            .message()
-            .filter(|message| message.kind != MessageKind::Error)
-            .zip(hide_after)
-            .map(|(message, hide_after)| (message.at, hide_after));
+        let message = self.editor.message().filter(|message| message.kind != MessageKind::Error);
+        let due = message.zip(hide_after).map(|(message, hide_after)| (message.at, hide_after));
         let Some((at, hide_after)) = due else {
             self.message_timer = None;
             return;

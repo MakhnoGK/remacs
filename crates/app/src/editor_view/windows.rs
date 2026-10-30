@@ -108,13 +108,8 @@ impl EditorView {
         for &window in windows {
             self.editor.display_window(window);
             let name = self.editor.window_buffer().name();
-            if self.editor.is_screen(name) {
-                let name = name.to_owned();
-                if window == selected {
-                    owners.insert(name, window);
-                } else {
-                    owners.entry(name).or_insert(window);
-                }
+            if self.editor.is_screen(name) && (window == selected || !owners.contains_key(name)) {
+                owners.insert(name.to_owned(), window);
             }
             self.editor.end_display();
         }
@@ -136,9 +131,8 @@ impl EditorView {
         // room for the bottom row, which rides on the pane.
         let rows_area_height = frame_size.height - reserved;
         let first_line = self.editor.viewport.first_line;
-        let table_rows = ((rows_area_height - px(ROWS_TOP) - px(LIST_BOTTOM)) / px(ROW_PITCH))
-            .floor()
-            .max(1.0) as usize;
+        let table_height = rows_area_height - px(ROWS_TOP) - px(LIST_BOTTOM);
+        let table_rows = (table_height / px(ROW_PITCH)).floor().max(1.0) as usize;
         // One row more than fits is partly scrolled in; another tells whether there are
         // rows below.
         let table = (!showing_screen)
@@ -306,16 +300,12 @@ pub(super) fn render_dividers(
         .iter()
         .flat_map(|&divider| {
             let Bounds { origin, size } = divider.bounds;
-            let below = (divider.axis == Axis::Columns
-                && divider.bounds.bottom() == area_bottom
-                && text_bottom > area_bottom)
-                .then(|| {
-                    let top_left = point(divider.at - px(0.5), area_bottom);
-                    line(placed(Bounds::from_corners(
-                        top_left,
-                        point(divider.at + px(0.5), text_bottom),
-                    )))
-                });
+            let reaches_text = divider.bounds.bottom() == area_bottom && text_bottom > area_bottom;
+            let below = (divider.axis == Axis::Columns && reaches_text).then(|| {
+                let top_left = point(divider.at - px(0.5), area_bottom);
+                let bottom_right = point(divider.at + px(0.5), text_bottom);
+                line(placed(Bounds::from_corners(top_left, bottom_right)))
+            });
             let direction = along(divider.axis);
             let strip = placed(Bounds::new(
                 origin.apply_along(direction, |_| divider.at - grab / 2.0),
@@ -325,13 +315,11 @@ pub(super) fn render_dividers(
                 Axis::Rows => strip.cursor_row_resize().child(line(div().w_full().h(px(1.0)))),
                 Axis::Columns => strip.cursor_col_resize().child(line(div().h_full().w(px(1.0)))),
             };
-            let strip = (strip.flex().items_center().justify_center().occlude()).on_press(
-                cx,
-                move |view, cx| {
-                    view.divider_drag = Some(divider);
-                    cx.notify();
-                },
-            );
+            let strip = strip.flex().items_center().justify_center().occlude();
+            let strip = strip.on_press(cx, move |view, cx| {
+                view.divider_drag = Some(divider);
+                cx.notify();
+            });
             iter::once(strip).chain(below)
         })
         .collect()
@@ -339,16 +327,9 @@ pub(super) fn render_dividers(
 
 /// In place of a screen another window sizes; a click selects that window.
 fn render_shown_elsewhere(owner: WindowId, cx: &mut Context<EditorView>) -> AnyElement {
-    div()
-        .size_full()
-        .flex()
-        .items_center()
-        .justify_center()
-        .font_family(font::ui())
-        .text(font::ui_size(), color::fg_dim())
-        .child("Shown in another window")
-        .on_press(cx, move |view, cx| view.select_clicked(owner, cx))
-        .into_any_element()
+    let notice = div().size_full().flex().items_center().justify_center().ui();
+    let notice = notice.text(font::ui_size(), color::fg_dim()).child("Shown in another window");
+    notice.on_press(cx, move |view, cx| view.select_clicked(owner, cx)).into_any_element()
 }
 
 /// Rows laid out in the top `height` of the window, clear of the pane under them.

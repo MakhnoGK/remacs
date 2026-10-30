@@ -14,6 +14,7 @@ use crate::pane_view::render_button;
 use crate::screen_view::{Cell as ScreenCell, cell_at, render_screen, screen_size};
 use crate::tabs_view::render_tabs;
 use crate::text_zoom::TextZoom;
+use crate::widgets::StyleExt;
 
 /// Around the window buffer's screen: its sides, and under it, over the hints and pill.
 const SCREEN_SIDE: f32 = 24.0;
@@ -110,26 +111,19 @@ impl EditorView {
         let tip = &mut self.surfaces.mark_tip;
         tip.update(self.hovered_mark, Instant::now(), transition.duration);
         let tip = tip.shown(transition).map(|shown| (*shown.content, shown.look));
-        let area = ScreenArea {
-            buffer: name.to_owned(),
-            origin: offset + bounds.origin + inset,
-            cell,
-            size,
-        };
-        let mut element = div()
-            .id(SharedString::from(format!("screen {name}")))
-            .size_full()
-            .child(render_screen(screen, cell, inset, under, tip, cx));
+        let origin = offset + bounds.origin + inset;
+        let area = ScreenArea { buffer: name.to_owned(), origin, cell, size };
+        let id = SharedString::from(format!("screen {name}"));
+        let screen = render_screen(screen, cell, inset, under, tip, cx);
+        let mut element = div().id(id).size_full().child(screen);
         for button in [MouseButton::Left, MouseButton::Middle, MouseButton::Right] {
             let area = area.clone();
-            element = element.on_mouse_down(
-                button,
-                cx.listener(move |view, event: &MouseDownEvent, window, cx| {
-                    cx.stop_propagation();
-                    window.focus(&view.focus_handle);
-                    view.press_screen(area.clone(), event, cx);
-                }),
-            );
+            let press = cx.listener(move |view, event: &MouseDownEvent, window, cx| {
+                cx.stop_propagation();
+                window.focus(&view.focus_handle);
+                view.press_screen(area.clone(), event, cx);
+            });
+            element = element.on_mouse_down(button, press);
         }
         let (moved, left, scrolled) = (area.clone(), area.clone(), area);
         let element = element
@@ -235,27 +229,13 @@ impl EditorView {
             HEADER_TABS_SIDE
         };
         let room = f32::from(clip.size.width) - tabs_left - HEADER_BUTTONS_WIDTH;
-        let controls = div()
-            .absolute()
-            .top_0()
-            .left_0()
-            .right_0()
-            .h(px(TITLE_BAR_HEIGHT))
-            .children(tabs.map(|tabs| {
-                render_tabs(tabs, room, cx).absolute().top(px(9.0)).left(px(tabs_left))
-            }))
-            .child(
-                div()
-                    .absolute()
-                    .top(px(8.0))
-                    .right(px(14.0))
-                    .flex()
-                    .gap(px(6.0))
-                    .font_family(font::ui())
-                    .text_size(px(font::status_size()))
-                    .children(buttons.into_iter().map(|button| render_button(button, cx))),
-            );
-        Some(controls.into_any_element())
+        let tabs = tabs.map(|tabs| render_tabs(tabs, room, cx).absolute().top(px(9.0)));
+        let buttons = buttons.into_iter().map(|button| render_button(button, cx));
+        let button_row = div().absolute().top(px(8.0)).right(px(14.0)).flex().gap(px(6.0)).ui();
+        let button_row = button_row.text_size(px(font::status_size())).children(buttons);
+        let controls = div().across().top_0().h(px(TITLE_BAR_HEIGHT));
+        let controls = controls.children(tabs.map(|tabs| tabs.left(px(tabs_left))));
+        Some(controls.child(button_row).into_any_element())
     }
 }
 
