@@ -2,9 +2,10 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use gpui::{
-    BoxShadow, Div, Font, FontFeatures, FontWeight, HighlightStyle, Hsla, IntoElement,
-    ParentElement, Rgba, Styled, StyledText, Svg, TextRun, canvas, div, fill, linear_color_stop,
-    linear_gradient, point, prelude::FluentBuilder, px, rgb, rgba, svg, transparent_black,
+    BoxShadow, Context, Div, Font, FontFeatures, FontWeight, HighlightStyle, Hsla,
+    InteractiveElement, IntoElement, MouseButton, MouseDownEvent, ParentElement, Rgba, Styled,
+    StyledText, Svg, TextRun, canvas, div, fill, linear_color_stop, linear_gradient, point,
+    prelude::FluentBuilder, px, rgb, rgba, svg, transparent_black,
 };
 use remacs_core::{FileState, Icon, LineCounts, ListItem, Mark, Tone, quoted_parts};
 use remacs_theme::{color, cursor, font, glass};
@@ -57,6 +58,60 @@ pub trait GlassBlur: Styled {
 }
 
 impl<E: Styled> GlassBlur for E {}
+
+/// Shorthands for the style combinations surfaces repeat.
+pub trait StyleExt: Styled + Sized {
+    /// Text `size` pixels high in `color`.
+    fn text(self, size: f32, color: u32) -> Self {
+        self.text_size(px(size)).text_color(rgb(color))
+    }
+
+    /// Interface text at the status size in `color`.
+    fn status_text(self, color: u32) -> Self {
+        self.text(font::status_size(), color)
+    }
+
+    /// Code-font text at the status size in `color`.
+    fn mono_status(self, color: u32) -> Self {
+        self.font_family(font::mono()).status_text(color)
+    }
+
+    /// Children in a row, centered across it, `gap` pixels apart.
+    fn row(self, gap: f32) -> Self {
+        self.flex().items_center().gap(px(gap))
+    }
+
+    /// Takes the room left over, its text cut short with an ellipsis.
+    fn fill_truncated(self) -> Self {
+        self.flex_1().min_w_0().truncate()
+    }
+
+    /// A one-pixel border in `color`, with alpha.
+    fn bordered(self, color: u32) -> Self {
+        self.border_1().border_color(rgba(color))
+    }
+}
+
+impl<E: Styled> StyleExt for E {}
+
+pub trait PressExt: InteractiveElement + Sized {
+    /// Runs `action` on the view on a left press, which goes no further.
+    fn on_press<V: 'static>(
+        self,
+        cx: &mut Context<V>,
+        action: impl Fn(&mut V, &mut Context<V>) + 'static,
+    ) -> Self {
+        self.on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |view, _: &MouseDownEvent, _, cx| {
+                cx.stop_propagation();
+                action(view, cx);
+            }),
+        )
+    }
+}
+
+impl<E: InteractiveElement> PressExt for E {}
 
 /// What the code font may do with its characters; fonts join them through either feature.
 pub fn code_font_features() -> FontFeatures {

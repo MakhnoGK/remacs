@@ -80,8 +80,7 @@ pub use screen::{
 pub use status::{StatusItem, StatusProvider, StatusSegment, Tone};
 pub use syntax::{
     Block, BlockProbe, Embedded, EmbeddedProbe, IndentProbe, Indentation, SyntaxContext,
-    SyntaxProbe, blank_outside,
-    embedded_file,
+    SyntaxProbe, blank_outside, embedded_file,
 };
 pub use table::{
     Action, Button, CellStyle, Changes, Column, DiffLine, Elsewhere, Field, FileDiff, Mark, Notice,

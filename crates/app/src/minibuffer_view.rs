@@ -19,9 +19,9 @@ use crate::editor_view::EditorView;
 use crate::outline_view::ref_chip;
 use crate::settings::{DirectoryPosition, PromptsSettings};
 use crate::widgets::{
-    GlassBlur, block_cursor, choice_chip, glass_surface, hsla, icon, kbd, list_items,
-    modal_surface, modified_dot, option_chip, segment, segmented, shadow, text_with_cursor,
-    tone_color, ui_text,
+    GlassBlur, PressExt, StyleExt, block_cursor, choice_chip, glass_surface, hsla, icon, kbd,
+    list_items, modal_surface, modified_dot, option_chip, segment, segmented, shadow,
+    text_with_cursor, tone_color, ui_text,
 };
 
 const POPOVER_TOP: f32 = 60.0;
@@ -476,13 +476,7 @@ fn render_outcome((summary, chain): (String, CommitChain)) -> impl IntoElement {
 }
 
 fn option_click(element: Div, index: usize, cx: &mut Context<EditorView>) -> Div {
-    element.on_mouse_down(
-        MouseButton::Left,
-        cx.listener(move |view, _: &MouseDownEvent, _, cx| {
-            cx.stop_propagation();
-            view.toggle_prompt_option(index, cx);
-        }),
-    )
+    element.on_press(cx, move |view, cx| view.toggle_prompt_option(index, cx))
 }
 
 /// Near the top of the window, centered across it.
@@ -587,18 +581,13 @@ fn render_severity_counts(candidates: &[Candidate]) -> impl IntoElement {
         .gap(px(4.0))
         .children(SEVERITY_ICONS.map(|severity| {
             div()
-                .flex()
-                .items_center()
-                .gap(px(6.0))
+                .row(6.0)
                 .h(px(26.0))
                 .px(px(9.0))
                 .rounded(px(6.0))
                 .bg(rgba(glass::control()))
-                .border_1()
-                .border_color(rgba(glass::ink(0x12)))
-                .font_family(font::mono())
-                .text_size(px(font::status_size()))
-                .text_color(rgb(color::fg_kbd()))
+                .bordered(glass::ink(0x12))
+                .mono_status(color::fg_kbd())
                 .child(icon(severity, color::fg_kbd()))
                 .child(count(severity).to_string())
         }))
@@ -1198,11 +1187,8 @@ fn render_candidate(
         .when(candidate.modified, |row| row.child(modified_dot()))
         .child(
             div()
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .text_size(px(font::status_size()))
-                .text_color(rgb(secondary))
+                .fill_truncated()
+                .status_text(secondary)
                 .child(candidate.annotation.clone()),
         )
         .when_some(candidate.tag, |row, tag| {
@@ -1241,8 +1227,7 @@ fn render_tag(tag: &'static str, selected: bool) -> impl IntoElement {
         .py(px(2.0))
         .rounded(px(5.0))
         .bg(rgba(background))
-        .text_size(px(font::small_size()))
-        .text_color(rgb(foreground))
+        .text(font::small_size(), foreground)
         .child(tag)
 }
 

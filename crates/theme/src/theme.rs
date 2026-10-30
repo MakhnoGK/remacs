@@ -390,7 +390,10 @@ mod tests {
     #[test]
     fn lists_built_in_themes_and_the_users() {
         let dir = themes_dir("names", &[("paper.toml", ""), ("notes.txt", "")]);
-        assert_eq!(names(Some(&dir)), ["modus-operandi", "modus-vivendi", "paper"]);
+        assert_eq!(
+            names(Some(&dir)),
+            ["modus-operandi", "modus-vivendi", "paper"]
+        );
         fs::remove_dir_all(dir).unwrap();
     }
 
