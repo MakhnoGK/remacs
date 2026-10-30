@@ -7,7 +7,6 @@ use remacs_theme::{color, font, glass};
 use crate::assets::{CHEVRON_DOWN_ICON, CHEVRON_UP_ICON, FILE_ICON};
 use crate::editor_view::EditorView;
 use crate::highlights::Highlights;
-use crate::minibuffer_view::PanelStyle;
 use crate::outline_view::ref_chip;
 use crate::preview_view::faces_in;
 use crate::table_view::clickable;

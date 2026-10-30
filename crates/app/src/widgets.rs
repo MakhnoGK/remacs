@@ -121,6 +121,25 @@ pub trait StyleExt: Styled + Sized {
     fn across(self) -> Self {
         self.absolute().left_0().right_0()
     }
+
+    /// A column of flex children.
+    fn column(self) -> Self {
+        self.flex().flex_col()
+    }
+
+    /// `top` and `bottom` padding, and `x` on either side.
+    fn pad(self, top: f32, x: f32, bottom: f32) -> Self {
+        self.pt(px(top)).px(px(x)).pb(px(bottom))
+    }
+
+    fn fg(self, color: u32) -> Self {
+        self.text_color(rgb(color))
+    }
+
+    /// A one-pixel line along the top in `color`, with alpha.
+    fn top_border(self, color: u32) -> Self {
+        self.border_t_1().border_color(rgba(color))
+    }
 }
 
 impl<E: Styled> StyleExt for E {}

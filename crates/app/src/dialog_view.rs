@@ -4,7 +4,7 @@ use remacs_theme::{color, font, glass};
 
 use crate::assets::TRASH_ICON;
 use crate::editor_view::EditorView;
-use crate::minibuffer_view::{PanelStyle, modal, plain_text, title_text};
+use crate::minibuffer_view::{modal, plain_text, title_text};
 use crate::widgets::{PressExt, StyleExt, kbd, list_items, option_chip, shadow};
 
 const DIALOG_WIDTH: f32 = 520.0;

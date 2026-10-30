@@ -4,7 +4,6 @@ use remacs_theme::{color, font, glass};
 
 use crate::assets::ARROW_ICON;
 use crate::editor_view::EditorView;
-use crate::minibuffer_view::PanelStyle;
 use crate::preview_view::pane;
 use crate::table_view::clickable;
 use crate::widgets::{StyleExt, toggle_chip};

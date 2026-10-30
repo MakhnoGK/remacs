@@ -5,7 +5,6 @@ use remacs_core::{Code, FileStatus, Preview, PreviewBody, PreviewItem, RowFace};
 use remacs_theme::{color, font, glass};
 
 use crate::highlights::Highlights;
-use crate::minibuffer_view::PanelStyle;
 use crate::widgets::{StyleExt, hsla, icon, state_color, state_letter};
 
 pub const PREVIEW_WIDTH: f32 = 440.0;

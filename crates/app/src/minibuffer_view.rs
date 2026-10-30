@@ -108,35 +108,6 @@ pub(crate) fn plain_text(text: &str, size: f32, text_color: u32) -> Div {
     div().text_size(px(size)).child(text)
 }
 
-/// Shorthands the prompt, the dialog and the panes beside a table share, beside `StyleExt`.
-pub(crate) trait PanelStyle: Styled + Sized {
-    /// A column of flex children.
-    fn column(self) -> Self {
-        self.flex().flex_col()
-    }
-
-    /// `top` and `bottom` padding, and `x` on either side.
-    fn pad(self, top: f32, x: f32, bottom: f32) -> Self {
-        self.pt(px(top)).px(px(x)).pb(px(bottom))
-    }
-
-    /// Rounded by `radius` and filled with `fill`, a color with alpha.
-    fn rounded_fill(self, radius: f32, fill: u32) -> Self {
-        self.rounded(px(radius)).bg(rgba(fill))
-    }
-
-    fn fg(self, color: u32) -> Self {
-        self.text_color(rgb(color))
-    }
-
-    /// A one-pixel line along the top in `color`, with alpha.
-    fn top_border(self, color: u32) -> Self {
-        self.border_t_1().border_color(rgba(color))
-    }
-}
-
-impl<E: Styled> PanelStyle for E {}
-
 /// Whether the prompt shows the editable input, which dialogs, titled prompts and
 /// questions leave out.
 pub fn draws_input(minibuffer: &Minibuffer) -> bool {
