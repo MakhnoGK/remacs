@@ -71,16 +71,21 @@ impl Modes {
         self.modes.iter().find(|mode| mode.name == name)
     }
 
+    /// The name of the first mode `matches`.
+    fn find(&self, matches: impl FnMut(&&Mode) -> bool) -> Option<&'static str> {
+        Some(self.modes.iter().find(matches)?.name)
+    }
+
     /// Takes `modes.toml`'s choices; the errors are those naming no mode.
     pub fn set_settings(&mut self, settings: &ModesSettings) -> Vec<String> {
         let mut errors = Vec::new();
         let mut resolve = |table: &BTreeMap<String, String>| -> Vec<(String, &'static str)> {
             let named = table.iter().filter_map(|(key, name)| {
-                let mode = self.modes.iter().find(|mode| mode.name == name);
+                let mode = self.get(name).map(|mode| mode.name);
                 if mode.is_none() {
                     errors.push(format!("modes.toml: no mode {name}"));
                 }
-                Some((key.clone(), mode?.name))
+                Some((key.clone(), mode?))
             });
             named.collect()
         };
@@ -128,37 +133,24 @@ impl Modes {
         let extension = Path::new(file_name)
             .extension()
             .and_then(|extension| extension.to_str());
-        let named = |mode: &&Mode| mode.file_names.contains(&file_name);
         let extended =
             |mode: &&Mode| extension.is_some_and(|extension| mode.extensions.contains(&extension));
-        chosen.map(|&(_, name)| name).or_else(|| {
-            let mode = self.modes.iter().find(named);
-            Some(mode.or_else(|| self.modes.iter().find(extended))?.name)
-        })
+        (chosen.map(|&(_, name)| name))
+            .or_else(|| self.find(|mode| mode.file_names.contains(&file_name)))
+            .or_else(|| self.find(extended))
     }
 
     fn declared(&self, name: &str) -> Option<&'static str> {
         let same = |known: &str| known.eq_ignore_ascii_case(name);
-        let mode = self.modes.iter().find(|mode| same(mode.name));
-        Some(
-            mode.or_else(|| {
-                self.modes
-                    .iter()
-                    .find(|mode| mode.aliases.iter().any(|alias| same(alias)))
-            })?
-            .name,
-        )
+        self.find(|mode| same(mode.name))
+            .or_else(|| self.find(|mode| mode.aliases.iter().any(|alias| same(alias))))
     }
 
     fn interpreted(&self, first: &str) -> Option<&'static str> {
         let program = interpreter(first)?;
         let chosen = self.interpreters.iter().find(|(name, _)| *name == program);
-        let mode = || {
-            self.modes
-                .iter()
-                .find(|mode| mode.interpreters.contains(&program))
-        };
-        chosen.map(|&(_, name)| name).or_else(|| Some(mode()?.name))
+        (chosen.map(|&(_, name)| name))
+            .or_else(|| self.find(|mode| mode.interpreters.contains(&program)))
     }
 
     fn begun(&self, first: &str) -> Option<&'static str> {
@@ -168,12 +160,7 @@ impl Modes {
                 .get(..start.len())
                 .is_some_and(|head| head.eq_ignore_ascii_case(start))
         };
-        Some(
-            self.modes
-                .iter()
-                .find(|mode| mode.first_lines.iter().any(begins))?
-                .name,
-        )
+        self.find(|mode| mode.first_lines.iter().any(begins))
     }
 }
 
@@ -249,33 +236,24 @@ mod tests {
 
     fn modes() -> Modes {
         let mut modes = Modes::default();
-        for mode in [
-            Mode {
-                name: "Python",
-                extensions: &["py"],
-                interpreters: &["python"],
-                ..Mode::default()
-            },
-            Mode {
-                name: "Bash",
-                extensions: &["sh"],
-                interpreters: &["bash", "sh"],
-                aliases: &["sh", "shell-script"],
-                ..Mode::default()
-            },
-            Mode {
-                name: "C++",
-                extensions: &["cpp", "h"],
-                aliases: &["cpp"],
-                ..Mode::default()
-            },
-            Mode {
-                name: "XML",
-                first_lines: &["<?xml"],
-                ..Mode::default()
-            },
+        let none: &[&str] = &[];
+        for (name, [extensions, interpreters, aliases, first_lines]) in [
+            ("Python", [&["py"][..], &["python"], none, none]),
+            (
+                "Bash",
+                [&["sh"], &["bash", "sh"], &["sh", "shell-script"], none],
+            ),
+            ("C++", [&["cpp", "h"], none, &["cpp"], none]),
+            ("XML", [none, none, none, &["<?xml"]]),
         ] {
-            modes.add(mode);
+            modes.add(Mode {
+                name,
+                extensions,
+                interpreters,
+                aliases,
+                first_lines,
+                ..Mode::default()
+            });
         }
         modes
     }

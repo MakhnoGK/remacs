@@ -64,9 +64,7 @@ pub struct Embedded {
 impl Embedded {
     /// Whether `offset` is in one of the ranges or at its end.
     pub fn holds(&self, offset: usize) -> bool {
-        self.ranges
-            .iter()
-            .any(|range| range.start <= offset && offset <= range.end)
+        self.holds_range(&(offset..offset))
     }
 
     /// Whether `range` is within one of the ranges.

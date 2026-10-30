@@ -3,6 +3,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::push_new;
+
 const MAX_ANSWERS: usize = 100;
 
 /// Answers given to the minibuffer, newest first, by completion category; kept in a file
@@ -24,11 +26,7 @@ impl History {
         let earlier = read(&path).map_err(|error| describe(&path, &error))?;
         for (category, answers) in earlier {
             let kept = self.answers.entry(category).or_default();
-            for answer in answers {
-                if !kept.contains(&answer) {
-                    kept.push(answer);
-                }
-            }
+            push_new(kept, answers);
             kept.truncate(MAX_ANSWERS);
         }
         self.file = Some(path);

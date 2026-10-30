@@ -1,13 +1,16 @@
 //! Lines hidden by folds, like Emacs hideshow: a fold hides whole lines after its header
 //! line, a block's body, until it is unfolded, point goes into it or an edit touches it.
 
+use std::borrow::Cow;
 use std::ops::Range;
 
 use remacs_text::Snapshot;
 
 use crate::buffer::Buffer;
+use crate::completion::merge;
 
 /// A buffer's folds, in a buffer local, with the text they were placed in.
+#[derive(Clone)]
 struct Folds {
     snapshot: Snapshot,
     /// In order of their starts; folds within folds too.
@@ -74,19 +77,11 @@ impl ShownLines {
     /// Of `line_count` lines with `hidden` ones, in order of their starts, each after a
     /// shown line.
     pub fn new(line_count: usize, hidden: impl IntoIterator<Item = Range<usize>>) -> Self {
-        let mut merged: Vec<Range<usize>> = Vec::new();
-        for range in hidden {
-            let range = range.start.max(1)..range.end.min(line_count);
-            if range.is_empty() {
-                continue;
-            }
-            match merged.last_mut() {
-                Some(last) if range.start <= last.end => last.end = last.end.max(range.end),
-                _ => merged.push(range),
-            }
-        }
+        let clamped = (hidden.into_iter())
+            .map(|range| range.start.max(1)..range.end.min(line_count))
+            .filter(|range| !range.is_empty());
         let mut before = 0;
-        let hidden = merged
+        let hidden = merge(clamped.collect())
             .into_iter()
             .map(|range| {
                 let this = before;
@@ -158,14 +153,10 @@ impl ShownLines {
 impl Buffer {
     /// The lines as windows show them, with folds' lines hidden.
     pub fn shown_lines(&self) -> ShownLines {
-        let line_count = self.text().line_count();
-        let Some(folds) = self.local::<Folds>() else {
-            return ShownLines::all(line_count);
-        };
-        match folds.followed(&self.text().snapshot()) {
-            Some(followed) => followed.shown,
-            None => folds.shown.clone(),
-        }
+        self.folds_now().map_or_else(
+            || ShownLines::all(self.text().line_count()),
+            |folds| folds.shown.clone(),
+        )
     }
 
     /// Hides each of `folds`, ranges of whole lines after their header, which stays shown.
@@ -213,11 +204,8 @@ impl Buffer {
     /// Places the folds in the text as it is now, dropping those edits touched; after
     /// each edit, or, for those undo or a revert makes, after the command.
     pub(crate) fn follow_folds(&mut self) {
-        let Some(folds) = self.local::<Folds>() else {
-            return;
-        };
-        let followed = folds.followed(&self.text().snapshot());
-        if let Some(followed) = followed {
+        let folds = self.local::<Folds>();
+        if let Some(followed) = folds.and_then(|folds| folds.followed(&self.text().snapshot())) {
             self.set_folds(followed.folds);
         }
     }
@@ -233,13 +221,15 @@ impl Buffer {
     }
 
     fn current_folds(&self) -> Vec<Fold> {
-        let Some(folds) = self.local::<Folds>() else {
-            return Vec::new();
-        };
-        match folds.followed(&self.text().snapshot()) {
-            Some(followed) => followed.folds,
-            None => folds.folds.clone(),
-        }
+        self.folds_now()
+            .map_or_else(Vec::new, |folds| folds.folds.clone())
+    }
+
+    /// The folds placed in the text as it is now, if there are any.
+    fn folds_now(&self) -> Option<Cow<'_, Folds>> {
+        let folds = self.local::<Folds>()?;
+        let followed = folds.followed(&self.text().snapshot());
+        Some(followed.map_or(Cow::Borrowed(folds), Cow::Owned))
     }
 
     fn set_folds(&mut self, folds: Vec<Fold>) {

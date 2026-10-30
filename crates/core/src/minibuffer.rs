@@ -139,6 +139,7 @@ impl PromptChoice {
 }
 
 /// A setting a prompt's answer depends on, switched by `M-` and `key`, or a click.
+#[derive(Default)]
 pub struct PromptOption {
     pub key: char,
     /// Off, then on: two labels make a switch between them, one a chip lit while on.
@@ -159,8 +160,7 @@ impl PromptOption {
             key,
             labels: vec![label.into()],
             state: Rc::clone(state),
-            shown_while: None,
-            hidden_while: None,
+            ..Self::default()
         }
     }
 
@@ -247,17 +247,13 @@ impl Minibuffer {
         source: Option<CompletionSource>,
         on_answer: AnswerHandler,
     ) -> Self {
-        let (subject, description) = match &prompt.message {
-            Some(_) => {
-                let (subject, description) = split_message(&prompt.initial_input);
-                (
-                    subject,
-                    Some(input_buffer(" *Minibuf-description*", description)),
-                )
-            }
-            None => (prompt.initial_input.as_str(), None),
+        let (subject, description) = match prompt.message {
+            Some(_) => split_message(&prompt.initial_input),
+            None => (prompt.initial_input.as_str(), ""),
         };
         let input = input_buffer(" *Minibuf*", subject);
+        let description =
+            (prompt.message.as_ref()).map(|_| input_buffer(" *Minibuf-description*", description));
         Self {
             prompt,
             input,
@@ -384,11 +380,7 @@ impl Minibuffer {
 
     /// The keymap active over the others now: the list's while keys go to it.
     pub fn keymap(&self) -> Option<&Keymap> {
-        if self.in_list {
-            self.prompt.list_keymap.as_ref()
-        } else {
-            None
-        }
+        self.prompt.list_keymap.as_ref().filter(|_| self.in_list)
     }
 
     /// Printable keys type into the input.
@@ -502,13 +494,9 @@ impl Minibuffer {
     }
 
     pub(crate) fn toggle_prompt_option(&self, index: usize) {
-        if let Some(option) = self
-            .prompt
-            .options
-            .get(index)
-            .filter(|option| option.is_shown())
-        {
-            option.state.set(!option.state.get());
+        let option = self.prompt.options.get(index);
+        if let Some(option) = option.filter(|option| option.is_shown()) {
+            option.state.set(!option.is_on());
         }
     }
 
@@ -625,16 +613,7 @@ fn split_message(message: &str) -> (&str, &str) {
 /// `text` as a name in a prompt's or a dialog's text, drawn in the code font (ADR 0004);
 /// its backticks and backslashes are escaped.
 pub fn quote(text: &str) -> String {
-    let mut quoted = String::with_capacity(text.len() + 2);
-    quoted.push('`');
-    for character in text.chars() {
-        if matches!(character, '`' | '\\') {
-            quoted.push('\\');
-        }
-        quoted.push(character);
-    }
-    quoted.push('`');
-    quoted
+    format!("`{}`", text.replace('\\', "\\\\").replace('`', "\\`"))
 }
 
 /// The parts of a prompt's or a dialog's text, each with whether `quote` made it a name;

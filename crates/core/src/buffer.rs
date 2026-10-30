@@ -22,6 +22,7 @@ const MARK_RING_MAX: usize = 16;
 pub struct BufferId(u64);
 
 /// A text with a point (cursor), a mark, a name and a major mode.
+#[derive(Default)]
 pub struct Buffer {
     id: BufferId,
     name: String,
@@ -85,22 +86,7 @@ impl Buffer {
             name: name.into(),
             mode,
             text,
-            file: None,
-            directory: None,
-            read_only: false,
-            point: 0,
-            goal_column: None,
-            mark: None,
-            mark_ring: Vec::new(),
-            mark_active: false,
-            rectangle: false,
-            window_start: 0,
-            window_points: Vec::new(),
-            cursors: Vec::new(),
-            cursors_at_boundary: Vec::new(),
-            cursors_before_groups: Vec::new(),
-            cursors_undone: Vec::new(),
-            locals: HashMap::new(),
+            ..Self::default()
         }
     }
 
@@ -225,9 +211,7 @@ impl Buffer {
         self.cursors_undone.clear();
         self.mark_active = false;
         self.set_point(self.point);
-        for (_, point) in &mut self.window_points {
-            *point = on_character(&self.text, *point);
-        }
+        self.shift_marks(on_character);
     }
 
     pub fn contents(&self, range: Range<usize>) -> String {
@@ -426,13 +410,7 @@ impl Buffer {
     pub fn insert(&mut self, text: &str) {
         let point = self.point;
         self.record_cursors(|edited| edited.insert(point, text));
-        self.shift_marks(|mark| {
-            if mark > point {
-                mark + text.len()
-            } else {
-                mark
-            }
-        });
+        self.shift_marks(|_, mark| shift(mark, &(point..point), text.len()));
         self.mark_active = false;
         self.set_point(point + text.len());
         // Each edit at once: one diff of several would take the folds between them.
@@ -458,20 +436,12 @@ impl Buffer {
     pub fn truncate_output(&mut self, len: usize) {
         self.text.truncate_output(len);
         self.point = self.point.min(self.text.len());
-        let len = self.text.len();
-        self.shift_marks(|mark| mark.min(len));
+        self.shift_marks(|text, mark| mark.min(text.len()));
     }
 
     pub fn delete(&mut self, range: Range<usize>) {
-        let shift = |offset: usize| {
-            if offset >= range.end {
-                offset - range.len()
-            } else {
-                offset.min(range.start)
-            }
-        };
-        let point = shift(self.point);
-        self.shift_marks(shift);
+        let point = shift(self.point, &range, 0);
+        self.shift_marks(|_, offset| shift(offset, &range, 0));
         self.mark_active = false;
         self.record_cursors(|edited| edited.delete(range));
         self.set_point(point);
@@ -589,37 +559,22 @@ impl Buffer {
     /// Undo replaces the whole text, so the mark may no longer fall on a character.
     fn restore_point(&mut self, offset: Option<usize>) -> bool {
         self.mark_active = false;
-        let text = &self.text;
-        let on_character = |mark| on_character(text, mark);
-        self.mark = self.mark.map(on_character);
-        for mark in &mut self.mark_ring {
-            *mark = on_character(*mark);
-        }
-        for (_, point) in &mut self.window_points {
-            *point = on_character(*point);
-        }
-        for cursor in &mut self.cursors {
-            cursor.point = on_character(cursor.point);
-            cursor.mark = cursor.mark.map(on_character);
-            cursor.mark_active = false;
-        }
+        self.shift_marks(on_character);
+        self.deactivate_cursor_marks();
         let restored = offset.inspect(|&offset| self.set_point(offset)).is_some();
         self.merge_cursors();
         restored
     }
 
-    /// Moves the mark, the mark ring and the cursors with an edit, like Emacs markers.
-    fn shift_marks(&mut self, shift: impl Fn(usize) -> usize) {
-        self.mark = self.mark.map(&shift);
-        for mark in &mut self.mark_ring {
-            *mark = shift(*mark);
-        }
-        for cursor in &mut self.cursors {
-            cursor.point = shift(cursor.point);
-            cursor.mark = cursor.mark.map(&shift);
-        }
-        for (_, point) in &mut self.window_points {
-            *point = shift(*point);
+    /// Moves the mark, the mark ring, the cursors and the other windows' points with an
+    /// edit, like Emacs markers.
+    fn shift_marks(&mut self, shift: impl Fn(&Text, usize) -> usize) {
+        let cursors = (self.cursors.iter_mut())
+            .flat_map(|cursor| iter::once(&mut cursor.point).chain(&mut cursor.mark));
+        let points = self.window_points.iter_mut().map(|(_, point)| point);
+        let marks = self.mark.iter_mut().chain(&mut self.mark_ring);
+        for mark in marks.chain(cursors).chain(points) {
+            *mark = shift(&self.text, *mark);
         }
     }
 }

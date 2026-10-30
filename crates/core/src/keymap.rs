@@ -50,20 +50,15 @@ impl Keymap {
 
     /// Leaves a key sequence unbound; false when the notation is wrong.
     pub fn unbind(&mut self, notation: &str) -> bool {
-        let Some(keys) = parse_sequence(notation) else {
-            return false;
-        };
-        self.commands.remove(&keys);
-        true
+        let keys = parse_sequence(notation);
+        keys.map(|keys| self.commands.remove(&keys)).is_some()
     }
 
     pub fn lookup(&self, keys: &[Key]) -> Binding {
-        if let Some(&command) = self.commands.get(keys) {
-            Binding::Command(command)
-        } else if self.prefixes.contains(keys) {
-            Binding::Prefix
-        } else {
-            Binding::Unbound
+        match self.commands.get(keys) {
+            Some(&command) => Binding::Command(command),
+            None if self.prefixes.contains(keys) => Binding::Prefix,
+            None => Binding::Unbound,
         }
     }
 

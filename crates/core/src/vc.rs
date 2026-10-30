@@ -21,26 +21,22 @@ pub enum FileState {
 impl FileState {
     /// As `git status --short` shows it.
     pub fn letter(self) -> &'static str {
-        match self {
-            FileState::Added => "A",
-            FileState::Modified => "M",
-            FileState::Renamed => "R",
-            FileState::Deleted => "D",
-            FileState::Conflicted => "U",
-            FileState::Resolved => "✓",
-            FileState::Untracked => "?",
-        }
+        self.names().0
     }
 
     pub fn label(self) -> &'static str {
+        self.names().1
+    }
+
+    fn names(self) -> (&'static str, &'static str) {
         match self {
-            FileState::Added => "Added",
-            FileState::Modified => "Modified",
-            FileState::Renamed => "Renamed",
-            FileState::Deleted => "Deleted",
-            FileState::Conflicted => "Conflicted",
-            FileState::Resolved => "Resolved",
-            FileState::Untracked => "Untracked",
+            FileState::Added => ("A", "Added"),
+            FileState::Modified => ("M", "Modified"),
+            FileState::Renamed => ("R", "Renamed"),
+            FileState::Deleted => ("D", "Deleted"),
+            FileState::Conflicted => ("U", "Conflicted"),
+            FileState::Resolved => ("✓", "Resolved"),
+            FileState::Untracked => ("?", "Untracked"),
         }
     }
 }

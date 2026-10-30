@@ -89,3 +89,12 @@ pub use table::{
 pub use vc::{ChangedLines, FileState, FileStatus, LineChange, LineCounts, VersionControl};
 pub use viewport::Viewport;
 pub use window::{Axis, Layout, WindowId};
+
+/// Pushes those of `more` not in `list` yet, in order.
+fn push_new<T: PartialEq>(list: &mut Vec<T>, more: impl IntoIterator<Item = T>) {
+    for value in more {
+        if !list.contains(&value) {
+            list.push(value);
+        }
+    }
+}

@@ -168,16 +168,9 @@ pub struct Completions {
 /// The completions a source last computed and what they were computed from, handed out
 /// again while that holds: a background refresh re-asks every source, though usually
 /// neither the input nor the source's data changed.
+#[derive(Default)]
 pub struct CompletionMemo<K> {
     last: RefCell<Option<(K, Completions)>>,
-}
-
-impl<K> Default for CompletionMemo<K> {
-    fn default() -> Self {
-        Self {
-            last: RefCell::new(None),
-        }
-    }
 }
 
 impl<K> CompletionMemo<K> {
@@ -289,21 +282,22 @@ impl FuzzyQuery {
 
     /// The score, and the byte ranges of `text` that matched.
     pub fn score_and_ranges(&self, text: &str) -> Option<(u32, Vec<Range<usize>>)> {
-        SCRATCH.with_borrow_mut(|scratch| {
-            let Scratch {
-                matcher,
-                chars,
-                indices,
-            } = scratch;
-            matcher.config.clone_from(&self.config);
-            indices.clear();
-            let score = self
-                .pattern
-                .indices(Utf32Str::new(text, chars), matcher, indices)?;
-            indices.sort_unstable();
-            indices.dedup();
-            Some((score, byte_ranges(text, indices)))
-        })
+        SCRATCH.with_borrow_mut(
+            |Scratch {
+                 matcher,
+                 chars,
+                 indices,
+             }| {
+                matcher.config.clone_from(&self.config);
+                indices.clear();
+                let score = self
+                    .pattern
+                    .indices(Utf32Str::new(text, chars), matcher, indices)?;
+                indices.sort_unstable();
+                indices.dedup();
+                Some((score, byte_ranges(text, indices)))
+            },
+        )
     }
 }
 
@@ -365,28 +359,21 @@ pub fn filter_map_parallel<T: Sync, R: Send>(
     items: &[T],
     matched: impl Fn(usize, &T) -> Option<R> + Sync,
 ) -> Vec<R> {
-    let threads = thread::available_parallelism().map_or(1, NonZero::get);
-    if items.len() < PARALLEL_MIN_ITEMS || threads == 1 {
-        return (0..)
+    let matched_from = |first: usize, items: &[T]| -> Vec<R> {
+        (first..)
             .zip(items)
             .filter_map(|(index, item)| matched(index, item))
-            .collect();
+            .collect()
+    };
+    let threads = thread::available_parallelism().map_or(1, NonZero::get);
+    if items.len() < PARALLEL_MIN_ITEMS || threads == 1 {
+        return matched_from(0, items);
     }
     let chunk_size = items.len().div_ceil(threads);
-    let matched = &matched;
+    let matched_from = &matched_from;
     thread::scope(|scope| {
-        let workers: Vec<_> = items
-            .chunks(chunk_size)
-            .enumerate()
-            .map(|(chunk, items)| {
-                scope.spawn(move || {
-                    let first = chunk * chunk_size;
-                    (first..)
-                        .zip(items)
-                        .filter_map(|(index, item)| matched(index, item))
-                        .collect::<Vec<_>>()
-                })
-            })
+        let workers: Vec<_> = (items.chunks(chunk_size).enumerate())
+            .map(|(chunk, items)| scope.spawn(move || matched_from(chunk * chunk_size, items)))
             .collect();
         workers
             .into_iter()
@@ -422,14 +409,7 @@ pub fn flex_match(query: &str, text: &str) -> Option<Vec<Range<usize>>> {
         let contiguous = start..start + query.len();
         return Some(vec![contiguous]);
     }
-    let case_sensitive = query.chars().any(char::is_uppercase);
-    let same = |a: char, b: char| {
-        if case_sensitive {
-            a == b
-        } else {
-            a.eq_ignore_ascii_case(&b)
-        }
-    };
+    let same = same_char(query);
     let mut ranges = Vec::with_capacity(query.len());
     let mut rest = text.char_indices();
     for wanted in query.chars() {
@@ -453,17 +433,24 @@ pub fn flex_rank(query: &str, text: &str) -> Option<bool> {
     if starts_with {
         return Some(true);
     }
-    let mut rest = text.chars();
-    let found = query.chars().all(|wanted| {
-        rest.any(|character| {
-            if case_sensitive {
-                character == wanted
-            } else {
-                character.eq_ignore_ascii_case(&wanted)
-            }
-        })
-    });
+    let (same, mut rest) = (same_char(query), text.chars());
+    let found = query
+        .chars()
+        .all(|wanted| rest.any(|character| same(character, wanted)));
     found.then_some(false)
+}
+
+/// Compares characters with smart case: ignoring ASCII case unless `query` has an
+/// uppercase letter.
+fn same_char(query: &str) -> impl Fn(char, char) -> bool {
+    let case_sensitive = query.chars().any(char::is_uppercase);
+    move |a, b| {
+        if case_sensitive {
+            a == b
+        } else {
+            a.eq_ignore_ascii_case(&b)
+        }
+    }
 }
 
 fn find(text: &str, term: &str) -> Option<usize> {
@@ -475,7 +462,8 @@ fn find(text: &str, term: &str) -> Option<usize> {
         .find(|&start| text[start..start + term.len()].eq_ignore_ascii_case(term))
 }
 
-fn merge(mut ranges: Vec<Range<usize>>) -> Vec<Range<usize>> {
+/// Sorts `ranges` and joins those that overlap or touch.
+pub(crate) fn merge(mut ranges: Vec<Range<usize>>) -> Vec<Range<usize>> {
     ranges.sort_by_key(|range| range.start);
     let mut merged: Vec<Range<usize>> = Vec::with_capacity(ranges.len());
     for range in ranges {

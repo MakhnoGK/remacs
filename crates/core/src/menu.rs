@@ -1,4 +1,5 @@
 use crate::editor::Editor;
+use crate::push_new;
 
 /// The application's own menu, first in the menu bar and titled with its name.
 pub const APP_MENU: &str = "Remacs";
@@ -85,12 +86,10 @@ pub fn layout<'a>(menus: &[Menu], items: &'a [MenuItem]) -> Vec<MenuLayout<'a>> 
             .filter(move |menu| menu.trailing == trailing)
             .map(|menu| menu.title)
     };
-    let mut titles: Vec<&'static str> = declared(false).collect();
-    for item in items {
-        if !titles.contains(&item.menu) && !declared(true).any(|title| title == item.menu) {
-            titles.push(item.menu);
-        }
-    }
+    let undeclared = (items.iter().map(|item| item.menu))
+        .filter(|&title| !declared(true).any(|trailing| trailing == title));
+    let mut titles = declared(false).collect();
+    push_new(&mut titles, undeclared);
     titles.extend(declared(true));
     titles
         .into_iter()
@@ -99,21 +98,13 @@ pub fn layout<'a>(menus: &[Menu], items: &'a [MenuItem]) -> Vec<MenuLayout<'a>> 
                 .iter()
                 .find(|menu| menu.title == title)
                 .map_or(&[][..], |menu| menu.groups);
-            let mut order: Vec<&'static str> = declared.to_vec();
-            for item in items.iter().filter(|item| item.menu == title) {
-                if !order.contains(&item.group) {
-                    order.push(item.group);
-                }
-            }
-            let groups: Vec<Vec<&MenuItem>> = order
-                .into_iter()
-                .map(|group| {
-                    items
-                        .iter()
-                        .filter(|item| item.menu == title && item.group == group)
-                        .collect::<Vec<_>>()
-                })
-                .filter(|group| !group.is_empty())
+            let menu_items = items.iter().filter(|item| item.menu == title);
+            let mut order = declared.to_vec();
+            push_new(&mut order, menu_items.clone().map(|item| item.group));
+            let groups: Vec<Vec<&MenuItem>> = (order.into_iter())
+                .map(|group| menu_items.clone().filter(move |item| item.group == group))
+                .map(Iterator::collect)
+                .filter(|group: &Vec<_>| !group.is_empty())
                 .collect();
             (!groups.is_empty()).then_some(MenuLayout { title, groups })
         })
@@ -163,22 +154,15 @@ mod tests {
     #[test]
     fn declared_menus_and_groups_come_first_and_empty_ones_are_left_out() {
         let menus = [
-            Menu {
-                title: "File",
-                groups: &["open", "save"],
-                trailing: false,
-            },
-            Menu {
-                title: "Edit",
-                groups: &["undo"],
-                trailing: false,
-            },
-            Menu {
-                title: "Help",
-                groups: &[],
-                trailing: true,
-            },
-        ];
+            ("File", &["open", "save"][..], false),
+            ("Edit", &["undo"], false),
+            ("Help", &[], true),
+        ]
+        .map(|(title, groups, trailing)| Menu {
+            title,
+            groups,
+            trailing,
+        });
         let items = [
             MenuItem::new("Help", "help", "Messages", "view-echo-area-messages"),
             MenuItem::new("Run", "run", "Run", "run"),

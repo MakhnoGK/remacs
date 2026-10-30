@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::io;
 
 use crate::editor::Editor;
 
@@ -9,21 +8,10 @@ pub type CommandResult = Result<(), CommandError>;
 #[derive(Debug)]
 pub struct CommandError(pub String);
 
-impl From<&str> for CommandError {
-    fn from(message: &str) -> Self {
-        Self(message.to_owned())
-    }
-}
-
-impl From<String> for CommandError {
-    fn from(message: String) -> Self {
-        Self(message)
-    }
-}
-
-impl From<io::Error> for CommandError {
-    fn from(error: io::Error) -> Self {
-        Self(error.to_string())
+/// From a message, or an error as it describes itself, e.g. an `io::Error`.
+impl<T: ToString> From<T> for CommandError {
+    fn from(message: T) -> Self {
+        Self(message.to_string())
     }
 }
 

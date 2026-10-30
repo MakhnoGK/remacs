@@ -49,10 +49,7 @@ impl KillRing {
 
     /// The entry after the one yanked last, wrapping around like Emacs `yank-pop`.
     pub fn rotate(&mut self) -> Option<&str> {
-        if self.entries.is_empty() {
-            return None;
-        }
-        self.yank_index = (self.yank_index + 1) % self.entries.len();
+        self.yank_index = (self.yank_index + 1).checked_rem(self.entries.len())?;
         self.entries
             .get(self.yank_index)
             .map(|entry| entry.as_str())
