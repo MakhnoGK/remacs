@@ -159,7 +159,7 @@ mod tests {
     use remacs_theme::{Appearance, DEFAULT};
 
     use super::*;
-    use crate::transition::Side;
+    use crate::transition::{Side, Transition};
 
     #[test]
     fn the_system_theme_is_the_light_or_the_dark_one_as_macos_is() {
@@ -213,26 +213,64 @@ mod tests {
         )
         .unwrap();
         assert_eq!(settings.transitions.pane().duration, Duration::ZERO);
-        let prompt = settings.transitions.prompt();
-        assert_eq!(prompt.duration, Duration::from_millis(100));
-        assert_eq!((prompt.slide, prompt.from), (12.0, Side::Above));
+        assert_eq!(
+            settings.transitions.prompt(),
+            Transition {
+                duration: Duration::from_millis(100),
+                slide: 12.0,
+                from: Side::Above
+            }
+        );
         assert_eq!(settings.transitions.popup().slide, 4.0);
         assert_eq!(settings.prompts.input_margin, 20.0);
         assert_eq!(settings.prompts.directory, DirectoryPosition::Below);
-        let swatches = settings.swatches;
-        assert!(!swatches.inline && !swatches.completion);
-        assert_eq!(swatches.thickness, 2.0);
-        let (docs, problems) = (settings.documentation, settings.problems);
-        assert_eq!((docs.max_width, docs.max_height), (900.0, 300.0));
-        assert_eq!((problems.max_width, problems.max_height), (700.0, 200.0));
-        let bottom = settings.bottom();
-        let (echo, hints, prefix) = (bottom.echo, bottom.hints, bottom.prefix_keys);
-        assert_eq!((echo.lines, echo.history, echo.hide_after), (6, 50, 0));
-        assert_eq!((hints.show, hints.side_room), (false, 200.0));
-        assert_eq!((prefix.show, prefix.delay, prefix.columns), (false, 0, 3));
         assert_eq!(
-            (settings.glass.opacity, settings.glass.blur),
-            (Some(0.5), 0)
+            settings.swatches,
+            SwatchesSettings {
+                inline: false,
+                thickness: 2.0,
+                completion: false
+            }
+        );
+        assert_eq!(
+            settings.documentation,
+            DocumentationSettings {
+                max_width: 900.0,
+                max_height: 300.0
+            }
+        );
+        assert_eq!(
+            settings.problems,
+            ProblemsSettings {
+                max_width: 700.0,
+                max_height: 200.0
+            }
+        );
+        assert_eq!(
+            settings.bottom(),
+            BottomSettings {
+                echo: EchoSettings {
+                    lines: 6,
+                    history: 50,
+                    hide_after: 0
+                },
+                hints: HintsSettings {
+                    show: false,
+                    side_room: 200.0
+                },
+                prefix_keys: PrefixKeysSettings {
+                    show: false,
+                    delay: 0,
+                    columns: 3
+                },
+            }
+        );
+        assert_eq!(
+            settings.glass,
+            GlassSettings {
+                opacity: Some(0.5),
+                blur: 0
+            }
         );
         assert_eq!(settings.theme.name, "modus-operandi");
         assert_eq!(settings.keyboard.meta, MetaOption::Left);
@@ -244,17 +282,25 @@ mod tests {
         assert_eq!(settings.font.code_font().weight, 300.0);
         assert_eq!(settings.font.strokes, Strokes::Thin);
         assert!(!settings.font.code_font().ligatures);
-        let ui_font = &settings.ui_font;
         assert_eq!(
-            (ui_font.family.as_str(), ui_font.size),
-            ("Helvetica Neue", 14.0)
+            settings.ui_font,
+            UiFontSettings {
+                family: "Helvetica Neue".to_owned(),
+                size: 14.0,
+                weight: Weight::Named(WeightName::Medium)
+            }
         );
-        assert_eq!(ui_font.weight, Weight::Named(WeightName::Medium));
         assert_eq!(settings.cursor.height, CursorHeight::Font);
         assert_eq!(settings.cursor.radius, 2.5);
-        let zoom = settings.zoom;
-        assert_eq!((zoom.step, zoom.wheel_step), (2.0, 50.0));
-        assert_eq!((zoom.min_size, zoom.max_size), (10.0, 24.0));
+        assert_eq!(
+            settings.zoom,
+            ZoomSettings {
+                step: 2.0,
+                min_size: 10.0,
+                max_size: 24.0,
+                wheel_step: 50.0
+            }
+        );
     }
 
     #[test]
