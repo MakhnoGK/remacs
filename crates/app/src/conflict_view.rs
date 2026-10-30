@@ -1,7 +1,4 @@
-use gpui::{
-    AnyElement, Context, Div, IntoElement, ParentElement, StyledText, div, prelude::*, px, rgb,
-    rgba, svg,
-};
+use gpui::{Context, Div, ParentElement, StyledText, div, prelude::*, px, rgba, svg};
 use remacs_core::{
     Action, Code, ConflictBlock, ConflictRegion, ConflictSide, ConflictView, RefKind,
 };
@@ -10,10 +7,11 @@ use remacs_theme::{color, font, glass};
 use crate::assets::{CHEVRON_DOWN_ICON, CHEVRON_UP_ICON, FILE_ICON};
 use crate::editor_view::EditorView;
 use crate::highlights::Highlights;
+use crate::minibuffer_view::PanelStyle;
 use crate::outline_view::ref_chip;
 use crate::preview_view::faces_in;
 use crate::table_view::clickable;
-use crate::widgets::{GlassBlur, kbd, shadow};
+use crate::widgets::{GlassBlur, StyleExt, kbd, shadow};
 
 const LINE_HEIGHT: f32 = 22.0;
 const NUMBER_WIDTH: f32 = 40.0;
@@ -33,7 +31,7 @@ pub fn render_conflict(
 ) -> Div {
     let mode = view.mode;
     let header = render_header(&view, cx);
-    let mut body: Vec<AnyElement> = Vec::new();
+    let mut body = Vec::new();
     for region in view.regions {
         match region {
             ConflictRegion::Text {
@@ -42,132 +40,111 @@ pub fn render_conflict(
                 resolved,
             } => {
                 let faces = code_faces(&Code::new(lines.join("\n"), mode));
-                body.extend(
-                    numbered(
-                        first,
-                        &lines,
-                        &faces,
-                        |row, index| {
-                            let Some(said) = &resolved else {
-                                return row;
-                            };
-                            row.bg(rgba(color::vc_added() << 8 | RESOLVED_ALPHA))
-                                .when(index == 0, |row| row.child(resolved_chip(said)))
-                        },
-                        resolved.is_some(),
-                    )
-                    .map(IntoElement::into_any_element),
-                );
+                let rows = numbered(first, &lines, &faces, resolved.is_some()).enumerate();
+                body.extend(rows.map(|(index, row)| {
+                    row.when_some(resolved.as_ref(), |row, said| {
+                        row.bg(rgba(color::vc_added() << 8 | RESOLVED_ALPHA))
+                            .when(index == 0, |row| row.child(resolved_chip(said)))
+                    })
+                }));
             }
             ConflictRegion::Conflict(block) => {
-                body.push(render_block(*block, mode, code_faces, cx).into_any_element());
+                body.push(render_block(*block, mode, code_faces, cx))
             }
         }
     }
+    let well = div()
+        .column()
+        .flex_1()
+        .min_h_0()
+        .overflow_hidden()
+        .py(px(6.0))
+        .rounded_fill(12.0, glass::well())
+        .bordered(glass::well_border());
     div()
-        .flex()
-        .flex_col()
+        .column()
         .flex_1()
         .min_w_0()
         .gap(px(8.0))
         .font_family(font::ui())
         .child(header)
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .flex_1()
-                .min_h_0()
-                .overflow_hidden()
-                .py(px(6.0))
-                .rounded(px(12.0))
-                .bg(rgba(glass::well()))
-                .border_1()
-                .border_color(rgba(glass::well_border()))
-                .children(body),
-        )
+        .child(well.children(body))
+}
+
+/// A raised control, as buttons are drawn.
+fn control(radius: f32) -> Div {
+    div()
+        .rounded_fill(radius, glass::control())
+        .bordered(glass::control_border())
+        .shadow(vec![shadow(glass::shadow(0x66), 1.0, 2.0, 0.0)])
 }
 
 fn render_header(view: &ConflictView, cx: &mut Context<EditorView>) -> Div {
     let step = |icon: &'static str, action: Action, cx: &mut Context<EditorView>| {
-        clickable(
-            div()
-                .flex()
-                .items_center()
-                .justify_center()
-                .size(px(28.0))
-                .rounded(px(7.0))
-                .bg(rgba(glass::control()))
-                .border_1()
-                .border_color(rgba(glass::control_border()))
-                .shadow(vec![shadow(glass::shadow(0x66), 1.0, 2.0, 0.0)])
-                .child(
-                    svg()
-                        .path(icon)
-                        .size(px(12.0))
-                        .text_color(rgb(color::fg_body())),
-                ),
-            action,
-            cx,
-        )
+        let icon = svg().path(icon).size(px(12.0)).fg(color::fg_body());
+        let button = control(7.0)
+            .flex()
+            .items_center()
+            .justify_center()
+            .size(px(28.0))
+            .child(icon);
+        clickable(button, action, cx)
     };
+    let name = div()
+        .font_family(font::mono())
+        .text(font::mono_size(), color::fg_main())
+        .child(view.name.clone());
+    let progress = format!("Conflict {} of {}", view.current, view.left);
     div()
-        .flex()
+        .row(10.0)
         .flex_none()
-        .items_center()
-        .gap(px(10.0))
         .h(px(32.0))
         .pl(px(12.0))
         .pr(px(4.0))
         .text_size(px(font::status_size()))
-        .child(
-            svg()
-                .path(FILE_ICON)
-                .size(px(16.0))
-                .text_color(rgb(color::fg_faint())),
-        )
-        .child(
-            div()
-                .font_family(font::mono())
-                .text_size(px(font::mono_size()))
-                .text_color(rgb(color::fg_main()))
-                .child(view.name.clone()),
-        )
-        .child(
-            div()
-                .text_color(rgb(color::fg_faint()))
-                .child(view.directory.clone()),
-        )
+        .child(svg().path(FILE_ICON).size(px(16.0)).fg(color::fg_faint()))
+        .child(name)
+        .child(div().fg(color::fg_faint()).child(view.directory.clone()))
         .child(div().flex_1())
         .when(view.resolved > 0, |header| {
-            header.child(
-                div()
-                    .text_color(rgb(color::fg_added()))
-                    .child(format!("{} resolved", view.resolved)),
-            )
+            let resolved = format!("{} resolved", view.resolved);
+            header.child(div().fg(color::fg_added()).child(resolved))
         })
-        .child(
-            div()
-                .text_color(rgb(color::fg_body()))
-                .child(format!("Conflict {} of {}", view.current, view.left)),
-        )
+        .child(div().fg(color::fg_body()).child(progress))
         .child(step(CHEVRON_UP_ICON, view.previous.clone(), cx))
         .child(step(CHEVRON_DOWN_ICON, view.next.clone(), cx))
 }
 
-/// Code lines numbered from `first`, each given to `decorate` with its index.
+/// Code lines numbered from `first`.
 fn numbered<'a>(
     first: usize,
     lines: &'a [String],
     faces: &'a Highlights,
-    decorate: impl Fn(Div, usize) -> Div + 'a,
     resolved: bool,
 ) -> impl Iterator<Item = Div> + 'a {
+    let number_color = if resolved {
+        color::vc_added()
+    } else {
+        color::fg_line_number()
+    };
     let mut start = 0;
     lines.iter().enumerate().map(move |(index, line)| {
         let range = start..start + line.len();
         start = range.end + 1;
-        let row = div()
+        let number = div()
+            .flex_none()
+            .w(px(NUMBER_WIDTH))
+            .pr(px(16.0))
+            .text_right()
+            .mono_status(number_color)
+            .child((first + index).to_string());
+        let text = div()
+            .flex_1()
+            .min_w_0()
+            .font_family(font::mono())
+            .text(font::mono_size(), color::fg_main())
+            .child(StyledText::new(line.clone()).with_highlights(faces_in(faces, range)));
+        div()
             .flex()
             .flex_none()
             .items_center()
@@ -176,31 +153,8 @@ fn numbered<'a>(
             .rounded(px(6.0))
             .whitespace_nowrap()
             .overflow_hidden()
-            .child(
-                div()
-                    .flex_none()
-                    .w(px(NUMBER_WIDTH))
-                    .pr(px(16.0))
-                    .text_right()
-                    .font_family(font::mono())
-                    .text_size(px(font::status_size()))
-                    .text_color(rgb(if resolved {
-                        color::vc_added()
-                    } else {
-                        color::fg_line_number()
-                    }))
-                    .child((first + index).to_string()),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .font_family(font::mono())
-                    .text_size(px(font::mono_size()))
-                    .text_color(rgb(color::fg_main()))
-                    .child(StyledText::new(line.clone()).with_highlights(faces_in(faces, range))),
-            );
-        decorate(row, index)
+            .child(number)
+            .child(text)
     })
 }
 
@@ -210,10 +164,8 @@ fn resolved_chip(said: &str) -> Div {
         .mr(px(8.0))
         .px(px(8.0))
         .py(px(1.0))
-        .rounded(px(5.0))
-        .bg(rgba(color::vc_added() << 8 | RESOLVED_CHIP_ALPHA))
-        .text_size(px(font::small_size()))
-        .text_color(rgb(color::fg_added()))
+        .rounded_fill(5.0, color::vc_added() << 8 | RESOLVED_CHIP_ALPHA)
+        .text(font::small_size(), color::fg_added())
         .child(said.to_owned())
 }
 
@@ -225,121 +177,85 @@ fn render_block(
     code_faces: &dyn Fn(&Code) -> Highlights,
     cx: &mut Context<EditorView>,
 ) -> Div {
-    let ConflictBlock {
-        current,
-        ours,
-        theirs,
-        keep_ours,
-        keep_theirs,
-        keep_both,
-        edit,
-    } = block;
+    let current = block.current;
     let key = |key: &'static str| current.then_some(key);
-    let mut ours = render_side(ours, (color::keyword(), false), mode, code_faces);
-    ours.header = ours
-        .header
-        .child(key_button("Keep this", key("o"), keep_ours, cx));
-    let mut theirs = render_side(theirs, (color::accent(), true), mode, code_faces);
-    theirs.header = theirs
-        .header
-        .child(key_button("Keep this", key("t"), keep_theirs, cx));
+    let side = |side, tint, bordered, button| {
+        render_side(side, (tint, bordered), button, mode, code_faces)
+    };
+    let keep_ours = key_button("Keep this", key("o"), block.keep_ours, cx);
+    let keep_theirs = key_button("Keep this", key("t"), block.keep_theirs, cx);
+    let border = if current {
+        color::accent() << 8 | CURRENT_BORDER_ALPHA
+    } else {
+        glass::card_border()
+    };
+    let footer = div()
+        .row(8.0)
+        .py(px(8.0))
+        .px(px(12.0))
+        .top_border(glass::divider())
+        .bg(rgba(glass::card_footer()))
+        .child(key_button("Keep both", key("b"), block.keep_both, cx))
+        .child(key_button("Edit manually", key("e"), block.edit, cx));
     div()
-        .flex()
-        .flex_col()
+        .column()
         .flex_none()
         .my(px(6.0))
         .mx(px(8.0))
-        .rounded(px(10.0))
+        .rounded_fill(10.0, glass::surface())
         .overflow_hidden()
-        .bg(rgba(glass::surface()))
         .glass_blur(glass::CARD_BLUR, glass::CARD_SATURATION)
-        .border_1()
-        .border_color(rgba(if current {
-            color::accent() << 8 | CURRENT_BORDER_ALPHA
-        } else {
-            glass::card_border()
-        }))
+        .bordered(border)
         .shadow(vec![
             shadow(glass::shadow(0x80), 1.0, 2.0, 0.0),
             shadow(glass::shadow(0x66), 10.0, 28.0, 0.0),
         ])
-        .child(ours.header)
-        .children(ours.lines)
-        .child(theirs.header)
-        .children(theirs.lines)
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(8.0))
-                .py(px(8.0))
-                .px(px(12.0))
-                .border_t_1()
-                .border_color(rgba(glass::divider()))
-                .bg(rgba(glass::card_footer()))
-                .child(key_button("Keep both", key("b"), keep_both, cx))
-                .child(key_button("Edit manually", key("e"), edit, cx)),
-        )
+        .children(side(block.ours, color::keyword(), false, keep_ours))
+        .children(side(block.theirs, color::accent(), true, keep_theirs))
+        .child(footer)
 }
 
-/// A side's header, which takes a button after, and its lines.
-struct Side {
-    header: Div,
-    lines: Vec<Div>,
-}
-
+/// A side's header, with `button` after it, then its lines.
 fn render_side(
     side: ConflictSide,
     (tint, bordered): (u32, bool),
+    button: Div,
     mode: Option<&'static str>,
     code_faces: &dyn Fn(&Code) -> Highlights,
-) -> Side {
-    let ConflictSide {
-        chip,
-        role,
-        id,
-        subject,
-        first,
-        lines,
-    } = side;
-    let role_color = match chip.kind {
+) -> Vec<Div> {
+    let role_color = match side.chip.kind {
         RefKind::Head => color::fg_ref_head(),
         RefKind::Main => color::fg_ref_main(),
         _ => color::fg_ref_branch(),
     };
+    let id = side.id.map(|id| {
+        div()
+            .font_family(font::mono())
+            .fg(color::fg_faint())
+            .child(id)
+    });
     let header = div()
-        .flex()
-        .items_center()
-        .gap(px(10.0))
+        .row(10.0)
         .h(px(34.0))
         .pl(px(12.0))
         .pr(px(8.0))
         .bg(rgba(tint << 8 | SIDE_HEADER_ALPHA))
-        .when(bordered, |header| {
-            header.border_t_1().border_color(rgba(glass::divider()))
-        })
+        .when(bordered, |header| header.top_border(glass::divider()))
         .whitespace_nowrap()
-        .text_size(px(font::status_size()))
-        .text_color(rgb(color::fg_kbd()))
-        .child(ref_chip(chip))
-        .child(div().text_color(rgb(role_color)).child(role))
-        .children(id.map(|id| {
-            div()
-                .font_family(font::mono())
-                .text_color(rgb(color::fg_faint()))
-                .child(id)
-        }))
-        .child(div().min_w_0().truncate().child(subject))
-        .child(div().flex_1());
-    let faces = code_faces(&Code::new(lines.join("\n"), mode));
-    let lines = numbered(first, &lines, &faces, |row, _| row, false)
-        .map(|row| {
-            row.mx_0()
-                .rounded_none()
-                .bg(rgba(tint << 8 | SIDE_LINE_ALPHA))
-        })
-        .collect();
-    Side { header, lines }
+        .status_text(color::fg_kbd())
+        .child(ref_chip(side.chip))
+        .child(div().fg(role_color).child(side.role))
+        .children(id)
+        .child(div().min_w_0().truncate().child(side.subject))
+        .child(div().flex_1())
+        .child(button);
+    let faces = code_faces(&Code::new(side.lines.join("\n"), mode));
+    let lines = numbered(side.first, &side.lines, &faces, false).map(|row| {
+        row.mx_0()
+            .rounded_none()
+            .bg(rgba(tint << 8 | SIDE_LINE_ALPHA))
+    });
+    std::iter::once(header).chain(lines).collect()
 }
 
 /// A button with the key that presses it, if it has one now.
@@ -349,29 +265,19 @@ fn key_button(
     action: Action,
     cx: &mut Context<EditorView>,
 ) -> Div {
-    clickable(
-        div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(8.0))
-            .h(px(26.0))
-            .pl(px(10.0))
-            .pr(px(if key.is_some() { 5.0 } else { 10.0 }))
-            .rounded(px(6.0))
-            .bg(rgba(glass::control()))
-            .border_1()
-            .border_color(rgba(glass::control_border()))
-            .shadow(vec![shadow(glass::shadow(0x66), 1.0, 2.0, 0.0)])
-            .text_size(px(font::status_size()))
-            .text_color(rgb(color::fg_main()))
-            .child(label)
-            .children(key.map(|key| {
-                kbd(key, false)
-                    .h(px(18.0))
-                    .bg(rgba(glass::key_on_control()))
-            })),
-        action,
-        cx,
-    )
+    let key_cap = key.map(|key| {
+        kbd(key, false)
+            .h(px(18.0))
+            .bg(rgba(glass::key_on_control()))
+    });
+    let button = control(6.0)
+        .row(8.0)
+        .flex_none()
+        .h(px(26.0))
+        .pl(px(10.0))
+        .pr(px(if key.is_some() { 5.0 } else { 10.0 }))
+        .status_text(color::fg_main())
+        .child(label)
+        .children(key_cap);
+    clickable(button, action, cx)
 }

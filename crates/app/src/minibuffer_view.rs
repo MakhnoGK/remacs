@@ -1,13 +1,18 @@
+mod candidates;
+mod chips;
+mod field;
+
+use std::borrow::Cow;
 use std::ops::Range;
 
 use gpui::{
-    AnyElement, Context, Div, FontWeight, HighlightStyle, IntoElement, MouseButton, MouseDownEvent,
-    ParentElement, Pixels, ScrollHandle, StyledText, div, linear_color_stop, linear_gradient,
-    prelude::*, px, rgb, rgba, svg,
+    AnyElement, Context, Div, FontWeight, HighlightStyle, IntoElement, ParentElement, Pixels,
+    ScrollHandle, StyledText, div, linear_color_stop, linear_gradient, prelude::*, px, rgb, rgba,
+    svg,
 };
 use remacs_core::{
-    BannerPart, Candidate, CommitChain, Count, EntryAction, Expansion, Icon, Minibuffer,
-    PromptOption, RefKind, Tone, parse_sequence, quote,
+    BannerPart, Candidate, CommitChain, Count, EntryAction, Expansion, Icon, Minibuffer, Prompt,
+    PromptChoice, PromptOption, RefKind, Tone, parse_sequence, quote,
 };
 use remacs_theme::{color, font, glass};
 
@@ -20,9 +25,14 @@ use crate::outline_view::ref_chip;
 use crate::settings::{DirectoryPosition, PromptsSettings};
 use crate::widgets::{
     GlassBlur, PressExt, StyleExt, block_cursor, choice_chip, glass_surface, hsla, icon, kbd,
-    list_items, modal_surface, modified_dot, option_chip, segment, segmented, shadow,
+    key_caps, list_items, modal_surface, modified_dot, option_chip, segment, segmented, shadow,
     text_with_cursor, tone_color, ui_text,
 };
+
+use candidates::render_candidates;
+pub(crate) use candidates::{matches_in, secondary_color};
+use chips::{render_chips, render_outcome, render_segmented_choices, render_switches};
+use field::{render_description, render_field};
 
 const POPOVER_TOP: f32 = 60.0;
 /// The problem list opens from the status pill, above it.
@@ -83,8 +93,49 @@ fn panel_on(surface: Div, width: f32) -> Div {
         .w(px(width))
         .p(px(8.0))
         .font_family(font::ui())
-        .text_color(rgb(color::fg_main()))
+        .fg(color::fg_main())
 }
+
+/// A title as dialogs and titled prompts set it.
+pub(crate) fn title_text(title: &str) -> Div {
+    let title = ui_text(title, FontWeight::SEMIBOLD, color::fg_main());
+    div().text_size(px(font::title_size())).child(title)
+}
+
+/// Interface text `size` pixels high in `text_color`, its names in the code font.
+pub(crate) fn plain_text(text: &str, size: f32, text_color: u32) -> Div {
+    let text = ui_text(text, FontWeight::NORMAL, text_color);
+    div().text_size(px(size)).child(text)
+}
+
+/// Shorthands the prompt, the dialog and the panes beside a table share, beside `StyleExt`.
+pub(crate) trait PanelStyle: Styled + Sized {
+    /// A column of flex children.
+    fn column(self) -> Self {
+        self.flex().flex_col()
+    }
+
+    /// `top` and `bottom` padding, and `x` on either side.
+    fn pad(self, top: f32, x: f32, bottom: f32) -> Self {
+        self.pt(px(top)).px(px(x)).pb(px(bottom))
+    }
+
+    /// Rounded by `radius` and filled with `fill`, a color with alpha.
+    fn rounded_fill(self, radius: f32, fill: u32) -> Self {
+        self.rounded(px(radius)).bg(rgba(fill))
+    }
+
+    fn fg(self, color: u32) -> Self {
+        self.text_color(rgb(color))
+    }
+
+    /// A one-pixel line along the top in `color`, with alpha.
+    fn top_border(self, color: u32) -> Self {
+        self.border_t_1().border_color(rgba(color))
+    }
+}
+
+impl<E: Styled> PanelStyle for E {}
 
 /// Whether the prompt shows the editable input, which dialogs, titled prompts and
 /// questions leave out.
@@ -119,13 +170,10 @@ pub fn render_minibuffer(
     let field = match &prompt.title {
         Some((title, note)) => render_title(title, note).into_any_element(),
         None if minibuffer.is_question() => render_title(&prompt.label, "").into_any_element(),
-        None => render_field(
-            minibuffer,
-            input_scroll,
-            composition,
-            px(prompts.input_margin),
-        )
-        .into_any_element(),
+        None => {
+            let margin = px(prompts.input_margin);
+            render_field(minibuffer, input_scroll, composition, margin).into_any_element()
+        }
     };
     let directory = |position| {
         (prompts.directory == position && !prompt.directory.is_empty())
@@ -154,38 +202,28 @@ pub fn render_minibuffer(
         .when(!minibuffer.candidates().is_empty(), |popover| {
             popover.child(render_candidates(minibuffer, cx))
         })
-        .when_some(
-            minibuffer.completions().outcome.clone(),
-            |popover, outcome| popover.child(render_outcome(outcome)),
-        )
+        .children(minibuffer.completions().outcome.clone().map(render_outcome))
         .when(!prompt.items.is_empty(), |popover| {
+            let summary = Some(prompt.items_summary.clone());
+            let items = list_items(prompt.items.clone(), MAX_LISTED_ITEMS, 30.0);
             popover
-                .child(render_group_title(
-                    prompt.items_title,
-                    Some(prompt.items_summary.clone()),
-                    false,
-                ))
-                .children(list_items(prompt.items.clone(), MAX_LISTED_ITEMS, 30.0))
+                .child(render_group_title(prompt.items_title, summary, false))
+                .children(items)
         })
         .children(chips_last)
         .child(render_hints(minibuffer.hints()));
-    if is_problem_list(minibuffer) {
-        return div()
-            .absolute()
+    let corner = if is_problem_list(minibuffer) {
+        div()
             .right(px(STATUS_POPOVER_RIGHT))
             .bottom(px(STATUS_POPOVER_BOTTOM))
-            .child(popover)
-            .into_any_element();
-    }
-    if prompt.from_toolbar {
-        return div()
-            .absolute()
+    } else if prompt.from_toolbar {
+        div()
             .top(px(TOOLBAR_POPOVER_TOP))
             .right(px(TOOLBAR_POPOVER_RIGHT))
-            .child(popover)
-            .into_any_element();
-    }
-    centered(popover)
+    } else {
+        return centered(popover);
+    };
+    corner.absolute().child(popover).into_any_element()
 }
 
 /// In place of the field: what the prompt does or asks, as a dialog's title, and a note
@@ -196,54 +234,36 @@ fn render_title(title: &str, note: &str) -> Div {
         .items_baseline()
         .justify_between()
         .gap(px(12.0))
-        .pt(px(6.0))
-        .px(px(10.0))
-        .pb(px(8.0))
-        .child(
-            div()
-                .min_w_0()
-                .text_size(px(font::title_size()))
-                .child(ui_text(title, FontWeight::SEMIBOLD, color::fg_main())),
-        )
-        .child(
-            div()
-                .flex_none()
-                .text_size(px(font::status_size()))
-                .child(ui_text(note, FontWeight::NORMAL, color::fg_dim())),
-        )
+        .pad(6.0, 10.0, 8.0)
+        .child(title_text(title).min_w_0())
+        .child(plain_text(note, font::status_size(), color::fg_dim()).flex_none())
 }
 
 /// `in <directory>`: the parents give way to an ellipsis so the last directory stays
 /// whole.
 fn render_directory(directory: &str, position: DirectoryPosition) -> Div {
     let (parents, last) = split_last_directory(directory);
-    let row = div()
+    let (top, bottom) = match position {
+        DirectoryPosition::Above => (2.0, 8.0),
+        DirectoryPosition::Below => (8.0, 2.0),
+    };
+    let path = div()
+        .flex()
+        .min_w_0()
+        .font_family(font::mono())
+        .fg(color::fg_prompt_directory())
+        .child(div().min_w_0().truncate().child(parents.to_owned()))
+        .child(div().flex_none().child(last.to_owned()));
+    div()
         .flex()
         .items_baseline()
         .gap(px(6.0))
-        .px(px(10.0))
+        .pad(top, 10.0, bottom)
         .overflow_hidden()
         .whitespace_nowrap()
         .text_size(px(font::status_size()))
-        .child(
-            div()
-                .flex_none()
-                .text_color(rgb(color::fg_dim()))
-                .child("in"),
-        )
-        .child(
-            div()
-                .flex()
-                .min_w_0()
-                .font_family(font::mono())
-                .text_color(rgb(color::fg_prompt_directory()))
-                .child(div().min_w_0().truncate().child(parents.to_owned()))
-                .child(div().flex_none().child(last.to_owned())),
-        );
-    match position {
-        DirectoryPosition::Above => row.pt(px(2.0)).pb(px(8.0)),
-        DirectoryPosition::Below => row.pt(px(8.0)).pb(px(2.0)),
-    }
+        .child(div().flex_none().fg(color::fg_dim()).child("in"))
+        .child(path)
 }
 
 /// `~/a/b/` into `~/a` and `/b/`: the slash stays with the last directory, so the
@@ -262,221 +282,11 @@ fn render_summary(parts: &[BannerPart]) -> Div {
         .gap(px(8.0))
         .px(px(10.0))
         .pb(px(10.0))
-        .text_size(px(font::status_size()))
-        .text_color(rgb(color::fg_dim()))
+        .status_text(color::fg_dim())
         .children(parts.iter().map(|part| match part {
             BannerPart::Chip(chip) => ref_chip(chip.clone()),
             BannerPart::Word(word) => div().child(word.clone()),
         }))
-}
-
-/// Choices drawn as segments, every value shown, the chosen one lit; a click picks the
-/// next.
-fn render_segmented_choices(minibuffer: &Minibuffer, cx: &mut Context<EditorView>) -> Option<Div> {
-    let choices: Vec<Div> = minibuffer
-        .prompt()
-        .choices
-        .iter()
-        .enumerate()
-        .filter(|(_, choice)| choice.segmented)
-        .map(|(index, choice)| {
-            let selected = choice.selected.get();
-            let segments = choice
-                .values
-                .iter()
-                .enumerate()
-                .map(|(position, value)| segment(value, position == selected));
-            segmented().children(segments).on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |view, _: &MouseDownEvent, _, cx| {
-                    cx.stop_propagation();
-                    view.next_prompt_choice(index, cx);
-                }),
-            )
-        })
-        .collect();
-    (!choices.is_empty()).then(|| div().flex().gap(px(8.0)).px(px(10.0)).children(choices))
-}
-
-/// Switches between two settings, then what the prompt acts on, above the input.
-fn render_switches(minibuffer: &Minibuffer, cx: &mut Context<EditorView>) -> Div {
-    let prompt = minibuffer.prompt();
-    let switches = prompt
-        .options
-        .iter()
-        .enumerate()
-        .filter(|(_, option)| option.is_switch() && option.is_shown())
-        .map(|(index, option)| {
-            let segments = option.labels.iter().enumerate().map(|(position, label)| {
-                let selected = (position == 1) == option.is_on();
-                option_click(segment(label, selected), index, cx)
-            });
-            div()
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap(px(6.0))
-                .child(segmented().children(segments))
-                .child(kbd(&format!("M-{}", option.key), false))
-        });
-    div()
-        .flex()
-        .items_center()
-        .gap(px(12.0))
-        .pt(px(2.0))
-        .px(px(2.0))
-        .pb(px(10.0))
-        .children(switches)
-        .child(
-            div()
-                .min_w_0()
-                .truncate()
-                .text_size(px(font::ui_size()))
-                .child(ui_text(
-                    minibuffer.subject(),
-                    FontWeight::NORMAL,
-                    color::fg_body(),
-                )),
-        )
-}
-
-/// Choices, then settings that are on or off, under the lists; then the completions'
-/// footnote, or what the prompt acts on if `with_subject`.
-fn render_chips(
-    minibuffer: &Minibuffer,
-    with_subject: bool,
-    cx: &mut Context<EditorView>,
-) -> Option<Div> {
-    let prompt = minibuffer.prompt();
-    let footnote = minibuffer.completions().footnote.clone();
-    let mut chips: Vec<Div> = prompt
-        .choices
-        .iter()
-        .enumerate()
-        .filter(|(_, choice)| !choice.segmented)
-        .map(|(index, choice)| {
-            choice_chip(choice.label, choice.value().unwrap_or_default()).on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |view, _: &MouseDownEvent, _, cx| {
-                    cx.stop_propagation();
-                    view.next_prompt_choice(index, cx);
-                }),
-            )
-        })
-        .collect();
-    let options = prompt
-        .options
-        .iter()
-        .enumerate()
-        .filter(|(_, option)| !option.is_switch() && option.is_shown())
-        .map(|(index, option)| {
-            let chip = option_chip(
-                &option.labels[0],
-                &format!("M-{}", option.key),
-                option.is_on(),
-            );
-            option_click(chip, index, cx)
-        });
-    chips.extend(options);
-    (!chips.is_empty()).then(|| {
-        div()
-            .flex()
-            .flex_wrap()
-            .items_center()
-            .gap(px(6.0))
-            .pt(px(12.0))
-            .px(px(10.0))
-            .pb(px(2.0))
-            .children(chips)
-            .when_some(footnote, |chips, footnote| {
-                chips.child(div().flex_1()).child(
-                    div()
-                        .flex()
-                        .flex_none()
-                        .items_center()
-                        .gap(px(6.0))
-                        .text_size(px(font::status_size()))
-                        .text_color(rgb(color::fg_dim()))
-                        .child(
-                            div()
-                                .size(px(9.0))
-                                .rounded_full()
-                                .border(px(1.6))
-                                .border_color(rgb(color::info())),
-                        )
-                        .child(footnote),
-                )
-            })
-            .when(with_subject && !minibuffer.subject().is_empty(), |chips| {
-                chips.child(div().flex_1()).child(
-                    div()
-                        .flex_none()
-                        .text_size(px(font::status_size()))
-                        .child(ui_text(
-                            minibuffer.subject(),
-                            FontWeight::NORMAL,
-                            color::fg_faint(),
-                        )),
-                )
-            })
-    })
-}
-
-/// What choosing would make: a summary, then the base, a dot per commit and the tip.
-fn render_outcome((summary, chain): (String, CommitChain)) -> impl IntoElement {
-    let dot = |color_hex: u32| {
-        div()
-            .flex_none()
-            .size(px(10.0))
-            .rounded_full()
-            .bg(rgb(color_hex))
-            .border_2()
-            .border_color(rgb(color::bg_popup()))
-    };
-    let line = |from: u32, to: u32| {
-        div().w(px(36.0)).h(px(2.0)).bg(linear_gradient(
-            90.0,
-            linear_color_stop(hsla(from), 0.0),
-            linear_color_stop(hsla(to), 1.0),
-        ))
-    };
-    // A remote's commit, like a merge base, is grey; what comes in is the base's color.
-    let base_color = match chain.base.kind {
-        RefKind::Remote => color::fg_line_number(),
-        _ => color::graph(1),
-    };
-    let (incoming_color, tip_color) = (color::graph(1), color::graph(0));
-    let mut chain_row = div()
-        .flex()
-        .items_center()
-        .py(px(6.0))
-        .px(px(10.0))
-        .child(ref_chip(chain.base).mr(px(12.0)))
-        .child(dot(base_color));
-    let mut previous = base_color;
-    let colors = std::iter::repeat_n(incoming_color, chain.incoming)
-        .chain(std::iter::repeat_n(tip_color, chain.commits));
-    for dot_color in colors {
-        chain_row = chain_row
-            .child(line(previous, dot_color))
-            .child(dot(dot_color));
-        previous = dot_color;
-    }
-    let summary = Some(summary).filter(|summary| !summary.is_empty());
-    div()
-        .child(render_group_title("Result", summary, false))
-        .child(chain_row.child(ref_chip(chain.tip).ml(px(12.0))))
-        .children(chain.note.map(|note| {
-            div()
-                .px(px(10.0))
-                .text_size(px(font::status_size()))
-                .text_color(rgb(color::fg_dim()))
-                .child(note)
-        }))
-}
-
-fn option_click(element: Div, index: usize, cx: &mut Context<EditorView>) -> Div {
-    element.on_press(cx, move |view, cx| view.toggle_prompt_option(index, cx))
 }
 
 /// Near the top of the window, centered across it.
@@ -492,295 +302,6 @@ fn centered(popover: impl IntoElement) -> AnyElement {
         .into_any_element()
 }
 
-fn render_field(
-    minibuffer: &Minibuffer,
-    input_scroll: &ScrollHandle,
-    composition: Option<&Composition>,
-    input_margin: Pixels,
-) -> impl IntoElement {
-    let prompt = minibuffer.prompt();
-    let field = div()
-        .flex()
-        .items_center()
-        .gap(px(10.0))
-        .h(px(FIELD_HEIGHT))
-        .px(px(12.0))
-        .bg(rgba(glass::field()))
-        .rounded(px(8.0))
-        .border_1()
-        .border_color(field_border(
-            !minibuffer.in_description() && !minibuffer.in_list(),
-        ));
-    let label = match minibuffer.label() {
-        keys if parse_sequence(keys).is_some() => quote(keys),
-        label => label.to_owned(),
-    };
-    field
-        .child(
-            div()
-                .flex()
-                .flex_none()
-                .items_center()
-                .h(px(24.0))
-                .px(px(8.0))
-                .rounded(px(6.0))
-                .bg(rgba(glass::chip()))
-                .text_size(px(font::status_size()))
-                .child(ui_text(&label, FontWeight::NORMAL, color::fg_alt())),
-        )
-        .child(render_input(
-            minibuffer,
-            input_scroll,
-            composition,
-            input_margin,
-        ))
-        .child(if is_problem_list(minibuffer) {
-            render_severity_counts(minibuffer.candidates()).into_any_element()
-        } else if let Some(message) = &prompt.message {
-            let length = minibuffer.input_text().chars().count();
-            div()
-                .flex_none()
-                .font_family(font::mono())
-                .text_size(px(font::status_size()))
-                .text_color(rgb(if length > message.subject_limit {
-                    color::warning()
-                } else {
-                    color::fg_dim()
-                }))
-                .child(format!("{length}/{}", message.subject_limit))
-                .into_any_element()
-        } else {
-            div()
-                .flex_none()
-                .font_family(if prompt.count == Count::Position {
-                    font::mono()
-                } else {
-                    font::ui()
-                })
-                .text_size(px(font::status_size()))
-                .text_color(rgb(color::fg_dim()))
-                .child(match minibuffer.note() {
-                    Some(note) => note.to_owned(),
-                    None => count_text(minibuffer),
-                })
-                .into_any_element()
-        })
-}
-
-/// How many of the listed problems are errors, warnings and notes.
-fn render_severity_counts(candidates: &[Candidate]) -> impl IntoElement {
-    let count = |severity| {
-        candidates
-            .iter()
-            .filter(|candidate| candidate.icon == Some(severity))
-            .count()
-    };
-    div()
-        .flex()
-        .flex_none()
-        .gap(px(4.0))
-        .children(SEVERITY_ICONS.map(|severity| {
-            div()
-                .row(6.0)
-                .h(px(26.0))
-                .px(px(9.0))
-                .rounded(px(6.0))
-                .bg(rgba(glass::control()))
-                .bordered(glass::ink(0x12))
-                .mono_status(color::fg_kbd())
-                .child(icon(severity, color::fg_kbd()))
-                .child(count(severity).to_string())
-        }))
-}
-
-/// Scrolled sideways just enough to keep the cursor and `margin` on each side of it in
-/// view, like Emacs `hscroll`: the text before it, the cursor and the text after it are
-/// separate children so the view can scroll to the cursor's.
-fn render_input(
-    minibuffer: &Minibuffer,
-    scroll: &ScrollHandle,
-    composition: Option<&Composition>,
-    margin: Pixels,
-) -> impl IntoElement {
-    let input = minibuffer.input();
-    let mut line = DisplayLine::new(&minibuffer.input_text());
-    let cursor = line.cursor_cell(input.point_column());
-    let part = |range: Range<usize>| div().flex_none().child(line.text[range].to_owned());
-    let typed = !minibuffer.in_description() && minibuffer.is_typed();
-    let composition = composition.filter(|_| typed);
-    let cursor_part = if typed {
-        block_cursor().children(composition.map(Composition::track_caret))
-    } else {
-        div().flex_none()
-    };
-    // Padding the view scrolls into sight with the cursor, taken back by as much margin so
-    // the text does not move; none past the end, where the text before fills the field.
-    let text_after = cursor.end < line.text.len();
-    let cursor_with_margin = div()
-        .flex_none()
-        .pl(margin)
-        .ml(-margin)
-        .when(text_after, |part| part.pr(margin).mr(-margin))
-        .flex()
-        // Scrolled into sight with the cursor.
-        .children(composition.and_then(Composition::render_marked))
-        .child(cursor_part.child(line.text[cursor.clone()].to_owned()));
-    scroll.scroll_to_item(CURSOR_CHILD);
-    div()
-        .id("minibuffer-input")
-        .flex()
-        .flex_1()
-        .min_w_0()
-        .overflow_x_scroll()
-        .track_scroll(scroll)
-        .whitespace_nowrap()
-        .font_family(font::mono())
-        .text_size(px(font::input_size()))
-        .child(part(0..cursor.start))
-        .child(cursor_with_margin)
-        .child(part(cursor.end..line.text.len()))
-        .when(input.text().is_empty(), |field| {
-            field.child(
-                div()
-                    .text_color(rgb(color::fg_placeholder()))
-                    .child(minibuffer.prompt().placeholder),
-            )
-        })
-}
-
-/// Lit while it is the one being typed in.
-fn field_border(active: bool) -> gpui::Rgba {
-    rgba(if active {
-        color::accent() << 8 | 0x59
-    } else {
-        glass::ink(0x0f)
-    })
-}
-
-/// A message's description under its subject: a few lines, scrolled to the cursor, with
-/// `composition` before it while typed in.
-fn render_description(
-    minibuffer: &Minibuffer,
-    composition: Option<&Composition>,
-) -> Option<impl IntoElement> {
-    let description = minibuffer.description()?;
-    let active = minibuffer.in_description();
-    let text = description.contents(0..description.text().len());
-    let point_line = description.point_line();
-    let first = if active {
-        point_line.saturating_sub(DESCRIPTION_LINES - 1)
-    } else {
-        0
-    };
-    let lines = text
-        .split('\n')
-        .enumerate()
-        .skip(first)
-        .take(DESCRIPTION_LINES)
-        .map(|(index, source)| {
-            let mut line = DisplayLine::new(source);
-            let text = if active && index == point_line {
-                let cursor = line.cursor_cell(description.point_column());
-                text_with_cursor(&line.text, &Vec::new(), cursor, composition)
-            } else {
-                div().child(line.text)
-            };
-            div()
-                .h(px(DESCRIPTION_LINE_HEIGHT))
-                .whitespace_nowrap()
-                .overflow_hidden()
-                .child(text)
-        });
-    let placeholder = minibuffer
-        .prompt()
-        .message
-        .as_ref()
-        .map_or("", |message| message.placeholder);
-    let label = render_group_title("Description", None, false);
-    let field = div()
-        .flex()
-        .flex_col()
-        .h(px(DESCRIPTION_LINE_HEIGHT * DESCRIPTION_LINES as f32 + 16.0))
-        .py(px(8.0))
-        .px(px(12.0))
-        .bg(rgba(glass::field()))
-        .rounded(px(8.0))
-        .border_1()
-        .border_color(field_border(active))
-        .font_family(font::mono())
-        .text_size(px(font::mono_size()))
-        .line_height(px(DESCRIPTION_LINE_HEIGHT))
-        .text_color(rgb(color::fg_body()))
-        .children(lines)
-        .when(text.is_empty() && !active, |field| {
-            field.child(
-                div()
-                    .text_color(rgb(color::fg_placeholder()))
-                    .child(placeholder),
-            )
-        });
-    Some(div().child(label).child(field))
-}
-
-fn count_text(minibuffer: &Minibuffer) -> String {
-    let total = minibuffer.total();
-    match minibuffer.prompt().count {
-        Count::Position => format!(
-            "{}/{total}",
-            minibuffer.selected().map_or(0, |index| index + 1)
-        ),
-        Count::Matches if total == 1 => "1 match".into(),
-        Count::Matches => format!("{total} matches"),
-        Count::Total => total.to_string(),
-    }
-}
-
-fn render_candidates(minibuffer: &Minibuffer, cx: &mut Context<EditorView>) -> impl IntoElement {
-    let candidates = minibuffer.candidates();
-    let is_problem_list = is_problem_list(minibuffer);
-    let mut list = div().flex().flex_col().gap(px(2.0));
-    let mut group = None;
-    for index in minibuffer.visible() {
-        let candidate = &candidates[index];
-        let candidate_group = candidate.group.as_deref();
-        if let Some(title) = candidate_group.filter(|_| candidate_group != group) {
-            // Problems are grouped by file: names keep their case and show their count.
-            let counted = is_problem_list || minibuffer.completions().count_groups;
-            let count = counted.then(|| {
-                candidates
-                    .iter()
-                    .filter(|other| other.group.as_deref() == Some(title))
-                    .count()
-            });
-            list = list.child(render_group_title(
-                title,
-                count.map(|count| count.to_string()),
-                is_problem_list,
-            ));
-        }
-        group = candidate_group;
-        let selected = minibuffer.selected() == Some(index);
-        let row = if is_problem_list {
-            render_problem(candidate, index, selected, cx)
-        } else if let Some(expansion) = &candidate.expansion {
-            render_entry(
-                candidate,
-                expansion,
-                index,
-                selected,
-                minibuffer.in_list(),
-                cx,
-            )
-        } else if let Some(action) = candidate.action {
-            render_step(candidate, action, index, selected, cx)
-        } else {
-            render_candidate(minibuffer, candidate, index, selected, cx)
-        };
-        list = list.child(row);
-    }
-    list.when(group.is_none(), |list| list.pt(px(6.0)))
-}
-
 /// Upper case, unless it is a name; `summary` goes on the right.
 fn render_group_title(title: &str, summary: Option<String>, is_name: bool) -> impl IntoElement {
     let title = if is_name {
@@ -791,466 +312,25 @@ fn render_group_title(title: &str, summary: Option<String>, is_name: bool) -> im
     div()
         .flex()
         .justify_between()
-        .pt(px(12.0))
-        .px(px(10.0))
-        .pb(px(4.0))
-        .text_size(px(font::small_size()))
+        .pad(12.0, 10.0, 4.0)
+        .text(font::small_size(), color::fg_faint())
         .font_weight(FontWeight::SEMIBOLD)
-        .text_color(rgb(color::fg_faint()))
         .child(title)
         .children(summary)
 }
 
-/// A row that answers the prompt with candidate `index` when clicked.
-fn candidate_row(index: usize, selected: bool, cx: &mut Context<EditorView>) -> Div {
-    div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .px(px(10.0))
-        .rounded(px(8.0))
-        .when(selected, |row| {
-            row.bg(rgba(glass::selection())).shadow(vec![shadow(
-                glass::shadow(0x73),
-                1.0,
-                3.0,
-                0.0,
-            )])
-        })
-        .on_mouse_down(
-            MouseButton::Left,
-            cx.listener(move |view, _: &MouseDownEvent, _, cx| {
-                cx.stop_propagation();
-                view.choose_candidate(index, cx);
-            }),
-        )
-}
-
-pub(crate) fn secondary_color(selected: bool) -> u32 {
-    if selected {
-        color::fg_alt()
-    } else {
-        color::fg_dim()
-    }
-}
-
-fn match_style(selected: bool) -> HighlightStyle {
-    HighlightStyle {
-        color: Some(hsla(if selected {
-            color::accent_on_selection()
-        } else {
-            color::accent()
-        })),
-        ..Default::default()
-    }
-}
-
-/// `matches` within `range` of a label, relative to the range's start.
-pub(crate) fn matches_in(
-    matches: &[Range<usize>],
-    range: Range<usize>,
-    selected: bool,
-) -> Vec<(Range<usize>, HighlightStyle)> {
-    matches
-        .iter()
-        .map(|matched| matched.start.max(range.start)..matched.end.min(range.end))
-        .filter(|matched| !matched.is_empty())
-        .map(|matched| {
-            (
-                matched.start - range.start..matched.end - range.start,
-                match_style(selected),
-            )
-        })
-        .collect()
-}
-
-/// A problem: severity icon, message, source and `line:column`.
-fn render_problem(
-    candidate: &Candidate,
-    index: usize,
-    selected: bool,
-    cx: &mut Context<EditorView>,
-) -> AnyElement {
-    let secondary = secondary_color(selected);
-    candidate_row(index, selected, cx)
-        .gap(px(12.0))
-        .h(px(WIDE_ROW_HEIGHT))
-        .children(candidate.icon.map(|severity| icon(severity, secondary)))
-        .child(render_message(candidate, selected))
-        .when_some(candidate.detail.clone(), |row, source| {
-            row.child(
-                div()
-                    .flex_none()
-                    .text_size(px(font::status_size()))
-                    .text_color(rgb(secondary))
-                    .child(source.into_owned()),
-            )
-        })
-        .child(
-            div()
-                .flex_none()
-                .w(px(POSITION_WIDTH))
-                .text_right()
-                .font_family(font::mono())
-                .text_size(px(font::status_size()))
-                .text_color(rgb(secondary))
-                .child(candidate.annotation.clone()),
-        )
-        .into_any_element()
-}
-
-/// A step of a plan: the action on it as a button, its id and what it is.
-fn render_step(
-    candidate: &Candidate,
-    (action, tone): (&'static str, Tone),
-    index: usize,
-    selected: bool,
-    cx: &mut Context<EditorView>,
-) -> AnyElement {
-    let action_color = match tone {
-        Tone::Plain => color::fg_body(),
-        tone => tone_color(tone, color::fg_body()),
-    };
-    candidate_row(index, selected, cx)
-        .gap(px(12.0))
-        .h(px(WIDE_ROW_HEIGHT))
-        .child(
-            div()
-                .flex()
-                .flex_none()
-                .items_center()
-                .justify_between()
-                .w(px(88.0))
-                .h(px(24.0))
-                .px(px(8.0))
-                .rounded(px(6.0))
-                .bg(rgba(glass::control()))
-                .border_1()
-                .border_color(rgba(glass::ink(0x14)))
-                .font_family(font::mono())
-                .text_size(px(font::status_size()))
-                .text_color(rgb(action_color))
-                .child(action)
-                .child(
-                    svg()
-                        .path(CHEVRON_DOWN_ICON)
-                        .size(px(10.0))
-                        .text_color(rgb(action_color)),
-                ),
-        )
-        .child(
-            div()
-                .flex_none()
-                .w(px(64.0))
-                .font_family(font::mono())
-                .text_size(px(font::status_size()))
-                .text_color(rgb(if selected {
-                    color::fg_alt()
-                } else {
-                    color::fg_line_number()
-                }))
-                .child(candidate.label.clone()),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .text_size(px(font::ui_size()))
-                .child(candidate.annotation.clone()),
-        )
-        .into_any_element()
-}
-
-/// An entry: its id, what it is and when; selected, it opens up to show its items and
-/// the buttons that act on it, lit while keys go to the list. A click selects it.
-fn render_entry(
-    candidate: &Candidate,
-    expansion: &Expansion,
-    index: usize,
-    selected: bool,
-    in_list: bool,
-    cx: &mut Context<EditorView>,
-) -> AnyElement {
-    let header = |detail: String| {
-        div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(10.0))
-            .child(
-                div()
-                    .flex_none()
-                    .px(px(6.0))
-                    .py(px(2.0))
-                    .rounded(px(5.0))
-                    .bg(rgba(glass::ink(0x0f)))
-                    .font_family(font::mono())
-                    .text_size(px(font::status_size()))
-                    .text_color(rgb(color::fg_alt()))
-                    .child(candidate.label.clone()),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .text_size(px(font::ui_size()))
-                    .child(candidate.annotation.clone()),
-            )
-            .child(
-                div()
-                    .flex_none()
-                    .text_size(px(font::status_size()))
-                    .text_color(rgb(color::fg_faint()))
-                    .child(detail),
-            )
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |view, _: &MouseDownEvent, _, cx| {
-                    cx.stop_propagation();
-                    view.focus_candidate(index, cx);
-                }),
-            )
-    };
-    if !selected {
-        let detail = candidate.detail.clone().unwrap_or_default().into_owned();
-        return header(detail)
-            .h(px(WIDE_ROW_HEIGHT))
-            .px(px(10.0))
-            .rounded(px(8.0))
-            .into_any_element();
-    }
-    let (border, background) = if in_list {
-        (color::accent() << 8 | 0x61, color::accent() << 8 | 0x14)
-    } else {
-        (glass::ink(0x14), glass::ink(0x08))
-    };
-    let (destructive, actions): (Vec<EntryAction>, Vec<EntryAction>) = expansion
-        .actions
-        .iter()
-        .partition(|action| action.destructive);
-    let button = |action: EntryAction| {
-        let command = action.command;
-        div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(8.0))
-            .h(px(28.0))
-            .pl(px(10.0))
-            .pr(px(5.0))
-            .rounded(px(7.0))
-            .bg(rgba(glass::control()))
-            .border_1()
-            .border_color(rgba(if action.destructive {
-                color::error() << 8 | 0x4d
-            } else {
-                glass::ink(0x14)
-            }))
-            .shadow(vec![shadow(glass::shadow(0x80), 1.0, 2.0, 0.0)])
-            .text_size(px(font::status_size()))
-            .text_color(rgb(if action.destructive {
-                color::fg_flagged()
-            } else {
-                color::fg_main()
-            }))
-            .child(action.label)
-            .child(kbd(action.key, false).h(px(18.0)))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |view, _: &MouseDownEvent, _, cx| {
-                    cx.stop_propagation();
-                    view.run_command(command, cx);
-                }),
-            )
-    };
-    let buttons = div()
-        .flex()
-        .items_center()
-        .gap(px(6.0))
-        .children(actions.into_iter().map(button))
-        .child(div().flex_1())
-        .children(destructive.into_iter().map(button));
-    div()
-        .flex()
-        .flex_col()
-        .flex_none()
-        .gap(px(8.0))
-        .pt(px(8.0))
-        .px(px(10.0))
-        .pb(px(10.0))
-        .rounded(px(10.0))
-        .bg(rgba(background))
-        .border_1()
-        .border_color(rgba(border))
-        .child(header(expansion.detail.clone()).h(px(28.0)))
-        .when(!expansion.items.is_empty(), |entry| {
-            entry.child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .py(px(4.0))
-                    .rounded(px(8.0))
-                    .bg(rgba(glass::field()))
-                    .children(list_items(expansion.items.clone(), MAX_LISTED_ITEMS, 26.0)),
-            )
-        })
-        .child(buttons)
-        .into_any_element()
-}
-
-/// A message whose `quoted` parts, as diagnostics write code, are set in the code font.
-fn render_message(candidate: &Candidate, selected: bool) -> impl IntoElement {
-    let (code_color, code_background) = if selected {
-        (color::fg_main(), glass::ink(0x1f))
-    } else {
-        (color::fg_alt(), glass::ink(0x12))
-    };
-    let mut message = div()
-        .flex()
-        .flex_1()
-        .min_w_0()
-        .items_center()
-        .overflow_hidden()
-        .whitespace_nowrap()
-        .text_size(px(font::ui_size()));
-    let mut start = 0;
-    for (index, part) in candidate.label.split('`').enumerate() {
-        let range = start..start + part.len();
-        start = range.end + 1;
-        if part.is_empty() {
-            continue;
-        }
-        let highlights = matches_in(&candidate.matches, range, selected);
-        let text = StyledText::new(part.to_owned()).with_highlights(highlights);
-        let is_code = index % 2 == 1;
-        message = message.child(
-            div()
-                .flex_none()
-                .when(is_code, |code| {
-                    code.px(px(5.0))
-                        .rounded(px(4.0))
-                        .bg(rgba(code_background))
-                        .font_family(font::mono())
-                        .text_size(px(font::status_size()))
-                        .text_color(rgb(code_color))
-                })
-                .child(text),
-        );
-    }
-    message
-}
-
-fn render_candidate(
-    minibuffer: &Minibuffer,
-    candidate: &Candidate,
-    index: usize,
-    selected: bool,
-    cx: &mut Context<EditorView>,
-) -> AnyElement {
-    let prompt = minibuffer.prompt();
-    let is_command = prompt.category == COMMAND_CATEGORY;
-    let secondary = secondary_color(selected);
-    let label = StyledText::new(candidate.label.clone()).with_highlights(matches_in(
-        &candidate.matches,
-        0..candidate.label.len(),
-        selected,
-    ));
-    // Gives way to nothing but its own length: a long path is cut short.
-    let name = div()
-        .flex_initial()
-        .min_w_0()
-        .truncate()
-        .font_family(font::mono())
-        .text_size(px(font::mono_size()))
-        .text_color(rgb(if candidate.dim {
-            color::fg_dim()
-        } else {
-            color::fg_main()
-        }))
-        .when(is_command, |name| name.w(px(COMMAND_NAME_WIDTH)))
-        .child(label);
-
-    candidate_row(index, selected, cx)
-        .gap(px(if is_command { 14.0 } else { 10.0 }))
-        .h(px(if prompt.wide {
-            WIDE_ROW_HEIGHT
-        } else {
-            ROW_HEIGHT
-        }))
-        .children(candidate.icon.map(|file| icon(file, secondary)))
-        .when_some(candidate.verb, |row, verb| {
-            row.child(div().flex_none().text_size(px(font::ui_size())).child(verb))
-        })
-        .child(name)
-        .when(candidate.modified, |row| row.child(modified_dot()))
-        .child(
-            div()
-                .fill_truncated()
-                .status_text(secondary)
-                .child(candidate.annotation.clone()),
-        )
-        .when_some(candidate.tag, |row, tag| {
-            row.child(render_tag(tag, selected))
-        })
-        .when_some(candidate.detail.clone(), |row, detail| {
-            row.child(
-                div()
-                    .flex_none()
-                    .text_size(px(font::status_size()))
-                    .text_color(rgb(secondary))
-                    .child(detail.into_owned()),
-            )
-        })
-        .when(!candidate.keys.is_empty(), |row| {
-            row.child(
-                div()
-                    .flex()
-                    .flex_none()
-                    .gap(px(4.0))
-                    .children(candidate.keys.iter().map(|key| kbd(key, selected))),
-            )
-        })
-        .into_any_element()
-}
-
-fn render_tag(tag: &'static str, selected: bool) -> impl IntoElement {
-    let (background, foreground) = if selected {
-        (glass::ink(0x1f), color::fg_main())
-    } else {
-        (color::accent() << 8 | 0x24, color::fg_alt())
-    };
-    div()
-        .flex_none()
-        .px(px(7.0))
-        .py(px(2.0))
-        .rounded(px(5.0))
-        .bg(rgba(background))
-        .text(font::small_size(), foreground)
-        .child(tag)
-}
-
 fn render_hints(hints: &'static [(&'static str, &'static str)]) -> impl IntoElement {
+    let hint = |&(keys, action): &(&str, &'static str)| {
+        div().row(6.0).children(key_caps(keys)).child(action)
+    };
     div()
         .flex()
         .gap(px(18.0))
         .mt(px(6.0))
-        .pt(px(10.0))
-        .px(px(10.0))
-        .pb(px(4.0))
-        .border_t_1()
-        .border_color(rgba(glass::ink(0x0f)))
-        .text_size(px(font::status_size()))
-        .text_color(rgb(color::fg_dim()))
-        .children(hints.iter().map(|&(keys, action)| {
-            div()
-                .flex()
-                .items_center()
-                .gap(px(6.0))
-                .children(keys.split_whitespace().map(|key| kbd(key, false)))
-                .child(action)
-        }))
+        .pad(10.0, 10.0, 4.0)
+        .top_border(glass::ink(0x0f))
+        .status_text(color::fg_dim())
+        .children(hints.iter().map(hint))
 }
 
 #[cfg(test)]
