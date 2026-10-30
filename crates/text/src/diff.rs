@@ -64,15 +64,12 @@ fn common_len<'a>(
             }
         }
         let len = old_chunk.len().min(new_chunk.len());
-        let (old_part, old_rest, new_part, new_rest) = if from_end {
-            let (old_rest, old_part) = old_chunk.split_at(old_chunk.len() - len);
-            let (new_rest, new_part) = new_chunk.split_at(new_chunk.len() - len);
-            (old_part, old_rest, new_part, new_rest)
-        } else {
-            let (old_part, old_rest) = old_chunk.split_at(len);
-            let (new_part, new_rest) = new_chunk.split_at(len);
-            (old_part, old_rest, new_part, new_rest)
+        // The `len` bytes compared now, then the rest.
+        let split = |chunk: &'a [u8]| {
+            let (head, tail) = chunk.split_at(if from_end { chunk.len() - len } else { len });
+            if from_end { (tail, head) } else { (head, tail) }
         };
+        let ((old_part, old_rest), (new_part, new_rest)) = (split(old_chunk), split(new_chunk));
         if !std::ptr::eq(old_part, new_part) && old_part != new_part {
             let pairs = old_part.iter().zip(new_part);
             let equal = |(old, new): &(&u8, &u8)| old == new;
@@ -90,9 +87,17 @@ fn common_len<'a>(
 
 #[cfg(test)]
 mod tests {
-    use crate::Text;
+    use crate::{Rng, Text};
 
     use super::*;
+
+    fn at(start: usize, old_end: usize, new_end: usize) -> Option<Edit> {
+        Some(Edit {
+            start,
+            old_end,
+            new_end,
+        })
+    }
 
     fn edit(old: &Text, new: &Text) -> Option<(String, String)> {
         let edit = new.edit_from(old)?;
@@ -105,14 +110,7 @@ mod tests {
         let mut text = Text::from("fn main() {}\n");
         let old = text.snapshot();
         text.insert(11, "x");
-        assert_eq!(
-            text.edit_from(&old).unwrap(),
-            Edit {
-                start: 11,
-                old_end: 11,
-                new_end: 12
-            }
-        );
+        assert_eq!(text.edit_from(&old), at(11, 11, 12));
 
         let mut new = Text::from("fn main() {}\n");
         new.delete(3..7);
@@ -140,14 +138,7 @@ mod tests {
         text.add_undo_boundary();
         let edited = text.snapshot();
         text.undo();
-        assert_eq!(
-            text.edit_from(&edited).unwrap(),
-            Edit {
-                start: 4,
-                old_end: 4,
-                new_end: 8
-            }
-        );
+        assert_eq!(text.edit_from(&edited), at(4, 4, 8));
     }
 
     #[test]
@@ -158,25 +149,13 @@ mod tests {
         text.insert(1, "è");
         let (removed, inserted) = edit(&Text::from("aéb"), &text).unwrap();
         assert_eq!((removed.as_str(), inserted.as_str()), ("é", "è"));
-        assert_eq!(
-            text.edit_from(&old).unwrap(),
-            Edit {
-                start: 1,
-                old_end: 3,
-                new_end: 3
-            }
-        );
+        assert_eq!(text.edit_from(&old), at(1, 3, 3));
     }
 
     #[test]
     fn edits_rebuild_the_new_text() {
-        let mut seed = 0x2545_f491_4f6c_dd1d_u64;
-        let mut below = |bound: usize| {
-            seed ^= seed << 13;
-            seed ^= seed >> 7;
-            seed ^= seed << 17;
-            (seed % bound.max(1) as u64) as usize
-        };
+        let mut rng = Rng(0x2545_f491_4f6c_dd1d);
+        let mut below = |bound| rng.below(bound);
         let mut text = Text::from("abc\nabc\n");
         for _ in 0..2000 {
             let old = text.snapshot();

@@ -123,19 +123,16 @@ mod tests {
     fn matches_naive_scan_across_blocks() {
         let bytes = sample();
         let index = LineIndex::from_bytes(&bytes);
-        let newline_offsets: Vec<usize> = memchr_offsets(&bytes);
+        let offsets: Vec<usize> = memchr::memchr_iter(b'\n', &bytes).collect();
 
-        assert_eq!(index.total(), newline_offsets.len());
-        for (rank, &offset) in newline_offsets.iter().enumerate() {
+        assert_eq!(index.total(), offsets.len());
+        for (rank, &offset) in offsets.iter().enumerate() {
             assert_eq!(index.nth_newline(&bytes, rank), Some(offset));
             assert_eq!(index.newlines_before(&bytes, offset), rank);
             assert_eq!(index.newlines_before(&bytes, offset + 1), rank + 1);
         }
-        assert_eq!(index.nth_newline(&bytes, newline_offsets.len()), None);
-        assert_eq!(
-            index.newlines_before(&bytes, bytes.len()),
-            newline_offsets.len()
-        );
+        assert_eq!(index.nth_newline(&bytes, offsets.len()), None);
+        assert_eq!(index.newlines_before(&bytes, bytes.len()), offsets.len());
     }
 
     #[test]
@@ -160,9 +157,5 @@ mod tests {
         bytes[boundary + 100] = 0xE9;
         assert!(!index_file(&bytes).1);
         std::fs::remove_file(&path).unwrap();
-    }
-
-    fn memchr_offsets(bytes: &[u8]) -> Vec<usize> {
-        memchr::memchr_iter(b'\n', bytes).collect()
     }
 }

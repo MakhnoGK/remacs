@@ -161,18 +161,14 @@ fn user_file(name: &str, dir: Option<&Path>) -> Option<PathBuf> {
 }
 
 fn built_in_table(name: &str) -> Result<Table, ThemeError> {
-    let (_, text) = BUILT_IN
-        .iter()
-        .find(|(built_in, _)| *built_in == name)
-        .ok_or_else(|| ThemeError {
-            file: None,
-            line: None,
-            message: format!("there is no theme {name}"),
-        })?;
-    toml::from_str(text).map_err(|error| ThemeError {
+    let parsed = match BUILT_IN.iter().find(|(built_in, _)| *built_in == name) {
+        Some((_, text)) => toml::from_str(text).map_err(|error| error.message().to_owned()),
+        None => Err(format!("there is no theme {name}")),
+    };
+    parsed.map_err(|message| ThemeError {
         file: None,
         line: None,
-        message: error.message().to_owned(),
+        message,
     })
 }
 
@@ -363,26 +359,15 @@ mod tests {
             ],
         );
         let message = |name| Theme::load(name, Some(&dir)).unwrap_err().to_string();
-        assert!(
-            message("unknown").contains("keywords"),
-            "{}",
-            message("unknown")
-        );
-        assert!(
-            message("alpha").contains("not a color"),
-            "{}",
-            message("alpha")
-        );
-        assert!(
-            message("syntax").starts_with("syntax.toml:2: "),
-            "{}",
-            message("syntax")
-        );
-        assert!(
-            message("opacity").contains("outside"),
-            "{}",
-            message("opacity")
-        );
+        for (name, part) in [
+            ("unknown", "keywords"),
+            ("alpha", "not a color"),
+            ("opacity", "outside"),
+        ] {
+            assert!(message(name).contains(part), "{}", message(name));
+        }
+        let syntax = message("syntax");
+        assert!(syntax.starts_with("syntax.toml:2: "), "{syntax}");
         assert_eq!(message("absent"), "there is no theme absent");
         fs::remove_dir_all(dir).unwrap();
     }

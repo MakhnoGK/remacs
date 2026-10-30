@@ -3,6 +3,7 @@ use std::ops::Range;
 use crate::encoding::Format;
 use crate::piece_tree::PieceTree;
 use crate::source::Sources;
+use crate::utf8::is_continuation;
 
 /// An immutable view of a text, cheap to clone and safe to read from any thread.
 /// Offsets are bytes of UTF-8; lines are separated by `\n`.
@@ -94,7 +95,7 @@ impl Snapshot {
             || self
                 .chunks(offset..offset + 1)
                 .next()
-                .is_some_and(|chunk| !is_utf8_continuation(chunk[0]))
+                .is_some_and(|chunk| !is_continuation(chunk[0]))
     }
 
     pub fn next_char_boundary(&self, offset: usize) -> usize {
@@ -115,7 +116,7 @@ impl Snapshot {
         let line_start = self.line_start(self.line_of(offset)).unwrap_or(0);
         self.chunks(line_start..offset)
             .flatten()
-            .filter(|&&byte| !is_utf8_continuation(byte))
+            .filter(|&&byte| !is_continuation(byte))
             .count()
     }
 
@@ -126,7 +127,7 @@ impl Snapshot {
         };
         let mut chars_seen = 0;
         for (offset, &byte) in (range.start..).zip(self.chunks(range.clone()).flatten()) {
-            if !is_utf8_continuation(byte) {
+            if !is_continuation(byte) {
                 if chars_seen == column {
                     return offset;
                 }
@@ -135,8 +136,4 @@ impl Snapshot {
         }
         range.end
     }
-}
-
-fn is_utf8_continuation(byte: u8) -> bool {
-    byte & 0b1100_0000 == 0b1000_0000
 }

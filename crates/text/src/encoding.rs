@@ -274,11 +274,7 @@ impl Format {
             output,
         };
         if self.byte_order_mark {
-            encoded.output.write_all(if self.encoding == UTF_16LE {
-                &[0xFF, 0xFE]
-            } else {
-                &[0xFE, 0xFF]
-            })?;
+            encoded.put("\u{feff}", false)?;
         }
         for chunk in chunks {
             let text = simdutf8::basic::from_utf8(chunk)
@@ -307,14 +303,12 @@ struct Encoded<'a, W> {
 
 impl<W: Write> Encoded<'_, W> {
     fn put(&mut self, mut text: &str, last: bool) -> io::Result<()> {
-        if self.format.encoding == UTF_16LE || self.format.encoding == UTF_16BE {
+        let encoding = self.format.encoding;
+        if encoding == UTF_16LE || encoding == UTF_16BE {
+            let unit_bytes =
+                [u16::to_be_bytes, u16::to_le_bytes][usize::from(encoding == UTF_16LE)];
             for unit in text.encode_utf16() {
-                self.output
-                    .write_all(&if self.format.encoding == UTF_16LE {
-                        unit.to_le_bytes()
-                    } else {
-                        unit.to_be_bytes()
-                    })?;
+                self.output.write_all(&unit_bytes(unit))?;
             }
             return Ok(());
         }
@@ -435,21 +429,17 @@ mod tests {
     #[test]
     fn utf16_with_a_byte_order_mark_is_decoded_and_encoded_back() {
         let text = "a€😀\n";
-        let le: Vec<u8> = [0xFF, 0xFE]
-            .into_iter()
-            .chain(text.encode_utf16().flat_map(u16::to_le_bytes))
-            .collect();
-        let be: Vec<u8> = [0xFE, 0xFF]
-            .into_iter()
-            .chain(text.encode_utf16().flat_map(u16::to_be_bytes))
-            .collect();
+        let utf16 = |bom: [u8; 2], text: &str, unit_bytes: fn(u16) -> [u8; 2]| -> Vec<u8> {
+            bom.into_iter()
+                .chain(text.encode_utf16().flat_map(unit_bytes))
+                .collect()
+        };
+        let le = utf16([0xFF, 0xFE], text, u16::to_le_bytes);
+        let be = utf16([0xFE, 0xFF], text, u16::to_be_bytes);
         assert_eq!(utf16_byte_order_mark(&le), Some(UTF_16LE));
         assert_round_trip(&le, format(UTF_16LE, false), text);
         assert_round_trip(&be, format(UTF_16BE, false), text);
-        let crlf: Vec<u8> = [0xFF, 0xFE]
-            .into_iter()
-            .chain("x\r\ny\r\n".encode_utf16().flat_map(u16::to_le_bytes))
-            .collect();
+        let crlf = utf16([0xFF, 0xFE], "x\r\ny\r\n", u16::to_le_bytes);
         assert_round_trip(&crlf, format(UTF_16LE, true), "x\ny\n");
         // An unpaired surrogate.
         assert_eq!(

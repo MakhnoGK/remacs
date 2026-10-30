@@ -113,11 +113,8 @@ impl Original {
     /// The file as it is when it is UTF-8: its `small` bytes, else mapped.
     fn plain(file: &File, file_len: usize, small: Option<Vec<u8>>) -> io::Result<Option<Self>> {
         if let Some(bytes) = small {
-            return Ok(if simdutf8::basic::from_utf8(&bytes).is_ok() {
-                Some(Self::from(bytes))
-            } else {
-                None
-            });
+            let is_utf8 = simdutf8::basic::from_utf8(&bytes).is_ok();
+            return Ok(is_utf8.then(|| Self::from(bytes)));
         }
         // SAFETY: the mapping is read-only. Another process may still truncate the file in
         // place while it is mapped; ADR 0001 records that risk for large files.
