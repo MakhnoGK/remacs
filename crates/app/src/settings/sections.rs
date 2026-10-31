@@ -145,6 +145,19 @@ settings_sections! {
         pub columns: usize = 4,
     }
 
+    /// The ring before the status of work going on, like a language server starting.
+    #[derive(Clone, Copy, Eq)]
+    pub struct SpinnersSettings {
+        /// Milliseconds the work goes on before it shows; shorter work never does.
+        pub delay: u64 = 1500,
+        /// Milliseconds between frames of a turning ring.
+        pub frame: u64 = 50,
+        /// Milliseconds a turning ring takes to go round.
+        pub turn: u64 = 900,
+        /// Percent of the accent color the ring is drawn in where it is not filled.
+        pub track_opacity: u8 = 25,
+    }
+
     /// The documentation of a symbol, alone or beside completions: it grows with its code up
     /// to `max_width`, wrapping the code past it, and scrolls past `max_height`.
     #[derive(Clone, Copy)]
@@ -352,6 +365,7 @@ pub struct BottomSettings {
     pub echo: EchoSettings,
     pub hints: HintsSettings,
     pub prefix_keys: PrefixKeysSettings,
+    pub spinners: SpinnersSettings,
 }
 
 impl EchoSettings {
@@ -363,6 +377,20 @@ impl EchoSettings {
 impl PrefixKeysSettings {
     pub fn delay(&self) -> Duration {
         Duration::from_millis(self.delay)
+    }
+}
+
+impl SpinnersSettings {
+    pub fn delay(&self) -> Duration {
+        Duration::from_millis(self.delay)
+    }
+
+    pub fn frame(&self) -> Duration {
+        Duration::from_millis(self.frame)
+    }
+
+    pub fn turn(&self) -> Duration {
+        Duration::from_millis(self.turn)
     }
 }
 

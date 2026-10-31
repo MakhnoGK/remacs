@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use remacs_core::Notifier;
 use serde::Deserialize;
@@ -70,6 +70,7 @@ pub struct Place {
 
 pub struct Job {
     pub kind: JobKind,
+    pub started: Instant,
     events: Receiver<Event>,
     cancelled: Arc<AtomicBool>,
 }
@@ -120,7 +121,7 @@ impl Job {
                 report(last);
             })
             .expect("spawning a tool thread");
-        Self { kind, events, cancelled }
+        Self { kind, started: Instant::now(), events, cancelled }
     }
 
     pub fn try_event(&self) -> Option<Event> {

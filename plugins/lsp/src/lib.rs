@@ -23,6 +23,7 @@ mod offer;
 /// Public for the benchmarks only.
 #[doc(hidden)]
 pub mod position;
+mod progress;
 mod restart;
 /// Public for the benchmarks only.
 #[doc(hidden)]
@@ -129,6 +130,7 @@ impl Plugin for LspPlugin {
             document_symbols::sync(editor, servers);
             offer::ask(editor);
         }));
+        registry.status_providers.push(Rc::new(document::busy_status));
         // After the syntax plugin's, which they paint over.
         registry.decorators.push(Rc::new(document::semantic_spans));
         registry.decorators.push(Rc::new(document::swatch_spans));

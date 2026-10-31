@@ -3,13 +3,16 @@ use std::mem;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::time::SystemTime;
 
 use lsp_types::{
     CodeAction, CodeActionOrCommand, CompletionItem, DiagnosticSeverity, NumberOrString, Uri,
 };
 use remacs_actions::{Action, Request as ActionRequest};
 use remacs_completion::{List, Request};
-use remacs_core::{Buffer, Editor, Embedded, Face, Notifier, Span};
+use remacs_core::{
+    Buffer, EchoMessage, Editor, Embedded, Face, MessageKind, Notifier, Span, StatusSegment,
+};
 use remacs_diagnostics::{self as diagnostics, Diagnostic, Severity};
 use remacs_documentation::{Answer as DocumentationAnswer, SignatureRequest, SignatureTrigger};
 use remacs_format::{Failure, Request as FormatRequest};
@@ -850,6 +853,20 @@ fn report_exits(editor: &mut Editor) {
     }
 }
 
+/// `*Messages*` keeps how long each server took to start and load, once it has.
+fn report_ready(editor: &mut Editor) {
+    let clients = editor.plugin_state::<Clients>();
+    let ready: Vec<_> = (clients.running.iter())
+        .filter_map(|((name, _), client)| Some((*name, client.take_ready()?)))
+        .collect();
+    for (name, took) in ready {
+        let text = format!("{name} ready in {:.1} s", took.as_secs_f32());
+        let at = SystemTime::now();
+        let message = EchoMessage { text, kind: MessageKind::Done, command: None, at, repeats: 0 };
+        editor.message_log_mut().add(&message);
+    }
+}
+
 /// Closes server `name`'s files in every buffer and drops its diagnostics.
 fn detach(editor: &mut Editor, name: &'static str) {
     for buffer in editor.buffers_mut() {
@@ -918,6 +935,15 @@ fn found_spans<T>(
         keep
     });
     spans
+}
+
+/// What the window buffer's servers are busy with, like starting or indexing.
+pub(crate) fn busy_status(editor: &Editor) -> Option<StatusSegment> {
+    let documents = editor.window_buffer().local::<Documents>()?;
+    let items: Vec<_> = (documents.list.iter())
+        .filter_map(|document| document.client.busy_status(document.server.name))
+        .collect();
+    (!items.is_empty()).then_some(StatusSegment { items, command: None, active: false, code: true })
 }
 
 /// The servers attached to the window buffer.
@@ -999,6 +1025,7 @@ pub(crate) fn embedded_text(editor: &Editor, path: &Path) -> Option<Snapshot> {
 /// ask. Runs after every command and whenever a server published or answered something.
 pub(crate) fn sync(editor: &mut Editor, servers: &'static [LanguageServer]) {
     report_exits(editor);
+    report_ready(editor);
     pass_on_tsserver_requests(editor.plugin_state::<Clients>(), servers);
     hand_over_answers(editor);
     let clients = editor.plugin_state::<Clients>();

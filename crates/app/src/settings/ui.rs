@@ -34,6 +34,7 @@ pub struct UiSettings {
     pub echo: EchoSettings,
     pub hints: HintsSettings,
     pub prefix_keys: PrefixKeysSettings,
+    pub spinners: SpinnersSettings,
     pub documentation: DocumentationSettings,
     pub problems: ProblemsSettings,
     pub diff: DiffSettings,
@@ -45,7 +46,12 @@ pub struct UiSettings {
 
 impl UiSettings {
     pub fn bottom(&self) -> BottomSettings {
-        BottomSettings { echo: self.echo, hints: self.hints, prefix_keys: self.prefix_keys }
+        BottomSettings {
+            echo: self.echo,
+            hints: self.hints,
+            prefix_keys: self.prefix_keys,
+            spinners: self.spinners,
+        }
     }
 }
 
@@ -104,6 +110,11 @@ impl Section for UiSettings {
             "hints.side-room": self.hints.side_room, 0.0..=800.0;
             "prefix-keys.delay": self.prefix_keys.delay, 0..=5000;
             "prefix-keys.columns": self.prefix_keys.columns, 1..=8;
+            "spinners.delay": self.spinners.delay, 0..=10_000;
+            // Under 16 is faster than the screen redraws.
+            "spinners.frame": self.spinners.frame, 16..=500;
+            "spinners.turn": self.spinners.turn, 200..=5000;
+            "spinners.track-opacity": self.spinners.track_opacity, 0..=100;
             "documentation.max-width": self.documentation.max_width, POPUP_MAX_WIDTHS;
             "documentation.max-height": self.documentation.max_height, POPUP_MAX_HEIGHTS;
             "problems.max-width": self.problems.max_width, POPUP_MAX_WIDTHS;
@@ -193,6 +204,7 @@ mod tests {
              [echo]\nlines = 6\nhistory = 50\nhide-after = 0\n\
              [hints]\nshow = false\nside-room = 200\n\
              [prefix-keys]\nshow = false\ndelay = 0\ncolumns = 3\n\
+             [spinners]\ndelay = 0\nframe = 100\nturn = 2000\ntrack-opacity = 40\n\
              [documentation]\nmax-width = 900\nmax-height = 300\n\
              [problems]\nmax-width = 700\nmax-height = 200\n\
              [prompts]\ninput-margin = 20\ndirectory = \"below\"\n\
@@ -224,6 +236,7 @@ mod tests {
                 echo: EchoSettings { lines: 6, history: 50, hide_after: 0 },
                 hints: HintsSettings { show: false, side_room: 200.0 },
                 prefix_keys: PrefixKeysSettings { show: false, delay: 0, columns: 3 },
+                spinners: SpinnersSettings { delay: 0, frame: 100, turn: 2000, track_opacity: 40 },
             }
         );
         assert_eq!(settings.glass, GlassSettings { opacity: Some(0.5), blur: 0 });

@@ -77,7 +77,7 @@ pub use screen::{
     ScreenButton, ScreenCursor, ScreenMode, ScreenMouse, ScreenNotice, ScreenPadding,
     ScreenPointer, ScreenProvider, ScreenRow, ScreenSearch, ScreenSize, ScreenSource,
 };
-pub use status::{StatusItem, StatusProvider, StatusSegment, Tone};
+pub use status::{Spinner, StatusItem, StatusProvider, StatusSegment, Tone};
 pub use syntax::{
     Block, BlockProbe, Embedded, EmbeddedProbe, IndentProbe, Indentation, SyntaxContext,
     SyntaxProbe, blank_outside, embedded_file,
