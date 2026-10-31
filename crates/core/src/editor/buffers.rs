@@ -80,7 +80,7 @@ impl Editor {
     /// Makes the window buffer visit `path` from now on, renamed after it, like Emacs
     /// `set-visited-file-name`; saving is up to the caller.
     pub fn set_visited_file(&mut self, path: &Path) -> io::Result<()> {
-        let path = path.canonicalize().or_else(|_| std::path::absolute(path))?;
+        let path = visited_path(path)?;
         if let Some(other) = self.buffers[1..].iter().find(|buffer| buffer.path() == Some(&path)) {
             let message = format!("Buffer {} is already visiting {}", other.name(), path.display());
             return Err(io::Error::new(io::ErrorKind::AlreadyExists, message));
@@ -168,7 +168,7 @@ impl Editor {
 
     /// Index of the buffer visiting `path`, opened as the least recent one if needed.
     pub(super) fn find_file(&mut self, path: &Path) -> io::Result<usize> {
-        let path = path.canonicalize().or_else(|_| std::path::absolute(path))?;
+        let path = visited_path(path)?;
         if let Some(index) = self.buffers.iter().position(|buffer| buffer.path() == Some(&path)) {
             self.sync_with_disk(index);
             return Ok(index);
@@ -269,6 +269,13 @@ impl Editor {
             .find(|candidate| !taken(candidate))
             .expect("unbounded")
     }
+}
+
+/// The one path a file is visited by: a new file's through its existing directory, so
+/// that `src/../new.rs` and `new.rs` name the same file once it is saved.
+fn visited_path(path: &Path) -> io::Result<PathBuf> {
+    let in_directory = || Some(path.parent()?.canonicalize().ok()?.join(path.file_name()?));
+    path.canonicalize().or_else(|_| in_directory().map_or_else(|| std::path::absolute(path), Ok))
 }
 
 fn file_buffer_name(path: &Path) -> String {
@@ -415,6 +422,18 @@ mod tests {
         editor.clear_message();
         editor.sync_buffers_with_disk(|_| true);
         assert!(editor.message().is_none(), "reported once");
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
+    fn a_new_file_named_through_dot_dot_is_visited_once() {
+        let directory = temp_dir("dot-dot").canonicalize().unwrap();
+        std::fs::create_dir_all(directory.join("src")).unwrap();
+        let mut editor = Editor::new(&[]);
+        editor.visit_file(&directory.join("src/../new.rs")).unwrap();
+        assert_eq!(editor.window_buffer().path(), Some(directory.join("new.rs").as_path()));
+        editor.visit_file(&directory.join("new.rs")).unwrap();
+        assert_eq!(buffer_names(&editor), ["new.rs", SCRATCH_BUFFER]);
         std::fs::remove_dir_all(&directory).unwrap();
     }
 }

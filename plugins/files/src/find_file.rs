@@ -23,7 +23,7 @@ const MAX_CANDIDATES: usize = 500;
 type FileRank = (Reverse<u32>, bool, usize, usize);
 
 /// Opens a file of the current project, matched fzf-style over its whole relative path;
-/// input starting with `/` or `~` browses the file system instead.
+/// input starting with `/`, `~`, `./` or `../` browses the file system instead.
 pub fn find_file(editor: &mut Editor) -> CommandResult {
     start_reading_file_name(editor, false)
 }
@@ -70,8 +70,8 @@ fn read_file_name(
     editor.read(
         prompt,
         move |editor, input| {
-            if is_absolute(input) {
-                return directory_candidates(input);
+            if is_browsed(input) {
+                return directory_candidates(&source_root, input);
             }
             let files = source_index.files();
             // Open buffers tag their files.
@@ -83,9 +83,13 @@ fn read_file_name(
             )
         },
         move |editor, answer| {
-            let path = if is_absolute(&answer) { expand_home(&answer) } else { root.join(&answer) };
+            let path = root.join(expand_home(&answer));
             if path.is_dir() {
-                let input = with_slash(&abbreviate_home(&path));
+                let input = if is_browsed(&answer) {
+                    with_slash(&answer)
+                } else {
+                    with_slash(&abbreviate_home(&path))
+                };
                 return read_file_name(editor, root, index, input, other_window);
             }
             if other_window {
@@ -129,11 +133,12 @@ fn project_candidates(editor: &Editor, root: &Path, files: &[String], input: &st
     Completions { candidates, total, ..Completions::default() }
 }
 
-/// Entries of the directory typed so far, matching the name being typed.
-pub fn directory_candidates(input: &str) -> Completions {
+/// Entries of the directory typed so far, relative to `base` unless absolute, matching the
+/// name being typed.
+pub fn directory_candidates(base: &Path, input: &str) -> Completions {
     let split = input.rfind('/').map_or(0, |slash| slash + 1);
     let (typed_directory, partial_name) = input.split_at(split);
-    let Ok(entries) = fs::read_dir(expand_home(typed_directory)) else {
+    let Ok(entries) = fs::read_dir(base.join(expand_home(typed_directory))) else {
         return Completions::default();
     };
     let show_hidden = partial_name.starts_with('.');
@@ -164,8 +169,9 @@ pub fn directory_candidates(input: &str) -> Completions {
         .into()
 }
 
-fn is_absolute(input: &str) -> bool {
-    input.starts_with('/') || input.starts_with('~')
+/// Input browsed as a path rather than matched over the project: absolute, or `./`, `../`.
+fn is_browsed(input: &str) -> bool {
+    input.starts_with(['/', '~']) || input.starts_with("./") || input.starts_with("../")
 }
 
 fn file_name(path: &str) -> &str {

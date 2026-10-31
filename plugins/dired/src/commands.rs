@@ -28,9 +28,10 @@ pub fn dired(editor: &mut Editor) -> CommandResult {
         hints: &[("↵", "Open"), ("⇥", "Complete path"), ("C-g", "Cancel")],
         ..Prompt::default()
     };
+    let base = directory.clone();
     editor.read(
         prompt,
-        |_, input| directory_completions(input),
+        move |_, input| directory_completions(&base, input),
         move |editor, answer| {
             open_directory(editor, &directory.join(expand_home(&answer)), None, false)
         },
@@ -229,10 +230,10 @@ fn directory_name(directory: &Path) -> Option<String> {
 
 /// Subdirectories of the directory typed so far, led by that directory itself if it
 /// exists.
-pub fn directory_completions(input: &str) -> Completions {
-    let mut candidates = directory_candidates(input).candidates;
+pub fn directory_completions(base: &Path, input: &str) -> Completions {
+    let mut candidates = directory_candidates(base, input).candidates;
     candidates.retain(|candidate| candidate.icon == Some(Icon::Directory));
-    if input.ends_with('/') && expand_home(input).is_dir() {
+    if input.ends_with('/') && base.join(expand_home(input)).is_dir() {
         let itself =
             Candidate { label: "./".into(), icon: Some(Icon::Directory), ..Candidate::new(input) };
         candidates.insert(0, itself);

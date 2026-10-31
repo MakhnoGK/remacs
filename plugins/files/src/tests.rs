@@ -146,6 +146,25 @@ fn find_file_browses_absolute_paths_and_creates_new_files() {
 }
 
 #[test]
+fn find_file_browses_paths_relative_to_the_project_root() {
+    let project = Project::new("browse-relative");
+    let mut editor = editor_visiting(&project.path("src/marker.rs"));
+    press(&mut editor, "C-x C-f");
+    type_text(&mut editor, "./sr");
+    assert_eq!(labels(&editor), ["src/ "]);
+    press(&mut editor, "TAB");
+    assert_eq!(labels(&editor), ["mark_ring.rs ", "marker.rs "]);
+    type_text(&mut editor, "../doc");
+    assert_eq!(labels(&editor), ["docs/ "]);
+    press(&mut editor, "RET");
+    let input = editor.minibuffer().unwrap().input();
+    assert_eq!(input.contents(0..input.text().len()), "./src/../docs/");
+    assert_eq!(labels(&editor), ["marks.md "]);
+    press(&mut editor, "RET");
+    assert_eq!(editor.window_buffer().name(), "marks.md");
+}
+
+#[test]
 fn file_index_follows_file_system_changes() {
     let project = Project::new("index");
     let mut editor = editor_visiting(&project.path("Cargo.toml"));
@@ -272,6 +291,10 @@ fn write_file_visits_the_new_file() {
     press(&mut editor, "M-RET y");
     assert_eq!(editor.window_buffer().name(), "Cargo.toml");
     assert_eq!(fs::read_to_string(project.path("Cargo.toml")).unwrap(), "notes");
+
+    press(&mut editor, "C-x C-w C-a C-k");
+    type_text(&mut editor, "doc");
+    assert_eq!(labels(&editor), ["docs/ "], "relative names complete from the file's directory");
 }
 
 #[test]

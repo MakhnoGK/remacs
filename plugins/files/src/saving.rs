@@ -40,9 +40,10 @@ pub fn write_file(editor: &mut Editor) -> CommandResult {
         ],
         ..Prompt::default()
     };
+    let base = directory.clone();
     editor.read(
         prompt,
-        |_, input| directory_candidates(input),
+        move |_, input| directory_candidates(&base, input),
         move |editor, answer| {
             let mut path = directory.join(expand_home(&answer));
             if path.is_dir() {

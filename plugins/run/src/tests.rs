@@ -828,6 +828,36 @@ fn compile_runs_a_command_line_and_next_error_visits_its_locations_in_turn() {
 }
 
 #[test]
+fn compile_completes_the_last_word_as_a_path_from_the_compile_directory() {
+    let home = directory("compile-paths");
+    let root = home.join("project");
+    for file in ["main.c", "src/util.c", "../shared.h"] {
+        write(&root.join(file), "");
+    }
+    let values = |input: &str| -> Vec<String> {
+        compile::candidates(&root, &[], None, input)
+            .candidates
+            .into_iter()
+            .map(|candidate| candidate.value)
+            .collect()
+    };
+    assert_eq!(values("cc ma"), ["cc ma", "cc main.c"]);
+    assert_eq!(values("cc src/"), ["cc src/", "cc src/util.c"]);
+    assert_eq!(values("cc ../sh"), ["cc ../sh", "cc ../shared.h"]);
+    assert_eq!(values("ma"), ["ma"], "a command name alone is not a path");
+    assert_eq!(values("./ma"), ["./ma", "./main.c"]);
+    assert_eq!(values("cc main.c"), ["cc main.c"], "the line typed is listed once");
+    assert_eq!(values("cc\u{a0}ma"), ["cc\u{a0}ma", "cc\u{a0}main.c"], "Option-Space");
+    let ran_before = compile::candidates(&root, &["cc main.c".into()], None, "cc ma").candidates;
+    let ran_before: Vec<_> = ran_before.iter().map(|candidate| &candidate.value).collect();
+    assert_eq!(ran_before, ["cc ma", "cc main.c"], "a path run before is listed once");
+    let main = compile::candidates(&root, &[], None, "cc ma").candidates.remove(1);
+    assert_eq!(main.label, "main.c");
+    assert_eq!(main.matches, [std::ops::Range { start: 0, end: 2 }]);
+    fs::remove_dir_all(home).unwrap();
+}
+
+#[test]
 fn compile_commands_are_remembered_per_project_newest_first() {
     let home = directory("compile-history");
     let mut editor = compile_editor(&home);
@@ -849,12 +879,12 @@ fn compile_commands_are_remembered_per_project_newest_first() {
         completions.candidates.into_iter().map(|candidate| candidate.value).collect()
     };
     assert_eq!(
-        labels(compile::candidates(&commands, Some("cargo build"), "")),
+        labels(compile::candidates(&root, &commands, Some("cargo build"), "")),
         ["echo one", "echo two", "cargo build"]
     );
     assert_eq!(
-        labels(compile::candidates(&commands, None, "echo t")),
-        ["echo t", "echo two"],
+        labels(compile::candidates(&root, &commands, None, "echo t")),
+        ["echo t", "echo Cargo.toml", "echo two"],
         "what is typed is the answer unless a command is chosen"
     );
     let settings = CompileSettings::default();
