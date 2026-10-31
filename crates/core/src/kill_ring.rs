@@ -49,13 +49,8 @@ impl KillRing {
 
     /// The entry after the one yanked last, wrapping around like Emacs `yank-pop`.
     pub fn rotate(&mut self) -> Option<&str> {
-        if self.entries.is_empty() {
-            return None;
-        }
-        self.yank_index = (self.yank_index + 1) % self.entries.len();
-        self.entries
-            .get(self.yank_index)
-            .map(|entry| entry.as_str())
+        self.yank_index = (self.yank_index + 1).checked_rem(self.entries.len())?;
+        self.entries.get(self.yank_index).map(|entry| entry.as_str())
     }
 
     /// The newest kill, once, for the system clipboard.
@@ -100,10 +95,7 @@ mod tests {
         assert_eq!(ring.rotate(), Some("two more"));
         ring.receive("two more".into());
         ring.receive("pasted".into());
-        assert_eq!(
-            ring.entries().collect::<Vec<_>>(),
-            ["pasted", "two more", "one"]
-        );
+        assert_eq!(ring.entries().collect::<Vec<_>>(), ["pasted", "two more", "one"]);
         assert_eq!(ring.take_export(), None);
     }
 }

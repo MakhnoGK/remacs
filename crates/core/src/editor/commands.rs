@@ -79,33 +79,21 @@ impl Editor {
             self.read_key(key);
             return KeyOutcome::Handled;
         }
-        if self
-            .minibuffer
-            .as_ref()
-            .is_some_and(Minibuffer::is_question)
-        {
-            self.answer_question_key(key);
-            return KeyOutcome::Handled;
-        }
-        if self.pending_keys.is_empty()
-            && let Some(index) = self
-                .minibuffer
-                .as_ref()
-                .and_then(|minibuffer| minibuffer.option_for_key(key))
-        {
-            self.toggle_prompt_option(index);
-            return KeyOutcome::Handled;
-        }
-        if self.pending_keys.is_empty()
-            && let Some(index) = self
-                .minibuffer
-                .as_ref()
-                .and_then(|minibuffer| minibuffer.choice_for_key(key))
-        {
-            self.next_prompt_choice(index);
-            return KeyOutcome::Handled;
-        }
-        if self.pending_keys.is_empty() && self.minibuffer.is_none() {
+        let no_prefix = self.pending_keys.is_empty();
+        if let Some(minibuffer) = &self.minibuffer {
+            if minibuffer.is_question() {
+                self.answer_question_key(key);
+                return KeyOutcome::Handled;
+            }
+            if no_prefix && let Some(index) = minibuffer.option_for_key(key) {
+                self.toggle_prompt_option(index);
+                return KeyOutcome::Handled;
+            }
+            if no_prefix && let Some(index) = minibuffer.choice_for_key(key) {
+                self.next_prompt_choice(index);
+                return KeyOutcome::Handled;
+            }
+        } else if no_prefix {
             for sink in self.registry.key_sinks.clone() {
                 if sink(self, key) {
                     self.last_key = Some(key);
@@ -200,11 +188,7 @@ impl Editor {
     fn takes_typing(&self) -> bool {
         match &self.minibuffer {
             Some(minibuffer) => minibuffer.is_typed(),
-            None => !self
-                .registry
-                .typing_blockers
-                .iter()
-                .any(|blocks| blocks(self)),
+            None => !self.registry.typing_blockers.iter().any(|blocks| blocks(self)),
         }
     }
 
@@ -261,10 +245,7 @@ impl Editor {
     pub fn next_error_source(&self) -> Option<NextErrorSource> {
         let name = self.next_error_source?;
         let sources = &self.registry.next_error_sources;
-        sources
-            .iter()
-            .find(|source| source.name == name && (source.active)(self))
-            .copied()
+        sources.iter().find(|source| source.name == name && (source.active)(self)).copied()
     }
 
     /// Makes `next-error` go to the source named, as when it made or visited locations, or
@@ -307,9 +288,7 @@ impl Editor {
     /// Runs a table control's action as if it were a command.
     pub fn run_action(&mut self, action: &Action) {
         self.clear_echo();
-        if let Err(error) = action(self) {
-            self.set_error(error.0);
-        }
+        action(self).unwrap_or_else(|error| self.set_error(error.0));
         self.after_command();
     }
 
@@ -326,34 +305,20 @@ impl Editor {
     }
 
     fn active_keymaps(&self) -> Vec<&Keymap> {
-        let message_keymap = self
-            .minibuffer
-            .as_ref()
-            .filter(|minibuffer| minibuffer.description().is_some())
-            .map(|_| &self.registry.message_keymap);
-        let minibuffer_keymap = self
-            .minibuffer
-            .as_ref()
-            .map(|_| &self.registry.minibuffer_keymap);
-        let minor_keymaps = self
-            .registry
-            .minor_keymaps
-            .iter()
-            .filter(|minor| (minor.active)(self))
-            .map(|minor| &minor.keymap);
-        let list_keymap = self.minibuffer.as_ref().and_then(Minibuffer::keymap);
-        let prompt_keymap = self
-            .minibuffer
-            .as_ref()
-            .and_then(|minibuffer| minibuffer.prompt().keymap.as_ref());
-        list_keymap
-            .into_iter()
-            .chain(prompt_keymap)
-            .chain(message_keymap)
-            .chain(minibuffer_keymap)
-            .chain(minor_keymaps)
-            .chain([&self.registry.keymap])
-            .collect()
+        let registry = &self.registry;
+        let mut keymaps = Vec::new();
+        if let Some(minibuffer) = &self.minibuffer {
+            keymaps.extend(minibuffer.keymap());
+            keymaps.extend(&minibuffer.prompt().keymap);
+            if minibuffer.description().is_some() {
+                keymaps.push(&registry.message_keymap);
+            }
+            keymaps.push(&registry.minibuffer_keymap);
+        }
+        let minors = registry.minor_keymaps.iter();
+        keymaps.extend(minors.filter(|minor| (minor.active)(self)).map(|minor| &minor.keymap));
+        keymaps.push(&registry.keymap);
+        keymaps
     }
 
     /// C-g cancels reading a key, a pending prefix or the prompt; false when there was none.
@@ -369,11 +334,7 @@ impl Editor {
     }
 
     pub(super) fn after_command(&mut self) {
-        if self
-            .minibuffer
-            .as_ref()
-            .is_some_and(Minibuffer::needs_completions)
-        {
+        if self.minibuffer.as_ref().is_some_and(Minibuffer::needs_completions) {
             self.refresh_minibuffer();
         }
         self.show_point();
@@ -396,22 +357,17 @@ impl Editor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plugin::{Plugin, Registry};
+    use crate::Command;
+    use crate::editor::tests::{buffer_text, editor_registering};
 
     #[test]
     fn lists_what_the_keys_after_a_prefix_do() {
-        struct Bindings;
-        impl Plugin for Bindings {
-            fn register(&self, registry: &mut Registry) {
-                registry
-                    .commands
-                    .add(crate::Command::new("one", "", |_| Ok(())));
-                for keys in ["C-x a", "C-x r b", "C-y"] {
-                    registry.keymap.bind(keys, "one");
-                }
+        let mut editor = editor_registering(|registry| {
+            registry.commands.add(Command::new("one", "", |_| Ok(())));
+            for keys in ["C-x a", "C-x r b", "C-y"] {
+                registry.keymap.bind(keys, "one");
             }
-        }
-        let mut editor = Editor::new(&[&Bindings]);
+        });
         editor.handle_key(Key::parse("C-x").unwrap());
         let mut listed: Vec<_> = editor
             .prefix_continuations()
@@ -429,26 +385,18 @@ mod tests {
 
     #[test]
     fn reads_a_key_sequence_whole_instead_of_running_it() {
-        struct Bindings;
-        impl Plugin for Bindings {
-            fn register(&self, registry: &mut Registry) {
-                registry
-                    .commands
-                    .add(crate::Command::new("one", "", |_| Err("ran".into())));
-                registry.keymap.bind("C-x a", "one");
-            }
-        }
-        let mut editor = Editor::new(&[&Bindings]);
+        let mut editor = editor_registering(|registry| {
+            registry.commands.add(Command::new("one", "", |_| Err("ran".into())));
+            registry.keymap.bind("C-x a", "one");
+        });
         let read = |editor: &mut Editor| {
             editor.read_key_sequence(|editor, keys, command| {
                 editor.set_message(format!("{} {command:?}", describe_sequence(keys)));
             });
         };
         let press = |editor: &mut Editor, notation| {
-            assert_eq!(
-                editor.dispatch_key(Key::parse(notation).unwrap()),
-                KeyOutcome::Handled
-            );
+            let outcome = editor.dispatch_key(Key::parse(notation).unwrap());
+            assert_eq!(outcome, KeyOutcome::Handled);
         };
         read(&mut editor);
         press(&mut editor, "C-x");
@@ -473,17 +421,11 @@ mod tests {
 
     #[test]
     fn only_a_single_key_nothing_binds_is_left_to_the_system() {
-        struct Bindings;
-        impl Plugin for Bindings {
-            fn register(&self, registry: &mut Registry) {
-                registry
-                    .commands
-                    .add(crate::Command::new("one", "", |_| Ok(())));
-                registry.keymap.bind("C-x a", "one");
-                registry.keymap.bind("s-s", "one");
-            }
-        }
-        let mut editor = Editor::new(&[&Bindings]);
+        let mut editor = editor_registering(|registry| {
+            registry.commands.add(Command::new("one", "", |_| Ok(())));
+            registry.keymap.bind("C-x a", "one");
+            registry.keymap.bind("s-s", "one");
+        });
         let mut press = |notation| editor.handle_key(Key::parse(notation).unwrap());
         assert!(press("s-s"));
         assert!(!press("s-m"));
@@ -493,56 +435,39 @@ mod tests {
 
     #[test]
     fn a_typing_key_is_left_to_the_input_method_whose_text_self_inserts() {
-        struct Typing;
-        impl Plugin for Typing {
-            fn register(&self, registry: &mut Registry) {
-                registry
-                    .commands
-                    .add(crate::Command::new(SELF_INSERT_COMMAND, "", |editor| {
-                        let character = editor
-                            .last_key()
-                            .and_then(|key| key.printable_char())
-                            .ok_or("Not printable")?;
-                        editor.buffer().ensure_writable()?;
-                        editor
-                            .buffer_mut()
-                            .insert(character.encode_utf8(&mut [0; 4]));
-                        Ok(())
-                    }));
-                registry
-                    .commands
-                    .add(crate::Command::new("newline", "", |editor| {
-                        if editor.minibuffer().is_some() {
-                            return editor.exit_minibuffer(true);
-                        }
-                        editor.buffer_mut().insert("\n");
-                        Ok(())
-                    }));
-                registry.keymap.bind("RET", "newline");
-            }
-        }
-        let mut editor = Editor::new(&[&Typing]);
+        let mut editor = editor_registering(|registry| {
+            registry.commands.add(Command::new(SELF_INSERT_COMMAND, "", |editor| {
+                let key = editor.last_key().and_then(|key| key.printable_char());
+                let character = key.ok_or("Not printable")?;
+                editor.buffer().ensure_writable()?;
+                editor.buffer_mut().insert(character.encode_utf8(&mut [0; 4]));
+                Ok(())
+            }));
+            registry.commands.add(Command::new("newline", "", |editor| {
+                if editor.minibuffer().is_some() {
+                    return editor.exit_minibuffer(true);
+                }
+                editor.buffer_mut().insert("\n");
+                Ok(())
+            }));
+            registry.keymap.bind("RET", "newline");
+        });
         let mut dispatch = |notation| editor.dispatch_key(Key::parse(notation).unwrap());
         assert_eq!(dispatch("a"), KeyOutcome::Typed);
         assert_eq!(dispatch("M-a"), KeyOutcome::Unhandled);
         editor.type_text("é\u{1}愛\nb");
-        let buffer = editor.buffer();
-        assert_eq!(buffer.contents(0..buffer.text().len()), "é愛\nb");
+        assert_eq!(buffer_text(&editor), "é愛\nb");
         // What follows a newline that answers a prompt was not meant for the buffer.
         let none = |_: &Editor, _: &str| crate::Completions::default();
         let prompt = crate::minibuffer::Prompt::default();
         editor.read(prompt, none, |_, _| Ok(())).unwrap();
         editor.type_text("x\ny");
         assert!(editor.minibuffer().is_none());
-        let buffer = editor.buffer();
-        assert_eq!(buffer.contents(0..buffer.text().len()), "é愛\nb");
+        assert_eq!(buffer_text(&editor), "é愛\nb");
         editor.buffer_mut().set_read_only(true);
-        assert_eq!(
-            editor.dispatch_key(Key::parse("a").unwrap()),
-            KeyOutcome::Handled
-        );
+        let typed = editor.dispatch_key(Key::parse("a").unwrap());
+        assert_eq!(typed, KeyOutcome::Handled);
         editor.type_text("a\nb");
-        let buffer = editor.buffer();
-        assert_eq!(buffer.contents(0..buffer.text().len()), "é愛\nb");
+        assert_eq!(buffer_text(&editor), "é愛\nb");
     }
 }

@@ -11,11 +11,8 @@ use crate::buffer_syntax::tree_at;
 
 const BRACKETS: &[(&str, &str)] = &[("(", ")"), ("[", "]"), ("{", "}"), ("<", ">")];
 /// Opening and closing tags of HTML, XML and JSX elements.
-const TAGS: &[(&str, &str)] = &[
-    ("start_tag", "end_tag"),
-    ("STag", "ETag"),
-    ("jsx_opening_element", "jsx_closing_element"),
-];
+const TAGS: &[(&str, &str)] =
+    &[("start_tag", "end_tag"), ("STag", "ETag"), ("jsx_opening_element", "jsx_closing_element")];
 /// A tag's name, where the grammar has no `name` field for it.
 const TAG_NAMES: &[&str] = &["tag_name", "Name"];
 
@@ -26,10 +23,7 @@ pub(crate) fn highlight(buffer: &Buffer, range: Range<usize>) -> Vec<Span> {
     pair.sort_by_key(|part| part.start);
     pair.into_iter()
         .filter(|part| part.start < range.end && range.start < part.end)
-        .map(|part| Span {
-            range: part,
-            face: Face::MatchingPair,
-        })
+        .map(|part| Span { range: part, face: Face::MatchingPair })
         .collect()
 }
 
@@ -52,17 +46,11 @@ fn matching_bracket<'tree>(node: Node<'tree>, offset: usize) -> Option<[Range<us
         return None;
     }
     let kind = node.kind();
-    let &(open, close) = BRACKETS
-        .iter()
-        .find(|(open, close)| kind == *open || kind == *close)?;
+    let &(open, close) = BRACKETS.iter().find(|(open, close)| kind == *open || kind == *close)?;
     let forward = kind == open;
     let other = if forward { close } else { open };
     let step = move |sibling: &Node<'tree>| {
-        if forward {
-            sibling.next_sibling()
-        } else {
-            sibling.prev_sibling()
-        }
+        if forward { sibling.next_sibling() } else { sibling.prev_sibling() }
     };
     let mut depth = 0usize;
     for sibling in iter::successors(step(&node), step) {
@@ -94,23 +82,19 @@ fn matching_tag(node: Node, offset: usize) -> Option<[Range<usize>; 2]> {
     let other = if tag.kind() == open { close } else { open };
     let element = tag.parent()?;
     let mut cursor = element.walk();
-    let partner = element
-        .children(&mut cursor)
-        .find(|child| child.kind() == other && !child.is_missing())?;
+    let partner =
+        element.children(&mut cursor).find(|child| child.kind() == other && !child.is_missing())?;
     Some([name_range(tag), name_range(partner)])
 }
 
 fn tag_kinds(node: Node) -> Option<(&'static str, &'static str)> {
-    TAGS.iter()
-        .find(|(open, close)| node.kind() == *open || node.kind() == *close)
-        .copied()
+    TAGS.iter().find(|(open, close)| node.kind() == *open || node.kind() == *close).copied()
 }
 
 fn tag_name(tag: Node) -> Option<Node> {
     tag.child_by_field_name("name").or_else(|| {
         let mut cursor = tag.walk();
-        tag.named_children(&mut cursor)
-            .find(|child| TAG_NAMES.contains(&child.kind()))
+        tag.named_children(&mut cursor).find(|child| TAG_NAMES.contains(&child.kind()))
     })
 }
 

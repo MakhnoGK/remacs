@@ -61,12 +61,7 @@ fn point_text(editor: &Editor, len: usize) -> String {
 
 /// The messages in the bubble at point.
 fn shown(editor: &Editor) -> Vec<String> {
-    editor
-        .popups()
-        .into_iter()
-        .flat_map(|popup| popup.notes)
-        .map(|note| note.message)
-        .collect()
+    editor.popups().into_iter().flat_map(|popup| popup.notes).map(|note| note.message).collect()
 }
 
 fn rest(editor: &mut Editor) {
@@ -106,13 +101,7 @@ fn problems_at_point_show_most_severe_first() {
     hint.message = "did you mean `forward`".into();
     publish(buffer, "oxlint", text, vec![hint]);
     press(&mut editor, "M-g n");
-    assert_eq!(
-        shown(&editor),
-        [
-            "problem with `advance`\nmore detail",
-            "did you mean `forward`"
-        ]
-    );
+    assert_eq!(shown(&editor), ["problem with `advance`\nmore detail", "did you mean `forward`"]);
 }
 
 #[test]
@@ -120,10 +109,7 @@ fn underlines_follow_edits_until_the_next_report() {
     let mut editor = checked_editor();
     assert_eq!(
         underlined(&editor),
-        [
-            ("advance".into(), Face::Error),
-            ("unused".into(), Face::Warning)
-        ]
+        [("advance".into(), Face::Error), ("unused".into(), Face::Warning)]
     );
     let buffer = editor.window_buffer_mut();
     buffer.set_point(SOURCE.find("point").unwrap());
@@ -175,12 +161,7 @@ fn next_and_previous_error_skip_infos() {
 
     let buffer = editor.window_buffer_mut();
     let text = buffer.text().snapshot();
-    publish(
-        buffer,
-        CHECKER,
-        text,
-        vec![diagnostic(SOURCE, "main", Severity::Info)],
-    );
+    publish(buffer, CHECKER, text, vec![diagnostic(SOURCE, "main", Severity::Info)]);
     press(&mut editor, "M-g n");
     assert_eq!(editor.echo().as_deref(), Some("No errors or warnings"));
 }
@@ -197,10 +178,7 @@ fn the_list_starts_at_the_next_problem_and_goes_to_the_chosen_one() {
         .iter()
         .map(|candidate| (candidate.icon, candidate.annotation.as_str()))
         .collect();
-    assert_eq!(
-        rows,
-        [(Some(Icon::Error), "2:11"), (Some(Icon::Warning), "3:9")]
-    );
+    assert_eq!(rows, [(Some(Icon::Error), "2:11"), (Some(Icon::Warning), "3:9")]);
     assert_eq!(minibuffer.selected(), Some(1));
     assert_eq!(minibuffer.candidates()[0].label, "problem with `advance`");
 
@@ -235,17 +213,9 @@ fn each_checker_replaces_and_clears_only_its_own_problems() {
     let mut editor = checked_editor();
     let buffer = editor.window_buffer_mut();
     let text = buffer.text().snapshot();
-    publish(
-        buffer,
-        "oxlint",
-        text.clone(),
-        vec![diagnostic(SOURCE, "let", Severity::Warning)],
-    );
+    publish(buffer, "oxlint", text.clone(), vec![diagnostic(SOURCE, "let", Severity::Warning)]);
     let ranges = |editor: &Editor| -> Vec<String> {
-        underlined(editor)
-            .into_iter()
-            .map(|(text, _)| text)
-            .collect()
+        underlined(editor).into_iter().map(|(text, _)| text).collect()
     };
     assert_eq!(ranges(&editor), ["advance", "let", "unused"]);
 

@@ -15,8 +15,13 @@ Status: accepted, 2026-10-04 (issue #1 editing experience, step 1)
   (electric dedent), in the same undo step as the character.
 - **The indent unit comes from the file**: tabs if more lines start with a tab than with
   spaces, else the most common step between consecutive lines (2–8; a step of one is a
-  block-comment ` * `). It is detected from the first 64 KiB, kept per buffer once found,
-  and 4 spaces until the text shows one. `TAB` (`tab-to-tab-stop`) uses it too.
+  block-comment ` * `). It is detected from the first 64 KiB, kept per buffer once found.
+  Until the text shows one: the project's `.editorconfig` (`indent_style`, `indent_size`),
+  else `indent-by-mode` in `editing.toml`, else the language's `indent` in
+  `languages.toml` (2 spaces for the web stack, tabs for Go and Make), else `indent` in
+  `editing.toml` (4). `TAB` (`tab-to-tab-stop`), completions' and snippets' lines (their
+  leading tabs become the unit, the rest take the line's level) and the formatting
+  options sent to language servers use it too.
 - **Brackets, not grammars**: the rules count brackets, plain text included, ignoring
   strings and comments. Every scan is bounded to 64 KiB, so gigabyte files stay instant.
 

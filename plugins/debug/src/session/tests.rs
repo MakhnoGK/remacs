@@ -39,10 +39,8 @@ fn flooding(text: &str, backlog: usize) -> Link {
     let body = format!(
         r#"{{"type":"event","event":"output","body":{{"category":"stdout","output":"{text}\n"}}}}"#
     );
-    let script = format!(
-        "yes \"$(printf 'Content-Length: {}\\r\\n\\r\\n%s' '{body}')\"",
-        body.len()
-    );
+    let script =
+        format!("yes \"$(printf 'Content-Length: {}\\r\\n\\r\\n%s' '{body}')\"", body.len());
     link(script, backlog)
 }
 

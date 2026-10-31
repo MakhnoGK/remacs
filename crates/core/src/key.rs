@@ -72,7 +72,7 @@ impl Key {
             }
             rest = &rest[2..];
         }
-        let code = match KEY_NAMES.iter().find(|(_, name)| *name == rest) {
+        let mut code = match KEY_NAMES.iter().find(|(_, name)| *name == rest) {
             Some((code, _)) => *code,
             None if rest.starts_with("<f") => KeyCode::Function(function_key_number(rest)?),
             None => {
@@ -82,26 +82,19 @@ impl Key {
             }
         };
         // As keys typed arrive: shift folded into the character, `C-S-c` being `C-C`.
-        if let (KeyCode::Char(character), true) = (code, modifiers.shift) {
+        if let (KeyCode::Char(character), true) = (&mut code, modifiers.shift) {
             modifiers.shift = false;
-            return Some(Self::new(
-                modifiers,
-                KeyCode::Char(character.to_ascii_uppercase()),
-            ));
+            *character = character.to_ascii_uppercase();
         }
         Some(Self { modifiers, code })
     }
 
     /// The character this key types, if it is not a command chord.
     pub fn printable_char(&self) -> Option<char> {
-        let Modifiers {
-            control,
-            meta,
-            super_key,
-            ..
-        } = self.modifiers;
+        let Modifiers { control, meta, .. } = self.modifiers;
+        let chord = control || meta || self.modifiers.super_key;
         match self.code {
-            KeyCode::Char(character) if !control && !meta && !super_key => Some(character),
+            KeyCode::Char(character) if !chord => Some(character),
             _ => None,
         }
     }
@@ -118,10 +111,7 @@ pub fn parse_sequence(notation: &str) -> Option<Vec<Key>> {
 }
 
 pub fn describe_sequence(keys: &[Key]) -> String {
-    keys.iter()
-        .map(Key::to_string)
-        .collect::<Vec<_>>()
-        .join(" ")
+    keys.iter().map(Key::to_string).collect::<Vec<_>>().join(" ")
 }
 
 impl fmt::Display for Key {
@@ -160,10 +150,7 @@ mod tests {
         ] {
             assert_eq!(Key::parse(notation).unwrap().to_string(), notation);
         }
-        assert_eq!(
-            describe_sequence(&parse_sequence("C-x C-s").unwrap()),
-            "C-x C-s"
-        );
+        assert_eq!(describe_sequence(&parse_sequence("C-x C-s").unwrap()), "C-x C-s");
         assert_eq!(Key::parse("C-S-c"), Key::parse("C-C"));
         assert_eq!(Key::parse("C-xy"), None);
         assert_eq!(Key::parse("<f13>"), None);

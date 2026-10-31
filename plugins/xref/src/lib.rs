@@ -53,9 +53,7 @@ impl Plugin for XrefPlugin {
             registry.keymap.bind(keys, command);
         }
         registry.menu_items.extend_from_slice(MENU_ITEMS);
-        registry
-            .post_command_hooks
-            .push(Rc::new(definitions::update));
+        registry.post_command_hooks.push(Rc::new(definitions::update));
         registry.post_command_hooks.push(Rc::new(apropos::update));
         registry.post_command_hooks.push(Rc::new(imenu::update));
     }

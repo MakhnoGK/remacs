@@ -89,16 +89,11 @@ pub(crate) fn read(editor: &mut Editor, catalog: &str) -> &'static [LanguageServ
     let servers: Vec<LanguageServer> = specs
         .iter()
         .filter_map(|(name, spec, own_command)| {
-            spec.build(name, *own_command)
-                .map_err(|error| errors.push(error))
-                .ok()
+            spec.build(name, *own_command).map_err(|error| errors.push(error)).ok()
         })
         .collect();
     let servers: &'static [LanguageServer] = servers.leak();
-    let specs = specs
-        .into_iter()
-        .map(|(name, spec, _)| (name, spec))
-        .collect();
+    let specs = specs.into_iter().map(|(name, spec, _)| (name, spec)).collect();
     let previous = document::replace_catalog(editor, settings, servers, specs);
     for name in previous {
         document::restart(editor, name);

@@ -65,22 +65,13 @@ impl Listing {
     fn update(&mut self) {
         let (files, scanned) = self.index.files_and_scanned();
         self.scanned = scanned;
-        if self
-            .files
-            .as_ref()
-            .is_some_and(|known| Arc::ptr_eq(known, &files))
-        {
+        if self.files.as_ref().is_some_and(|known| Arc::ptr_eq(known, &files)) {
             return;
         }
         let found = discover(&self.root, &files)
             .into_iter()
             .filter(|found| !self.saved.iter().any(|saved| saved.kind == found.kind));
-        let entry = |origin| {
-            move |configuration| Entry {
-                configuration,
-                origin,
-            }
-        };
+        let entry = |origin| move |configuration| Entry { configuration, origin };
         let mut entries: Vec<Entry> = self
             .saved
             .iter()
@@ -212,21 +203,13 @@ pub fn choose_with(editor: &mut Editor, starter: Option<Starter>) -> CommandResu
 
 /// The project and the entry chosen; none for "New configuration…".
 fn take_entry(editor: &mut Editor, value: &str) -> Result<(PathBuf, Option<Entry>), String> {
-    let listing = editor
-        .plugin_state::<Chooser>()
-        .listing
-        .take()
-        .ok_or("No such configuration")?;
+    let listing = editor.plugin_state::<Chooser>().listing.take().ok_or("No such configuration")?;
     let listing = listing.borrow();
     if value == NEW {
         return Ok((listing.root.clone(), None));
     }
     let index: usize = value.parse().map_err(|_| "No such configuration")?;
-    let entry = listing
-        .entries
-        .get(index)
-        .cloned()
-        .ok_or("No such configuration")?;
+    let entry = listing.entries.get(index).cloned().ok_or("No such configuration")?;
     Ok((listing.root.clone(), Some(entry)))
 }
 
@@ -248,16 +231,9 @@ pub fn edit(editor: &mut Editor) -> CommandResult {
 pub fn choose_running(editor: &mut Editor, running: Vec<(u64, String)>) -> CommandResult {
     let candidates: Vec<Candidate> = running
         .iter()
-        .map(|(id, name)| Candidate {
-            value: id.to_string(),
-            ..Candidate::new(name.clone())
-        })
+        .map(|(id, name)| Candidate { value: id.to_string(), ..Candidate::new(name.clone()) })
         .collect();
-    let prompt = Prompt {
-        label: "Stop".into(),
-        require_match: true,
-        ..Prompt::default()
-    };
+    let prompt = Prompt { label: "Stop".into(), require_match: true, ..Prompt::default() };
     editor.read(
         prompt,
         move |_, input| filter_candidates(input, candidates.clone(), false),

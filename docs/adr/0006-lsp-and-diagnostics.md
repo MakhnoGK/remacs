@@ -28,7 +28,10 @@ Status: accepted, 2026-10-04 (M4, step 2)
   superseded in the writer's queue is dropped.
 - **Hints are not shown**: servers use them for faded code and to repeat related locations.
 - **Servers**: rust-analyzer, clangd, `tsc --lsp --stdio` (native, instead of
-  typescript-language-server), vscode-html/css-language-server.
+  typescript-language-server), vscode-html/css-language-server. A project whose own
+  TypeScript in `node_modules` is older than 7 gets typescript-language-server with that
+  TypeScript instead (`when`/`unless` with `older`): TypeScript 7 drops tsconfig options,
+  such as `baseUrl`, that its build still relies on.
 
 ## Core additions
 

@@ -63,13 +63,8 @@ impl Setting {
     }
 }
 
-const HINTS: &[(&str, &str)] = &[
-    ("↵", "Save"),
-    ("M-n", "Type"),
-    ("C-c C-k", "Remove"),
-    ("⌘⇧F8", "All"),
-    ("C-g", "Cancel"),
-];
+const HINTS: &[(&str, &str)] =
+    &[("↵", "Save"), ("M-n", "Type"), ("C-c C-k", "Remove"), ("⌘⇧F8", "All"), ("C-g", "Cancel")];
 
 /// The breakpoint being edited.
 #[derive(Default)]
@@ -100,10 +95,7 @@ pub fn open(editor: &mut Editor, path: &Path, line: usize) -> CommandResult {
         .find(|setting| setting.of(&mut breakpoint).is_some())
         .unwrap_or(Setting::Condition);
     let initial_input = shown.of(&mut breakpoint).clone().unwrap_or_default();
-    let index = SETTINGS
-        .iter()
-        .position(|setting| *setting == shown)
-        .unwrap_or(0);
+    let index = SETTINGS.iter().position(|setting| *setting == shown).unwrap_or(0);
     let selected = Rc::new(Cell::new(index));
     let mut keymap = Keymap::default();
     keymap.bind("C-c C-k", REMOVE);
@@ -119,10 +111,7 @@ pub fn open(editor: &mut Editor, path: &Path, line: usize) -> CommandResult {
         choices: vec![PromptChoice {
             label: "Type",
             key: "M-n",
-            values: SETTINGS
-                .iter()
-                .map(|setting| setting.label().to_owned())
-                .collect(),
+            values: SETTINGS.iter().map(|setting| setting.label().to_owned()).collect(),
             selected: Rc::clone(&selected),
             segmented: true,
         }],
@@ -139,10 +128,8 @@ pub fn open(editor: &mut Editor, path: &Path, line: usize) -> CommandResult {
         move |editor, input| {
             let input = input.trim();
             let breakpoints = &mut debugger(editor).breakpoints;
-            let mut breakpoint = breakpoints
-                .at(&path, line)
-                .cloned()
-                .unwrap_or_else(|| Breakpoint::at(line));
+            let mut breakpoint =
+                breakpoints.at(&path, line).cloned().unwrap_or_else(|| Breakpoint::at(line));
             *SETTINGS[selected.get()].of(&mut breakpoint) =
                 (!input.is_empty()).then(|| input.to_owned());
             breakpoint.enabled = true;
@@ -157,19 +144,12 @@ pub fn open(editor: &mut Editor, path: &Path, line: usize) -> CommandResult {
 /// `src/main.rs:12`, relative to the file's project.
 pub fn location(path: &Path, line: usize) -> String {
     let root = path.parent().map(project_root);
-    let relative = root
-        .as_deref()
-        .and_then(|root| path.strip_prefix(root).ok())
-        .unwrap_or(path);
+    let relative = root.as_deref().and_then(|root| path.strip_prefix(root).ok()).unwrap_or(path);
     format!("{}:{}", relative.display(), line + 1)
 }
 
 fn remove(editor: &mut Editor) -> CommandResult {
-    let (path, line) = editor
-        .plugin_state::<Editing>()
-        .at
-        .take()
-        .ok_or("No breakpoint")?;
+    let (path, line) = editor.plugin_state::<Editing>().at.take().ok_or("No breakpoint")?;
     editor.cancel_minibuffer();
     let breakpoints = &mut debugger(editor).breakpoints;
     breakpoints.remove(&path, line);

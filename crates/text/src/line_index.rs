@@ -39,12 +39,10 @@ impl LineIndex {
                     scope.spawn(move || count_blocks(file, file_len, first_block, counts))
                 })
                 .collect();
-            workers
-                .into_iter()
-                .try_fold(Utf8Check::default(), |mut utf8, worker| {
-                    utf8.join(worker.join().expect("line index worker panicked")?);
-                    io::Result::Ok(utf8)
-                })
+            workers.into_iter().try_fold(Utf8Check::default(), |mut utf8, worker| {
+                utf8.join(worker.join().expect("line index worker panicked")?);
+                io::Result::Ok(utf8)
+            })
         })?;
 
         Ok((Self::from_block_counts(block_counts), utf8.is_valid()))
@@ -58,9 +56,7 @@ impl LineIndex {
                 total
             }))
             .collect();
-        Self {
-            newlines_before_block,
-        }
+        Self { newlines_before_block }
     }
 
     pub fn total(&self) -> usize {
@@ -76,10 +72,7 @@ impl LineIndex {
         if rank >= self.total() {
             return None;
         }
-        let block = self
-            .newlines_before_block
-            .partition_point(|&before| before <= rank)
-            - 1;
+        let block = self.newlines_before_block.partition_point(|&before| before <= rank) - 1;
         let block_start = block * BLOCK_SIZE;
         let block_end = (block_start + BLOCK_SIZE).min(bytes.len());
         let rank_in_block = rank - self.newlines_before_block[block];
@@ -114,28 +107,23 @@ mod tests {
     use super::*;
 
     fn sample() -> Vec<u8> {
-        (0..BLOCK_SIZE * 3 + 777)
-            .map(|i| if i % 97 == 0 { b'\n' } else { b'x' })
-            .collect()
+        (0..BLOCK_SIZE * 3 + 777).map(|i| if i % 97 == 0 { b'\n' } else { b'x' }).collect()
     }
 
     #[test]
     fn matches_naive_scan_across_blocks() {
         let bytes = sample();
         let index = LineIndex::from_bytes(&bytes);
-        let newline_offsets: Vec<usize> = memchr_offsets(&bytes);
+        let offsets: Vec<usize> = memchr::memchr_iter(b'\n', &bytes).collect();
 
-        assert_eq!(index.total(), newline_offsets.len());
-        for (rank, &offset) in newline_offsets.iter().enumerate() {
+        assert_eq!(index.total(), offsets.len());
+        for (rank, &offset) in offsets.iter().enumerate() {
             assert_eq!(index.nth_newline(&bytes, rank), Some(offset));
             assert_eq!(index.newlines_before(&bytes, offset), rank);
             assert_eq!(index.newlines_before(&bytes, offset + 1), rank + 1);
         }
-        assert_eq!(index.nth_newline(&bytes, newline_offsets.len()), None);
-        assert_eq!(
-            index.newlines_before(&bytes, bytes.len()),
-            newline_offsets.len()
-        );
+        assert_eq!(index.nth_newline(&bytes, offsets.len()), None);
+        assert_eq!(index.newlines_before(&bytes, bytes.len()), offsets.len());
     }
 
     #[test]
@@ -148,10 +136,8 @@ mod tests {
         };
         let (file_index, utf8) = index_file(&bytes);
         assert!(utf8);
-        assert_eq!(
-            file_index.newlines_before_block,
-            LineIndex::from_bytes(&bytes).newlines_before_block
-        );
+        let bytes_index = LineIndex::from_bytes(&bytes);
+        assert_eq!(file_index.newlines_before_block, bytes_index.newlines_before_block);
 
         // "€" across the block a worker starts at, then a Latin-1 "é" after it.
         let boundary = BLOCK_SIZE * 2;
@@ -160,9 +146,5 @@ mod tests {
         bytes[boundary + 100] = 0xE9;
         assert!(!index_file(&bytes).1);
         std::fs::remove_file(&path).unwrap();
-    }
-
-    fn memchr_offsets(bytes: &[u8]) -> Vec<usize> {
-        memchr::memchr_iter(b'\n', bytes).collect()
     }
 }

@@ -62,10 +62,7 @@ fn output_followed_and_mouse_scrolling_are_not_jumps() {
     editor.refresh();
     editor.scroll(-60);
     press(&mut editor, "C-f s-[");
-    assert_eq!(
-        editor.echo().as_deref(),
-        Some("At the start of the navigation history")
-    );
+    assert_eq!(editor.echo().as_deref(), Some("At the start of the navigation history"));
 }
 
 #[test]
@@ -119,11 +116,7 @@ fn scrolling_a_buffer_an_answer_showed_leaves_the_place_before_it_as_it_was() {
     let mut editor = editor_with(&lines(100));
     press(&mut editor, "C-n C-n");
     // As a definition in another file arrives after the history's hook of a refresh.
-    editor.add_buffer(Buffer::new(
-        "other",
-        Text::from(lines(100).as_str()),
-        "Fundamental",
-    ));
+    editor.add_buffer(Buffer::new("other", Text::from(lines(100).as_str()), "Fundamental"));
     editor.scroll(40);
     press(&mut editor, "C-f s-[");
     assert_eq!(place(&editor), ("test".into(), 2));
@@ -153,12 +146,7 @@ fn places_in_files_deleted_since_are_skipped_and_killed_files_open_again() {
 
     press(&mut editor, "s-[");
     assert_eq!(editor.window_buffer().path(), Some(kept.as_path()));
-    assert!(
-        editor
-            .buffers()
-            .iter()
-            .all(|buffer| buffer.path() != Some(deleted.as_path()))
-    );
+    assert!(editor.buffers().iter().all(|buffer| buffer.path() != Some(deleted.as_path())));
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -202,11 +190,7 @@ fn only_the_columns_on_screen_of_a_long_line_are_searched() {
     press(&mut editor, "M-j x RET");
     let found = labels(&editor);
     assert_eq!(found.len(), 20);
-    assert!(
-        found
-            .iter()
-            .all(|(offset, _)| (50_000..50_020).contains(offset))
-    );
+    assert!(found.iter().all(|(offset, _)| (50_000..50_020).contains(offset)));
 }
 
 #[test]
@@ -245,21 +229,14 @@ fn last_changes_are_visited_one_per_line_latest_first() {
 }
 
 fn labels(editor: &Editor) -> Vec<(usize, String)> {
-    editor
-        .text_labels(0..100)
-        .into_iter()
-        .map(|label| (label.offset, label.text))
-        .collect()
+    editor.text_labels(0..100).into_iter().map(|label| (label.offset, label.text)).collect()
 }
 
 #[test]
 fn typed_text_is_labelled_nearest_first_and_a_label_jumps_to_it() {
     let mut editor = editor_with("fox one\nfox two\nFox three\n");
     press(&mut editor, "C-n M-j f o RET");
-    assert_eq!(
-        labels(&editor),
-        [(8, "a".into()), (0, "s".into()), (16, "d".into())]
-    );
+    assert_eq!(labels(&editor), [(8, "a".into()), (0, "s".into()), (16, "d".into())]);
     press(&mut editor, "d");
     assert_eq!(editor.buffer().point(), 16);
     assert!(labels(&editor).is_empty());
@@ -293,10 +270,7 @@ fn words_and_lines_are_labelled_at_their_starts() {
     press(&mut editor, "s");
     assert_eq!(editor.buffer().point(), 9);
     press(&mut editor, "M-g l");
-    assert_eq!(
-        labels(&editor),
-        [(9, "a".into()), (13, "s".into()), (0, "d".into())]
-    );
+    assert_eq!(labels(&editor), [(9, "a".into()), (13, "s".into()), (0, "d".into())]);
 }
 
 #[test]
@@ -318,16 +292,10 @@ fn paging_is_not_a_jump_and_a_new_jump_drops_the_way_forward() {
     let mut editor = editor_with(&lines(100));
     press(&mut editor, "C-v C-v C-v");
     press(&mut editor, "C-x C-SPC");
-    assert_eq!(
-        editor.echo().as_deref(),
-        Some("At the start of the navigation history")
-    );
+    assert_eq!(editor.echo().as_deref(), Some("At the start of the navigation history"));
     press(&mut editor, "M-> s-[ M-<");
     press(&mut editor, "s-]");
-    assert_eq!(
-        editor.echo().as_deref(),
-        Some("At the end of the navigation history")
-    );
+    assert_eq!(editor.echo().as_deref(), Some("At the end of the navigation history"));
 }
 
 #[test]
@@ -344,8 +312,5 @@ fn goto_line_goes_to_a_line_and_column_counted_from_1() {
     assert_eq!(place(&editor).1, 100);
     press(&mut editor, "M-g g 3 x RET");
     assert_eq!(place(&editor).1, 100);
-    assert_eq!(
-        editor.echo().as_deref(),
-        Some("Type a line, or line:column")
-    );
+    assert_eq!(editor.echo().as_deref(), Some("Type a line, or line:column"));
 }

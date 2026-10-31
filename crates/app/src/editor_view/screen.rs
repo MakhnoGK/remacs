@@ -14,6 +14,7 @@ use crate::pane_view::render_button;
 use crate::screen_view::{Cell as ScreenCell, cell_at, render_screen, screen_size};
 use crate::tabs_view::render_tabs;
 use crate::text_zoom::TextZoom;
+use crate::widgets::StyleExt;
 
 /// Around the window buffer's screen: its sides, and under it, over the hints and pill.
 const SCREEN_SIDE: f32 = 24.0;
@@ -75,13 +76,8 @@ pub(super) fn full_screen_bounds(
 ) -> Bounds<Pixels> {
     let origin = point(px(SCREEN_SIDE), px(TITLE_BAR_HEIGHT));
     let bottom = if fills { SCREEN_SIDE } else { SCREEN_BOTTOM };
-    Bounds {
-        origin,
-        size: size(
-            frame.width - px(2.0 * SCREEN_SIDE),
-            frame.height - origin.y - px(bottom) - reserved,
-        ),
-    }
+    let height = frame.height - origin.y - px(bottom) - reserved;
+    Bounds::new(origin, size(frame.width - px(2.0 * SCREEN_SIDE), height))
 }
 
 impl EditorView {
@@ -106,39 +102,28 @@ impl EditorView {
         };
         let padding = self.editor.screen_padding(name);
         let inset = point(px(padding.horizontal), px(padding.vertical));
-        let room = size(
-            (bounds.size.width - inset.x * 2.0).max(px(0.0)),
-            (bounds.size.height - inset.y * 2.0).max(px(0.0)),
-        );
-        let size = screen_size(room.width, room.height, cell);
+        let room = |length: Pixels, inset: Pixels| (length - inset * 2.0).max(px(0.0));
+        let (width, height) = (room(bounds.size.width, inset.x), room(bounds.size.height, inset.y));
+        let size = screen_size(width, height, cell);
         let screen = self.editor.screen(name, size)?;
         self.screen_drawn = true;
         let transition = self.transitions.popup();
         let tip = &mut self.surfaces.mark_tip;
         tip.update(self.hovered_mark, Instant::now(), transition.duration);
-        let tip = tip
-            .shown(transition)
-            .map(|shown| (*shown.content, shown.look));
-        let area = ScreenArea {
-            buffer: name.to_owned(),
-            origin: offset + bounds.origin + inset,
-            cell,
-            size,
-        };
-        let mut element = div()
-            .id(SharedString::from(format!("screen {name}")))
-            .size_full()
-            .child(render_screen(screen, cell, inset, under, tip, cx));
+        let tip = tip.shown(transition).map(|shown| (*shown.content, shown.look));
+        let origin = offset + bounds.origin + inset;
+        let area = ScreenArea { buffer: name.to_owned(), origin, cell, size };
+        let id = SharedString::from(format!("screen {name}"));
+        let screen = render_screen(screen, cell, inset, under, tip, cx);
+        let mut element = div().id(id).size_full().child(screen);
         for button in [MouseButton::Left, MouseButton::Middle, MouseButton::Right] {
             let area = area.clone();
-            element = element.on_mouse_down(
-                button,
-                cx.listener(move |view, event: &MouseDownEvent, window, cx| {
-                    cx.stop_propagation();
-                    window.focus(&view.focus_handle);
-                    view.press_screen(area.clone(), event, cx);
-                }),
-            );
+            let press = cx.listener(move |view, event: &MouseDownEvent, window, cx| {
+                cx.stop_propagation();
+                window.focus(&view.focus_handle);
+                view.press_screen(area.clone(), event, cx);
+            });
+            element = element.on_mouse_down(button, press);
         }
         let (moved, left, scrolled) = (area.clone(), area.clone(), area);
         let element = element
@@ -164,10 +149,8 @@ impl EditorView {
     }
 
     fn press_screen(&mut self, area: ScreenArea, event: &MouseDownEvent, cx: &mut Context<Self>) {
-        let mouse = ScreenMouse::Press {
-            button: screen_button(event.button),
-            clicks: event.click_count,
-        };
+        let mouse =
+            ScreenMouse::Press { button: screen_button(event.button), clicks: event.click_count };
         let pointer = area.pointer(event.position, &event.modifiers, mouse);
         self.editor.screen_mouse(&area.buffer, pointer);
         self.screen_press = Some((area, event.button));
@@ -195,10 +178,7 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) {
         if event.modifiers.platform {
-            if self
-                .screen_zoom
-                .scroll(event.delta, font::code().size, self.zoom)
-            {
+            if self.screen_zoom.scroll(event.delta, font::code().size, self.zoom) {
                 cx.notify();
             }
             return;
@@ -206,18 +186,12 @@ impl EditorView {
         let row_height = area.cell.height;
         let delta = event.delta.pixel_delta(row_height);
         // macOS turns a mouse's wheel sideways while shift is held.
-        let delta = if event.modifiers.shift && delta.y == px(0.0) {
-            delta.x
-        } else {
-            delta.y
-        };
+        let delta = if event.modifiers.shift && delta.y == px(0.0) { delta.x } else { delta.y };
         let rows = self.screen_scroll - delta / row_height;
         let whole = rows.trunc();
         self.screen_scroll = rows - whole;
         if whole != 0.0 {
-            let mouse = ScreenMouse::Wheel {
-                rows: whole as isize,
-            };
+            let mouse = ScreenMouse::Wheel { rows: whole as isize };
             let pointer = area.pointer(event.position, &event.modifiers, mouse);
             self.editor.screen_mouse(&area.buffer, pointer);
         }
@@ -226,11 +200,7 @@ impl EditorView {
 
     /// The zoom ⌘= and ⌘- change: the screens' while one has the keys, else the text's.
     pub(super) fn zoom_with_keys(&mut self) -> &mut TextZoom {
-        if self.editor.screen_has_keys() {
-            &mut self.screen_zoom
-        } else {
-            &mut self.text_zoom
-        }
+        if self.editor.screen_has_keys() { &mut self.screen_zoom } else { &mut self.text_zoom }
     }
 
     pub fn hover_command_mark(&mut self, mark: Option<(usize, bool)>, cx: &mut Context<Self>) {
@@ -259,30 +229,13 @@ impl EditorView {
             HEADER_TABS_SIDE
         };
         let room = f32::from(clip.size.width) - tabs_left - HEADER_BUTTONS_WIDTH;
-        let controls = div()
-            .absolute()
-            .top_0()
-            .left_0()
-            .right_0()
-            .h(px(TITLE_BAR_HEIGHT))
-            .children(tabs.map(|tabs| {
-                render_tabs(tabs, room, cx)
-                    .absolute()
-                    .top(px(9.0))
-                    .left(px(tabs_left))
-            }))
-            .child(
-                div()
-                    .absolute()
-                    .top(px(8.0))
-                    .right(px(14.0))
-                    .flex()
-                    .gap(px(6.0))
-                    .font_family(font::ui())
-                    .text_size(px(font::status_size()))
-                    .children(buttons.into_iter().map(|button| render_button(button, cx))),
-            );
-        Some(controls.into_any_element())
+        let tabs = tabs.map(|tabs| render_tabs(tabs, room, cx).absolute().top(px(9.0)));
+        let buttons = buttons.into_iter().map(|button| render_button(button, cx));
+        let button_row = div().absolute().top(px(8.0)).right(px(14.0)).flex().gap(px(6.0)).ui();
+        let button_row = button_row.text_size(px(font::status_size())).children(buttons);
+        let controls = div().across().top_0().h(px(TITLE_BAR_HEIGHT));
+        let controls = controls.children(tabs.map(|tabs| tabs.left(px(tabs_left))));
+        Some(controls.child(button_row).into_any_element())
     }
 }
 
@@ -299,12 +252,7 @@ mod tests {
         let frame = size(px(800.0), px(600.0));
         assert_eq!(
             full_screen_bounds(frame, px(0.0), false),
-            bounds(
-                SCREEN_SIDE,
-                TITLE_BAR_HEIGHT,
-                752.0,
-                600.0 - TITLE_BAR_HEIGHT - SCREEN_BOTTOM
-            )
+            bounds(SCREEN_SIDE, TITLE_BAR_HEIGHT, 752.0, 600.0 - TITLE_BAR_HEIGHT - SCREEN_BOTTOM)
         );
         assert_eq!(
             full_screen_bounds(frame, px(100.0), false).size.height,
@@ -328,24 +276,15 @@ mod tests {
                 height: px(16.0),
                 glyph: px(12.0),
             },
-            size: ScreenSize {
-                columns: 10,
-                rows: 5,
-            },
+            size: ScreenSize { columns: 10, rows: 5 },
         };
-        let mouse = ScreenMouse::Press {
-            button: screen_button(MouseButton::Left),
-            clicks: 1,
-        };
+        let mouse = ScreenMouse::Press { button: screen_button(MouseButton::Left), clicks: 1 };
         let cell = |x: f32, y: f32| {
             let pointer = area.pointer(point(px(x), px(y)), &gpui::Modifiers::default(), mouse);
             (pointer.row, pointer.column)
         };
         assert_eq!(cell(0.0, 0.0), (0, 0));
-        assert_eq!(
-            cell(10.0 + 8.0 * 3.0 + 1.0, 20.0 + 16.0 * 2.0 + 1.0),
-            (2, 3)
-        );
+        assert_eq!(cell(10.0 + 8.0 * 3.0 + 1.0, 20.0 + 16.0 * 2.0 + 1.0), (2, 3));
         assert_eq!(cell(1000.0, 1000.0), (4, 9));
     }
 }

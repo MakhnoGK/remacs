@@ -95,10 +95,7 @@ impl Preparation {
         let (send, result) = mpsc::channel();
         let control = Arc::new(Control::default());
         let shared = Arc::clone(&control);
-        let console = Console {
-            output,
-            notifier: notifier.clone(),
-        };
+        let console = Console { output, notifier: notifier.clone() };
         thread::Builder::new()
             .name("debug-prepare".into())
             .spawn(move || {
@@ -107,11 +104,7 @@ impl Preparation {
                 notifier();
             })
             .expect("spawning a preparing thread");
-        Self {
-            output: events,
-            result,
-            control,
-        }
+        Self { output: events, result, control }
     }
 
     pub fn try_output(&self) -> Option<Event> {
@@ -162,13 +155,8 @@ fn prepare(plan: Plan, console: &Console, control: &Control) -> Prepared {
         cargo.arg("build");
         "cargo build"
     };
-    cargo
-        .args(&build.args)
-        .arg("--message-format=json-render-diagnostics");
-    console.say(Event::Started(format!(
-        "{command} {}",
-        build.args.join(" ")
-    )));
+    cargo.args(&build.args).arg("--message-format=json-render-diagnostics");
+    console.say(Event::Started(format!("{command} {}", build.args.join(" "))));
     let mut executables = Vec::new();
     let exit = run(cargo, &target, control, console, |line| {
         executables.extend(built_executable(line).filter(|built| built.test == build.tests));
@@ -182,11 +170,7 @@ fn prepare(plan: Plan, console: &Console, control: &Control) -> Prepared {
             let target = Target {
                 program: built.executable,
                 // Where `cargo test` runs them.
-                cwd: if build.tests {
-                    built.package_dir
-                } else {
-                    target.cwd.clone()
-                },
+                cwd: if build.tests { built.package_dir } else { target.cwd.clone() },
                 ..target.clone()
             };
             (built.label, target)
@@ -262,10 +246,7 @@ fn run(
         }
     };
     *lock(&control.group) = i32::try_from(child.id()).ok();
-    let copying = child
-        .stderr
-        .take()
-        .map(|stderr| copy_to(stderr, console.clone()));
+    let copying = child.stderr.take().map(|stderr| copy_to(stderr, console.clone()));
     if let Some(stdout) = child.stdout.take() {
         for line in BufReader::new(stdout).lines() {
             match line {

@@ -89,11 +89,8 @@ impl Original {
                 detect(&sample, sample.len() == file_len)
             }
         };
-        let mut format = Format {
-            encoding: sniffed,
-            byte_order_mark: byte_order_mark == Some(sniffed),
-            ..Format::crlf()
-        };
+        let byte_order_mark = byte_order_mark == Some(sniffed);
+        let mut format = Format { encoding: sniffed, byte_order_mark, ..Format::crlf() };
         loop {
             match Self::decode(file, file_len, format)? {
                 Ok(original) => return Ok(original),
@@ -113,11 +110,8 @@ impl Original {
     /// The file as it is when it is UTF-8: its `small` bytes, else mapped.
     fn plain(file: &File, file_len: usize, small: Option<Vec<u8>>) -> io::Result<Option<Self>> {
         if let Some(bytes) = small {
-            return Ok(if simdutf8::basic::from_utf8(&bytes).is_ok() {
-                Some(Self::from(bytes))
-            } else {
-                None
-            });
+            let is_utf8 = simdutf8::basic::from_utf8(&bytes).is_ok();
+            return Ok(is_utf8.then(|| Self::from(bytes)));
         }
         // SAFETY: the mapping is read-only. Another process may still truncate the file in
         // place while it is mapped; ADR 0001 records that risk for large files.
@@ -137,40 +131,27 @@ impl Original {
         let with = |crlf| Format { crlf, ..format };
         if file_len < MAP_THRESHOLD {
             let mut text = Vec::with_capacity(file_len);
-            return Ok(decode(input, format, &mut text)?.map(|crlf| Self {
-                format: with(crlf),
-                ..Self::from(text)
-            }));
+            return Ok(decode(input, format, &mut text)?
+                .map(|crlf| Self { format: with(crlf), ..Self::from(text) }));
         }
         let mut output = BufWriter::with_capacity(1 << 20, temporary_file()?);
         let crlf = match decode(input, format, &mut output)? {
             Ok(crlf) => crlf,
             Err(stop) => return Ok(Err(stop)),
         };
-        let text_file = output
-            .into_inner()
-            .map_err(io::IntoInnerError::into_error)?;
+        let text_file = output.into_inner().map_err(io::IntoInnerError::into_error)?;
         let text_len = text_file.metadata()?.len() as usize;
         // SAFETY: nothing else can change the file: its name was removed when it was made.
         let mapping = unsafe { Mmap::map(&text_file)? };
         let (index, _) = LineIndex::from_file(&text_file, text_len)?;
-        Ok(Ok(Self {
-            storage: Storage::Mapped(mapping),
-            index,
-            format: with(crlf),
-        }))
+        Ok(Ok(Self { storage: Storage::Mapped(mapping), index, format: with(crlf) }))
     }
 
     /// A notice in place of the file's bytes, which aren't read.
     fn binary(file_len: usize) -> Self {
         let notice = format!("Binary file of {file_len} bytes: not shown.\n");
-        Self {
-            format: Format {
-                binary: true,
-                ..Format::default()
-            },
-            ..Self::from(notice.into_bytes())
-        }
+        let format = Format { binary: true, ..Format::default() };
+        Self { format, ..Self::from(notice.into_bytes()) }
     }
 
     pub fn bytes(&self) -> &[u8] {
@@ -184,17 +165,12 @@ impl Original {
 
     pub fn nth_newline_in(&self, range: Range<usize>, rank: usize) -> Option<usize> {
         let rank_in_file = self.index.newlines_before(&self.storage, range.start) + rank;
-        self.index
-            .nth_newline(&self.storage, rank_in_file)
-            .filter(|&offset| offset < range.end)
+        self.index.nth_newline(&self.storage, rank_in_file).filter(|&offset| offset < range.end)
     }
 }
 
 fn not_in(encoding: &'static Encoding) -> io::Error {
-    io::Error::new(
-        io::ErrorKind::InvalidData,
-        format!("The file isn't in {}", encoding.name()),
-    )
+    io::Error::new(io::ErrorKind::InvalidData, format!("The file isn't in {}", encoding.name()))
 }
 
 /// A file without a name, to hold a decoded text: its pages can leave memory for the disk,
@@ -203,16 +179,9 @@ fn not_in(encoding: &'static Encoding) -> io::Error {
 // windows-1251 file, ~7 GB) and opening fails without the room; decode lazily if it bites.
 fn temporary_file() -> io::Result<File> {
     static MADE: AtomicUsize = AtomicUsize::new(0);
-    let path = env::temp_dir().join(format!(
-        "remacs-decoded-{}-{}",
-        process::id(),
-        MADE.fetch_add(1, Ordering::Relaxed)
-    ));
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create_new(true)
-        .open(&path)?;
+    let made = MADE.fetch_add(1, Ordering::Relaxed);
+    let path = env::temp_dir().join(format!("remacs-decoded-{}-{made}", process::id()));
+    let file = OpenOptions::new().read(true).write(true).create_new(true).open(&path)?;
     fs::remove_file(&path)?;
     Ok(file)
 }
@@ -220,10 +189,6 @@ fn temporary_file() -> io::Result<File> {
 impl From<Vec<u8>> for Original {
     fn from(bytes: Vec<u8>) -> Self {
         let index = LineIndex::from_bytes(&bytes);
-        Self {
-            storage: Storage::Owned(bytes),
-            index,
-            format: Format::default(),
-        }
+        Self { storage: Storage::Owned(bytes), index, format: Format::default() }
     }
 }

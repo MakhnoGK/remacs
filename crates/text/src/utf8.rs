@@ -38,11 +38,8 @@ impl Utf8Check {
     pub fn feed(&mut self, mut bytes: &[u8]) {
         self.fed = true;
         if !self.head_done {
-            let head_len = bytes
-                .iter()
-                .take(3 - self.head.len)
-                .take_while(|&&byte| is_continuation(byte))
-                .count();
+            let head = bytes.iter().take(3 - self.head.len);
+            let head_len = head.take_while(|&&byte| is_continuation(byte)).count();
             self.head = Partial::of(&[self.head.as_slice(), &bytes[..head_len]].concat());
             bytes = &bytes[head_len..];
             self.head_done = self.head.len == 3 || !bytes.is_empty();
@@ -97,7 +94,7 @@ impl Utf8Check {
     }
 }
 
-fn is_continuation(byte: u8) -> bool {
+pub(crate) fn is_continuation(byte: u8) -> bool {
     byte & 0b1100_0000 == 0b1000_0000
 }
 
@@ -109,18 +106,7 @@ fn char_width(leading: u8) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// xorshift64: deterministic and dependency-free.
-    struct Rng(u64);
-
-    impl Rng {
-        fn below(&mut self, bound: usize) -> usize {
-            self.0 ^= self.0 << 13;
-            self.0 ^= self.0 >> 7;
-            self.0 ^= self.0 << 17;
-            (self.0 % bound.max(1) as u64) as usize
-        }
-    }
+    use crate::Rng;
 
     /// Splits `bytes` into ranges at random, each checked in random pieces, then joined.
     fn check_split(bytes: &[u8], rng: &mut Rng) -> bool {

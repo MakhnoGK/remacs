@@ -17,10 +17,7 @@ pub(crate) struct Sources {
 
 impl Sources {
     pub fn new(original: Original) -> Self {
-        Self {
-            original: Arc::new(original),
-            added: AddBuffer::default(),
-        }
+        Self { original: Arc::new(original), added: AddBuffer::default() }
     }
 
     pub fn format(&self) -> Format {
@@ -44,13 +41,8 @@ impl Sources {
     pub fn split(&self, piece: &Piece, offset_in_piece: usize) -> (Piece, Piece) {
         let middle = piece.start + offset_in_piece;
         let left = self.piece(piece.source, piece.start..middle);
-        let right = Piece {
-            start: middle,
-            len: piece.len - offset_in_piece,
-            newlines: piece.newlines - left.newlines,
-            ..*piece
-        };
-        (left, right)
+        let (len, newlines) = (piece.len - offset_in_piece, piece.newlines - left.newlines);
+        (left, Piece { start: middle, len, newlines, ..*piece })
     }
 
     pub fn newlines_in_prefix(&self, piece: &Piece, prefix_len: usize) -> usize {
@@ -60,22 +52,17 @@ impl Sources {
     /// Offset within `piece` of its `rank`-th newline.
     pub fn nth_newline_in(&self, piece: &Piece, rank: usize) -> usize {
         let offset_in_piece = match piece.source {
-            SourceKind::Original => self
-                .original
-                .nth_newline_in(piece.range(), rank)
-                .map(|offset| offset - piece.start),
+            SourceKind::Original => {
+                self.original.nth_newline_in(piece.range(), rank).map(|offset| offset - piece.start)
+            }
             SourceKind::Added { .. } => newline::nth(self.bytes(piece), rank),
         };
         offset_in_piece.expect("piece newline count matches its bytes")
     }
 
     fn piece(&self, source: SourceKind, range: Range<usize>) -> Piece {
-        Piece {
-            source,
-            start: range.start,
-            len: range.len(),
-            newlines: self.newlines_in(source, range),
-        }
+        let (start, len) = (range.start, range.len());
+        Piece { source, start, len, newlines: self.newlines_in(source, range) }
     }
 
     fn newlines_in(&self, source: SourceKind, range: Range<usize>) -> usize {

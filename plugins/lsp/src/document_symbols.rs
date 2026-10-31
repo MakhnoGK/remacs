@@ -66,12 +66,7 @@ fn flatten(
             path: path.to_path_buf(),
             position: symbol.selection_range.start,
         });
-        flatten(
-            symbol.children.unwrap_or_default(),
-            Some(&symbol.name),
-            path,
-            found,
-        );
+        flatten(symbol.children.unwrap_or_default(), Some(&symbol.name), path, found);
     }
 }
 
@@ -85,41 +80,28 @@ fn ask(editor: &mut Editor, servers: &'static [LanguageServer], request: Documen
     }
     let uri = uri::from_path(&request.path);
     for client in &clients {
-        client.send(Outgoing::DocumentSymbols {
-            id: request.id,
-            uri: uri.clone(),
-        });
+        client.send(Outgoing::DocumentSymbols { id: request.id, uri: uri.clone() });
     }
-    *editor.plugin_state::<Asked>() = Asked {
-        id: request.id,
-        parts: clients.into_iter().map(|client| (client, None)).collect(),
-    };
+    *editor.plugin_state::<Asked>() =
+        Asked { id: request.id, parts: clients.into_iter().map(|client| (client, None)).collect() };
 }
 
 /// Delivers once every server asked has answered.
 fn collect_answers(editor: &mut Editor) {
-    let clients: Vec<Rc<Client>> = editor
-        .plugin_state::<Clients>()
-        .running()
-        .map(|(_, client)| Rc::clone(client))
-        .collect();
+    let clients: Vec<Rc<Client>> =
+        editor.plugin_state::<Clients>().running().map(|(_, client)| Rc::clone(client)).collect();
     for client in clients {
         for found in client.take_document_symbols() {
             let asked = editor.plugin_state::<Asked>();
             let is_asked = asked.id == found.id
-                && asked
-                    .parts
-                    .iter()
-                    .any(|(part, _)| Rc::ptr_eq(part, &client));
+                && asked.parts.iter().any(|(part, _)| Rc::ptr_eq(part, &client));
             if !is_asked {
                 continue;
             }
             let symbols = place(editor, found.symbols, found.encoding);
             let asked = editor.plugin_state::<Asked>();
-            if let Some((_, answer)) = asked
-                .parts
-                .iter_mut()
-                .find(|(part, _)| Rc::ptr_eq(part, &client))
+            if let Some((_, answer)) =
+                asked.parts.iter_mut().find(|(part, _)| Rc::ptr_eq(part, &client))
             {
                 *answer = Some(symbols);
             }
@@ -153,10 +135,7 @@ mod tests {
                 { "name": "point", "kind": 6, "range": range(3), "selectionRange": range(3) },
             ],
         }]);
-        let found = found(
-            serde_json::from_value(nested).ok(),
-            Path::new("/p/buffer.rs"),
-        );
+        let found = found(serde_json::from_value(nested).ok(), Path::new("/p/buffer.rs"));
         let listed: Vec<_> = found
             .iter()
             .map(|symbol| {

@@ -30,6 +30,45 @@ pub struct Mode {
     pub comment: Option<CommentSyntax>,
     /// For lines of markup embedded in code, like JSX children.
     pub markup_comment: Option<CommentSyntax>,
+    /// The language's usual indentation, for a file not indented yet.
+    pub indent: Option<IndentUnit>,
+}
+
+/// What one level of indentation is: a tab, or a number of spaces. Settings write it as
+/// the number or `"tabs"`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(try_from = "IndentSetting")]
+pub enum IndentUnit {
+    Tabs,
+    Spaces(usize),
+}
+
+impl IndentUnit {
+    pub fn text(self) -> String {
+        match self {
+            IndentUnit::Tabs => "\t".into(),
+            IndentUnit::Spaces(width) => " ".repeat(width),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum IndentSetting {
+    Spaces(usize),
+    Named(String),
+}
+
+impl TryFrom<IndentSetting> for IndentUnit {
+    type Error = String;
+
+    fn try_from(setting: IndentSetting) -> Result<Self, String> {
+        match setting {
+            IndentSetting::Spaces(width @ 1..) => Ok(IndentUnit::Spaces(width)),
+            IndentSetting::Named(name) if name == "tabs" => Ok(IndentUnit::Tabs),
+            _ => Err("indentation is a number of spaces above 0, or \"tabs\"".into()),
+        }
+    }
 }
 
 /// How a line is commented out: `start` before it, and `end` after it for languages
@@ -71,16 +110,21 @@ impl Modes {
         self.modes.iter().find(|mode| mode.name == name)
     }
 
+    /// The name of the first mode `matches`.
+    fn find(&self, matches: impl FnMut(&&Mode) -> bool) -> Option<&'static str> {
+        Some(self.modes.iter().find(matches)?.name)
+    }
+
     /// Takes `modes.toml`'s choices; the errors are those naming no mode.
     pub fn set_settings(&mut self, settings: &ModesSettings) -> Vec<String> {
         let mut errors = Vec::new();
         let mut resolve = |table: &BTreeMap<String, String>| -> Vec<(String, &'static str)> {
             let named = table.iter().filter_map(|(key, name)| {
-                let mode = self.modes.iter().find(|mode| mode.name == name);
+                let mode = self.get(name).map(|mode| mode.name);
                 if mode.is_none() {
                     errors.push(format!("modes.toml: no mode {name}"));
                 }
-                Some((key.clone(), mode?.name))
+                Some((key.clone(), mode?))
             });
             named.collect()
         };
@@ -100,11 +144,7 @@ impl Modes {
     pub fn name_for_file(&self, path: &Path, text: &Text) -> &'static str {
         let lines = head_and_tail(text);
         let first = lines.first().map_or("", String::as_str);
-        let cookie_line = if first.starts_with("#!") {
-            lines.get(1)
-        } else {
-            lines.first()
-        };
+        let cookie_line = if first.starts_with("#!") { lines.get(1) } else { lines.first() };
         let declared = cookie_line
             .and_then(|line| emacs_mode(line))
             .or_else(|| lines.iter().find_map(|line| vim_filetype(line)))
@@ -118,79 +158,50 @@ impl Modes {
 
     fn named(&self, path: Option<&Path>) -> Option<&'static str> {
         let file_name = path?.file_name()?.to_str()?;
-        let chosen = self
-            .files
-            .iter()
-            .find(|(pattern, _)| match pattern.strip_prefix('*') {
-                Some(end) => file_name.ends_with(end),
-                None => file_name == pattern,
-            });
-        let extension = Path::new(file_name)
-            .extension()
-            .and_then(|extension| extension.to_str());
-        let named = |mode: &&Mode| mode.file_names.contains(&file_name);
+        let chosen = self.files.iter().find(|(pattern, _)| match pattern.strip_prefix('*') {
+            Some(end) => file_name.ends_with(end),
+            None => file_name == pattern,
+        });
+        let extension = Path::new(file_name).extension().and_then(|extension| extension.to_str());
         let extended =
             |mode: &&Mode| extension.is_some_and(|extension| mode.extensions.contains(&extension));
-        chosen.map(|&(_, name)| name).or_else(|| {
-            let mode = self.modes.iter().find(named);
-            Some(mode.or_else(|| self.modes.iter().find(extended))?.name)
-        })
+        (chosen.map(|&(_, name)| name))
+            .or_else(|| self.find(|mode| mode.file_names.contains(&file_name)))
+            .or_else(|| self.find(extended))
     }
 
     fn declared(&self, name: &str) -> Option<&'static str> {
         let same = |known: &str| known.eq_ignore_ascii_case(name);
-        let mode = self.modes.iter().find(|mode| same(mode.name));
-        Some(
-            mode.or_else(|| {
-                self.modes
-                    .iter()
-                    .find(|mode| mode.aliases.iter().any(|alias| same(alias)))
-            })?
-            .name,
-        )
+        self.find(|mode| same(mode.name))
+            .or_else(|| self.find(|mode| mode.aliases.iter().any(|alias| same(alias))))
     }
 
     fn interpreted(&self, first: &str) -> Option<&'static str> {
         let program = interpreter(first)?;
         let chosen = self.interpreters.iter().find(|(name, _)| *name == program);
-        let mode = || {
-            self.modes
-                .iter()
-                .find(|mode| mode.interpreters.contains(&program))
-        };
-        chosen.map(|&(_, name)| name).or_else(|| Some(mode()?.name))
+        (chosen.map(|&(_, name)| name))
+            .or_else(|| self.find(|mode| mode.interpreters.contains(&program)))
     }
 
     fn begun(&self, first: &str) -> Option<&'static str> {
         let first = first.trim_start_matches('\u{feff}').trim_start();
         let begins = |start: &&str| {
-            first
-                .get(..start.len())
-                .is_some_and(|head| head.eq_ignore_ascii_case(start))
+            first.get(..start.len()).is_some_and(|head| head.eq_ignore_ascii_case(start))
         };
-        Some(
-            self.modes
-                .iter()
-                .find(|mode| mode.first_lines.iter().any(begins))?
-                .name,
-        )
+        self.find(|mode| mode.first_lines.iter().any(begins))
     }
 }
 
 /// The first and last lines a modeline may be on, each cut short.
 fn head_and_tail(text: &Text) -> Vec<String> {
     let count = text.line_count();
-    let tail = count
-        .saturating_sub(MODELINE_LINES)
-        .max(MODELINE_LINES.min(count));
-    (0..MODELINE_LINES.min(count))
-        .chain(tail..count)
-        .filter_map(|line| {
-            let range = text.line_range(line)?;
-            let end = range.end.min(range.start + MODELINE_BYTES);
-            Some(String::from_utf8_lossy(&text.bytes_in(range.start..end)).into_owned())
-        })
-        .collect()
+    let tail = count.saturating_sub(MODELINE_LINES).max(MODELINE_LINES.min(count));
+    let cut_short = |line| {
+        let range = text.line_range(line)?;
+        let end = range.end.min(range.start + MODELINE_BYTES);
+        Some(String::from_utf8_lossy(&text.bytes_in(range.start..end)).into_owned())
+    };
+    (0..MODELINE_LINES.min(count)).chain(tail..count).filter_map(cut_short).collect()
 }
 
 /// The mode of `-*- mode: python -*-` or `-*- python -*-`, without Emacs's `-mode` or `-ts`.
@@ -219,11 +230,7 @@ fn vim_filetype(line: &str) -> Option<&str> {
     })?;
     line[start..]
         .split([' ', '\t', ':'])
-        .find_map(|option| {
-            option
-                .strip_prefix("ft=")
-                .or_else(|| option.strip_prefix("filetype="))
-        })
+        .find_map(|option| option.strip_prefix("ft=").or_else(|| option.strip_prefix("filetype=")))
         .filter(|name| !name.is_empty())
 }
 
@@ -249,33 +256,21 @@ mod tests {
 
     fn modes() -> Modes {
         let mut modes = Modes::default();
-        for mode in [
-            Mode {
-                name: "Python",
-                extensions: &["py"],
-                interpreters: &["python"],
-                ..Mode::default()
-            },
-            Mode {
-                name: "Bash",
-                extensions: &["sh"],
-                interpreters: &["bash", "sh"],
-                aliases: &["sh", "shell-script"],
-                ..Mode::default()
-            },
-            Mode {
-                name: "C++",
-                extensions: &["cpp", "h"],
-                aliases: &["cpp"],
-                ..Mode::default()
-            },
-            Mode {
-                name: "XML",
-                first_lines: &["<?xml"],
-                ..Mode::default()
-            },
+        let none: &[&str] = &[];
+        for (name, [extensions, interpreters, aliases, first_lines]) in [
+            ("Python", [&["py"][..], &["python"], none, none]),
+            ("Bash", [&["sh"], &["bash", "sh"], &["sh", "shell-script"], none]),
+            ("C++", [&["cpp", "h"], none, &["cpp"], none]),
+            ("XML", [none, none, none, &["<?xml"]]),
         ] {
-            modes.add(mode);
+            modes.add(Mode {
+                name,
+                extensions,
+                interpreters,
+                aliases,
+                first_lines,
+                ..Mode::default()
+            });
         }
         modes
     }
@@ -311,11 +306,7 @@ mod tests {
     fn modes_toml_comes_before_the_modes_own_files_and_interpreters() {
         let mut modes = modes();
         let settings = ModesSettings {
-            files: [
-                ("*.h".into(), "Bash".into()),
-                ("Jenkinsfile".into(), "Python".into()),
-            ]
-            .into(),
+            files: [("*.h".into(), "Bash".into()), ("Jenkinsfile".into(), "Python".into())].into(),
             interpreters: [("deno".into(), "Bash".into()), ("x".into(), "Cobol".into())].into(),
         };
         assert_eq!(modes.set_settings(&settings), ["modes.toml: no mode Cobol"]);

@@ -27,11 +27,7 @@ pub struct ToolSettings {
 
 impl Default for ToolsSettings {
     fn default() -> Self {
-        Self {
-            check_updates: true,
-            tools: BTreeMap::new(),
-            installers: BTreeMap::new(),
-        }
+        Self { check_updates: true, tools: BTreeMap::new(), installers: BTreeMap::new() }
     }
 }
 

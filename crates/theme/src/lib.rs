@@ -76,13 +76,40 @@ fn ensure_theme() {
     DEFAULT_THEME.call_once(|| Theme::built_in(DEFAULT).put_in_place());
 }
 
-/// `#rrggbb`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Rgb(pub u32);
+/// Colors read from `#` and hex digits; `$alpha` takes `#rrggbbaa` too.
+macro_rules! hex_colors {
+    ($($(#[$doc:meta])* $Color:ident: $alpha:literal,)*) => {$(
+        $(#[$doc])*
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub struct $Color(pub u32);
 
-/// `#rrggbbaa`, or `#rrggbb` for an opaque one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Rgba(pub u32);
+        impl Token for $Color {
+            type Read = u32;
+
+            fn bits(self) -> u32 {
+                self.0
+            }
+
+            fn read(bits: u32) -> u32 {
+                bits
+            }
+        }
+
+        impl<'de> Deserialize<'de> for $Color {
+            fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                let text = String::deserialize(deserializer)?;
+                parse_hex(&text, $alpha).map($Color).map_err(D::Error::custom)
+            }
+        }
+    )*};
+}
+
+hex_colors! {
+    /// `#rrggbb`.
+    Rgb: false,
+    /// `#rrggbbaa`, or `#rrggbb` for an opaque one.
+    Rgba: true,
+}
 
 impl Rgba {
     /// This drawn over `bottom`, as one opaque color.
@@ -96,63 +123,18 @@ impl Rgba {
     }
 }
 
-impl Token for Rgb {
-    type Read = u32;
-
-    fn bits(self) -> u32 {
-        self.0
-    }
-
-    fn read(bits: u32) -> u32 {
-        bits
-    }
-}
-
-impl Token for Rgba {
-    type Read = u32;
-
-    fn bits(self) -> u32 {
-        self.0
-    }
-
-    fn read(bits: u32) -> u32 {
-        bits
-    }
-}
-
-impl<'de> Deserialize<'de> for Rgb {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let text = String::deserialize(deserializer)?;
-        parse_hex(&text, false).map(Rgb).map_err(D::Error::custom)
-    }
-}
-
-impl<'de> Deserialize<'de> for Rgba {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let text = String::deserialize(deserializer)?;
-        parse_hex(&text, true).map(Rgba).map_err(D::Error::custom)
-    }
-}
-
 fn parse_hex(text: &str, alpha: bool) -> Result<u32, String> {
     let digits = text
         .strip_prefix('#')
         .filter(|digits| digits.len() == 6 || alpha && digits.len() == 8)
         .filter(|digits| digits.bytes().all(|byte| byte.is_ascii_hexdigit()));
     let Some(digits) = digits else {
-        let forms = if alpha {
-            "#rrggbb or #rrggbbaa"
-        } else {
-            "#rrggbb"
-        };
+        let forms = ["#rrggbb", "#rrggbb or #rrggbbaa"][usize::from(alpha)];
         return Err(format!("{text:?} is not a color: {forms}"));
     };
     let value = u32::from_str_radix(digits, 16).map_err(|error| error.to_string())?;
-    Ok(if alpha && digits.len() == 6 {
-        value << 8 | 0xff
-    } else {
-        value
-    })
+    let opaque = alpha && digits.len() == 6;
+    Ok(if opaque { value << 8 | 0xff } else { value })
 }
 
 pub mod color {
@@ -236,16 +218,8 @@ pub mod color {
     /// Lines of the commit graph: the checked out branch's, its base's, then the others'
     /// in turn.
     pub fn graph(index: usize) -> u32 {
-        let colors = [
-            accent(),
-            keyword(),
-            type_name(),
-            function(),
-            warning(),
-            info(),
-            builtin(),
-            string(),
-        ];
+        let colors =
+            [accent(), keyword(), type_name(), function(), warning(), info(), builtin(), string()];
         match index {
             0 | 1 => colors[index],
             _ => colors[2 + (index - 2) % (colors.len() - 2)],
@@ -305,30 +279,17 @@ pub mod syntax {
         }
     }
 
-    const BOLD: u32 = 1;
-    const ITALIC: u32 = 2;
-    const UNDERLINE: u32 = 4;
-
+    /// Bold, italic and underline are bits 0, 1 and 2.
     impl Token for Style {
         type Read = Style;
 
         fn bits(self) -> u32 {
-            [
-                (self.bold, BOLD),
-                (self.italic, ITALIC),
-                (self.underline, UNDERLINE),
-            ]
-            .into_iter()
-            .filter(|(on, _)| *on)
-            .fold(0, |bits, (_, bit)| bits | bit)
+            u32::from(self.bold) | u32::from(self.italic) << 1 | u32::from(self.underline) << 2
         }
 
         fn read(bits: u32) -> Style {
-            Style {
-                bold: bits & BOLD != 0,
-                italic: bits & ITALIC != 0,
-                underline: bits & UNDERLINE != 0,
-            }
+            let bit = |index: u32| bits >> index & 1 != 0;
+            Style { bold: bit(0), italic: bit(1), underline: bit(2) }
         }
     }
 
@@ -507,7 +468,7 @@ pub mod glass {
 
 /// The block cursor, wherever text has one.
 pub mod cursor {
-    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
     /// Pixels.
     pub const DEFAULT_RADIUS: f32 = 1.0;
@@ -522,11 +483,32 @@ pub mod cursor {
     pub fn set_radius(radius: f32) {
         RADIUS.store(radius.to_bits(), Ordering::Relaxed);
     }
+
+    static FONT_HEIGHT: AtomicBool = AtomicBool::new(false);
+    /// The code font's ascent and descent over its size, as `f32` bits; measured on render.
+    static GLYPH_RATIO: AtomicU32 = AtomicU32::new(1.2f32.to_bits());
+
+    /// Whether the block is the font's height, centered in the row, rather than the row's.
+    pub fn font_height() -> bool {
+        FONT_HEIGHT.load(Ordering::Relaxed)
+    }
+
+    pub fn set_font_height(font_height: bool) {
+        FONT_HEIGHT.store(font_height, Ordering::Relaxed);
+    }
+
+    pub fn glyph_ratio() -> f32 {
+        f32::from_bits(GLYPH_RATIO.load(Ordering::Relaxed))
+    }
+
+    pub fn set_glyph_ratio(ratio: f32) {
+        GLYPH_RATIO.store(ratio.to_bits(), Ordering::Relaxed);
+    }
 }
 
 pub mod font {
     use std::sync::atomic::{AtomicU32, Ordering};
-    use std::sync::{Arc, LazyLock, PoisonError, RwLock};
+    use std::sync::{Arc, LazyLock, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
     pub const DEFAULT_UI: &str = "SF Pro Text";
     pub const DEFAULT_UI_SIZE: f32 = 13.0;
@@ -539,7 +521,7 @@ pub mod font {
 
     /// The family of the interface's own text, set from the config.
     pub fn ui() -> Arc<str> {
-        Arc::clone(&UI.read().unwrap_or_else(PoisonError::into_inner))
+        Arc::clone(&read(&UI))
     }
 
     /// Of the interface's text, set from the config; the other sizes follow it.
@@ -570,7 +552,7 @@ pub mod font {
     }
 
     pub fn set_ui(family: &str, size: f32) {
-        *UI.write().unwrap_or_else(PoisonError::into_inner) = Arc::from(family);
+        *write(&UI) = Arc::from(family);
         UI_SIZE.store(size.to_bits(), Ordering::Relaxed);
     }
 
@@ -596,36 +578,31 @@ pub mod font {
 
     impl Default for CodeFont {
         fn default() -> Self {
-            Self {
-                family: Arc::from("Monaco"),
-                size: 13.0,
-                line_height: 22.0,
-                weight: 400.0,
-                ligatures: true,
-            }
+            let family = Arc::from("Monaco");
+            Self { family, size: 13.0, line_height: 22.0, weight: 400.0, ligatures: true }
         }
     }
 
     static CODE_FONT: LazyLock<RwLock<CodeFont>> = LazyLock::new(Default::default);
 
     pub fn code() -> CodeFont {
-        CODE_FONT
-            .read()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+        read(&CODE_FONT).clone()
     }
 
     /// The family of monospace text.
     pub fn mono() -> Arc<str> {
-        Arc::clone(
-            &CODE_FONT
-                .read()
-                .unwrap_or_else(PoisonError::into_inner)
-                .family,
-        )
+        Arc::clone(&read(&CODE_FONT).family)
     }
 
     pub fn set_code(font: CodeFont) {
-        *CODE_FONT.write().unwrap_or_else(PoisonError::into_inner) = font;
+        *write(&CODE_FONT) = font;
+    }
+
+    fn read<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
+        lock.read().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn write<T>(lock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
+        lock.write().unwrap_or_else(PoisonError::into_inner)
     }
 }

@@ -33,9 +33,7 @@ impl Plugin for ToolsPlugin {
         for command in panel::COMMANDS {
             registry.commands.add(*command);
         }
-        registry
-            .menu_items
-            .push(MenuItem::new("View", "panels", "Tools", panel::OPEN));
+        registry.menu_items.push(MenuItem::new("View", "panels", "Tools", panel::OPEN));
         registry.settings_hooks.push(Rc::new(read_settings));
         registry.post_command_hooks.push(Rc::new(pick_up));
         registry.status_providers.push(Rc::new(status));
@@ -44,11 +42,7 @@ impl Plugin for ToolsPlugin {
 
 /// Installs tools under `home`'s cache directory, its settings file being `tools.toml`.
 pub fn keep_tools_in(editor: &mut Editor, home: &Path) {
-    state::keep_in(
-        editor,
-        cache_dir(home).join("tools"),
-        config_dir(home).join("tools.toml"),
-    );
+    state::keep_in(editor, cache_dir(home).join("tools"), config_dir(home).join("tools.toml"));
 }
 
 /// Calls `then` with the program of the tool called `name` once it is there, downloading
@@ -68,9 +62,7 @@ pub fn installed(editor: &Editor, name: &str) -> Option<Program> {
 
 /// Whether `tool` can be installed here, e.g. npm is there for an npm package.
 pub fn can_install(editor: &Editor, tool: &Tool) -> bool {
-    editor
-        .find_plugin_state::<Tools>()
-        .is_some_and(|tools| tools.can_install(tool))
+    editor.find_plugin_state::<Tools>().is_some_and(|tools| tools.can_install(tool))
 }
 
 /// Makes `tools` the tools of `kind`, e.g. the language servers of the servers' catalog;
@@ -82,12 +74,7 @@ pub fn provide(editor: &mut Editor, kind: ToolKind, tools: &[&'static Tool]) {
     if kind == ToolKind::Grammar {
         return;
     }
-    let unknown = state
-        .settings
-        .tools
-        .keys()
-        .find(|name| state.entry(name).is_none())
-        .cloned();
+    let unknown = state.settings.tools.keys().find(|name| state.entry(name).is_none()).cloned();
     if let Some(name) = unknown {
         editor.set_error(format!("tools.toml: no tool is called {name}"));
     }
@@ -125,27 +112,21 @@ fn pick_up(editor: &mut Editor) {
 /// How the download going on goes; a click shows the Tools panel.
 fn status(editor: &Editor) -> Option<StatusSegment> {
     let tools = editor.find_plugin_state::<Tools>()?;
-    let text = tools.entries.iter().find_map(|entry| {
+    let item = tools.entries.iter().find_map(|entry| {
         let name = entry.tool.name;
-        match &entry.progress {
-            Progress::Downloading {
-                version,
-                percent: Some(percent),
-            } => {
+        let (text, percent) = match &entry.progress {
+            Progress::Downloading { version, percent: Some(percent) } => {
                 let version = version.as_deref().unwrap_or_default();
-                Some(format!("Downloading {name} {version} — {percent}%"))
+                (format!("Downloading {name} {version} — {percent}%"), Some(*percent))
             }
-            Progress::Downloading { percent: None, .. } => Some(format!("Looking up {name}…")),
-            Progress::Installing { version } => Some(format!("Installing {name} {version}…")),
-            Progress::Idle | Progress::Failed(_) => None,
-        }
+            Progress::Downloading { percent: None, .. } => (format!("Looking up {name}…"), None),
+            Progress::Installing { version } => (format!("Installing {name} {version}…"), None),
+            Progress::Idle | Progress::Failed(_) => return None,
+        };
+        let started = entry.job.as_ref()?.started;
+        Some(StatusItem { tone: Tone::Accent, ..StatusItem::working(text, started, percent) })
     })?;
-    Some(StatusSegment {
-        items: vec![StatusItem::toned(text, Tone::Accent)],
-        command: Some(panel::OPEN),
-        active: true,
-        code: true,
-    })
+    Some(StatusSegment { items: vec![item], command: Some(panel::OPEN), active: true, code: true })
 }
 
 #[cfg(test)]

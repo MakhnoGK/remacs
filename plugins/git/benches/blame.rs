@@ -21,9 +21,7 @@ fn porcelain(lines: usize, commits: usize) -> Vec<u8> {
         printed += &format!("{id} {} {}\n", line + 1, line + 1);
         if !described[commit] {
             described[commit] = true;
-            printed += &format!(
-                "author Author {commit}\nauthor-time {commit}\nfilename lib.rs\n"
-            );
+            printed += &format!("author Author {commit}\nauthor-time {commit}\nfilename lib.rs\n");
         }
         printed += &format!("\tlet line_{line} = {line};\n");
     }

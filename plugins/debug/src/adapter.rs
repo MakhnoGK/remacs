@@ -33,11 +33,8 @@ impl Adapter {
 
     /// The `launch` request's arguments for `target`.
     pub fn launch_arguments(self, name: &str, target: &Target, rust: bool) -> Value {
-        let env: Map<String, Value> = target
-            .env
-            .iter()
-            .map(|(name, value)| (name.clone(), value.clone().into()))
-            .collect();
+        let env: Map<String, Value> =
+            target.env.iter().map(|(name, value)| (name.clone(), value.clone().into())).collect();
         match self {
             Adapter::CodeLldb => {
                 let mut arguments = json!({
@@ -94,13 +91,8 @@ pub fn plan(configuration: &Configuration, launch: &Launch) -> Result<(Adapter, 
             args.extend(cargo.cargo_args.iter().cloned());
             cargo_build = Some(CargoBuild { tests, args });
             target.program = String::new();
-            target.args = cargo
-                .filter
-                .iter()
-                .filter(|_| tests)
-                .chain(&configuration.args)
-                .cloned()
-                .collect();
+            target.args =
+                cargo.filter.iter().filter(|_| tests).chain(&configuration.args).cloned().collect();
             Adapter::CodeLldb
         }
         Kind::Executable { .. } => {
@@ -112,10 +104,6 @@ pub fn plan(configuration: &Configuration, launch: &Launch) -> Result<(Adapter, 
         Kind::Node { .. } | Kind::Npm { .. } => Adapter::JsDebug,
         Kind::Shell { .. } => return Err("A shell command cannot be debugged".into()),
     };
-    let plan = Plan {
-        before: launch.before.clone(),
-        cargo_build,
-        target,
-    };
+    let plan = Plan { before: launch.before.clone(), cargo_build, target };
     Ok((adapter, plan))
 }

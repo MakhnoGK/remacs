@@ -32,14 +32,10 @@ enum Item {
 
 fn items(editor: &Editor) -> Vec<Item> {
     let debug = editor.commands().get(DEBUG_AT_POINT).is_some();
-    [
-        Some(Item::Run),
-        debug.then_some(Item::Debug),
-        Some(Item::Edit),
-    ]
-    .into_iter()
-    .flatten()
-    .collect()
+    [Some(Item::Run), debug.then_some(Item::Debug), Some(Item::Edit)]
+        .into_iter()
+        .flatten()
+        .collect()
 }
 
 struct Menu {
@@ -69,10 +65,7 @@ pub fn update(editor: &mut Editor) {
     if mem::replace(&mut state(editor).seen_commands, count) == count {
         return;
     }
-    if !editor
-        .last_command()
-        .is_some_and(|command| OWN_COMMANDS.contains(&command))
-    {
+    if !editor.last_command().is_some_and(|command| OWN_COMMANDS.contains(&command)) {
         state(editor).menu = None;
     }
 }
@@ -91,18 +84,11 @@ pub fn open(editor: &mut Editor) -> CommandResult {
         editor.set_error(error);
     }
     let settings = sessions(editor).settings.clone();
-    let command_line = launch(&entry.configuration, &root, &settings)
-        .ok()
-        .map(|launch| launch.command_line());
+    let command_line =
+        launch(&entry.configuration, &root, &settings).ok().map(|launch| launch.command_line());
     let point = editor.window_buffer().point();
-    state(editor).menu = Some(Menu {
-        root,
-        entry,
-        saved,
-        command_line,
-        selection: Selection::default(),
-        point,
-    });
+    state(editor).menu =
+        Some(Menu { root, entry, saved, command_line, selection: Selection::default(), point });
     Ok(())
 }
 
@@ -112,11 +98,7 @@ fn shown_menu(editor: &Editor) -> Option<&Menu> {
         return None;
     }
     let point = editor.window_buffer().point();
-    editor
-        .find_plugin_state::<State>()?
-        .menu
-        .as_ref()
-        .filter(|menu| menu.point == point)
+    editor.find_plugin_state::<State>()?.menu.as_ref().filter(|menu| menu.point == point)
 }
 
 pub fn is_shown(editor: &Editor) -> bool {
@@ -125,10 +107,7 @@ pub fn is_shown(editor: &Editor) -> bool {
 
 pub fn popup(editor: &Editor) -> Option<Popup> {
     let menu = shown_menu(editor)?;
-    let name = menu
-        .saved
-        .as_deref()
-        .unwrap_or(&menu.entry.configuration.name);
+    let name = menu.saved.as_deref().unwrap_or(&menu.entry.configuration.name);
     let unsaved = menu.saved.is_none();
     let temporary = unsaved && menu.entry.temporary;
     let rows = items(editor)
@@ -144,11 +123,7 @@ pub fn popup(editor: &Editor) -> Option<Popup> {
             Item::Edit => Candidate::new("Edit configuration…"),
         })
         .collect();
-    let anchor = editor
-        .window_buffer()
-        .text()
-        .line_start(menu.entry.line)
-        .unwrap_or(menu.point);
+    let anchor = editor.window_buffer().text().line_start(menu.entry.line).unwrap_or(menu.point);
     Some(Popup {
         anchor,
         rows,
@@ -170,11 +145,7 @@ fn step(editor: &mut Editor, forward: bool) -> CommandResult {
     let count = items(editor).len();
     let menu = state(editor).menu.as_mut().ok_or("No menu")?;
     let selected = menu.selection.selected();
-    let index = if forward {
-        selected + 1
-    } else {
-        selected.saturating_sub(1)
-    };
+    let index = if forward { selected + 1 } else { selected.saturating_sub(1) };
     menu.selection.select(index, count, count);
     Ok(())
 }
@@ -190,11 +161,7 @@ pub fn choose(editor: &mut Editor) -> CommandResult {
     match items[menu.selection.selected()] {
         Item::Run => run_entry_point(editor, &menu.root, menu.entry, None),
         Item::Debug => {
-            let debug = editor
-                .commands()
-                .get(DEBUG_AT_POINT)
-                .ok_or("No debugger")?
-                .run;
+            let debug = editor.commands().get(DEBUG_AT_POINT).ok_or("No debugger")?.run;
             debug(editor)
         }
         Item::Edit => edit_configuration(editor, &menu.root, menu.entry.configuration),

@@ -28,12 +28,7 @@ pub fn transpose_chars(editor: &mut Editor) -> CommandResult {
 /// `transpose-words`.
 pub fn transpose_words(editor: &mut Editor) -> CommandResult {
     let buffer = writable_buffer(editor)?;
-    let second_end = skip(
-        buffer,
-        skip(buffer, buffer.point(), false, true),
-        true,
-        true,
-    );
+    let second_end = skip(buffer, skip(buffer, buffer.point(), false, true), true, true);
     let second_start = skip(buffer, second_end, true, false);
     let first_end = skip(buffer, second_start, false, false);
     let first_start = skip(buffer, first_end, true, false);
@@ -50,10 +45,9 @@ pub fn transpose_lines(editor: &mut Editor) -> CommandResult {
     let buffer = writable_buffer(editor)?;
     let line = buffer.point_line();
     let text = buffer.text();
-    let (Some(above), Some(this)) = (
-        line.checked_sub(1).and_then(|above| text.line_range(above)),
-        text.line_range(line),
-    ) else {
+    let (Some(above), Some(this)) =
+        (line.checked_sub(1).and_then(|above| text.line_range(above)), text.line_range(line))
+    else {
         return Err(NOTHING_TO_TRANSPOSE.into());
     };
     swap(buffer, above, this);
@@ -65,10 +59,8 @@ pub fn transpose_lines(editor: &mut Editor) -> CommandResult {
 /// Replaces `first` and `second`, which do not overlap, with each other, point after
 /// both.
 fn swap(buffer: &mut Buffer, first: Range<usize>, second: Range<usize>) {
-    let (first_text, second_text) = (
-        buffer.contents(first.clone()),
-        buffer.contents(second.clone()),
-    );
+    let (first_text, second_text) =
+        (buffer.contents(first.clone()), buffer.contents(second.clone()));
     buffer.apply_edits(vec![(second.clone(), first_text), (first, second_text)]);
     buffer.set_point(second.end);
 }
@@ -78,11 +70,8 @@ fn swap(buffer: &mut Buffer, first: Range<usize>, second: Range<usize>) {
 fn skip(buffer: &Buffer, mut offset: usize, word: bool, forward: bool) -> usize {
     let text = buffer.text();
     loop {
-        let character = if forward {
-            buffer.char_after(offset)
-        } else {
-            buffer.char_before(offset)
-        };
+        let character =
+            if forward { buffer.char_after(offset) } else { buffer.char_before(offset) };
         match character {
             Some(character) if (CharClass::of(character) == CharClass::Word) == word => {
                 offset = if forward {

@@ -23,6 +23,7 @@ mod offer;
 /// Public for the benchmarks only.
 #[doc(hidden)]
 pub mod position;
+mod progress;
 mod restart;
 /// Public for the benchmarks only.
 #[doc(hidden)]
@@ -80,6 +81,9 @@ pub struct LanguageServer {
     /// The server runs only for projects where this holds, e.g. a linter's config is
     /// there; empty, for every file.
     pub when: When,
+    /// The server leaves alone projects where this holds, e.g. tsc those whose own
+    /// TypeScript is older than 7; empty, none.
+    pub unless: When,
     /// Added to the server's environment for projects where `env_when` holds, e.g.
     /// `VP_VERSION`, without which oxlint and oxfmt ignore Vite+'s `vite.config.ts`.
     pub env: &'static [(&'static str, &'static str)],
@@ -102,10 +106,7 @@ pub struct LanguageServer {
 
 impl LanguageServer {
     fn language_id(&self, mode: &str) -> Option<&'static str> {
-        self.languages
-            .iter()
-            .find(|(served, _)| *served == mode)
-            .map(|&(_, language)| language)
+        self.languages.iter().find(|(served, _)| *served == mode).map(|&(_, language)| language)
     }
 }
 
@@ -132,6 +133,7 @@ impl Plugin for LspPlugin {
             document_symbols::sync(editor, servers);
             offer::ask(editor);
         }));
+        registry.status_providers.push(Rc::new(document::busy_status));
         // After the syntax plugin's, which they paint over.
         registry.decorators.push(Rc::new(document::semantic_spans));
         registry.decorators.push(Rc::new(document::swatch_spans));

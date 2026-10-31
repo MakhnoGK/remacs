@@ -49,16 +49,9 @@ fn goes_to_the_definition_and_back() {
     press(&mut editor, "M-.");
     assert_eq!(
         take_requests(&mut editor),
-        [Request {
-            id: 1,
-            offset: 18,
-            lookup: Lookup::Definitions
-        }]
+        [Request { id: 1, offset: 18, lookup: Lookup::Definitions }]
     );
-    let definition = Location {
-        path: lib.clone(),
-        offset: 14,
-    };
+    let definition = Location { path: lib.clone(), offset: 14 };
     deliver(&mut editor, 1, vec![definition.clone(), definition]);
     assert_eq!(place(&editor), (lib, 14));
     press(&mut editor, "M-,");
@@ -72,16 +65,8 @@ fn several_definitions_are_listed_to_choose_from() {
     let (main, lib, module) = project("several");
     let mut editor = editor_at(&main, 18);
     press(&mut editor, "M-.");
-    let locations = vec![
-        Location {
-            path: lib,
-            offset: 14,
-        },
-        Location {
-            path: module.clone(),
-            offset: 7,
-        },
-    ];
+    let locations =
+        vec![Location { path: lib, offset: 14 }, Location { path: module.clone(), offset: 7 }];
     deliver(&mut editor, 1, locations);
     let minibuffer = editor.minibuffer().unwrap();
     let rows: Vec<_> = minibuffer
@@ -89,10 +74,7 @@ fn several_definitions_are_listed_to_choose_from() {
         .iter()
         .map(|candidate| (candidate.label.as_str(), candidate.annotation.as_str()))
         .collect();
-    assert_eq!(
-        rows,
-        [("pub fn helper() {}", "2"), ("pub fn helper() {}", "1")]
-    );
+    assert_eq!(rows, [("pub fn helper() {}", "2"), ("pub fn helper() {}", "1")]);
     press(&mut editor, "C-n RET");
     assert_eq!(place(&editor), (module, 7));
     press(&mut editor, "M-,");
@@ -106,24 +88,14 @@ fn references_are_listed_even_when_there_is_one() {
     press(&mut editor, "M-?");
     assert_eq!(
         take_requests(&mut editor),
-        [Request {
-            id: 1,
-            offset: 14,
-            lookup: Lookup::References
-        }]
+        [Request { id: 1, offset: 14, lookup: Lookup::References }]
     );
-    let call = Location {
-        path: main.clone(),
-        offset: 16,
-    };
+    let call = Location { path: main.clone(), offset: 16 };
     deliver(&mut editor, 1, vec![call]);
     let minibuffer = editor.minibuffer().unwrap();
     assert_eq!(minibuffer.prompt().label, "References");
     let row = &minibuffer.candidates()[0];
-    assert_eq!(
-        (row.label.as_str(), row.annotation.as_str()),
-        ("helper();", "2")
-    );
+    assert_eq!((row.label.as_str(), row.annotation.as_str()), ("helper();", "2"));
     press(&mut editor, "RET");
     assert_eq!(place(&editor), (main, 16));
 
@@ -143,10 +115,7 @@ fn symbol(
         name: name.into(),
         kind: Some(kind),
         container: container.map(Into::into),
-        location: Location {
-            path: path.to_path_buf(),
-            offset,
-        },
+        location: Location { path: path.to_path_buf(), offset },
         line: usize::from(offset > 0),
     }
 }
@@ -161,12 +130,7 @@ fn symbol_rows(editor: &Editor) -> Vec<Row> {
         .iter()
         .map(|candidate| {
             let detail = candidate.detail.clone().unwrap_or_default().into_owned();
-            (
-                candidate.label.clone(),
-                candidate.annotation.clone(),
-                candidate.tag,
-                detail,
-            )
+            (candidate.label.clone(), candidate.annotation.clone(), candidate.tag, detail)
         })
         .collect()
 }
@@ -180,11 +144,7 @@ fn symbols_of_the_project_are_found_by_name_as_it_is_typed() {
     assert_eq!(requests.len(), 4);
     assert_eq!(
         requests.last(),
-        Some(&SymbolRequest {
-            id: 4,
-            query: "help".into(),
-            from: main.clone(),
-        })
+        Some(&SymbolRequest { id: 4, query: "help".into(), from: main.clone() })
     );
     assert_eq!(editor.minibuffer().unwrap().note(), Some("Searching…"));
 
@@ -207,10 +167,7 @@ fn symbols_of_the_project_are_found_by_name_as_it_is_typed() {
             row("health", "", "variable", "lib.rs:1"),
         ]
     );
-    assert_eq!(
-        editor.minibuffer().unwrap().candidates()[0].matches,
-        std::slice::from_ref(&(0..4))
-    );
+    assert_eq!(editor.minibuffer().unwrap().candidates()[0].matches, std::slice::from_ref(&(0..4)));
 
     // Until the backends answer again, what they found is narrowed to the new input.
     press(&mut editor, "e");
@@ -229,17 +186,10 @@ fn without_a_backend_the_symbol_prompt_says_why_and_a_later_answer_replaces() {
     let mut editor = editor_at(&main, 0);
     press(&mut editor, "C-M-. x");
     let id = take_symbol_requests(&mut editor)[0].id;
-    deliver_symbols(
-        &mut editor,
-        id,
-        Err("No language server for this project".into()),
-    );
+    deliver_symbols(&mut editor, id, Err("No language server for this project".into()));
     let minibuffer = editor.minibuffer().unwrap();
     assert!(minibuffer.candidates().is_empty());
-    assert_eq!(
-        minibuffer.note(),
-        Some("No language server for this project")
-    );
+    assert_eq!(minibuffer.note(), Some("No language server for this project"));
 
     // E.g. once a backend that answered while loading the project answers again.
     let found = vec![symbol("x", SymbolKind::Constant, None, &lib, 0)];
@@ -248,10 +198,7 @@ fn without_a_backend_the_symbol_prompt_says_why_and_a_later_answer_replaces() {
 }
 
 fn has_buffer(editor: &Editor, path: &Path) -> bool {
-    editor
-        .buffers()
-        .iter()
-        .any(|buffer| buffer.path() == Some(path))
+    editor.buffers().iter().any(|buffer| buffer.path() == Some(path))
 }
 
 #[test]
@@ -290,14 +237,7 @@ fn answers_after_another_command_or_without_definitions() {
     let (main, lib, _) = project("late");
     let mut editor = editor_at(&main, 18);
     press(&mut editor, "M-. C-f");
-    deliver(
-        &mut editor,
-        1,
-        vec![Location {
-            path: lib,
-            offset: 0,
-        }],
-    );
+    deliver(&mut editor, 1, vec![Location { path: lib, offset: 0 }]);
     assert_eq!(place(&editor), (main.clone(), 19));
     press(&mut editor, "M-.");
     deliver(&mut editor, 2, Vec::new());
@@ -311,17 +251,8 @@ fn symbols_of_the_file_are_listed_shown_and_gone_to() {
     let mut editor = editor_at(&main, 0);
     press(&mut editor, "M-g i");
     let requests = take_document_symbol_requests(&mut editor);
-    assert_eq!(
-        requests,
-        [DocumentSymbolRequest {
-            id: 1,
-            path: main.clone(),
-        }]
-    );
-    assert_eq!(
-        editor.minibuffer().unwrap().note(),
-        Some("Asking the language server…")
-    );
+    assert_eq!(requests, [DocumentSymbolRequest { id: 1, path: main.clone() }]);
+    assert_eq!(editor.minibuffer().unwrap().note(), Some("Asking the language server…"));
     let found = vec![
         symbol("main", SymbolKind::Function, None, &main, 3),
         symbol("helper", SymbolKind::Function, Some("main"), &main, 16),
@@ -341,15 +272,8 @@ fn symbols_of_the_file_are_listed_shown_and_gone_to() {
 
     press(&mut editor, "M-g i");
     let id = take_document_symbol_requests(&mut editor)[0].id;
-    deliver_document_symbols(
-        &mut editor,
-        id,
-        Err("No language server for this file".into()),
-    );
-    assert_eq!(
-        editor.minibuffer().unwrap().note(),
-        Some("No language server for this file")
-    );
+    deliver_document_symbols(&mut editor, id, Err("No language server for this file".into()));
+    assert_eq!(editor.minibuffer().unwrap().note(), Some("No language server for this file"));
     let found = vec![symbol("helper", SymbolKind::Function, None, &main, 16)];
     deliver_document_symbols(&mut editor, id, Ok(found));
     press(&mut editor, "RET");

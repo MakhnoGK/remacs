@@ -21,3 +21,17 @@ pub use encoding::{Format, encodings};
 pub use encoding_rs::{Encoding, UTF_8};
 pub use snapshot::Snapshot;
 pub use text::Text;
+
+/// xorshift64, for tests: deterministic and dependency-free.
+#[cfg(test)]
+struct Rng(u64);
+
+#[cfg(test)]
+impl Rng {
+    fn below(&mut self, bound: usize) -> usize {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        (self.0 % bound.max(1) as u64) as usize
+    }
+}

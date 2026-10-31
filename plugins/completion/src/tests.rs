@@ -35,19 +35,11 @@ fn item(label: &str, start: usize) -> Item {
 }
 
 fn list(labels: &[&str], start: usize) -> List {
-    List {
-        items: labels.iter().map(|label| item(label, start)).collect(),
-        incomplete: false,
-    }
+    List { items: labels.iter().map(|label| item(label, start)).collect(), incomplete: false }
 }
 
 fn shown(editor: &Editor) -> Vec<String> {
-    editor
-        .popups()
-        .into_iter()
-        .flat_map(|popup| popup.rows)
-        .map(|row| row.label)
-        .collect()
+    editor.popups().into_iter().flat_map(|popup| popup.rows).map(|row| row.label).collect()
 }
 
 fn text(editor: &Editor) -> String {
@@ -66,44 +58,23 @@ fn complete_requests(editor: &mut Editor) -> Vec<Request> {
 fn typing_asks_once_per_word_and_narrows_the_list() {
     let mut editor = editor_with("gap.");
     type_text(&mut editor, "s");
-    let request = Request::Complete {
-        id: 1,
-        start: 4,
-        offset: 5,
-        trigger: Trigger::Typed('s'),
-    };
+    let request = Request::Complete { id: 1, start: 4, offset: 5, trigger: Trigger::Typed('s') };
     assert_eq!(take_requests(&mut editor), [request]);
     type_text(&mut editor, "t");
     assert_eq!(take_requests(&mut editor), []);
 
-    let labels = [
-        "size_hint()",
-        "last()",
-        "start",
-        "other",
-        "step_by()",
-        "is_sorted()",
-    ];
+    let labels = ["size_hint()", "last()", "start", "other", "step_by()", "is_sorted()"];
     deliver(&mut editor, 1, list(&labels, 4));
-    assert_eq!(
-        shown(&editor),
-        ["start", "step_by()", "size_hint()", "last()", "is_sorted()"]
-    );
+    assert_eq!(shown(&editor), ["start", "step_by()", "size_hint()", "last()", "is_sorted()"]);
     let popup = editor.popups().remove(0);
     assert_eq!((popup.anchor, popup.selected), (4, Some(0)));
     assert_eq!(popup.rows[2].matches, [0..1, 8..9]);
-    assert_eq!(
-        take_requests(&mut editor),
-        [Request::Resolve { id: 1, index: 2 }]
-    );
+    assert_eq!(take_requests(&mut editor), [Request::Resolve { id: 1, index: 2 }]);
 
     type_text(&mut editor, "a");
     assert_eq!(shown(&editor), ["start"]);
     press(&mut editor, "DEL DEL");
-    assert_eq!(
-        shown(&editor),
-        ["size_hint()", "start", "step_by()", "last()", "is_sorted()"]
-    );
+    assert_eq!(shown(&editor), ["size_hint()", "start", "step_by()", "last()", "is_sorted()"]);
     press(&mut editor, "C-n C-n RET");
     assert_eq!(text(&editor), "gap.step_by()");
     assert!(editor.popups().is_empty());
@@ -116,14 +87,7 @@ fn items_starting_before_the_word_match_the_text_from_their_start() {
     let classes = ["ring-red-500", "bg-red-500", "border-red-500"].map(|label| item(label, 2));
     let mut items = vec![item("resize", 5)];
     items.extend(classes);
-    deliver(
-        &mut editor,
-        1,
-        List {
-            items,
-            incomplete: false,
-        },
-    );
+    deliver(&mut editor, 1, List { items, incomplete: false });
     assert_eq!(shown(&editor), ["resize", "bg-red-500"]);
     assert_eq!(editor.popups()[0].rows[1].matches.first(), Some(&(0..4)));
     press(&mut editor, "C-n RET");
@@ -136,12 +100,7 @@ fn other_commands_and_non_word_characters_close_the_popup() {
     press(&mut editor, "C-M-i");
     assert_eq!(
         take_requests(&mut editor),
-        [Request::Complete {
-            id: 1,
-            start: 2,
-            offset: 5,
-            trigger: Trigger::Explicit,
-        }]
+        [Request::Complete { id: 1, start: 2, offset: 5, trigger: Trigger::Explicit }]
     );
     deliver(&mut editor, 1, list(&["gap", "gape"], 2));
     assert_eq!(shown(&editor).len(), 2);
@@ -149,12 +108,7 @@ fn other_commands_and_non_word_characters_close_the_popup() {
     assert!(shown(&editor).is_empty());
     assert_eq!(
         complete_requests(&mut editor),
-        [Request::Complete {
-            id: 2,
-            start: 6,
-            offset: 6,
-            trigger: Trigger::Typed('.'),
-        }]
+        [Request::Complete { id: 2, start: 6, offset: 6, trigger: Trigger::Typed('.') }]
     );
 
     deliver(&mut editor, 2, list(&["len()"], 6));
@@ -175,12 +129,7 @@ fn incomplete_lists_are_asked_for_again_and_stale_ones_dropped() {
     deliver(&mut editor, 1, first);
     assert_eq!(
         complete_requests(&mut editor),
-        [Request::Complete {
-            id: 2,
-            start: 0,
-            offset: 2,
-            trigger: Trigger::Incomplete,
-        }]
+        [Request::Complete { id: 2, start: 0, offset: 2, trigger: Trigger::Incomplete }]
     );
     deliver(&mut editor, 1, list(&["stale"], 0));
     assert_eq!(shown(&editor), ["print", "proc"]);
@@ -215,24 +164,9 @@ fn inserting_places_point_and_makes_extra_edits() {
         extra_edits: vec![(0..0, "use m::map;\n".into())],
         ..Item::default()
     };
-    deliver(
-        &mut editor,
-        1,
-        List {
-            items: vec![map.clone()],
-            incomplete: false,
-        },
-    );
+    deliver(&mut editor, 1, List { items: vec![map.clone()], incomplete: false });
     assert_eq!(editor.popups()[0].documentation, None);
-    resolved(
-        &mut editor,
-        1,
-        0,
-        Item {
-            documentation: Some(documentation.clone()),
-            ..map
-        },
-    );
+    resolved(&mut editor, 1, 0, Item { documentation: Some(documentation.clone()), ..map });
     assert_eq!(editor.popups()[0].documentation, Some(documentation));
     press(&mut editor, "TAB");
     assert_eq!(text(&editor), "use m::map;\nuse a;\nfn f() { map!()");
@@ -240,6 +174,20 @@ fn inserting_places_point_and_makes_extra_edits() {
     assert_eq!(editor.window_buffer().contents(point - 4..point), "map!");
     press(&mut editor, "C-/");
     assert_eq!(text(&editor), "use a;\nfn f() { ma");
+}
+
+/// Snippets are written at column 0 with tabs, as servers send them for any editor.
+#[test]
+fn inserted_lines_take_the_lines_level_and_the_buffers_unit() {
+    let mut editor = editor_with("fn f() {\n  g();\n  if");
+    press(&mut editor, "C-M-i");
+    take_requests(&mut editor);
+    let start = "fn f() {\n  g();\n  ".len();
+    let snippet = Item { insert: "if b {\n\t\n}".into(), cursor: Some(8), ..item("if", start) };
+    deliver(&mut editor, 1, List { items: vec![snippet], incomplete: false });
+    press(&mut editor, "TAB");
+    assert_eq!(text(&editor), "fn f() {\n  g();\n  if b {\n    \n  }");
+    assert_eq!(editor.window_buffer().point(), "fn f() {\n  g();\n  if b {\n    ".len());
 }
 
 #[test]

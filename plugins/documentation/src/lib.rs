@@ -38,11 +38,8 @@ const MENU_ITEMS: &[MenuItem] = &[
 ];
 
 /// Active while the popup is shown; any other command hides it too.
-const POPUP_BINDINGS: &[(&str, &str)] = &[
-    ("ESC", at_point::HIDE),
-    ("C-M-v", at_point::SCROLL),
-    ("C-M-V", at_point::SCROLL_DOWN),
-];
+const POPUP_BINDINGS: &[(&str, &str)] =
+    &[("ESC", at_point::HIDE), ("C-M-v", at_point::SCROLL), ("C-M-V", at_point::SCROLL_DOWN)];
 
 /// Active while a signature is shown, which typing and moving within the call keep.
 const SIGNATURE_BINDINGS: &[(&str, &str)] = &[("ESC", signature::HIDE)];

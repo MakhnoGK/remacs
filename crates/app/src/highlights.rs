@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use gpui::{FontStyle, FontWeight, HighlightStyle, UnderlineStyle, px, rgba};
+use gpui::{FontStyle, FontWeight, HighlightStyle, Hsla, UnderlineStyle, px, rgba};
 use remacs_core::{ConsoleColor, ConsoleStyle, Face};
 use remacs_theme::syntax::{self, Style};
 use remacs_theme::{color, glass};
@@ -15,14 +15,7 @@ const CONSOLE_DIM_FADE: f32 = 0.4;
 pub type Highlights = Vec<(Range<usize>, HighlightStyle)>;
 
 pub fn face_style(face: Face) -> HighlightStyle {
-    let underline = |color| HighlightStyle {
-        underline: Some(UnderlineStyle {
-            thickness: px(UNDERLINE_THICKNESS),
-            color: Some(hsla(color)),
-            wavy: false,
-        }),
-        ..Default::default()
-    };
+    let underline = |color: u32| swatch_style(color << 8 | 0xff, UNDERLINE_THICKNESS);
     match face {
         Face::Keyword => syntax_style(color::keyword(), syntax::keyword()),
         Face::Type => syntax_style(color::type_name(), syntax::type_name()),
@@ -36,38 +29,23 @@ pub fn face_style(face: Face) -> HighlightStyle {
         Face::Error => underline(color::error()),
         Face::Warning => underline(color::warning()),
         Face::Info => underline(color::info()),
-        Face::Highlight => HighlightStyle {
-            background_color: Some(rgba(color::accent() << 8 | 0x2e).into()),
-            ..Default::default()
-        },
-        Face::SearchMatch => HighlightStyle {
-            background_color: Some(rgba(color::warning() << 8 | 0x38).into()),
-            ..Default::default()
-        },
+        Face::Highlight => background(color::accent() << 8 | 0x2e),
+        Face::SearchMatch => background(color::warning() << 8 | 0x38),
         Face::SearchCurrent => HighlightStyle {
-            background_color: Some(rgba(color::warning() << 8 | 0xb3).into()),
             color: Some(hsla(color::bg_main())),
-            ..Default::default()
+            ..background(color::warning() << 8 | 0xb3)
         },
         Face::MatchingPair => HighlightStyle {
-            background_color: Some(rgba(color::accent() << 8 | 0x40).into()),
             color: Some(hsla(color::accent_on_selection())),
-            ..Default::default()
+            ..background(color::accent() << 8 | 0x40)
         },
         // Over the band of their line, which is the same color.
-        Face::Added => HighlightStyle {
-            background_color: Some(rgba(color::fg_added() << 8 | 0x40).into()),
-            ..Default::default()
-        },
-        Face::Removed => HighlightStyle {
-            background_color: Some(rgba(color::fg_removed() << 8 | 0x40).into()),
-            ..Default::default()
-        },
+        Face::Added => background(color::fg_added() << 8 | 0x40),
+        Face::Removed => background(color::fg_removed() << 8 | 0x40),
         Face::Console(style) => console_style(style),
-        Face::Link => HighlightStyle {
-            color: Some(hsla(color::link())),
-            ..underline(color::link())
-        },
+        Face::Link => {
+            HighlightStyle { color: Some(hsla(color::link())), ..underline(color::link()) }
+        }
         Face::Swatch(color) => swatch_style(color, UNDERLINE_THICKNESS),
     }
 }
@@ -75,25 +53,27 @@ pub fn face_style(face: Face) -> HighlightStyle {
 /// A line under text naming a color, `0xRRGGBBAA`, in it.
 pub fn swatch_style(color: u32, thickness: f32) -> HighlightStyle {
     HighlightStyle {
-        underline: Some(UnderlineStyle {
-            thickness: px(thickness),
-            color: Some(rgba(color).into()),
-            wavy: false,
-        }),
+        underline: Some(underline_style(thickness, Some(rgba(color).into()))),
         ..Default::default()
     }
 }
 
+/// A straight line `thickness` pixels thick, in the text's color without `color`.
+fn underline_style(thickness: f32, color: Option<Hsla>) -> UnderlineStyle {
+    UnderlineStyle { thickness: px(thickness), color, wavy: false }
+}
+
 fn syntax_style(color: u32, style: Style) -> HighlightStyle {
+    text_style(Some(color), style.bold, style.italic, style.underline)
+}
+
+/// Text in `color`, bold, italic and underlined in its color as asked.
+fn text_style(color: Option<u32>, bold: bool, italic: bool, underline: bool) -> HighlightStyle {
     HighlightStyle {
-        color: Some(hsla(color)),
-        font_weight: style.bold.then_some(FontWeight::BOLD),
-        font_style: style.italic.then_some(FontStyle::Italic),
-        underline: style.underline.then(|| UnderlineStyle {
-            thickness: px(1.0),
-            color: None,
-            wavy: false,
-        }),
+        color: color.map(hsla),
+        font_weight: bold.then_some(FontWeight::BOLD),
+        font_style: italic.then_some(FontStyle::Italic),
+        underline: underline.then(|| underline_style(1.0, None)),
         ..Default::default()
     }
 }
@@ -106,16 +86,8 @@ fn console_style(style: ConsoleStyle) -> HighlightStyle {
         (None, false) => None,
     };
     HighlightStyle {
-        color: color.map(hsla),
-        font_weight: style.bold.then_some(FontWeight::BOLD),
-        font_style: style.italic.then_some(FontStyle::Italic),
-        underline: style.underline.then(|| UnderlineStyle {
-            thickness: px(1.0),
-            color: None,
-            wavy: false,
-        }),
         fade_out: (style.dim && style.color.is_some()).then_some(CONSOLE_DIM_FADE),
-        ..Default::default()
+        ..text_style(color, style.bold, style.italic, style.underline)
     }
 }
 
@@ -139,19 +111,18 @@ pub fn console_color(color: ConsoleColor) -> u32 {
 }
 
 pub fn region_style() -> HighlightStyle {
-    HighlightStyle {
-        background_color: Some(rgba(glass::region()).into()),
-        ..Default::default()
-    }
+    background(glass::region())
+}
+
+/// A background of `color`, with alpha.
+fn background(color: u32) -> HighlightStyle {
+    HighlightStyle { background_color: Some(rgba(color).into()), ..Default::default() }
 }
 
 /// Merges layers into one list; later layers draw over earlier ones.
 pub fn combine(layers: &[Highlights]) -> Highlights {
-    let mut bounds: Vec<usize> = layers
-        .iter()
-        .flatten()
-        .flat_map(|(range, _)| [range.start, range.end])
-        .collect();
+    let mut bounds: Vec<usize> =
+        layers.iter().flatten().flat_map(|(range, _)| [range.start, range.end]).collect();
     bounds.sort_unstable();
     bounds.dedup();
     let mut next_in_layer = vec![0; layers.len()];
@@ -160,10 +131,7 @@ pub fn combine(layers: &[Highlights]) -> Highlights {
         let (start, end) = (segment[0], segment[1]);
         let mut style: Option<HighlightStyle> = None;
         for (layer, next) in layers.iter().zip(&mut next_in_layer) {
-            while layer
-                .get(*next)
-                .is_some_and(|(range, _)| range.end <= start)
-            {
+            while layer.get(*next).is_some_and(|(range, _)| range.end <= start) {
                 *next += 1;
             }
             if let Some((range, layer_style)) = layer.get(*next)
@@ -207,13 +175,7 @@ mod tests {
         let both = keyword.highlight(region);
         assert_eq!(
             combined,
-            [
-                (0..1, keyword),
-                (1..2, both),
-                (2..4, region),
-                (4..5, both),
-                (5..6, keyword)
-            ]
+            [(0..1, keyword), (1..2, both), (2..4, region), (4..5, both), (5..6, keyword)]
         );
     }
 

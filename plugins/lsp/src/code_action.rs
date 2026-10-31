@@ -11,11 +11,9 @@ pub(crate) fn menu(actions: &[CodeActionOrCommand]) -> Vec<Action> {
     actions
         .iter()
         .map(|action| match action {
-            CodeActionOrCommand::Command(command) => Action {
-                title: command.title.clone(),
-                kind: "command".into(),
-                preferred: false,
-            },
+            CodeActionOrCommand::Command(command) => {
+                Action { title: command.title.clone(), kind: "command".into(), preferred: false }
+            }
             CodeActionOrCommand::CodeAction(action) => Action {
                 title: action.title.clone(),
                 kind: action.kind.as_ref().map(kind_label).unwrap_or_default(),
@@ -33,8 +31,7 @@ pub(crate) fn is_of_kind(action: &CodeActionOrCommand, kind: &str) -> bool {
     };
     action.kind.as_ref().is_some_and(|own| {
         let own = own.as_str();
-        own.strip_prefix(kind)
-            .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
+        own.strip_prefix(kind).is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
     })
 }
 
@@ -69,10 +66,7 @@ pub(crate) fn carry_out(
     };
     let unresolved = action.edit.is_none() && (action.data.is_some() || action.command.is_none());
     if resolve && unresolved {
-        client.send(Outgoing::ResolveAction {
-            id,
-            action: Box::new(action),
-        });
+        client.send(Outgoing::ResolveAction { id, action: Box::new(action) });
         return Ok(());
     }
     if action.edit.is_none() && action.command.is_none() {

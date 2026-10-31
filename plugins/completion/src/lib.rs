@@ -24,10 +24,8 @@ const COMMANDS: &[Command] = &[
     Command::new(session::SCROLL_DOCUMENTATION_DOWN, "Scroll the completion's documentation a page back", session::scroll_documentation_down),
 ];
 
-const BINDINGS: &[(&str, &str)] = &[
-    ("C-M-i", session::COMPLETION_AT_POINT),
-    ("M-TAB", session::COMPLETION_AT_POINT),
-];
+const BINDINGS: &[(&str, &str)] =
+    &[("C-M-i", session::COMPLETION_AT_POINT), ("M-TAB", session::COMPLETION_AT_POINT)];
 
 const MENU_ITEM: MenuItem = MenuItem::new("Edit", "code", "Complete", session::COMPLETION_AT_POINT)
     .enabled_when(visiting_file);
@@ -59,10 +57,7 @@ impl Plugin for CompletionPlugin {
         for &(keys, command) in POPUP_BINDINGS {
             keymap.bind(keys, command);
         }
-        registry.minor_keymaps.push(MinorKeymap {
-            active: session::is_shown,
-            keymap,
-        });
+        registry.minor_keymaps.push(MinorKeymap { active: session::is_shown, keymap });
         registry.post_command_hooks.push(Rc::new(session::update));
         registry.popup_providers.push(Rc::new(session::popup));
     }

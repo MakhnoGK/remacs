@@ -22,10 +22,7 @@ pub fn delete_marked(editor: &mut Editor) -> CommandResult {
 fn confirm(editor: &mut Editor, mark: Mark) -> CommandResult {
     let buffer = editor.window_buffer();
     let listing = buffer.local::<Listing>().ok_or(NOT_A_LISTING)?;
-    let directory = buffer
-        .default_directory()
-        .ok_or(NOT_A_LISTING)?
-        .to_path_buf();
+    let directory = buffer.default_directory().ok_or(NOT_A_LISTING)?.to_path_buf();
     let (targets, shown_mark) = match mark {
         Mark::Flagged => {
             let flagged: Vec<Entry> = listing
@@ -88,11 +85,7 @@ fn dialog(targets: &[Entry], mark: Option<Mark>, to_trash: bool) -> Dialog {
                 lines: None,
             })
             .collect(),
-        option: Some(DialogOption {
-            key: 't',
-            label: "Move to Trash",
-            on: to_trash,
-        }),
+        option: Some(DialogOption { key: 't', label: "Move to Trash", on: to_trash }),
         yes_label: if to_trash { "Move to Trash" } else { "Delete" }.into(),
         no_label: "Cancel",
         destructive: true,
@@ -106,26 +99,13 @@ fn start(
     what: String,
     to_trash: bool,
 ) {
-    let busy = if to_trash {
-        "Moving to the Trash…"
-    } else {
-        "Deleting…"
-    };
+    let busy = if to_trash { "Moving to the Trash…" } else { "Deleting…" };
     jobs::run(editor, busy, move || {
         let failures = delete(&directory, &names, to_trash);
         let message = failure_message("delete", &failures).unwrap_or_else(|| {
-            if to_trash {
-                format!("Moved {what} to the Trash")
-            } else {
-                format!("Deleted {what}")
-            }
+            if to_trash { format!("Moved {what} to the Trash") } else { format!("Deleted {what}") }
         });
-        Report {
-            directories: vec![directory],
-            moved: Vec::new(),
-            record_moves: false,
-            message,
-        }
+        Report { directories: vec![directory], moved: Vec::new(), record_moves: false, message }
     });
 }
 
@@ -134,11 +114,7 @@ fn delete(directory: &Path, names: &[String], to_trash: bool) -> Vec<String> {
         .iter()
         .filter_map(|name| {
             let path = directory.join(name);
-            let deleted = if to_trash {
-                trash(&path)
-            } else {
-                remove(&path)
-            };
+            let deleted = if to_trash { trash(&path) } else { remove(&path) };
             deleted.err().map(|error| format!("{name}: {error}"))
         })
         .collect()

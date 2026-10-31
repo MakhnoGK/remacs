@@ -31,18 +31,10 @@ const ACTIONS: [EntryAction; 5] = [
     action("Pop", "p", POP),
     action("New branch", "b", BRANCH),
     action("Show diff", "↵", SHOW),
-    EntryAction {
-        destructive: true,
-        ..action("Drop", "k", DROP)
-    },
+    EntryAction { destructive: true, ..action("Drop", "k", DROP) },
 ];
-const LIST_KEYS: &[(&str, &str)] = &[
-    ("a", APPLY),
-    ("p", POP),
-    ("b", BRANCH),
-    ("RET", SHOW),
-    ("k", DROP),
-];
+const LIST_KEYS: &[(&str, &str)] =
+    &[("a", APPLY), ("p", POP), ("b", BRANCH), ("RET", SHOW), ("k", DROP)];
 const HINTS: &[(&str, &str)] = &[
     ("↵", "Stash changes"),
     ("⇥", "Go to list"),
@@ -62,12 +54,7 @@ const RECORD: &str = "--format=%x01%gd%x00%H%x00%ct%x00%P%x00%s";
 const UNTRACKED_PARENT: usize = 2;
 
 const fn action(label: &'static str, key: &'static str, command: &'static str) -> EntryAction {
-    EntryAction {
-        label,
-        key,
-        command,
-        destructive: false,
-    }
+    EntryAction { label, key, command, destructive: false }
 }
 
 /// A stash and the files it holds.
@@ -110,10 +97,8 @@ pub fn stash(editor: &mut Editor) -> CommandResult {
     }
     let [keep_staged, untracked, only_staged] =
         [true, false, false].map(|on| Rc::new(Cell::new(on)));
-    let hidden_while_only_staged = |option: PromptOption| PromptOption {
-        hidden_while: Some(only_staged.clone()),
-        ..option
-    };
+    let hidden_while_only_staged =
+        |option: PromptOption| PromptOption { hidden_while: Some(only_staged.clone()), ..option };
     let mut keymap = Keymap::default();
     keymap.bind("TAB", NEXT_FIELD);
     let mut list_keymap = Keymap::default();
@@ -154,10 +139,7 @@ pub fn stash(editor: &mut Editor) -> CommandResult {
         move |_: &Editor, _: &str| Completions {
             total: candidates.len(),
             candidates: candidates.clone(),
-            note: Some(plural(
-                changes.to_stash(untracked.get(), only_staged.get()),
-                "file",
-            )),
+            note: Some(plural(changes.to_stash(untracked.get(), only_staged.get()), "file")),
             subject: Some(changes.summary(untracked.get() && !only_staged.get())),
             count_groups: true,
             ..Completions::default()
@@ -228,23 +210,18 @@ impl Changes {
     /// `2 staged · 2 unstaged`.
     fn summary(self, with_untracked: bool) -> String {
         let untracked = if with_untracked { self.untracked } else { 0 };
-        [
-            (self.staged, "staged"),
-            (self.unstaged, "unstaged"),
-            (untracked, "untracked"),
-        ]
-        .into_iter()
-        .filter(|(count, _)| *count > 0)
-        .map(|(count, kind)| format!("{count} {kind}"))
-        .collect::<Vec<_>>()
-        .join(" · ")
+        [(self.staged, "staged"), (self.unstaged, "unstaged"), (untracked, "untracked")]
+            .into_iter()
+            .filter(|(count, _)| *count > 0)
+            .map(|(count, kind)| format!("{count} {kind}"))
+            .collect::<Vec<_>>()
+            .join(" · ")
     }
 }
 
 fn stash_candidate(entry: &StashEntry) -> Candidate {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| since.as_secs() as i64);
+    let now =
+        SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs() as i64);
     let when = ago(now - entry.time);
     Candidate {
         annotation: entry.message.clone(),
@@ -277,33 +254,15 @@ fn file_item(file: &StashFile) -> ListItem {
 /// Applies the stash, keeping it, like `git stash apply`.
 pub fn apply(editor: &mut Editor) -> CommandResult {
     let (root, name) = target(editor)?;
-    let job = git_job(
-        vec!["stash".into(), "apply".into(), name.clone()],
-        "git stash",
-    );
-    run_saying(
-        editor,
-        &root,
-        job,
-        format!("Applying {name}…"),
-        format!("Applied {name}"),
-    )
+    let job = git_job(vec!["stash".into(), "apply".into(), name.clone()], "git stash");
+    run_saying(editor, &root, job, format!("Applying {name}…"), format!("Applied {name}"))
 }
 
 /// Applies the stash and drops it, unless it conflicts, like `git stash pop`.
 pub fn pop(editor: &mut Editor) -> CommandResult {
     let (root, name) = target(editor)?;
-    let job = git_job(
-        vec!["stash".into(), "pop".into(), name.clone()],
-        "git stash",
-    );
-    run_saying(
-        editor,
-        &root,
-        job,
-        format!("Popping {name}…"),
-        format!("Popped {name}"),
-    )
+    let job = git_job(vec!["stash".into(), "pop".into(), name.clone()], "git stash");
+    run_saying(editor, &root, job, format!("Popping {name}…"), format!("Popped {name}"))
 }
 
 /// Reads a name, then makes a branch of it where the stash was made, switches to it and
@@ -315,11 +274,7 @@ pub fn branch(editor: &mut Editor) -> CommandResult {
         placeholder: "Name of the new branch",
         hints: &[("↵", "Create and apply"), ("C-g", "Cancel")],
         check: Some(Rc::new(|branch: &str| {
-            if branch.trim().is_empty() {
-                Err("Name the branch".to_owned())
-            } else {
-                Ok(())
-            }
+            if branch.trim().is_empty() { Err("Name the branch".to_owned()) } else { Ok(()) }
         })),
         ..Prompt::default()
     };
@@ -328,12 +283,7 @@ pub fn branch(editor: &mut Editor) -> CommandResult {
         |_, _| Completions::default(),
         move |editor, branch| {
             let branch = branch.trim().to_owned();
-            let args = vec![
-                "stash".into(),
-                "branch".into(),
-                branch.clone(),
-                name.clone(),
-            ];
+            let args = vec!["stash".into(), "branch".into(), branch.clone(), name.clone()];
             run_saying(
                 editor,
                 &root,
@@ -369,17 +319,8 @@ pub fn drop_stash(editor: &mut Editor) -> CommandResult {
             if !yes {
                 return Ok(());
             }
-            let job = git_job(
-                vec!["stash".into(), "drop".into(), name.clone()],
-                "git stash",
-            );
-            run_saying(
-                editor,
-                &root,
-                job,
-                format!("Dropping {name}…"),
-                format!("Dropped {name}"),
-            )
+            let job = git_job(vec!["stash".into(), "drop".into(), name.clone()], "git stash");
+            run_saying(editor, &root, job, format!("Dropping {name}…"), format!("Dropped {name}"))
         },
     )
 }
@@ -393,26 +334,16 @@ pub fn show(editor: &mut Editor) -> CommandResult {
         .as_ref()
         .and_then(|details| details.stashes.iter().position(|stash| stash.name == name))
         .ok_or("The stash is gone")?;
-    let id = snapshot
-        .details
-        .as_ref()
-        .map(|details| details.stashes[index].id.clone());
+    let id = snapshot.details.as_ref().map(|details| details.stashes[index].id.clone());
     let id = id.ok_or("The stash is gone")?;
     let contents = contents(&root, &id)?;
-    let view = editor
-        .window_buffer_mut()
-        .local_mut::<StatusView>()
-        .ok_or(NOT_A_STATUS_BUFFER)?;
+    let view = editor.window_buffer_mut().local_mut::<StatusView>().ok_or(NOT_A_STATUS_BUFFER)?;
     view.show_stash(id, contents);
     status_view::sync(editor);
     let line = editor
         .window_buffer()
         .local::<StatusView>()
-        .and_then(|view| {
-            view.lines
-                .iter()
-                .position(|line| *line == Line::Stash(index))
-        });
+        .and_then(|view| view.lines.iter().position(|line| *line == Line::Stash(index)));
     if let Some(line) = line {
         editor.set_point_at(line, 0);
     }
@@ -421,10 +352,7 @@ pub fn show(editor: &mut Editor) -> CommandResult {
 
 /// Reads a stash's files and diffs, to unfold it in the status buffer.
 pub fn contents(root: &Path, id: &str) -> Result<StashContents, String> {
-    let entry = read(root, &["-1", id])
-        .into_iter()
-        .next()
-        .ok_or("The stash is gone")?;
+    let entry = read(root, &["-1", id]).into_iter().next().ok_or("The stash is gone")?;
     let printed = output(git(root).args([
         "-c",
         "core.quotePath=false",
@@ -440,9 +368,7 @@ pub fn contents(root: &Path, id: &str) -> Result<StashContents, String> {
     .map_err(|error| format!("git stash show: {error}"))?;
     Ok(StashContents {
         files: entry.files,
-        diffs: split_patch(&String::from_utf8_lossy(&printed))
-            .into_iter()
-            .collect(),
+        diffs: split_patch(&String::from_utf8_lossy(&printed)).into_iter().collect(),
     })
 }
 
@@ -461,14 +387,8 @@ fn target(editor: &mut Editor) -> Result<(PathBuf, String), &'static str> {
     }
     let (root, snapshot) = shown_status(editor)?;
     let point_line = editor.window_buffer().point_line();
-    let view = editor
-        .window_buffer()
-        .local::<StatusView>()
-        .ok_or(NOT_A_STATUS_BUFFER)?;
-    let index = view
-        .line(point_line)
-        .and_then(Line::stash)
-        .ok_or("No stash here")?;
+    let view = editor.window_buffer().local::<StatusView>().ok_or(NOT_A_STATUS_BUFFER)?;
+    let index = view.line(point_line).and_then(Line::stash).ok_or("No stash here")?;
     let name = snapshot
         .details
         .as_ref()
@@ -492,31 +412,17 @@ fn read(root: &Path, which: &[&str]) -> Vec<StashEntry> {
     let printed = output(
         git(root)
             .args(["-c", "core.quotePath=false", "log", RECORD, "-z"])
-            .args([
-                "--diff-merges=first-parent",
-                "--no-renames",
-                "--raw",
-                "--numstat",
-            ])
+            .args(["--diff-merges=first-parent", "--no-renames", "--raw", "--numstat"])
             .args(which)
             .arg("--"),
     )
     .unwrap_or_default();
     let mut entries = parse_log(&String::from_utf8_lossy(&printed));
-    let untracked: Vec<String> = entries
-        .iter()
-        .filter_map(|(_, parent)| parent.clone())
-        .collect();
+    let untracked: Vec<String> = entries.iter().filter_map(|(_, parent)| parent.clone()).collect();
     if !untracked.is_empty() {
         let printed = output(
             git(root)
-                .args([
-                    "-c",
-                    "core.quotePath=false",
-                    "show",
-                    "--format=%x01%H",
-                    "-z",
-                ])
+                .args(["-c", "core.quotePath=false", "show", "--format=%x01%H", "-z"])
                 .args(["--no-renames", "--numstat"])
                 .args(&untracked)
                 .arg("--"),
@@ -543,11 +449,8 @@ fn parse_log(printed: &str) -> Vec<(StashEntry, Option<String>)> {
             let name = fields.next()?.to_owned();
             let id = fields.next()?.to_owned();
             let time = fields.next()?.parse().unwrap_or_default();
-            let untracked_parent = fields
-                .next()?
-                .split(' ')
-                .nth(UNTRACKED_PARENT)
-                .map(str::to_owned);
+            let untracked_parent =
+                fields.next()?.split(' ').nth(UNTRACKED_PARENT).map(str::to_owned);
             let message = fields.next()?.to_owned();
             let mut files: Vec<StashFile> = Vec::new();
             while let Some(field) = fields.next() {
@@ -565,13 +468,7 @@ fn parse_log(printed: &str) -> Vec<(StashEntry, Option<String>)> {
                     file.lines = lines;
                 }
             }
-            let entry = StashEntry {
-                name,
-                id,
-                message,
-                time,
-                files,
-            };
+            let entry = StashEntry { name, id, message, time, files };
             Some((entry, untracked_parent))
         })
         .collect()
@@ -586,11 +483,7 @@ fn parse_untracked(printed: &str) -> HashMap<String, Vec<StashFile>> {
             let id = fields.next()?.to_owned();
             let files = fields
                 .filter_map(|field| numstat(field.trim_start_matches('\n')))
-                .map(|(path, lines)| StashFile {
-                    path,
-                    state: FileState::Untracked,
-                    lines,
-                })
+                .map(|(path, lines)| StashFile { path, state: FileState::Untracked, lines })
                 .collect();
             Some((id, files))
         })
@@ -620,11 +513,7 @@ fn numstat(field: &str) -> Option<(PathBuf, Option<LineCounts>)> {
 
 /// `1 file`, `3 files`.
 fn plural(count: usize, noun: &str) -> String {
-    if count == 1 {
-        format!("1 {noun}")
-    } else {
-        format!("{count} {noun}s")
-    }
+    if count == 1 { format!("1 {noun}") } else { format!("{count} {noun}s") }
 }
 
 fn git_job(args: Vec<String>, name: &'static str) -> Job {
@@ -664,16 +553,9 @@ mod tests {
                 StashFile {
                     path: "f.txt".into(),
                     state: FileState::Modified,
-                    lines: Some(LineCounts {
-                        added: 1,
-                        removed: 1
-                    }),
+                    lines: Some(LineCounts { added: 1, removed: 1 }),
                 },
-                StashFile {
-                    path: "g.txt".into(),
-                    state: FileState::Added,
-                    lines: None,
-                },
+                StashFile { path: "g.txt".into(), state: FileState::Added, lines: None },
             ]
         );
         assert_eq!(entries[1].1, None);

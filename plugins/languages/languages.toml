@@ -13,6 +13,8 @@
 #                no quotes
 # comment        what comments a line out, `comment-end` after it for block comments;
 #                `markup-comment` likewise for lines of markup in code, like JSX children
+# indent         the language's usual indentation, a number of spaces or "tabs", for a
+#                file not indented yet and no `.editorconfig` telling; else editing.toml's
 
 [[languages]]
 name = "Rust"
@@ -35,6 +37,7 @@ comment = "// "
 
 [[languages]]
 name = "TypeScript"
+indent = 2
 extensions = ["ts", "mts", "cts"]
 interpreters = ["deno", "ts-node"]
 aliases = ["ts"]
@@ -43,6 +46,7 @@ comment = "// "
 
 [[languages]]
 name = "TSX"
+indent = 2
 extensions = ["tsx"]
 aliases = ["typescriptreact"]
 pairs = ["()", "[]", "{}", "<>", '""', "''", "``"]
@@ -53,6 +57,7 @@ markup-comment-end = " */}"
 # React projects write JSX in plain `.js` files too.
 [[languages]]
 name = "JavaScript"
+indent = 2
 extensions = ["js", "mjs", "cjs"]
 interpreters = ["node", "nodejs"]
 aliases = ["js"]
@@ -63,6 +68,7 @@ markup-comment-end = " */}"
 
 [[languages]]
 name = "JSX"
+indent = 2
 extensions = ["jsx"]
 aliases = ["javascriptreact", "js-jsx"]
 pairs = ["()", "[]", "{}", "<>", '""', "''", "``"]
@@ -72,6 +78,7 @@ markup-comment-end = " */}"
 
 [[languages]]
 name = "HTML"
+indent = 2
 extensions = ["html", "htm"]
 aliases = ["mhtml"]
 first-lines = ["<!doctype html", "<html"]
@@ -81,6 +88,7 @@ comment-end = " -->"
 
 [[languages]]
 name = "CSS"
+indent = 2
 extensions = ["css"]
 pairs = ["()", "[]", "{}", '""', "''"]
 comment = "/* "
@@ -89,6 +97,7 @@ comment-end = " */"
 # Line comments for the JSON with comments of tsconfig.json and the like.
 [[languages]]
 name = "JSON"
+indent = 2
 extensions = ["json", "jsonc"]
 file-names = [".prettierrc", ".babelrc"]
 aliases = ["jsonc", "js-json"]
@@ -105,6 +114,7 @@ comment = "# "
 
 [[languages]]
 name = "YAML"
+indent = 2
 extensions = ["yaml", "yml"]
 pairs = ["()", "[]", "{}", '""', "''"]
 comment = "# "
@@ -137,6 +147,7 @@ comment = "# "
 
 [[languages]]
 name = "Make"
+indent = "tabs"
 extensions = ["mk", "make"]
 file-names = ["Makefile", "makefile", "GNUmakefile"]
 interpreters = ["make"]
@@ -170,6 +181,7 @@ comment = "# "
 
 [[languages]]
 name = "Go"
+indent = "tabs"
 extensions = ["go"]
 pairs = ["()", "[]", "{}", '""', "''", "``"]
 comment = "// "
@@ -203,12 +215,14 @@ comment = "// "
 
 [[languages]]
 name = "Dart"
+indent = 2
 extensions = ["dart"]
 pairs = ["()", "[]", "{}", '""', "''"]
 comment = "// "
 
 [[languages]]
 name = "Scala"
+indent = 2
 extensions = ["scala", "sc", "sbt"]
 interpreters = ["scala"]
 pairs = ["()", "[]", "{}", '""', "''"]
@@ -223,6 +237,7 @@ comment = "// "
 
 [[languages]]
 name = "Ruby"
+indent = 2
 extensions = ["rb", "rake", "gemspec"]
 file-names = ["Gemfile", "Rakefile", "Podfile", "Brewfile"]
 interpreters = ["ruby"]
@@ -251,6 +266,7 @@ comment = "-- "
 
 [[languages]]
 name = "Elixir"
+indent = 2
 extensions = ["ex", "exs"]
 interpreters = ["elixir"]
 pairs = ["()", "[]", "{}", '""', "''"]
@@ -258,6 +274,7 @@ comment = "# "
 
 [[languages]]
 name = "Nix"
+indent = 2
 extensions = ["nix"]
 interpreters = ["nix-shell"]
 pairs = ["()", "[]", "{}", '""']
@@ -273,6 +290,7 @@ comment = "// "
 
 [[languages]]
 name = "HCL"
+indent = 2
 extensions = ["hcl", "tf", "tfvars"]
 aliases = ["terraform"]
 pairs = ["()", "[]", "{}", '""']
@@ -280,6 +298,7 @@ comment = "# "
 
 [[languages]]
 name = "GraphQL"
+indent = 2
 extensions = ["graphql", "graphqls", "gql"]
 pairs = ["()", "[]", "{}", '""']
 comment = "# "
@@ -293,12 +312,14 @@ comment = "// "
 
 [[languages]]
 name = "SCSS"
+indent = 2
 extensions = ["scss"]
 pairs = ["()", "[]", "{}", '""', "''"]
 comment = "// "
 
 [[languages]]
 name = "Vue"
+indent = 2
 extensions = ["vue"]
 pairs = ["()", "[]", "{}", "<>", '""', "''", "``"]
 comment = "<!-- "
@@ -306,6 +327,7 @@ comment-end = " -->"
 
 [[languages]]
 name = "Svelte"
+indent = 2
 extensions = ["svelte"]
 pairs = ["()", "[]", "{}", "<>", '""', "''", "``"]
 comment = "<!-- "

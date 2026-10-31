@@ -32,39 +32,20 @@ pub const MAXIMIZE: &str = "terminal-maximize";
 pub const CLOSE: &str = "terminal-close";
 
 // Short enough to stay clear of the status pill beside them.
-const PANEL_HINTS: &[(&str, &str)] = &[
-    ("C-`", "Hide"),
-    ("⌘↩", "Maximize"),
-    ("C-x o", "Code"),
-    ("C-x [", "Copy mode"),
-];
+const PANEL_HINTS: &[(&str, &str)] =
+    &[("C-`", "Hide"), ("⌘↩", "Maximize"), ("C-x o", "Code"), ("C-x [", "Copy mode")];
 const PANEL_UNFOCUSED_HINTS: &[(&str, &str)] =
     &[("C-`", "Focus terminal"), ("C-x o", "Next window")];
-const WINDOW_HINTS: &[(&str, &str)] = &[
-    ("⌘↩", "To panel"),
-    ("⌘T", "New"),
-    ("⌘{ ⌘}", "Switch"),
-    ("C-x [", "Copy mode"),
-];
+const WINDOW_HINTS: &[(&str, &str)] =
+    &[("⌘↩", "To panel"), ("⌘T", "New"), ("⌘{ ⌘}", "Switch"), ("C-x [", "Copy mode")];
 const EXITED_HINTS: &[(&str, &str)] = &[("↵", "Restart"), ("q", "Close"), ("C-x [", "Copy mode")];
 const FAILED_HINTS: &[(&str, &str)] = &[
     ("↵", "Open config"),
-    (
-        "z",
-        if cfg!(target_os = "macos") {
-            "Start zsh once"
-        } else {
-            "Start sh once"
-        },
-    ),
+    ("z", if cfg!(target_os = "macos") { "Start zsh once" } else { "Start sh once" }),
     ("r", "Retry"),
 ];
-const COPY_HINTS: &[(&str, &str)] = &[
-    ("C-s", "Search"),
-    ("C-SPC", "Mark"),
-    ("M-w", "Copy"),
-    ("q", "Leave"),
-];
+const COPY_HINTS: &[(&str, &str)] =
+    &[("C-s", "Search"), ("C-SPC", "Mark"), ("M-w", "Copy"), ("q", "Leave")];
 const EXITED_KEYS: &[(&str, &str)] = &[("↵", "restart"), ("q", "close")];
 /// How long the screen flashes when the bell rings.
 pub const FLASH: Duration = Duration::from_millis(150);
@@ -83,19 +64,14 @@ impl ScreenSource for TerminalScreens {
         }
         let notice = notice(terminal);
         let Some(session) = terminal.session.as_ref().filter(|_| notice.is_none()) else {
-            return Some(Screen {
-                notice,
-                ..Screen::default()
-            });
+            return Some(Screen { notice, ..Screen::default() });
         };
         let term = session.screen.lock();
         let (matches, current_match) =
             match terminal.copy.as_ref().and_then(|copy| copy.search.as_ref()) {
                 Some(search) => (
                     search.matches.as_slice(),
-                    search
-                        .current
-                        .and_then(|current| search.matches.get(current)),
+                    search.current.and_then(|current| search.matches.get(current)),
                 ),
                 None => (&[][..], None),
             };
@@ -113,11 +89,7 @@ impl ScreenSource for TerminalScreens {
         let banner = match terminal.phase {
             Phase::Exited(code) => Some(ScreenBanner {
                 text: format!("Process exited with code {code}"),
-                tone: if code == 0 {
-                    Tone::Success
-                } else {
-                    Tone::Danger
-                },
+                tone: if code == 0 { Tone::Success } else { Tone::Danger },
                 keys: EXITED_KEYS,
             }),
             _ => None,
@@ -129,9 +101,7 @@ impl ScreenSource for TerminalScreens {
             banner,
             notice: None,
             mode: copying.map(|_| copy::mode(&term)),
-            search: copying
-                .and_then(|copy| copy.search.as_ref())
-                .map(copy::search_bar),
+            search: copying.and_then(|copy| copy.search.as_ref()).map(copy::search_bar),
             above: term.grid().history_size() > term.grid().display_offset(),
             flash: terminal.rang.is_some_and(|rang| rang.elapsed() < FLASH),
             pointing: terminal.link.is_some(),
@@ -140,10 +110,7 @@ impl ScreenSource for TerminalScreens {
 
     fn padding(&self, editor: &Editor) -> ScreenPadding {
         let settings = settings(editor);
-        ScreenPadding {
-            horizontal: settings.padding_x,
-            vertical: settings.padding_y,
-        }
+        ScreenPadding { horizontal: settings.padding_x, vertical: settings.padding_y }
     }
 
     fn mouse(&self, editor: &mut Editor, buffer: &str, pointer: ScreenPointer) -> bool {
@@ -171,11 +138,7 @@ impl ScreenSource for TerminalScreens {
 }
 
 fn terminal_named<'a>(editor: &'a Editor, buffer: &str) -> Option<&'a Terminal> {
-    editor
-        .buffers()
-        .iter()
-        .find(|candidate| candidate.name() == buffer)?
-        .local::<Terminal>()
+    editor.buffers().iter().find(|candidate| candidate.name() == buffer)?.local::<Terminal>()
 }
 
 /// Gives the keys to terminal `id`, where it is shown.
@@ -248,11 +211,7 @@ pub fn pane(editor: &Editor) -> Option<Pane> {
         count: Some(all(editor).len()),
         height: settings(editor).panel_height,
         title: String::new(),
-        subtitle: format!(
-            "{} · {}",
-            terminal.shell(),
-            abbreviate_home(&terminal.directory)
-        ),
+        subtitle: format!("{} · {}", terminal.shell(), abbreviate_home(&terminal.directory)),
         state: state(terminal),
         tabs: Some(tabs(editor, id)),
         buttons: vec![
@@ -317,11 +276,7 @@ fn tabs(editor: &Editor, shown: u64) -> Tabs {
             }
         })
         .collect();
-    Tabs {
-        tabs,
-        list: LIST,
-        add: NEW,
-    }
+    Tabs { tabs, list: LIST, add: NEW }
 }
 
 fn state(terminal: &Terminal) -> (String, Tone) {
@@ -383,12 +338,7 @@ pub fn status(editor: &Editor) -> Option<StatusSegment> {
         (_, None) => return None,
     };
     items.push(last);
-    Some(StatusSegment {
-        items,
-        command: None,
-        active: false,
-        code: true,
-    })
+    Some(StatusSegment { items, command: None, active: false, code: true })
 }
 
 /// Passes a key to the program of the terminal with the keys, unless remacs keeps it.
@@ -436,10 +386,7 @@ fn copy_key(editor: &mut Editor, id: u64, key: Key, kept: bool) -> bool {
         Some(link) => Outcome::Follow(link.target),
         None => copy::take_key(copy, &mut term, key),
     };
-    let leave = matches!(
-        outcome,
-        Outcome::Copy(_) | Outcome::Leave | Outcome::Follow(_)
-    );
+    let leave = matches!(outcome, Outcome::Copy(_) | Outcome::Leave | Outcome::Follow(_));
     if leave {
         copy::leave(&mut term);
     }
@@ -473,11 +420,9 @@ pub fn has_keys(editor: &Editor) -> bool {
 
 /// The terminal with the keys has ended.
 pub fn ended_has_keys(editor: &Editor) -> bool {
-    keyed(editor)
-        .and_then(|id| find(editor, id))
-        .is_some_and(|terminal| {
-            matches!(terminal.phase, Phase::Exited(_)) && terminal.copy.is_none()
-        })
+    keyed(editor).and_then(|id| find(editor, id)).is_some_and(|terminal| {
+        matches!(terminal.phase, Phase::Exited(_)) && terminal.copy.is_none()
+    })
 }
 
 pub fn failed_has_keys(editor: &Editor) -> bool {

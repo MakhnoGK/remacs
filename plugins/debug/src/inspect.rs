@@ -79,12 +79,7 @@ impl Variable {
 /// A row of the variables, in the order shown.
 pub enum Entry<'a> {
     /// A scope other than the first, whose variables show at the top.
-    Scope {
-        name: &'a str,
-        path: String,
-        open: bool,
-        reference: i64,
-    },
+    Scope { name: &'a str, path: String, open: bool, reference: i64 },
     Variable {
         variable: &'a Variable,
         path: String,
@@ -200,27 +195,21 @@ fn frame_id(link: &Link) -> Option<i64> {
 
 /// Loads the threads, the selected frame's variables and the watches.
 pub fn load(editor: &mut Editor, address: Address) {
-    request(
-        editor,
-        address,
-        "threads",
-        json!({}),
-        |editor, address, result| {
-            let threads = result
-                .ok()
-                .and_then(|body| body["threads"].as_array().cloned())
-                .unwrap_or_default()
-                .iter()
-                .map(|thread| {
-                    let name = thread["name"].as_str().unwrap_or_default().to_owned();
-                    (thread["id"].as_i64().unwrap_or_default(), name)
-                })
-                .collect();
-            if let Some(link) = find_link(editor, address) {
-                link.inspected.threads = threads;
-            }
-        },
-    );
+    request(editor, address, "threads", json!({}), |editor, address, result| {
+        let threads = result
+            .ok()
+            .and_then(|body| body["threads"].as_array().cloned())
+            .unwrap_or_default()
+            .iter()
+            .map(|thread| {
+                let name = thread["name"].as_str().unwrap_or_default().to_owned();
+                (thread["id"].as_i64().unwrap_or_default(), name)
+            })
+            .collect();
+        if let Some(link) = find_link(editor, address) {
+            link.inspected.threads = threads;
+        }
+    });
     load_frame(editor, address);
 }
 
@@ -229,77 +218,65 @@ pub fn load_frame(editor: &mut Editor, address: Address) {
     let Some(frame) = find_link(editor, address).and_then(|link| frame_id(link)) else {
         return;
     };
-    request(
-        editor,
-        address,
-        "scopes",
-        json!({ "frameId": frame }),
-        |editor, address, result| {
-            let scopes: Vec<Scope> = result
-                .ok()
-                .and_then(|body| body["scopes"].as_array().cloned())
-                .unwrap_or_default()
-                .iter()
-                .map(|scope| Scope {
-                    name: scope["name"].as_str().unwrap_or_default().to_owned(),
-                    reference: scope["variablesReference"].as_i64().unwrap_or_default(),
-                })
-                .collect();
-            let open = debugger(editor).view.open.clone();
-            let wanted: Vec<(i64, String)> = scopes
-                .iter()
-                .enumerate()
-                .filter(|(index, scope)| *index == 0 || open.contains(&scope.name))
-                .map(|(_, scope)| (scope.reference, scope.name.clone()))
-                .collect();
-            let Some(link) = find_link(editor, address) else {
-                return;
-            };
-            link.inspected.scopes = scopes;
-            link.inspected.children.clear();
-            for (reference, path) in wanted {
-                load_variables(editor, address, reference, path);
-            }
-        },
-    );
+    request(editor, address, "scopes", json!({ "frameId": frame }), |editor, address, result| {
+        let scopes: Vec<Scope> = result
+            .ok()
+            .and_then(|body| body["scopes"].as_array().cloned())
+            .unwrap_or_default()
+            .iter()
+            .map(|scope| Scope {
+                name: scope["name"].as_str().unwrap_or_default().to_owned(),
+                reference: scope["variablesReference"].as_i64().unwrap_or_default(),
+            })
+            .collect();
+        let open = debugger(editor).view.open.clone();
+        let wanted: Vec<(i64, String)> = scopes
+            .iter()
+            .enumerate()
+            .filter(|(index, scope)| *index == 0 || open.contains(&scope.name))
+            .map(|(_, scope)| (scope.reference, scope.name.clone()))
+            .collect();
+        let Some(link) = find_link(editor, address) else {
+            return;
+        };
+        link.inspected.scopes = scopes;
+        link.inspected.children.clear();
+        for (reference, path) in wanted {
+            load_variables(editor, address, reference, path);
+        }
+    });
     evaluate_watches(editor, address);
 }
 
 /// Loads the contents of `reference`, and of those inside it that are open.
 pub fn load_variables(editor: &mut Editor, address: Address, reference: i64, path: String) {
     let arguments = json!({ "variablesReference": reference });
-    request(
-        editor,
-        address,
-        "variables",
-        arguments,
-        move |editor, address, result| {
-            let variables: Vec<Variable> = result
-                .ok()
-                .and_then(|body| body["variables"].as_array().cloned())
-                .unwrap_or_default()
-                .iter()
-                .map(|variable| {
-                    let name = variable["name"].as_str().unwrap_or_default();
-                    Variable::from(variable, name, "value")
-                })
-                .collect();
-            let open = &debugger(editor).view.open;
-            let wanted: Vec<(i64, String)> = variables
-                .iter()
-                .filter(|variable| variable.reference > 0)
-                .map(|variable| (variable.reference, format!("{path}/{}", variable.name)))
-                .filter(|(_, path)| open.contains(path))
-                .collect();
-            let Some(link) = find_link(editor, address) else {
-                return;
-            };
-            link.inspected.children.insert(reference, variables);
-            for (reference, path) in wanted {
-                load_variables(editor, address, reference, path);
-            }
-        },
-    );
+    request(editor, address, "variables", arguments, move |editor, address, result| {
+        let variables: Vec<Variable> = result
+            .ok()
+            .and_then(|body| body["variables"].as_array().cloned())
+            .unwrap_or_default()
+            .iter()
+            .map(|variable| {
+                let name = variable["name"].as_str().unwrap_or_default();
+                Variable::from(variable, name, "value")
+            })
+            .collect();
+        let open = &debugger(editor).view.open;
+        let wanted: Vec<(i64, String)> = variables
+            .iter()
+            .filter(|variable| variable.reference > 0)
+            .map(|variable| (variable.reference, format!("{path}/{}", variable.name)))
+            .filter(|(_, path)| open.contains(path))
+            .collect();
+        let Some(link) = find_link(editor, address) else {
+            return;
+        };
+        link.inspected.children.insert(reference, variables);
+        for (reference, path) in wanted {
+            load_variables(editor, address, reference, path);
+        }
+    });
 }
 
 /// Evaluates every watch in the selected frame.
@@ -315,31 +292,21 @@ pub fn evaluate_watches(editor: &mut Editor, address: Address) {
     }
     for (index, expression) in expressions.into_iter().enumerate() {
         let arguments = json!({ "expression": expression, "frameId": frame, "context": "watch" });
-        request(
-            editor,
-            address,
-            "evaluate",
-            arguments,
-            move |editor, address, result| {
-                let result = result.map(|body| Variable::from(&body, &expression, "result"));
-                let open = result.as_ref().is_ok_and(|watch| {
-                    watch.reference > 0
-                        && debugger(editor)
-                            .view
-                            .open
-                            .contains(&watch_path(&expression))
-                });
-                let Some(link) = find_link(editor, address) else {
-                    return;
-                };
-                if let Some(slot) = link.inspected.watches.get_mut(index) {
-                    *slot = Some(result.clone());
-                }
-                if let (true, Ok(watch)) = (open, result) {
-                    load_variables(editor, address, watch.reference, watch_path(&expression));
-                }
-            },
-        );
+        request(editor, address, "evaluate", arguments, move |editor, address, result| {
+            let result = result.map(|body| Variable::from(&body, &expression, "result"));
+            let open = result.as_ref().is_ok_and(|watch| {
+                watch.reference > 0 && debugger(editor).view.open.contains(&watch_path(&expression))
+            });
+            let Some(link) = find_link(editor, address) else {
+                return;
+            };
+            if let Some(slot) = link.inspected.watches.get_mut(index) {
+                *slot = Some(result.clone());
+            }
+            if let (true, Ok(watch)) = (open, result) {
+                load_variables(editor, address, watch.reference, watch_path(&expression));
+            }
+        });
     }
 }
 
@@ -379,14 +346,8 @@ pub fn set_value(
     value: String,
 ) {
     let arguments = json!({ "variablesReference": container, "name": name, "value": value });
-    request(
-        editor,
-        address,
-        "setVariable",
-        arguments,
-        |editor, address, result| match result {
-            Ok(_) => load_frame(editor, address),
-            Err(error) => editor.set_error(format!("Could not set it: {error}")),
-        },
-    );
+    request(editor, address, "setVariable", arguments, |editor, address, result| match result {
+        Ok(_) => load_frame(editor, address),
+        Err(error) => editor.set_error(format!("Could not set it: {error}")),
+    });
 }

@@ -81,9 +81,7 @@ pub fn split_window_right(editor: &mut Editor) -> CommandResult {
 /// keys back.
 fn split(editor: &mut Editor, axis: Axis) -> CommandResult {
     editor.focus_pane(false);
-    let (min, chrome) = editor
-        .plugin_state::<WindowsSettings>()
-        .min_text_and_chrome(axis);
+    let (min, chrome) = editor.plugin_state::<WindowsSettings>().min_text_and_chrome(axis);
     let size = match axis {
         Axis::Rows => editor.viewport.height,
         Axis::Columns => editor.viewport.width,

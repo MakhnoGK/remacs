@@ -27,9 +27,7 @@ impl PrettierPlugin {
 impl Plugin for PrettierPlugin {
     fn register(&self, registry: &mut Registry) {
         let modes = self.modes;
-        registry
-            .post_command_hooks
-            .push(Rc::new(move |editor| sync(editor, modes)));
+        registry.post_command_hooks.push(Rc::new(move |editor| sync(editor, modes)));
     }
 }
 

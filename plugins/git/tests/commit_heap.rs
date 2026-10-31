@@ -47,11 +47,7 @@ impl Repository {
     }
 
     fn git(&self, args: &[&str]) {
-        let status = Command::new("git")
-            .current_dir(&self.0)
-            .args(args)
-            .status()
-            .unwrap();
+        let status = Command::new("git").current_dir(&self.0).args(args).status().unwrap();
         assert!(status.success(), "git {args:?}");
     }
 }
@@ -80,13 +76,8 @@ fn press(editor: &mut Editor, keys: &str) {
 #[test]
 fn a_commit_with_a_50_mb_patch_opens_without_holding_the_ui_and_its_diff_capped() {
     let repository = Repository::new();
-    let mut editor = Editor::new(&[
-        &EditingPlugin,
-        &MinibufferPlugin,
-        &FilesPlugin,
-        &DiredPlugin,
-        &GitPlugin,
-    ]);
+    let mut editor =
+        Editor::new(&[&EditingPlugin, &MinibufferPlugin, &FilesPlugin, &DiredPlugin, &GitPlugin]);
     editor.viewport.set_height(20);
     editor.visit_file(&repository.0.join("lib.rs")).unwrap();
     editor.run_command("git-status");
@@ -102,9 +93,7 @@ fn a_commit_with_a_50_mb_patch_opens_without_holding_the_ui_and_its_diff_capped(
     let start = Instant::now();
     press(&mut editor, "M-RET");
     let held = start.elapsed();
-    wait_until(&mut editor, "the commit", |editor| {
-        editor.window_buffer().mode() == "Git Commit"
-    });
+    wait_until(&mut editor, "the commit", |editor| editor.window_buffer().mode() == "Git Commit");
     let shown = start.elapsed();
     let peak = dhat::HeapStats::get().max_bytes;
     eprintln!("UI held {held:?}, commit shown after {shown:?}, peak heap {peak} B");

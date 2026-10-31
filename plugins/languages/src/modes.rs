@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 
-use remacs_core::{CommentSyntax, Mode};
+use remacs_core::{CommentSyntax, IndentUnit, Mode};
 use serde::Deserialize;
 
 pub(crate) const RUST: &str = "Rust";
@@ -57,11 +57,7 @@ pub const PRETTIER_MODES: &[&str] = &[TYPESCRIPT, TSX, JAVASCRIPT, JSX, HTML, CS
 pub(crate) static MODES: LazyLock<Vec<Mode>> = LazyLock::new(|| {
     let catalog: Catalog = toml::from_str(include_str!("../languages.toml"))
         .unwrap_or_else(|error| panic!("languages.toml: {error}"));
-    catalog
-        .languages
-        .into_iter()
-        .map(Language::into_mode)
-        .collect()
+    catalog.languages.into_iter().map(Language::into_mode).collect()
 });
 
 #[derive(Deserialize)]
@@ -84,6 +80,7 @@ struct Language {
     comment_end: String,
     markup_comment: Option<String>,
     markup_comment_end: String,
+    indent: Option<IndentUnit>,
 }
 
 impl Language {
@@ -91,10 +88,7 @@ impl Language {
         let pairs: Vec<(char, char)> = (self.pairs.iter())
             .map(|pair| match pair.chars().collect::<Vec<_>>()[..] {
                 [open, close] => (open, close),
-                _ => panic!(
-                    "languages.toml: {}: a pair is two characters: {pair}",
-                    self.name
-                ),
+                _ => panic!("languages.toml: {}: a pair is two characters: {pair}", self.name),
             })
             .collect();
         Mode {
@@ -107,6 +101,7 @@ impl Language {
             pairs: pairs.leak(),
             comment: comment(self.comment, self.comment_end),
             markup_comment: comment(self.markup_comment, self.markup_comment_end),
+            indent: self.indent,
         }
     }
 }
@@ -117,8 +112,5 @@ fn leak(strings: Vec<String>) -> &'static [&'static str] {
 }
 
 fn comment(start: Option<String>, end: String) -> Option<CommentSyntax> {
-    Some(CommentSyntax {
-        start: start?.leak(),
-        end: end.leak(),
-    })
+    Some(CommentSyntax { start: start?.leak(), end: end.leak() })
 }

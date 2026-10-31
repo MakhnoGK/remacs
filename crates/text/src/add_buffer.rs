@@ -35,15 +35,12 @@ impl AddBuffer {
     }
 
     pub fn chunk(&self, index: u32) -> &[u8] {
-        self.frozen
-            .get(index as usize)
-            .map_or(self.current.as_slice(), |chunk| chunk)
+        self.frozen.get(index as usize).map_or(self.current.as_slice(), |chunk| chunk)
     }
 
     fn freeze_current(&mut self) {
         if !self.current.is_empty() {
-            self.frozen
-                .push(Arc::unwrap_or_clone(mem::take(&mut self.current)).into());
+            self.frozen.push(Arc::unwrap_or_clone(mem::take(&mut self.current)).into());
         }
     }
 }

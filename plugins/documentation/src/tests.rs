@@ -60,10 +60,7 @@ fn shows_the_summary_then_everything_and_highlights_the_symbol() {
     assert_eq!(shown.hints.len(), 2);
     assert_eq!(
         editor.decorations(0..SOURCE.len()),
-        [vec![Span {
-            range: 10..25,
-            face: Face::Highlight
-        }]]
+        [vec![Span { range: 10..25, face: Face::Highlight }]]
     );
 
     press(&mut editor, "C-h .");
@@ -116,18 +113,12 @@ fn late_and_empty_answers() {
 
 fn signature(label: &str, parameter: &str) -> Code {
     let start = label.find(parameter).unwrap();
-    Code {
-        emphasis: Some(start..start + parameter.len()),
-        ..Code::new(label, Some("Rust"))
-    }
+    Code { emphasis: Some(start..start + parameter.len()), ..Code::new(label, Some("Rust")) }
 }
 
 fn signatures(parameter: &str) -> Signatures {
     let label = "fn copy_from_slice(&mut self, src: &[T])";
-    Signatures {
-        list: vec![signature(label, parameter)],
-        active: 0,
-    }
+    Signatures { list: vec![signature(label, parameter)], active: 0 }
 }
 
 fn signature_asked(editor: &mut Editor) -> Vec<SignatureTrigger> {
@@ -173,10 +164,7 @@ fn signatures_follow_the_call_being_typed() {
     assert!(popup(&editor).is_some());
 
     press(&mut editor, "C-b");
-    assert_eq!(
-        signature_asked(&mut editor),
-        [SignatureTrigger::Update(None)]
-    );
+    assert_eq!(signature_asked(&mut editor), [SignatureTrigger::Update(None)]);
     deliver_signatures(&mut editor, 4, None);
     assert!(popup(&editor).is_none(), "point left the call");
 }

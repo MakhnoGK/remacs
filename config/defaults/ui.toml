@@ -85,7 +85,8 @@ wheel-step = 100
 blur = 60
 
 [cursor]
-# "line": the whole row; "font": the font's height, centered in the row.
+# "line": the whole row; "font": the font's height, centered in the row. Both in text,
+# tables, prompts and terminals.
 height = "line"
 # Pixels the block's corners are rounded by, in text, tables, prompts and terminals: 0 to 4.
 radius = 1
@@ -143,6 +144,22 @@ delay = 600
 
 # Columns they are listed in: 1 to 8.
 columns = 4
+
+[spinners]
+# Work going on, like a language server starting or a download, shows in the status with
+# a ring: filled as far as the work is, when that is known, else turning.
+
+# Milliseconds the work goes on before it shows, so short work never does: 0 to 10000.
+delay = 1500
+
+# Milliseconds between frames of a turning ring: 16 to 500.
+frame = 50
+
+# Milliseconds a turning ring takes to go round: 200 to 5000.
+turn = 900
+
+# Percent of the accent color the ring is drawn in where it is not filled: 0 to 100.
+track-opacity = 25
 
 [documentation]
 # Pixels the documentation of a symbol, alone (C-h .) or beside completions, grows wide

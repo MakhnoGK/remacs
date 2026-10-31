@@ -86,10 +86,8 @@ impl Session {
             .collect();
         earlier.sort_unstable();
         earlier.dedup();
-        let prefixes = earlier
-            .into_iter()
-            .map(|from| (from, buffer.contents(from..start)))
-            .collect();
+        let prefixes =
+            earlier.into_iter().map(|from| (from, buffer.contents(from..start))).collect();
         Self {
             id,
             start,
@@ -108,11 +106,8 @@ impl Session {
 
     fn filter(&mut self, word: &str, point: usize) {
         word.clone_into(&mut self.word);
-        self.words = self
-            .prefixes
-            .iter()
-            .map(|(from, prefix)| (*from, format!("{prefix}{word}")))
-            .collect();
+        self.words =
+            self.prefixes.iter().map(|(from, prefix)| (*from, format!("{prefix}{word}"))).collect();
         let mut ranked: Vec<_> = self
             .items
             .iter()
@@ -131,10 +126,7 @@ impl Session {
 
     /// What `item` is matched against: the text from its start to point.
     fn word_of(&self, item: &Item) -> &str {
-        self.words
-            .iter()
-            .find(|(from, _)| *from == item.start)
-            .map_or(&self.word, |(_, word)| word)
+        self.words.iter().find(|(from, _)| *from == item.start).map_or(&self.word, |(_, word)| word)
     }
 
     fn is_shown(&self) -> bool {
@@ -142,8 +134,7 @@ impl Session {
     }
 
     fn select(&mut self, index: usize) {
-        self.selection
-            .select(index, self.matches.len(), VISIBLE_ROWS);
+        self.selection.select(index, self.matches.len(), VISIBLE_ROWS);
         self.documentation_pages = 0;
     }
 
@@ -157,18 +148,8 @@ impl Completion {
     fn request(&mut self, start: usize, offset: usize, trigger: Trigger) {
         self.next_id += 1;
         let id = self.next_id;
-        self.awaited = Some(Awaited {
-            id,
-            start,
-            offset,
-            trigger,
-        });
-        self.requests.push(Request::Complete {
-            id,
-            start,
-            offset,
-            trigger,
-        });
+        self.awaited = Some(Awaited { id, start, offset, trigger });
+        self.requests.push(Request::Complete { id, start, offset, trigger });
     }
 
     /// Asks once for what the selected item lacks, such as its documentation.
@@ -180,10 +161,7 @@ impl Completion {
             return;
         };
         if session.items[index].documentation.is_none() && session.resolving.insert(index) {
-            self.requests.push(Request::Resolve {
-                id: session.id,
-                index,
-            });
+            self.requests.push(Request::Resolve { id: session.id, index });
         }
     }
 
@@ -239,11 +217,7 @@ fn request_after_typing(editor: &mut Editor) {
         return;
     };
     let start = word_start(buffer, point);
-    if is_word_char(typed)
-        && buffer
-            .char_after(start)
-            .is_some_and(|first| first.is_ascii_digit())
-    {
+    if is_word_char(typed) && buffer.char_after(start).is_some_and(|first| first.is_ascii_digit()) {
         return;
     }
     let state = completion(editor);
@@ -329,10 +303,7 @@ pub(crate) fn deliver(editor: &mut Editor, id: u64, list: List) {
 }
 
 pub(crate) fn resolved(editor: &mut Editor, id: u64, index: usize, item: Item) {
-    let session = completion(editor)
-        .session
-        .as_mut()
-        .filter(|session| session.id == id);
+    let session = completion(editor).session.as_mut().filter(|session| session.id == id);
     if let Some(slot) = session.and_then(|session| session.items.get_mut(index)) {
         *slot = item;
     }
@@ -358,9 +329,7 @@ pub(crate) fn is_shown(editor: &Editor) -> bool {
 
 pub(crate) fn popup(editor: &Editor) -> Option<Popup> {
     let session = shown_session(editor)?;
-    let visible = session
-        .selection
-        .visible(session.matches.len(), VISIBLE_ROWS);
+    let visible = session.selection.visible(session.matches.len(), VISIBLE_ROWS);
     let rows = session.matches[visible.clone()]
         .iter()
         .map(|&index| {
@@ -414,11 +383,7 @@ fn step(editor: &mut Editor, forward: bool) -> CommandResult {
     let state = completion(editor);
     let session = state.session.as_mut().ok_or("No completion")?;
     let selected = session.selection.selected();
-    session.select(if forward {
-        selected + 1
-    } else {
-        selected.saturating_sub(1)
-    });
+    session.select(if forward { selected + 1 } else { selected.saturating_sub(1) });
     state.resolve_selected();
     Ok(())
 }
@@ -448,23 +413,18 @@ pub(crate) fn insert(editor: &mut Editor) -> CommandResult {
     let state = completion(editor);
     let session = state.session.take().ok_or("No completion")?;
     state.awaited = None;
-    let &index = session
-        .matches
-        .get(session.selection.selected())
-        .ok_or("No completion")?;
+    let &index = session.matches.get(session.selection.selected()).ok_or("No completion")?;
     let mut items = session.items;
     let mut item = items.swap_remove(index);
+    // The window buffer is the first.
+    let unit = remacs_editing::buffer_indent_unit(editor, 0);
     let buffer = editor.window_buffer_mut();
     let point = buffer.point();
     let start = item.start.min(point);
     buffer.delete(start..point);
-    buffer.insert(&item.insert);
-    if let Some(cursor) = item.cursor {
-        buffer.set_point(start + cursor);
-    }
+    remacs_editing::insert_indented(buffer, unit, &item.insert, item.cursor);
     item.extra_edits.retain(|(range, _)| range.end <= start);
-    item.extra_edits
-        .sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+    item.extra_edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
     for (range, text) in &item.extra_edits {
         replace_keeping_point(buffer, range.clone(), text);
     }

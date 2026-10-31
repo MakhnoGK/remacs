@@ -106,14 +106,7 @@ impl Theme {
     fn shown_glass(&self) -> Glass {
         let mut glass = self.glass;
         if cfg!(not(target_os = "macos")) {
-            let Glass {
-                surface,
-                note,
-                modal,
-                pill,
-                pane,
-                ..
-            } = &mut glass;
+            let Glass { surface, note, modal, pill, pane, .. } = &mut glass;
             for tint in [surface, note, modal, pill, pane] {
                 *tint = tint.over(self.colors.bg_main);
             }
@@ -132,48 +125,31 @@ pub fn install(theme: &Theme) {
 
 pub fn appearance() -> Appearance {
     ensure_theme();
-    if LIGHT_APPEARANCE.load(Ordering::Relaxed) {
-        Appearance::Light
-    } else {
-        Appearance::Dark
-    }
+    if LIGHT_APPEARANCE.load(Ordering::Relaxed) { Appearance::Light } else { Appearance::Dark }
 }
 
 /// The built-in themes' names and those of the user's files in `dir`, sorted.
 pub fn names(dir: Option<&Path>) -> Vec<String> {
     let mut names: Vec<String> = BUILT_IN.iter().map(|(name, _)| name.to_string()).collect();
-    if let Some(entries) = dir.and_then(|dir| fs::read_dir(dir).ok()) {
-        names.extend(entries.flatten().filter_map(|entry| {
-            let path = entry.path();
-            (path.extension() == Some(OsStr::new("toml")))
-                .then(|| path.file_stem()?.to_str().map(str::to_owned))
-                .flatten()
-        }));
-    }
+    let paths = dir.and_then(|dir| fs::read_dir(dir).ok()).into_iter().flatten().flatten();
+    let files = paths.map(|entry| entry.path());
+    let themes = files.filter(|path| path.extension() == Some(OsStr::new("toml")));
+    names.extend(themes.filter_map(|path| Some(path.file_stem()?.to_str()?.to_owned())));
     names.sort();
     names.dedup();
     names
 }
 
 fn user_file(name: &str, dir: Option<&Path>) -> Option<PathBuf> {
-    dir.map(|dir| dir.join(format!("{name}.toml")))
-        .filter(|path| path.is_file())
+    dir.map(|dir| dir.join(format!("{name}.toml"))).filter(|path| path.is_file())
 }
 
 fn built_in_table(name: &str) -> Result<Table, ThemeError> {
-    let (_, text) = BUILT_IN
-        .iter()
-        .find(|(built_in, _)| *built_in == name)
-        .ok_or_else(|| ThemeError {
-            file: None,
-            line: None,
-            message: format!("there is no theme {name}"),
-        })?;
-    toml::from_str(text).map_err(|error| ThemeError {
-        file: None,
-        line: None,
-        message: error.message().to_owned(),
-    })
+    let parsed = match BUILT_IN.iter().find(|(built_in, _)| *built_in == name) {
+        Some((_, text)) => toml::from_str(text).map_err(|error| error.message().to_owned()),
+        None => Err(format!("there is no theme {name}")),
+    };
+    parsed.map_err(|message| ThemeError { file: None, line: None, message })
 }
 
 /// The theme's whole table, what it inherits merged under its own.
@@ -181,16 +157,9 @@ fn resolve(name: &str, dir: Option<&Path>, depth: usize) -> Result<Table, ThemeE
     let Some(path) = user_file(name, dir) else {
         return built_in_table(name);
     };
-    let error = |line, message| ThemeError {
-        file: Some(path.clone()),
-        line,
-        message,
-    };
+    let error = |line, message| ThemeError { file: Some(path.clone()), line, message };
     if depth == MAX_INHERITANCE {
-        return Err(error(
-            None,
-            format!("inherits more than {MAX_INHERITANCE} themes deep"),
-        ));
+        return Err(error(None, format!("inherits more than {MAX_INHERITANCE} themes deep")));
     }
     let text = fs::read_to_string(&path).map_err(|read| error(None, read.to_string()))?;
     let mut own: Table = toml::from_str(&text).map_err(|parse| {
@@ -225,11 +194,7 @@ fn merged(mut under: Table, over: Table) -> Table {
 }
 
 fn from_table(table: Table, file: Option<PathBuf>) -> Result<Theme, ThemeError> {
-    let error = |message| ThemeError {
-        file: file.clone(),
-        line: None,
-        message,
-    };
+    let error = |message| ThemeError { file: file.clone(), line: None, message };
     let theme: Theme = Value::Table(table)
         .try_into()
         .map_err(|parse: toml::de::Error| error(parse.message().to_owned()))?;
@@ -238,10 +203,7 @@ fn from_table(table: Table, file: Option<PathBuf>) -> Result<Theme, ThemeError> 
     }
     for (name, ink) in [("ink", theme.ink), ("shadow", theme.shadow)] {
         if !(0.0..=4.0).contains(&ink.strength) {
-            return Err(error(format!(
-                "{name}.strength {} is outside 0..=4",
-                ink.strength
-            )));
+            return Err(error(format!("{name}.strength {} is outside 0..=4", ink.strength)));
         }
     }
     Ok(theme)
@@ -299,19 +261,9 @@ mod tests {
 
     #[test]
     fn a_users_theme_takes_what_it_leaves_out_from_the_built_in_one_of_its_appearance() {
-        let dir = themes_dir(
-            "appearance",
-            &[
-                (
-                    "paper.toml",
-                    "name = \"Paper\"\nappearance = \"light\"\n[colors]\nkeyword = \"#123456\"\n",
-                ),
-                (
-                    "night.toml",
-                    "name = \"Night\"\n[glass]\nregion = \"#11223344\"\n",
-                ),
-            ],
-        );
+        let paper = "name = \"Paper\"\nappearance = \"light\"\n[colors]\nkeyword = \"#123456\"\n";
+        let night = "name = \"Night\"\n[glass]\nregion = \"#11223344\"\n";
+        let dir = themes_dir("appearance", &[("paper.toml", paper), ("night.toml", night)]);
         let paper = Theme::load("paper", Some(&dir)).unwrap();
         assert_eq!(paper.name, "Paper");
         assert_eq!(paper.colors.keyword, Rgb(0x123456));
@@ -325,24 +277,16 @@ mod tests {
 
     #[test]
     fn a_users_theme_may_inherit_another_and_change_a_built_in_one() {
-        let dir = themes_dir(
-            "inherits",
-            &[
-                (
-                    "base.toml",
-                    "name = \"Base\"\n[colors]\nstring = \"#00ff00\"\n",
-                ),
-                ("child.toml", "inherits = \"base\"\nname = \"Child\"\n"),
-                ("modus-operandi.toml", "opacity = 0.5\n"),
-                ("loop.toml", "inherits = \"loop-too\"\n"),
-                ("loop-too.toml", "inherits = \"loop\"\n"),
-            ],
-        );
+        let files = [
+            ("base.toml", "name = \"Base\"\n[colors]\nstring = \"#00ff00\"\n"),
+            ("child.toml", "inherits = \"base\"\nname = \"Child\"\n"),
+            ("modus-operandi.toml", "opacity = 0.5\n"),
+            ("loop.toml", "inherits = \"loop-too\"\n"),
+            ("loop-too.toml", "inherits = \"loop\"\n"),
+        ];
+        let dir = themes_dir("inherits", &files);
         let child = Theme::load("child", Some(&dir)).unwrap();
-        assert_eq!(
-            (child.name.as_str(), child.colors.string),
-            ("Child", Rgb(0x00ff00))
-        );
+        assert_eq!((child.name.as_str(), child.colors.string), ("Child", Rgb(0x00ff00)));
         let changed = Theme::load(LIGHT, Some(&dir)).unwrap();
         assert_eq!(changed.opacity, 0.5);
         assert_eq!(changed.colors, Theme::built_in(LIGHT).colors);
@@ -353,36 +297,21 @@ mod tests {
 
     #[test]
     fn rejects_unknown_tokens_bad_colors_and_missing_themes() {
-        let dir = themes_dir(
-            "errors",
-            &[
-                ("unknown.toml", "[colors]\nkeywords = \"#000000\"\n"),
-                ("alpha.toml", "[colors]\nkeyword = \"#00000080\"\n"),
-                ("syntax.toml", "name = \"A\"\n[colors\n"),
-                ("opacity.toml", "opacity = 2.0\n"),
-            ],
-        );
+        let files = [
+            ("unknown.toml", "[colors]\nkeywords = \"#000000\"\n"),
+            ("alpha.toml", "[colors]\nkeyword = \"#00000080\"\n"),
+            ("syntax.toml", "name = \"A\"\n[colors\n"),
+            ("opacity.toml", "opacity = 2.0\n"),
+        ];
+        let dir = themes_dir("errors", &files);
         let message = |name| Theme::load(name, Some(&dir)).unwrap_err().to_string();
-        assert!(
-            message("unknown").contains("keywords"),
-            "{}",
-            message("unknown")
-        );
-        assert!(
-            message("alpha").contains("not a color"),
-            "{}",
-            message("alpha")
-        );
-        assert!(
-            message("syntax").starts_with("syntax.toml:2: "),
-            "{}",
-            message("syntax")
-        );
-        assert!(
-            message("opacity").contains("outside"),
-            "{}",
-            message("opacity")
-        );
+        for (name, part) in
+            [("unknown", "keywords"), ("alpha", "not a color"), ("opacity", "outside")]
+        {
+            assert!(message(name).contains(part), "{}", message(name));
+        }
+        let syntax = message("syntax");
+        assert!(syntax.starts_with("syntax.toml:2: "), "{syntax}");
         assert_eq!(message("absent"), "there is no theme absent");
         fs::remove_dir_all(dir).unwrap();
     }
@@ -396,18 +325,9 @@ mod tests {
 
     #[test]
     fn inks_scale_the_alpha_asked_for() {
-        let ink = Ink {
-            color: Rgb(0x000000),
-            strength: 0.5,
-        };
+        let ink = Ink { color: Rgb(0x000000), strength: 0.5 };
         install(&Theme::built_in(LIGHT));
-        glass::put_inks_in_place(
-            ink,
-            Ink {
-                strength: 4.0,
-                ..ink
-            },
-        );
+        glass::put_inks_in_place(ink, Ink { strength: 4.0, ..ink });
         assert_eq!(glass::ink(0x40), 0x00000020);
         assert_eq!(glass::shadow(0x80), 0x000000ff);
         install(&Theme::built_in(DEFAULT));

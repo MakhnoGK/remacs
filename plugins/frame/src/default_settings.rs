@@ -28,9 +28,7 @@ pub fn write_default_settings(editor: &mut Editor) -> CommandResult {
         move |_, input| filter_candidates(input, candidates.clone(), false),
         move |editor, file| {
             let path = write(&config, &file)?;
-            editor
-                .visit_file(&path)
-                .map_err(|error| format!("{file}: {error}"))?;
+            editor.visit_file(&path).map_err(|error| format!("{file}: {error}"))?;
             editor.set_message(format!("Wrote {file} of the defaults"));
             Ok(())
         },
@@ -62,11 +60,7 @@ pub fn view_default_settings(editor: &mut Editor) -> CommandResult {
 }
 
 fn file_prompt() -> Prompt {
-    Prompt {
-        require_match: true,
-        count: Count::Total,
-        ..Prompt::default()
-    }
+    Prompt { require_match: true, count: Count::Total, ..Prompt::default() }
 }
 
 fn files() -> impl Iterator<Item = String> {
@@ -110,17 +104,11 @@ mod tests {
             .join("config");
         let _ = std::fs::remove_dir_all(&config);
         let path = write(&config, "git.toml").unwrap();
-        let (_, defaults) = DEFAULT_FILES
-            .iter()
-            .find(|(name, _)| *name == "git")
-            .unwrap();
+        let (_, defaults) = DEFAULT_FILES.iter().find(|(name, _)| *name == "git").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), *defaults);
         std::fs::write(&path, "untracked-max-files = 5\n").unwrap();
         assert!(write(&config, "git.toml").unwrap_err().contains("kept"));
-        assert_eq!(
-            std::fs::read_to_string(&path).unwrap(),
-            "untracked-max-files = 5\n"
-        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "untracked-max-files = 5\n");
         assert!(write(&config, "nothing.toml").is_err());
         std::fs::remove_dir_all(config.parent().unwrap()).unwrap();
     }

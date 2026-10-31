@@ -1,4 +1,3 @@
-use std::iter::Rev;
 use std::mem;
 use std::ops::Range;
 use std::slice;
@@ -31,9 +30,7 @@ enum Items {
 
 impl PieceTree {
     pub fn new(initial: Option<Piece>) -> Self {
-        Self {
-            root: Node::new(Items::Leaf(initial.into_iter().collect())),
-        }
+        Self { root: Node::new(Items::Leaf(initial.into_iter().collect())) }
     }
 
     pub fn summary(&self) -> Summary {
@@ -60,13 +57,10 @@ impl PieceTree {
     }
 
     /// Pieces from the last to the first.
-    pub fn pieces_rev(&self) -> PiecesRev<'_> {
-        let mut pieces = PiecesRev {
-            ancestors: Vec::new(),
-            leaf: [].iter().rev(),
-        };
-        pieces.descend_rightmost(&self.root);
-        pieces
+    pub fn pieces_rev(&self) -> impl Iterator<Item = &Piece> {
+        let mut pieces = Pieces::new(true);
+        pieces.descend(&self.root);
+        pieces.map(|(_, piece)| piece)
     }
 
     /// The piece holding the `rank`-th newline: its document offset and the rank within it.
@@ -76,12 +70,10 @@ impl PieceTree {
     }
 
     pub fn newlines_before(&self, offset: usize, sources: &Sources) -> usize {
-        match self.seek(|end| offset < end.len) {
-            Some((piece, before)) => {
-                before.newlines + sources.newlines_in_prefix(piece, offset - before.len)
-            }
-            None => self.summary().newlines,
-        }
+        let Some((piece, before)) = self.seek(|end| offset < end.len) else {
+            return self.summary().newlines;
+        };
+        before.newlines + sources.newlines_in_prefix(piece, offset - before.len)
     }
 
     fn replace(&mut self, range: Range<usize>, insertion: Option<Piece>, sources: &Sources) {
@@ -92,9 +84,7 @@ impl PieceTree {
         while nodes.len() > 1 {
             nodes = Items::Internal(nodes).into_nodes();
         }
-        let mut root = nodes
-            .pop()
-            .unwrap_or_else(|| Node::new(Items::Leaf(Vec::new())));
+        let mut root = nodes.pop().unwrap_or_else(|| Node::new(Items::Leaf(Vec::new())));
         while let Items::Internal(children) = &root.items
             && children.len() == 1
         {
@@ -123,10 +113,7 @@ impl PieceTree {
 
 impl Node {
     fn new(items: Items) -> Arc<Self> {
-        Arc::new(Self {
-            summary: items.summary(),
-            items,
-        })
+        Arc::new(Self { summary: items.summary(), items })
     }
 
     fn is_underfull(&self) -> bool {
@@ -166,21 +153,17 @@ impl Items {
     /// Nodes of at most `MAX_ITEMS` each, evenly filled; none when there are no items.
     fn into_nodes(self) -> Vec<Arc<Node>> {
         match self {
-            Items::Leaf(pieces) => even_chunks(pieces)
-                .map(|chunk| Node::new(Items::Leaf(chunk)))
-                .collect(),
-            Items::Internal(children) => even_chunks(children)
-                .map(|chunk| Node::new(Items::Internal(chunk)))
-                .collect(),
+            Items::Leaf(pieces) => even_nodes(pieces, Items::Leaf),
+            Items::Internal(children) => even_nodes(children, Items::Internal),
         }
     }
 }
 
-fn even_chunks<T>(items: Vec<T>) -> impl Iterator<Item = Vec<T>> {
+fn even_nodes<T>(items: Vec<T>, kind: fn(Vec<T>) -> Items) -> Vec<Arc<Node>> {
     let chunk_count = items.len().div_ceil(MAX_ITEMS);
     let chunk_len = items.len().div_ceil(chunk_count.max(1));
     let mut items = items.into_iter();
-    (0..chunk_count).map(move |_| items.by_ref().take(chunk_len).collect())
+    (0..chunk_count).map(|_| Node::new(kind(items.by_ref().take(chunk_len).collect()))).collect()
 }
 
 fn find_index<T: Summarized>(
@@ -328,16 +311,18 @@ pub(crate) struct Pieces<'a> {
     ancestors: Vec<slice::Iter<'a, Arc<Node>>>,
     leaf: slice::Iter<'a, Piece>,
     offset: usize,
+    /// From the last piece to the first; offsets then mean nothing.
+    rev: bool,
 }
 
 impl<'a> Pieces<'a> {
+    fn new(rev: bool) -> Self {
+        Self { ancestors: Vec::new(), leaf: [].iter(), offset: 0, rev }
+    }
+
     /// Starts at the piece containing `offset`.
     fn starting_at(root: &'a Node, offset: usize) -> Self {
-        let mut pieces = Self {
-            ancestors: Vec::new(),
-            leaf: [].iter(),
-            offset: 0,
-        };
+        let mut pieces = Self::new(false);
         let mut before = Summary::default();
         let is_past = |end: Summary| offset < end.len;
         let mut node = root;
@@ -361,12 +346,13 @@ impl<'a> Pieces<'a> {
         }
     }
 
-    fn descend_leftmost(&mut self, mut node: &'a Node) {
+    /// Into `node`'s first leaf, or its last one when reversed.
+    fn descend(&mut self, mut node: &'a Node) {
         loop {
             match &node.items {
                 Items::Internal(children) => {
                     let mut siblings = children.iter();
-                    node = siblings.next().expect("internal nodes are non-empty");
+                    node = step(&mut siblings, self.rev).expect("internal nodes are non-empty");
                     self.ancestors.push(siblings);
                 }
                 Items::Leaf(pieces) => {
@@ -378,69 +364,29 @@ impl<'a> Pieces<'a> {
     }
 }
 
+fn step<'a, T>(items: &mut slice::Iter<'a, T>, rev: bool) -> Option<&'a T> {
+    if rev { items.next_back() } else { items.next() }
+}
+
 impl<'a> Iterator for Pieces<'a> {
     type Item = (usize, &'a Piece);
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            if let Some(piece) = self.leaf.next() {
+            if let Some(piece) = step(&mut self.leaf, self.rev) {
                 let piece_start = self.offset;
                 self.offset += piece.len;
                 return Some((piece_start, piece));
             }
             let next_node = loop {
-                match self.ancestors.last_mut()?.next() {
+                match step(self.ancestors.last_mut()?, self.rev) {
                     Some(node) => break node,
                     None => {
                         self.ancestors.pop();
                     }
                 }
             };
-            self.descend_leftmost(next_node);
-        }
-    }
-}
-
-pub(crate) struct PiecesRev<'a> {
-    ancestors: Vec<Rev<slice::Iter<'a, Arc<Node>>>>,
-    leaf: Rev<slice::Iter<'a, Piece>>,
-}
-
-impl<'a> PiecesRev<'a> {
-    fn descend_rightmost(&mut self, mut node: &'a Node) {
-        loop {
-            match &node.items {
-                Items::Internal(children) => {
-                    let mut siblings = children.iter().rev();
-                    node = siblings.next().expect("internal nodes are non-empty");
-                    self.ancestors.push(siblings);
-                }
-                Items::Leaf(pieces) => {
-                    self.leaf = pieces.iter().rev();
-                    return;
-                }
-            }
-        }
-    }
-}
-
-impl<'a> Iterator for PiecesRev<'a> {
-    type Item = &'a Piece;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            if let Some(piece) = self.leaf.next() {
-                return Some(piece);
-            }
-            let next_node = loop {
-                match self.ancestors.last_mut()?.next() {
-                    Some(node) => break node,
-                    None => {
-                        self.ancestors.pop();
-                    }
-                }
-            };
-            self.descend_rightmost(next_node);
+            self.descend(next_node);
         }
     }
 }

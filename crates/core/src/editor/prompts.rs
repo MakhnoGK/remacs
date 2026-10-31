@@ -18,11 +18,7 @@ impl Editor {
         complete: impl Fn(&Editor, &str) -> Completions + 'static,
         on_answer: impl FnOnce(&mut Editor, String) -> CommandResult + 'static,
     ) -> CommandResult {
-        self.open_minibuffer(Minibuffer::new(
-            prompt,
-            Some(Rc::new(complete)),
-            Box::new(on_answer),
-        ))
+        self.open_minibuffer(Minibuffer::new(prompt, Some(Rc::new(complete)), Box::new(on_answer)))
     }
 
     /// Asks a question answered with a single `y` or `n`, like Emacs `y-or-n-p`.
@@ -56,17 +52,11 @@ impl Editor {
 
     /// Answers the open question, as a click on its buttons does.
     pub fn answer_question(&mut self, yes: bool) {
-        if !self
-            .minibuffer
-            .as_ref()
-            .is_some_and(Minibuffer::is_question)
-        {
+        if !self.minibuffer.as_ref().is_some_and(Minibuffer::is_question) {
             return;
         }
         let answer = if yes { "y" } else { "n" };
-        if let Err(error) = self.finish_minibuffer(answer.to_owned()) {
-            self.set_error(error.0);
-        }
+        self.finish_minibuffer(answer.to_owned()).unwrap_or_else(|error| self.set_error(error.0));
         self.after_command();
     }
 
@@ -133,9 +123,7 @@ impl Editor {
         if let Some(minibuffer) = &mut self.minibuffer {
             minibuffer.select(index);
         }
-        if let Err(error) = self.exit_minibuffer(false) {
-            self.set_error(error.0);
-        }
+        self.exit_minibuffer(false).unwrap_or_else(|error| self.set_error(error.0));
         self.after_command();
     }
 
@@ -170,9 +158,7 @@ impl Editor {
     /// Keeps the minibuffer history in `path` across sessions: reads it now and writes it
     /// after each answer.
     pub fn keep_history_in(&mut self, path: PathBuf) {
-        if let Err(error) = self.history.keep_in(path) {
-            self.set_error(error);
-        }
+        self.history.keep_in(path).unwrap_or_else(|error| self.set_error(error));
     }
 
     pub(super) fn answer_question_key(&mut self, key: Key) {
@@ -226,42 +212,24 @@ mod tests {
     #[test]
     fn a_closed_prompt_is_handed_over_unless_another_takes_its_place() {
         let mut editor = Editor::new(&[]);
-        let prompt = |label: &str| Prompt {
-            label: label.to_owned(),
-            ..Prompt::default()
-        };
+        let prompt = |label: &str| Prompt { label: label.to_owned(), ..Prompt::default() };
         let label = |minibuffer: Option<Minibuffer>| minibuffer.map(|m| m.prompt().label.clone());
         let none = |_: &Editor, _: &str| Completions::default();
-        editor
-            .read(prompt("cancelled"), none, |_, _| Ok(()))
-            .unwrap();
+        let read =
+            move |editor: &mut Editor, label| editor.read(prompt(label), none, |_, _| Ok(()));
+        read(&mut editor, "cancelled").unwrap();
         assert!(editor.take_closed_minibuffer().is_none(), "still open");
         editor.cancel_minibuffer();
-        assert_eq!(
-            label(editor.take_closed_minibuffer()).as_deref(),
-            Some("cancelled")
-        );
+        assert_eq!(label(editor.take_closed_minibuffer()).as_deref(), Some("cancelled"));
         assert!(editor.take_closed_minibuffer().is_none(), "taken once");
 
-        editor
-            .read(prompt("answered"), none, |_, _| Ok(()))
-            .unwrap();
+        read(&mut editor, "answered").unwrap();
         editor.exit_minibuffer(true).unwrap();
-        assert_eq!(
-            label(editor.take_closed_minibuffer()).as_deref(),
-            Some("answered")
-        );
+        assert_eq!(label(editor.take_closed_minibuffer()).as_deref(), Some("answered"));
 
-        editor
-            .read(prompt("first"), none, move |editor, _| {
-                editor.read(prompt("second"), none, |_, _| Ok(()))
-            })
-            .unwrap();
+        editor.read(prompt("first"), none, move |editor, _| read(editor, "second")).unwrap();
         editor.exit_minibuffer(true).unwrap();
-        assert!(
-            editor.take_closed_minibuffer().is_none(),
-            "the second took its place"
-        );
+        assert!(editor.take_closed_minibuffer().is_none(), "the second took its place");
         assert_eq!(editor.minibuffer().unwrap().prompt().label, "second");
     }
 
@@ -276,9 +244,7 @@ mod tests {
             editor.window_buffer_mut().fold(Some(1..2));
             let none = |_: &Editor, _: &str| Completions::default();
             editor.read(Prompt::default(), none, |_, _| Ok(())).unwrap();
-            editor
-                .window_buffer_mut()
-                .set_point(text.find('b').unwrap());
+            editor.window_buffer_mut().set_point(text.find('b').unwrap());
             editor.show_point();
             assert!(!folded(editor), "shown while the prompt is open");
             editor.window_buffer_mut().set_point(0);

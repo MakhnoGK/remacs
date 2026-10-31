@@ -39,18 +39,13 @@ impl IgnoreRules {
             .map(Path::to_path_buf)
             .collect();
         for directory in directories {
-            match self
-                .matcher(&directory)
-                .matched_path_or_any_parents(path, is_dir)
-            {
+            match self.matcher(&directory).matched_path_or_any_parents(path, is_dir) {
                 Match::Ignore(_) => return true,
                 Match::Whitelist(_) => return false,
                 Match::None => {}
             }
         }
-        self.shared
-            .iter()
-            .any(|rules| rules.matched_path_or_any_parents(path, is_dir).is_ignore())
+        self.shared.iter().any(|rules| rules.matched_path_or_any_parents(path, is_dir).is_ignore())
     }
 
     /// Forgets the rules of `directory`, whose `.gitignore` changed.

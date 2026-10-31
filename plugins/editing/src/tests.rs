@@ -23,22 +23,13 @@ impl Plugin for CodeModePlugin {
         registry.modes.add(Mode {
             name: CODE_MODE,
             pairs: &[('(', ')'), ('[', ']'), ('{', '}'), ('"', '"'), ('\'', '\'')],
-            comment: Some(CommentSyntax {
-                start: "// ",
-                end: "",
-            }),
-            markup_comment: Some(CommentSyntax {
-                start: "{/* ",
-                end: " */}",
-            }),
+            comment: Some(CommentSyntax { start: "// ", end: "" }),
+            markup_comment: Some(CommentSyntax { start: "{/* ", end: " */}" }),
             ..Mode::default()
         });
         registry.modes.add(Mode {
             name: STYLE_MODE,
-            comment: Some(CommentSyntax {
-                start: "/* ",
-                end: " */",
-            }),
+            comment: Some(CommentSyntax { start: "/* ", end: " */" }),
             ..Mode::default()
         });
         registry.syntax_probes.push(Rc::new(in_double_quotes));
@@ -198,10 +189,7 @@ fn paragraph_motion_extends_the_region() {
 fn a_paragraph_is_selected_or_killed() {
     let mut editor = editor_with("one\n\ntwo\nthree\n\nfour");
     press(&mut editor, "C-n C-n C-f M-h");
-    assert_eq!(
-        editor.buffer().region(),
-        Some("one\n".len().."one\n\ntwo\nthree\n".len())
-    );
+    assert_eq!(editor.buffer().region(), Some("one\n".len().."one\n\ntwo\nthree\n".len()));
     assert_eq!(editor.buffer().point(), "one\n".len());
 
     press(&mut editor, "C-g C-n C-f");
@@ -212,11 +200,7 @@ fn a_paragraph_is_selected_or_killed() {
 #[test]
 fn word_kills_keep_quotes_single_where_no_parser_reads_strings() {
     let mut editor = Editor::new(&[&EditingPlugin]);
-    editor.add_buffer(Buffer::new(
-        "test",
-        Text::from("\"a\" \"b\""),
-        "Fundamental",
-    ));
+    editor.add_buffer(Buffer::new("test", Text::from("\"a\" \"b\""), "Fundamental"));
     editor.buffer_mut().set_point(2);
     press(&mut editor, "M-d");
     assert_eq!(contents(&editor), "\"a \"b\"");
@@ -388,11 +372,8 @@ fn backward_kill_word_stops_like_intellij() {
 /// unless it starts at one, as `MoveToCaretStopTest.nextTo` does.
 fn assert_caret_stops(command: &str, forward: bool, marked: &str) {
     let (text, stops) = caret_stops(marked);
-    let offsets: Vec<usize> = if forward {
-        (0..text.len()).collect()
-    } else {
-        (1..=text.len()).rev().collect()
-    };
+    let offsets: Vec<usize> =
+        if forward { (0..text.len()).collect() } else { (1..=text.len()).rev().collect() };
     let kills = command.contains("kill");
     for offset in offsets {
         let mut editor = code_editor_with(&text);
@@ -471,10 +452,7 @@ fn contract_region_goes_back_to_point() {
     let point = text.find('b').unwrap();
     editor.buffer_mut().set_point(point);
     press(&mut editor, "C-= C-= C-= C--");
-    assert_eq!(
-        editor.buffer().region().map(|region| &text[region]),
-        Some("[b]")
-    );
+    assert_eq!(editor.buffer().region().map(|region| &text[region]), Some("[b]"));
     press(&mut editor, "M-<down> M-<down>");
     assert_eq!(editor.buffer().region(), None);
     assert_eq!(editor.buffer().point(), point);
@@ -513,10 +491,7 @@ fn newline_after_an_open_bracket_goes_a_level_deeper() {
     type_text(&mut editor, "z(1,");
     press(&mut editor, "RET");
     type_text(&mut editor, "2");
-    assert_eq!(
-        contents(&editor),
-        "  if x {\n    y();\n    z(1,\n      2\n  }"
-    );
+    assert_eq!(contents(&editor), "  if x {\n    y();\n    z(1,\n      2\n  }");
 }
 
 #[test]
@@ -565,10 +540,7 @@ fn lines_open_below_and_above_without_breaking_this_one() {
     assert_eq!(contents(&editor), "fn f() {\n    a\n    g();\n    b\n}");
     press(&mut editor, "C-p C-e s-S-RET");
     type_text(&mut editor, "c");
-    assert_eq!(
-        contents(&editor),
-        "fn f() {\n    a\n    c\n    g();\n    b\n}"
-    );
+    assert_eq!(contents(&editor), "fn f() {\n    a\n    c\n    g();\n    b\n}");
 }
 
 #[test]
@@ -686,10 +658,7 @@ fn comment_line_aligns_the_regions_lines_and_skips_blank_ones() {
     let mut editor = code_editor_with(text);
     press(&mut editor, "C-n C-SPC C-n C-n C-n");
     press(&mut editor, "M-;");
-    assert_eq!(
-        contents(&editor),
-        "if x {\n    // a();\n\n    //     b();\n}\nc();"
-    );
+    assert_eq!(contents(&editor), "if x {\n    // a();\n\n    //     b();\n}\nc();");
     assert!(editor.buffer().region().is_some());
     press(&mut editor, "M-;");
     assert_eq!(contents(&editor), text);
@@ -716,10 +685,7 @@ fn comment_line_uses_the_markup_comment_in_markup() {
     let text = "return (\n  <div>\n    <b>hi</b>\n  </div>\n);";
     let mut editor = code_editor_with(text);
     press(&mut editor, "C-n C-n M-;");
-    assert_eq!(
-        contents(&editor),
-        "return (\n  <div>\n    {/* <b>hi</b> */}\n  </div>\n);"
-    );
+    assert_eq!(contents(&editor), "return (\n  <div>\n    {/* <b>hi</b> */}\n  </div>\n);");
     press(&mut editor, "M-;");
     assert_eq!(contents(&editor), text);
     press(&mut editor, "M-< M-;");
@@ -731,10 +697,7 @@ fn comment_line_needs_a_comment_syntax() {
     let mut editor = editor_with("text");
     press(&mut editor, "M-;");
     assert_eq!(contents(&editor), "text");
-    assert_eq!(
-        editor.echo().as_deref(),
-        Some("No comment syntax in this mode")
-    );
+    assert_eq!(editor.echo().as_deref(), Some("No comment syntax in this mode"));
 }
 
 #[test]
@@ -802,10 +765,7 @@ fn recentering_cycles_through_middle_top_and_bottom() {
         press(&mut editor, "C-l");
         editor.viewport.first_line
     };
-    assert_eq!(
-        [first_lines(), first_lines(), first_lines(), first_lines()],
-        [45, 49, 42, 45]
-    );
+    assert_eq!([first_lines(), first_lines(), first_lines(), first_lines()], [45, 49, 42, 45]);
 }
 
 #[test]
@@ -1059,19 +1019,11 @@ fn align_regexp_lines_up_the_first_match_or_every_match() {
     assert_eq!(contents(&editor), aligned);
     press(&mut editor, "M-< C-SPC M-> C-x |");
     answer(&mut editor, "x?");
-    assert_eq!(
-        editor.echo().as_deref(),
-        Some("The regexp matches empty text")
-    );
+    assert_eq!(editor.echo().as_deref(), Some("The regexp matches empty text"));
 }
 
 fn cursor_points(editor: &Editor) -> Vec<usize> {
-    editor
-        .buffer()
-        .cursors()
-        .iter()
-        .map(|cursor| cursor.point)
-        .collect()
+    editor.buffer().cursors().iter().map(|cursor| cursor.point).collect()
 }
 
 #[test]
@@ -1186,15 +1138,25 @@ fn mark_all_and_skip_put_cursors_on_matches_of_the_region() {
 }
 
 #[test]
+fn indent_by_mode_names_a_known_mode() {
+    let editing_toml = |text: &str| {
+        let mut editor = editor_with("");
+        let file = (std::path::PathBuf::from("editing.toml"), text.to_owned());
+        editor.set_settings(remacs_core::Settings::from_files([file]));
+        (editor.echo(), editor.plugin_state::<EditingSettings>().indent_by_mode.len())
+    };
+    assert_eq!(editing_toml("[indent-by-mode]\nCode = 2\n"), (None, 1));
+    let error = "editing.toml: indent-by-mode: no mode code".to_owned();
+    assert_eq!(editing_toml("[indent-by-mode]\ncode = 2\n"), (Some(error), 1));
+}
+
+#[test]
 fn cursors_stop_at_max_cursors() {
     let mut editor = editor_with("x ab ab ab ab");
     editor.plugin_state::<crate::EditingSettings>().max_cursors = 3;
     press(&mut editor, "C-f C-f C-SPC C-f C-f C-c C-<");
     assert!(editor.buffer().cursors().is_empty());
-    assert_eq!(
-        editor.echo().as_deref(),
-        Some("4 cursors would be over max-cursors, 3")
-    );
+    assert_eq!(editor.echo().as_deref(), Some("4 cursors would be over max-cursors, 3"));
     press(&mut editor, "C-> C->");
     assert_eq!(cursor_points(&editor), [7, 10]);
     press(&mut editor, "C->");
@@ -1225,20 +1187,14 @@ struct PopupShown(bool);
 
 impl Plugin for PopupPlugin {
     fn register(&self, registry: &mut Registry) {
-        registry
-            .commands
-            .add(Command::new("popup-quit", "Close the popup", |editor| {
-                editor.plugin_state::<PopupShown>().0 = false;
-                Ok(())
-            }));
+        registry.commands.add(Command::new("popup-quit", "Close the popup", |editor| {
+            editor.plugin_state::<PopupShown>().0 = false;
+            Ok(())
+        }));
         let mut keymap = Keymap::default();
         keymap.bind("C-g", "popup-quit");
         registry.minor_keymaps.push(MinorKeymap {
-            active: |editor| {
-                editor
-                    .find_plugin_state::<PopupShown>()
-                    .is_some_and(|shown| shown.0)
-            },
+            active: |editor| editor.find_plugin_state::<PopupShown>().is_some_and(|shown| shown.0),
             keymap,
         });
     }

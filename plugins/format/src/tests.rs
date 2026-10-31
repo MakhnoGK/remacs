@@ -79,10 +79,7 @@ fn edits_for_a_changed_buffer_and_failures_are_not_applied() {
     editor.window_buffer_mut().insert("// ");
     deliver(&mut editor, request.id, Ok(edits(UGLY, PRETTY)));
     assert_eq!(contents(&editor), format!("// {UGLY}"));
-    assert_eq!(
-        editor.echo().as_deref(),
-        Some("Not formatted: the buffer changed meanwhile")
-    );
+    assert_eq!(editor.echo().as_deref(), Some("Not formatted: the buffer changed meanwhile"));
 
     press(&mut editor, "C-c C-f");
     let request = take_requests(&mut editor, |_| true).remove(0);
@@ -100,11 +97,7 @@ impl Plugin for StylePlugin {
     fn register(&self, registry: &mut Registry) {
         let style = PAGE.find("a{").unwrap()..PAGE.find("</style>").unwrap();
         registry.embedded_probes.push(Rc::new(move |_| {
-            Some(vec![Embedded {
-                mode: "CSS",
-                ranges: vec![style.clone()],
-                servers: true,
-            }])
+            Some(vec![Embedded { mode: "CSS", ranges: vec![style.clone()], servers: true }])
         }));
     }
 }
@@ -126,17 +119,10 @@ fn a_region_of_embedded_code_is_its_language_s_and_its_edits_stay_in_it() {
 
     let request = select_style(&mut editor);
     assert_eq!(request.mode, "CSS");
-    assert_eq!(
-        request.path,
-        PathBuf::from("/project/page.html.remacs-embedded.CSS")
-    );
+    assert_eq!(request.path, PathBuf::from("/project/page.html.remacs-embedded.CSS"));
     let text = request.text.bytes_in(0..request.text.len());
     assert_eq!(String::from_utf8(text).unwrap().trim(), "a{color:red}");
-    deliver(
-        &mut editor,
-        request.id,
-        Ok(vec![(start + 1..start + 1, " ".into())]),
-    );
+    deliver(&mut editor, request.id, Ok(vec![(start + 1..start + 1, " ".into())]));
     assert!(contents(&editor).contains("<style>a {color:red}</style>"));
 
     let request = select_style(&mut editor);
@@ -156,10 +142,7 @@ fn formatting_on_save(name: &str) -> (Editor, PathBuf) {
     editor.visit_file(&path).unwrap();
     editor.window_buffer_mut().save().unwrap();
     editor.refresh();
-    assert!(
-        take_requests(&mut editor, |_| true).is_empty(),
-        "off by default"
-    );
+    assert!(take_requests(&mut editor, |_| true).is_empty(), "off by default");
     editor.run_command("format-on-save-mode");
     assert_eq!(editor.echo().as_deref(), Some("Formatting on save enabled"));
     (editor, path)
@@ -181,10 +164,7 @@ fn saved_files_are_formatted_and_saved_again() {
     assert_eq!(fs::read_to_string(&path).unwrap(), PRETTY);
     assert!(!editor.window_buffer().is_modified());
     editor.refresh();
-    assert!(
-        take_requests(&mut editor, |_| true).is_empty(),
-        "its own save is not formatted again"
-    );
+    assert!(take_requests(&mut editor, |_| true).is_empty(), "its own save is not formatted again");
     press(&mut editor, "C-/");
     editor.refresh();
     assert!(take_requests(&mut editor, |_| true).is_empty());
@@ -207,11 +187,7 @@ fn after_a_save_typing_and_files_nothing_formats_are_left_alone() {
 }
 
 fn settings(files: &[(&str, &str)]) -> Settings {
-    Settings::from_files(
-        files
-            .iter()
-            .map(|(name, text)| (PathBuf::from(name), text.to_string())),
-    )
+    Settings::from_files(files.iter().map(|(name, text)| (PathBuf::from(name), text.to_string())))
 }
 
 fn formats_on_save(editor: &mut Editor) -> bool {
@@ -231,10 +207,7 @@ fn the_settings_turn_formatting_on_save_on_and_a_toggle_lasts_until_they_change(
     assert!(formats_on_save(&mut editor));
 
     editor.run_command("format-on-save-mode");
-    editor.set_settings(settings(&[
-        ("format.toml", "on-save = true\n"),
-        ("ui.toml", ""),
-    ]));
+    editor.set_settings(settings(&[("format.toml", "on-save = true\n"), ("ui.toml", "")]));
     assert!(!formats_on_save(&mut editor), "other files changed");
 
     editor.set_settings(settings(&[]));

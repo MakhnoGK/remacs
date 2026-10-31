@@ -69,9 +69,7 @@ pub fn built_in() -> BTreeMap<String, Installer> {
 impl Installer {
     /// Whether what it needs is on `PATH`.
     pub fn can_run(&self) -> bool {
-        self.needs
-            .iter()
-            .all(|program| find_on_path(program).is_some())
+        self.needs.iter().all(|program| find_on_path(program).is_some())
     }
 
     pub fn latest(&self, vars: &Vars) -> Result<String, String> {
@@ -119,11 +117,7 @@ impl Installer {
         with: &[&str],
         cancelled: &AtomicBool,
     ) -> Result<(), String> {
-        let env: Vec<_> = self
-            .env
-            .iter()
-            .map(|(name, value)| (name, vars.fill(value)))
-            .collect();
+        let env: Vec<_> = self.env.iter().map(|(name, value)| (name, vars.fill(value))).collect();
         for command in &self.install {
             let (program, args) = command.split_first().ok_or("an empty install command")?;
             let program = vars.fill(program);
@@ -152,10 +146,7 @@ impl Installer {
     }
 
     pub fn run_env(&self, vars: &Vars) -> Vec<(String, String)> {
-        self.run_env
-            .iter()
-            .map(|(name, value)| (name.clone(), vars.fill(value)))
-            .collect()
+        self.run_env.iter().map(|(name, value)| (name.clone(), vars.fill(value))).collect()
     }
 }
 

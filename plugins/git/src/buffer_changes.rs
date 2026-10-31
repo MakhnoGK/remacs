@@ -88,11 +88,7 @@ pub fn sync(editor: &mut Editor) {
         Some(changes) => {
             changes.base = base.clone();
             changes.sent = text.clone();
-            Request {
-                base,
-                text,
-                slot: Arc::clone(&changes.slot),
-            }
+            Request { base, text, slot: Arc::clone(&changes.slot) }
         }
         None => {
             let slot = ChangesSlot::default();
@@ -105,9 +101,7 @@ pub fn sync(editor: &mut Editor) {
         }
     };
     let notifier = editor.notifier();
-    editor
-        .plugin_state::<CompareThread>()
-        .send(request, notifier);
+    editor.plugin_state::<CompareThread>().send(request, notifier);
 }
 
 pub fn line_changes(buffer: &Buffer, lines: Range<usize>) -> Vec<ChangedLines> {
@@ -135,14 +129,11 @@ pub fn compare(base: &[u8], text: &[u8]) -> Vec<ChangedLines> {
             let start = hunk.after.start as usize;
             let end = hunk.after.end as usize;
             let modified_end = start + removed.min(added);
-            [
-                (start..modified_end, LineChange::Modified),
-                (modified_end..end, LineChange::Added),
-            ]
-            .into_iter()
-            .filter(|(lines, _)| !lines.is_empty())
-            .chain((removed > added).then_some((end..end, LineChange::Removed)))
-            .map(|(lines, change)| ChangedLines { lines, change })
+            [(start..modified_end, LineChange::Modified), (modified_end..end, LineChange::Added)]
+                .into_iter()
+                .filter(|(lines, _)| !lines.is_empty())
+                .chain((removed > added).then_some((end..end, LineChange::Removed)))
+                .map(|(lines, change)| ChangedLines { lines, change })
         })
         .collect()
 }
@@ -166,10 +157,7 @@ fn base_of(editor: &Editor) -> Option<Base> {
         Some(FileState::Untracked | FileState::Added) => None,
         _ => Some(snapshot.commit.clone()?),
     };
-    let original = snapshot
-        .files
-        .get(relative)
-        .and_then(|entry| entry.original.clone());
+    let original = snapshot.files.get(relative).and_then(|entry| entry.original.clone());
     Some(Base {
         root: root.to_path_buf(),
         relative: original.unwrap_or_else(|| relative.to_path_buf()),
@@ -207,10 +195,7 @@ fn run(requests: Receiver<Request>, notifier: Notifier) {
 fn newest_per_buffer(first: Request, requests: &Receiver<Request>) -> Vec<Request> {
     let mut newest: Vec<Request> = Vec::new();
     for request in std::iter::once(first).chain(requests.try_iter()) {
-        match newest
-            .iter_mut()
-            .find(|queued| Arc::ptr_eq(&queued.slot, &request.slot))
-        {
+        match newest.iter_mut().find(|queued| Arc::ptr_eq(&queued.slot, &request.slot)) {
             Some(queued) => *queued = request,
             None => newest.push(request),
         }
@@ -266,10 +251,7 @@ mod tests {
         );
         assert_eq!(
             compare(b"a\nb\nc\n", b"a\nB\n"),
-            [
-                changed(1..2, LineChange::Modified),
-                changed(2..2, LineChange::Removed),
-            ]
+            [changed(1..2, LineChange::Modified), changed(2..2, LineChange::Removed),]
         );
         assert_eq!(compare(b"", b"a\nb\n"), [changed(0..2, LineChange::Added)]);
         assert!(compare(b"a\n", b"a\n").is_empty());

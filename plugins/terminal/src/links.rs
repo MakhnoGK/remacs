@@ -60,10 +60,7 @@ fn hyperlink_at(term: &Term<Listener>, point: Point) -> Option<ScreenLink> {
         },
         None => Target::Url(link.uri().to_owned()),
     };
-    Some(ScreenLink {
-        cells: first..=last,
-        target,
-    })
+    Some(ScreenLink { cells: first..=last, target })
 }
 
 /// A `file:line` or a web address in the text of the line under `point`, wrapped rows
@@ -77,10 +74,7 @@ fn text_link_at(term: &Term<Listener>, point: Point) -> Option<ScreenLink> {
     let mut at = start;
     loop {
         let cell = &grid[at];
-        if !cell
-            .flags
-            .intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER)
-        {
+        if !cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
             cells.push((text.len(), at));
             text.push(cell.c);
             if let Some(zero_width) = cell.zerowidth() {
@@ -96,20 +90,10 @@ fn text_link_at(term: &Term<Listener>, point: Point) -> Option<ScreenLink> {
             Point::new(at.line + 1, Column(0))
         };
     }
-    let offset = cells
-        .iter()
-        .rev()
-        .find(|(_, cell)| *cell <= point)
-        .map(|&(offset, _)| offset)?;
-    let link = links_in(&text)
-        .into_iter()
-        .find(|link| link.range.contains(&offset))?;
+    let offset = cells.iter().rev().find(|(_, cell)| *cell <= point).map(|&(offset, _)| offset)?;
+    let link = links_in(&text).into_iter().find(|link| link.range.contains(&offset))?;
     let cell_of = |offset: usize| {
-        cells
-            .iter()
-            .rev()
-            .find(|(start, _)| *start <= offset)
-            .map(|&(_, cell)| cell)
+        cells.iter().rev().find(|(start, _)| *start <= offset).map(|&(_, cell)| cell)
     };
     Some(ScreenLink {
         cells: cell_of(link.range.start)?..=cell_of(link.range.end - 1)?,

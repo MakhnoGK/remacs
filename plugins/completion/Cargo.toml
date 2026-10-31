@@ -8,10 +8,10 @@ publish.workspace = true
 
 [dependencies]
 remacs-core.workspace = true
+remacs-editing.workspace = true
 
 [dev-dependencies]
 divan.workspace = true
-remacs-editing.workspace = true
 remacs-text.workspace = true
 
 [[bench]]

@@ -49,10 +49,8 @@ pub fn end(editor: &mut Editor) {
 /// Follows the prompt's input and selection; once the prompt is gone without an answer,
 /// goes back to where the search started. Runs after every command.
 pub fn sync(editor: &mut Editor) {
-    let Some(category) = editor
-        .window_buffer()
-        .local::<Searching>()
-        .map(|searching| searching.category)
+    let Some(category) =
+        editor.window_buffer().local::<Searching>().map(|searching| searching.category)
     else {
         return;
     };
@@ -81,10 +79,7 @@ pub fn sync(editor: &mut Editor) {
     if searching.lit != lit {
         match Query::new(&lit.0, lit.1) {
             Ok(Some(query)) => {
-                buffer.set_local(Lit {
-                    query,
-                    current: None,
-                });
+                buffer.set_local(Lit { query, current: None });
             }
             _ => buffer.remove_local::<Lit>(),
         }
@@ -125,10 +120,7 @@ pub fn decorate(buffer: &Buffer, range: Range<usize>) -> Vec<Span> {
             Face::SearchMatch
         };
         if !matched.is_empty() {
-            spans.push(Span {
-                range: matched,
-                face,
-            });
+            spans.push(Span { range: matched, face });
         }
         true
     });

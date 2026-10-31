@@ -20,10 +20,8 @@ const GRAMMARS: &[Grammar] = &[Grammar {
     ],
 }];
 static SYNTAX: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS, &[]);
-const LOCALS: &[Locals] = &[Locals {
-    mode: "Rust",
-    queries: &[include_str!("../../languages/queries/rust/locals.scm")],
-}];
+const LOCALS: &[Locals] =
+    &[Locals { mode: "Rust", queries: &[include_str!("../../languages/queries/rust/locals.scm")] }];
 static SYNTAX_WITH_LOCALS: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS, &[]).with_locals(LOCALS);
 
 /// A real file of the repo, repeated to about 9 000 lines.
@@ -60,9 +58,7 @@ fn parsed_editor_with(syntax: &'static SyntaxPlugin) -> (Editor, usize) {
 
 fn visible(editor: &Editor, first_line: usize) -> Vec<std::ops::Range<usize>> {
     let text = editor.window_buffer().text();
-    (first_line..first_line + VISIBLE_LINES)
-        .map(|line| text.line_range(line).unwrap())
-        .collect()
+    (first_line..first_line + VISIBLE_LINES).map(|line| text.line_range(line).unwrap()).collect()
 }
 
 /// The decorators asked one line at a time, as frames did before.
@@ -82,11 +78,7 @@ fn visible_lines_one_at_a_time(bencher: Bencher) {
 #[divan::bench(sample_count = 20)]
 fn diff_side(bencher: Bencher) {
     let editor = Editor::new(&[&SYNTAX]);
-    let code: String = SOURCE
-        .lines()
-        .take(2000)
-        .map(|line| format!("{line}\n"))
-        .collect();
+    let code: String = SOURCE.lines().take(2000).map(|line| format!("{line}\n")).collect();
     bencher.bench_local(|| black_box(editor.highlight_code("Rust", &code)));
 }
 
@@ -149,10 +141,8 @@ fn typing_with_locals_in_one_big_function(bencher: Bencher) {
 #[divan::bench(sample_count = 50)]
 fn visible_lines_with_locals_read_anew(bencher: Bencher) {
     let (editor, first_line) = parsed_editor_with(&SYNTAX_WITH_LOCALS);
-    let elsewhere = [
-        visible(&editor, first_line),
-        visible(&editor, first_line + SOURCE.lines().count()),
-    ];
+    let elsewhere =
+        [visible(&editor, first_line), visible(&editor, first_line + SOURCE.lines().count())];
     let mut turn = 0;
     bencher.bench_local(|| {
         turn += 1;

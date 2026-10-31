@@ -58,10 +58,7 @@ impl Plugin for EchoPlugin {
         for &(keys, command) in MESSAGES_BINDINGS {
             keymap.bind(keys, command);
         }
-        registry.minor_keymaps.push(MinorKeymap {
-            active: messages::is_shown,
-            keymap,
-        });
+        registry.minor_keymaps.push(MinorKeymap { active: messages::is_shown, keymap });
         registry.post_command_hooks.push(Rc::new(messages::update));
         registry.decorators.push(Rc::new(messages::decorate));
         registry.text_controls.push(Rc::new(messages::controls));

@@ -23,11 +23,7 @@ fn refresh_with_point_still(bencher: Bencher) {
     let mut editor = Editor::new(&[&EditingPlugin, &NavigationPlugin]);
     let path = PathBuf::from("/project/src/a_rather_long_module_name.rs");
     let text: String = (0..1000).map(|line| format!("line {line}\n")).collect();
-    let buffer = Buffer::new(
-        "a_rather_long_module_name.rs",
-        Text::from(text.as_str()),
-        "Rust",
-    );
+    let buffer = Buffer::new("a_rather_long_module_name.rs", Text::from(text.as_str()), "Rust");
     editor.add_buffer(buffer.with_file(path));
     editor.refresh();
     bencher.bench_local(|| editor.refresh());

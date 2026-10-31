@@ -51,14 +51,10 @@ impl Plugin for DiagnosticsPlugin {
             registry.keymap.bind(keys, command);
         }
         registry.menu_items.extend_from_slice(MENU_ITEMS);
-        registry
-            .post_command_hooks
-            .push(Rc::new(buffer_diagnostics::rebase));
+        registry.post_command_hooks.push(Rc::new(buffer_diagnostics::rebase));
         registry.post_command_hooks.push(Rc::new(bubble::update));
         registry.popup_providers.push(Rc::new(bubble::popup));
-        registry
-            .decorators
-            .push(Rc::new(buffer_diagnostics::underline));
+        registry.decorators.push(Rc::new(buffer_diagnostics::underline));
         registry.status_providers.push(Rc::new(problems::status));
     }
 }

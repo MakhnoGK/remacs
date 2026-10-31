@@ -40,11 +40,7 @@ fn press(editor: &mut Editor, keys: &str) {
 
 fn type_text(editor: &mut Editor, text: &str) {
     for character in text.chars() {
-        let key = if character == ' ' {
-            "SPC".to_owned()
-        } else {
-            character.to_string()
-        };
+        let key = if character == ' ' { "SPC".to_owned() } else { character.to_string() };
         press(editor, &key);
     }
 }
@@ -66,25 +62,16 @@ fn lines_that_match_are_listed_with_the_first_after_point_selected() {
     type_text(&mut editor, "sum");
     assert_eq!(
         listed(&editor),
-        [
-            ("2".into(), "let total = sum();".into()),
-            ("5".into(), "fn sum() -> u32 {".into()),
-        ]
+        [("2".into(), "let total = sum();".into()), ("5".into(), "fn sum() -> u32 {".into()),]
     );
     let minibuffer = editor.minibuffer().unwrap();
     assert_eq!(minibuffer.selected(), Some(1));
-    assert_eq!(
-        minibuffer.candidates()[0].matches,
-        std::slice::from_ref(&(12..15))
-    );
+    assert_eq!(minibuffer.candidates()[0].matches, std::slice::from_ref(&(12..15)));
 
     press(&mut editor, "C-r RET");
     assert!(editor.minibuffer().is_none());
     assert_eq!(editor.window_buffer().point(), TEXT.find("sum").unwrap());
-    assert_eq!(
-        editor.window_buffer().mark(),
-        Some(TEXT.find("fn sum").unwrap())
-    );
+    assert_eq!(editor.window_buffer().mark(), Some(TEXT.find("fn sum").unwrap()));
 }
 
 #[test]
@@ -203,23 +190,14 @@ fn matches_are_lit_and_point_follows_the_selection_until_quitting() {
     let mut editor = editor_at(0);
     press(&mut editor, "C-s");
     type_text(&mut editor, "total");
-    let [first, second, third] = [
-        TEXT.find("total").unwrap(),
-        TEXT.find("Total").unwrap(),
-        TEXT.rfind("total").unwrap(),
-    ];
+    let [first, second, third] =
+        [TEXT.find("total").unwrap(), TEXT.find("Total").unwrap(), TEXT.rfind("total").unwrap()];
     assert_eq!(editor.window_buffer().point(), first);
-    assert_eq!(
-        lit(&editor),
-        [(first, true), (second, false), (third, false)]
-    );
+    assert_eq!(lit(&editor), [(first, true), (second, false), (third, false)]);
 
     press(&mut editor, "C-s");
     assert_eq!(editor.window_buffer().point(), second);
-    assert_eq!(
-        lit(&editor),
-        [(first, false), (second, true), (third, false)]
-    );
+    assert_eq!(lit(&editor), [(first, false), (second, true), (third, false)]);
 
     press(&mut editor, "C-g");
     assert!(editor.minibuffer().is_none());
@@ -250,16 +228,8 @@ fn project(name: &str) -> PathBuf {
     fs::create_dir_all(root.join(".git")).unwrap();
     fs::create_dir_all(root.join("src/target")).unwrap();
     fs::write(root.join(".gitignore"), "target/\n").unwrap();
-    fs::write(
-        root.join("src/main.rs"),
-        "fn main() {\n    let file = open(\"a\");\n}\n",
-    )
-    .unwrap();
-    fs::write(
-        root.join("src/io.rs"),
-        "pub fn open_file() {}\nfn open() {}\n",
-    )
-    .unwrap();
+    fs::write(root.join("src/main.rs"), "fn main() {\n    let file = open(\"a\");\n}\n").unwrap();
+    fs::write(root.join("src/io.rs"), "pub fn open_file() {}\nfn open() {}\n").unwrap();
     fs::write(root.join("src/target/out.rs"), "open file\n").unwrap();
     fs::write(root.join("data.bin"), b"open\0file\n").unwrap();
     root.canonicalize().unwrap()
@@ -281,10 +251,7 @@ fn wait_for_lines(editor: &mut Editor) -> Vec<(String, String, String)> {
                 })
                 .collect();
         }
-        assert!(
-            started.elapsed() < Duration::from_secs(10),
-            "no lines found"
-        );
+        assert!(started.elapsed() < Duration::from_secs(10), "no lines found");
         thread::sleep(Duration::from_millis(10));
     }
 }
@@ -304,17 +271,9 @@ fn the_project_is_searched_for_lines_with_every_word_unsaved_buffers_as_they_are
     assert_eq!(
         lines,
         [
-            (
-                "src/main.rs".into(),
-                "2".into(),
-                "let file = open(\"a\");".into()
-            ),
+            ("src/main.rs".into(), "2".into(), "let file = open(\"a\");".into()),
             ("src/main.rs".into(), "4".into(), "// open the file".into()),
-            (
-                "src/io.rs".into(),
-                "1".into(),
-                "pub fn open_file() {}".into()
-            ),
+            ("src/io.rs".into(), "1".into(), "pub fn open_file() {}".into()),
         ]
     );
 
@@ -356,18 +315,11 @@ fn the_window_shows_the_line_selected_and_quitting_puts_it_back() {
     type_text(&mut editor, "open");
     assert_eq!(wait_for_lines(&mut editor).len(), 3);
     let second_line = "pub fn open_file() {}\nfn ".len();
-    assert_eq!(
-        shown(&editor),
-        ("io.rs".into(), 7, vec![(7, true), (second_line, false)])
-    );
+    assert_eq!(shown(&editor), ("io.rs".into(), 7, vec![(7, true), (second_line, false)]));
     press(&mut editor, "C-n");
     assert_eq!(
         shown(&editor),
-        (
-            "io.rs".into(),
-            second_line,
-            vec![(7, false), (second_line, true)]
-        )
+        ("io.rs".into(), second_line, vec![(7, false), (second_line, true)])
     );
     press(&mut editor, "C-n");
     let call = "fn main() {\n    let file = ".len();
@@ -424,14 +376,8 @@ fn replacing_in_project(name: &str, from: &str, to: &str) -> (PathBuf, Editor) {
 
 fn wait_for_match(editor: &mut Editor) {
     let started = Instant::now();
-    while editor
-        .minibuffer()
-        .is_some_and(|minibuffer| minibuffer.note() == Some("Searching…"))
-    {
-        assert!(
-            started.elapsed() < Duration::from_secs(10),
-            "no match found"
-        );
+    while editor.minibuffer().is_some_and(|minibuffer| minibuffer.note() == Some("Searching…")) {
+        assert!(started.elapsed() < Duration::from_secs(10), "no match found");
         thread::sleep(Duration::from_millis(10));
         editor.refresh();
     }
@@ -445,36 +391,17 @@ fn read(root: &std::path::Path, file: &str) -> String {
 fn replacing_in_the_project_asks_file_by_file_saves_and_goes_back() {
     let (root, mut editor) = replacing_in_project("replace", "file", "path");
     let asked = editor.minibuffer().unwrap().note().unwrap().to_owned();
-    assert!(
-        ["src/main.rs", "src/io.rs"].contains(&asked.as_str()),
-        "{asked}"
-    );
-    assert_eq!(
-        shown(&editor)
-            .2
-            .iter()
-            .filter(|(_, chosen)| *chosen)
-            .count(),
-        1
-    );
+    assert!(["src/main.rs", "src/io.rs"].contains(&asked.as_str()), "{asked}");
+    assert_eq!(shown(&editor).2.iter().filter(|(_, chosen)| *chosen).count(), 1);
     press(&mut editor, "y");
     wait_for_match(&mut editor);
     press(&mut editor, "y");
     wait_for_match(&mut editor);
 
     assert!(editor.minibuffer().is_none());
-    assert_eq!(
-        editor.echo().as_deref(),
-        Some("Replaced 2 occurrences in 2 files")
-    );
-    assert_eq!(
-        read(&root, "src/main.rs"),
-        "fn main() {\n    let path = open(\"a\");\n}\n"
-    );
-    assert_eq!(
-        read(&root, "src/io.rs"),
-        "pub fn open_path() {}\nfn open() {}\n"
-    );
+    assert_eq!(editor.echo().as_deref(), Some("Replaced 2 occurrences in 2 files"));
+    assert_eq!(read(&root, "src/main.rs"), "fn main() {\n    let path = open(\"a\");\n}\n");
+    assert_eq!(read(&root, "src/io.rs"), "pub fn open_path() {}\nfn open() {}\n");
     assert_eq!(read(&root, "src/target/out.rs"), "open file\n");
     assert_eq!(shown(&editor), ("main.rs".into(), 0, Vec::new()));
     assert!(!editor.window_buffer().is_modified());
@@ -488,23 +415,14 @@ fn replacing_everywhere_skipping_and_stopping() {
     press(&mut editor, "A");
     wait_for_match(&mut editor);
     assert!(editor.minibuffer().is_none());
-    assert_eq!(
-        editor.echo().as_deref(),
-        Some("Replaced 3 occurrences in 2 files")
-    );
-    assert_eq!(
-        read(&root, "src/io.rs"),
-        "pub fn load_file() {}\nfn load() {}\n"
-    );
+    assert_eq!(editor.echo().as_deref(), Some("Replaced 3 occurrences in 2 files"));
+    assert_eq!(read(&root, "src/io.rs"), "pub fn load_file() {}\nfn load() {}\n");
     fs::remove_dir_all(root).unwrap();
 
     let (root, mut editor) = replacing_in_project("skipping", "open", "load");
     press(&mut editor, "n q");
     assert!(editor.minibuffer().is_none());
-    assert_eq!(
-        editor.echo().as_deref(),
-        Some("Replaced 0 occurrences in 0 files")
-    );
+    assert_eq!(editor.echo().as_deref(), Some("Replaced 0 occurrences in 0 files"));
     assert!(read(&root, "src/io.rs").contains("open"));
     assert!(read(&root, "src/main.rs").contains("open"));
     fs::remove_dir_all(root).unwrap();
@@ -541,22 +459,10 @@ fn found_regexp(pattern: &str, text: &Text, range: Range<usize>) -> Vec<Range<us
 fn a_regexp_is_found_across_pieces_seeing_the_lines_around_its_range() {
     let mut text = Text::from("let a1 = 2;\nb22");
     text.insert(text.len(), "3 = a1;\n");
-    assert_eq!(
-        found_regexp(r"[a-z]\d+", &text, 0..text.len()),
-        [4..6, 12..16, 19..21]
-    );
-    assert_eq!(
-        found_regexp(r"^\w", &text, 1..text.len()),
-        std::slice::from_ref(&(12..13))
-    );
-    assert_eq!(
-        found_regexp(r"\b\d", &text, 5..text.len()),
-        std::slice::from_ref(&(9..10))
-    );
-    assert_eq!(
-        found_regexp("$", &text, 0..text.len()),
-        [11..11, 22..22, 23..23]
-    );
+    assert_eq!(found_regexp(r"[a-z]\d+", &text, 0..text.len()), [4..6, 12..16, 19..21]);
+    assert_eq!(found_regexp(r"^\w", &text, 1..text.len()), std::slice::from_ref(&(12..13)));
+    assert_eq!(found_regexp(r"\b\d", &text, 5..text.len()), std::slice::from_ref(&(9..10)));
+    assert_eq!(found_regexp("$", &text, 0..text.len()), [11..11, 22..22, 23..23]);
 
     let text = Text::from(TEXT);
     let total = TEXT.find("Total").unwrap();
@@ -565,10 +471,7 @@ fn a_regexp_is_found_across_pieces_seeing_the_lines_around_its_range() {
         std::slice::from_ref(&(total - 1..total + 5))
     );
     assert_eq!(found_regexp(r"\Wtotal\b", &text, 0..TEXT.len()).len(), 3);
-    assert_eq!(
-        Query::new("sum(", true).err().as_deref(),
-        Some("Invalid regexp: unclosed group")
-    );
+    assert_eq!(Query::new("sum(", true).err().as_deref(), Some("Invalid regexp: unclosed group"));
 }
 
 #[test]
@@ -592,11 +495,7 @@ fn a_regexp_finds_what_the_regex_crate_finds_in_long_lines_and_small_pieces() {
             .map(|found| found.range())
             .collect();
         for text in [&Text::from(source.as_str()), &pieces] {
-            assert_eq!(
-                found_regexp(pattern, text, 0..text.len()),
-                expected,
-                "{pattern}"
-            );
+            assert_eq!(found_regexp(pattern, text, 0..text.len()), expected, "{pattern}");
         }
     }
 }
@@ -608,15 +507,9 @@ fn a_regexp_search_lists_its_lines_and_m_r_switches_to_literal_text() {
     type_text(&mut editor, r"fn \w+\(\)");
     assert_eq!(
         listed(&editor),
-        [
-            ("1".into(), "fn main() {".into()),
-            ("5".into(), "fn sum() -> u32 {".into()),
-        ]
+        [("1".into(), "fn main() {".into()), ("5".into(), "fn sum() -> u32 {".into()),]
     );
-    assert_eq!(
-        lit(&editor),
-        [(0, true), (TEXT.find("fn sum").unwrap(), false)]
-    );
+    assert_eq!(lit(&editor), [(0, true), (TEXT.find("fn sum").unwrap(), false)]);
 
     press(&mut editor, "M-r");
     assert!(listed(&editor).is_empty());
@@ -627,10 +520,7 @@ fn a_regexp_search_lists_its_lines_and_m_r_switches_to_literal_text() {
     assert_eq!(listed(&editor).len(), 2);
     press(&mut editor, "M-r");
     assert!(listed(&editor).is_empty());
-    assert_eq!(
-        editor.minibuffer().unwrap().note(),
-        Some("Invalid regexp: unclosed group")
-    );
+    assert_eq!(editor.minibuffer().unwrap().note(), Some("Invalid regexp: unclosed group"));
 
     // The spaces a line is shown without may be part of its match.
     let mut editor = editor_at(0);
@@ -651,10 +541,7 @@ fn a_replacement_naming_a_group_the_regexp_lacks_is_refused() {
         query.check_replacement("$1_new"),
         Err("No group “1_new” in the regexp; braces end a group's number, as in ${1}_new".into())
     );
-    assert_eq!(
-        query.check_replacement("${3}"),
-        Err("No group “3” in the regexp".into())
-    );
+    assert_eq!(query.check_replacement("${3}"), Err("No group “3” in the regexp".into()));
 
     let mut editor = editor_at(0);
     press(&mut editor, "C-M-%");
@@ -743,19 +630,12 @@ fn the_project_is_searched_and_replaced_by_a_regexp_with_its_groups() {
     assert_eq!(
         wait_for_lines(&mut editor),
         [
-            (
-                "src/io.rs".into(),
-                "1".into(),
-                "pub fn open_file() {}".into()
-            ),
+            ("src/io.rs".into(), "1".into(), "pub fn open_file() {}".into()),
             ("src/io.rs".into(), "2".into(), "fn open() {}".into()),
         ]
     );
     type_text(&mut editor, "(");
-    assert_eq!(
-        editor.minibuffer().unwrap().note(),
-        Some("Invalid regexp: unclosed group")
-    );
+    assert_eq!(editor.minibuffer().unwrap().note(), Some("Invalid regexp: unclosed group"));
     press(&mut editor, "C-g M-s % M-r");
     type_text(&mut editor, r"fn (\w+)\(\)");
     press(&mut editor, "RET");
@@ -764,18 +644,9 @@ fn the_project_is_searched_and_replaced_by_a_regexp_with_its_groups() {
     wait_for_match(&mut editor);
     press(&mut editor, "A");
     wait_for_match(&mut editor);
-    assert_eq!(
-        editor.echo().as_deref(),
-        Some("Replaced 3 occurrences in 2 files")
-    );
-    assert_eq!(
-        read(&root, "src/main.rs"),
-        "fn main_new() {\n    let file = open(\"a\");\n}\n"
-    );
-    assert_eq!(
-        read(&root, "src/io.rs"),
-        "pub fn open_file_new() {}\nfn open_new() {}\n"
-    );
+    assert_eq!(editor.echo().as_deref(), Some("Replaced 3 occurrences in 2 files"));
+    assert_eq!(read(&root, "src/main.rs"), "fn main_new() {\n    let file = open(\"a\");\n}\n");
+    assert_eq!(read(&root, "src/io.rs"), "pub fn open_file_new() {}\nfn open_new() {}\n");
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -807,24 +678,12 @@ fn search_results_are_edited_in_a_buffer_and_written_back_unless_changed_since()
     buffer.set_point(0);
     buffer.delete(0..1);
     press(&mut editor, "C-c C-c");
-    assert!(
-        editor
-            .message()
-            .unwrap()
-            .text
-            .starts_with("Lines were added")
-    );
-    let edited = listed
-        .replace("fn open", "fn read")
-        .replace("= open", "= read");
+    assert!(editor.message().unwrap().text.starts_with("Lines were added"));
+    let edited = listed.replace("fn open", "fn read").replace("= open", "= read");
     let buffer = editor.window_buffer_mut();
     buffer.delete(0..buffer.text().len());
     buffer.insert(&edited);
-    fs::write(
-        root.join("src/io.rs"),
-        "pub fn open_file() {}\nfn open() { 1 }\n",
-    )
-    .unwrap();
+    fs::write(root.join("src/io.rs"), "pub fn open_file() {}\nfn open() { 1 }\n").unwrap();
 
     press(&mut editor, "C-c C-c");
     assert_eq!(

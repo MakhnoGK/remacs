@@ -30,11 +30,7 @@ pub fn load(name: &str, path: &Path) -> Result<(), String> {
 }
 
 pub(crate) fn loaded(name: &str) -> Option<Language> {
-    LOADED
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .get(name)
-        .cloned()
+    LOADED.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).get(name).cloned()
 }
 
 /// `parser.set_language`, with a store to run `language` in if it is WebAssembly.

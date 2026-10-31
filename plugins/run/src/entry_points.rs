@@ -24,12 +24,7 @@ pub struct EntryPoint {
 
 impl EntryPoint {
     fn at(line: usize, configuration: Configuration) -> Self {
-        Self {
-            line,
-            end_line: line,
-            configuration,
-            temporary: false,
-        }
+        Self { line, end_line: line, configuration, temporary: false }
     }
 }
 
@@ -40,10 +35,7 @@ pub fn may_have_entry_points(mode: &str, name: &str) -> bool {
 
 /// The entry points of `text`, the file at `path` in `mode`, in the project at `root`.
 pub fn entry_points(path: &Path, mode: &str, text: &str, root: &Path) -> Vec<EntryPoint> {
-    let name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or_default();
+    let name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
     if mode == RUST_MODE {
         let Some(package) = CargoPackage::of(path, root) else {
             return Vec::new();
@@ -63,11 +55,7 @@ pub fn entry_points(path: &Path, mode: &str, text: &str, root: &Path) -> Vec<Ent
 
 pub(crate) fn relative(path: &Path, root: &Path) -> String {
     let relative = path.strip_prefix(root).unwrap_or(path);
-    if relative.as_os_str().is_empty() {
-        ".".to_owned()
-    } else {
-        relative.display().to_string()
-    }
+    if relative.as_os_str().is_empty() { ".".to_owned() } else { relative.display().to_string() }
 }
 
 /// The Cargo package a file belongs to.
@@ -80,25 +68,16 @@ pub(crate) struct CargoPackage {
 impl CargoPackage {
     /// The package whose `Cargo.toml` is nearest above `path`, up to `root`.
     fn of(path: &Path, root: &Path) -> Option<Self> {
-        let (dir, manifest) = path
-            .ancestors()
-            .skip(1)
-            .take_while(|ancestor| ancestor.starts_with(root))
-            .find_map(|ancestor| {
-                let manifest: toml::Table = fs::read_to_string(ancestor.join("Cargo.toml"))
-                    .ok()?
-                    .parse()
-                    .ok()?;
-                manifest
-                    .contains_key("package")
-                    .then(|| (ancestor.to_path_buf(), manifest))
-            })?;
+        let (dir, manifest) =
+            path.ancestors().skip(1).take_while(|ancestor| ancestor.starts_with(root)).find_map(
+                |ancestor| {
+                    let manifest: toml::Table =
+                        fs::read_to_string(ancestor.join("Cargo.toml")).ok()?.parse().ok()?;
+                    manifest.contains_key("package").then(|| (ancestor.to_path_buf(), manifest))
+                },
+            )?;
         let name = manifest.get("package")?.get("name")?.as_str()?.to_owned();
-        Some(Self {
-            name,
-            dir,
-            manifest,
-        })
+        Some(Self { name, dir, manifest })
     }
 
     /// Where cargo runs for it: its workspace's root, as `cwd` relative to `root`.
@@ -108,11 +87,7 @@ impl CargoPackage {
 
     /// The binary or example whose root file is `path`.
     pub fn main_target(&self, path: &Path) -> Option<Target> {
-        cargo_target(
-            path.strip_prefix(&self.dir).ok()?,
-            &self.manifest,
-            &self.name,
-        )
+        cargo_target(path.strip_prefix(&self.dir).ok()?, &self.manifest, &self.name)
     }
 }
 
@@ -140,8 +115,7 @@ fn rust_main(path: &Path, text: &str, root: &Path, package: &CargoPackage) -> Op
 fn is_main_line(line: &str) -> bool {
     let rest = line.strip_prefix("pub ").unwrap_or(line);
     let rest = rest.strip_prefix("async ").unwrap_or(rest);
-    rest.strip_prefix("fn main")
-        .is_some_and(|rest| rest.trim_start().starts_with('('))
+    rest.strip_prefix("fn main").is_some_and(|rest| rest.trim_start().starts_with('('))
 }
 
 pub(crate) enum Target {
@@ -210,24 +184,12 @@ fn workspace_root(package_dir: &Path, root: &Path) -> PathBuf {
 
 /// A script run whole by Node; declarations, tests and tool configs are left out.
 fn script_file(path: &Path, name: &str, root: &Path) -> Option<EntryPoint> {
-    let left_out = [".d.ts", ".d.mts", ".d.cts"]
-        .iter()
-        .any(|suffix| name.ends_with(suffix))
-        || [".test.", ".spec.", ".config."]
-            .iter()
-            .any(|part| name.contains(part));
+    let left_out = [".d.ts", ".d.mts", ".d.cts"].iter().any(|suffix| name.ends_with(suffix))
+        || [".test.", ".spec.", ".config."].iter().any(|part| name.contains(part));
     if left_out {
         return None;
     }
-    Some(EntryPoint::at(
-        0,
-        Configuration::new(
-            name,
-            Kind::Node {
-                file: relative(path, root),
-            },
-        ),
-    ))
+    Some(EntryPoint::at(0, Configuration::new(name, Kind::Node { file: relative(path, root) })))
 }
 
 /// Each script of a `package.json`, at the line that names it.
@@ -235,10 +197,7 @@ fn package_scripts(path: &Path, text: &str, root: &Path) -> Vec<EntryPoint> {
     let Ok(package) = serde_json::from_str::<serde_json::Value>(text) else {
         return Vec::new();
     };
-    let Some(scripts) = package
-        .get("scripts")
-        .and_then(|scripts| scripts.as_object())
-    else {
+    let Some(scripts) = package.get("scripts").and_then(|scripts| scripts.as_object()) else {
         return Vec::new();
     };
     let lines: Vec<&str> = text.lines().collect();

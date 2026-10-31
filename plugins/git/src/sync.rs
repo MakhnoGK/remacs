@@ -60,10 +60,7 @@ pub fn push(editor: &mut Editor) -> CommandResult {
     let (target, note) = match &snapshot.upstream {
         Some(upstream) => (upstream.name.clone(), UPSTREAM),
         None => {
-            let remote = remotes(&root)
-                .into_iter()
-                .next()
-                .ok_or("No remote to push to")?;
+            let remote = remotes(&root).into_iter().next().ok_or("No remote to push to")?;
             (format!("{remote}/{branch}"), "new upstream")
         }
     };
@@ -80,10 +77,7 @@ pub fn push(editor: &mut Editor) -> CommandResult {
     let prompt = Prompt {
         read_only: true,
         from_toolbar: true,
-        title: Some((
-            format!("Push {}", quote(&branch)),
-            plural_commits(outgoing.len()),
-        )),
+        title: Some((format!("Push {}", quote(&branch)), plural_commits(outgoing.len()))),
         keymap: Some(keymap),
         hints: PUSH_HINTS,
         options: vec![
@@ -114,11 +108,7 @@ pub fn push(editor: &mut Editor) -> CommandResult {
     let complete = move |_: &Editor, _: &str| Completions::from(choices.clone());
     let new_upstream = snapshot.upstream.is_none();
     editor.read(prompt, complete, move |editor, answer| {
-        let flags = Flags {
-            force: force.get(),
-            tags: tags.get(),
-            dry_run: dry_run.get(),
-        };
+        let flags = Flags { force: force.get(), tags: tags.get(), dry_run: dry_run.get() };
         if answer == ELSEWHERE {
             return push_elsewhere(editor, branch, flags);
         }
@@ -139,10 +129,7 @@ fn push_elsewhere(editor: &mut Editor, branch: String, flags: Flags) -> CommandR
     let known = remotes(&root);
     let branches: Vec<Candidate> = remote_branches(&root)
         .into_iter()
-        .map(|name| Candidate {
-            annotation: "remote".into(),
-            ..Candidate::new(name)
-        })
+        .map(|name| Candidate { annotation: "remote".into(), ..Candidate::new(name) })
         .collect();
     let default = known.first().map(|remote| format!("{remote}/{branch}"));
     let prompt = Prompt {
@@ -154,10 +141,7 @@ fn push_elsewhere(editor: &mut Editor, branch: String, flags: Flags) -> CommandR
     };
     let complete = move |_: &Editor, input: &str| filter_candidates(input, branches.clone(), false);
     editor.read(prompt, complete, move |editor, answer| {
-        if !known
-            .iter()
-            .any(|remote| answer.starts_with(&format!("{remote}/")))
-        {
+        if !known.iter().any(|remote| answer.starts_with(&format!("{remote}/"))) {
             return Err(format!("No remote for {answer}").into());
         }
         push_to(editor, &root, &branch, &answer, false, flags)
@@ -207,13 +191,9 @@ fn push_to(
 pub fn pull(editor: &mut Editor) -> CommandResult {
     let (root, snapshot) = shown_status(editor)?;
     let branch = current_branch(&snapshot)?;
-    let upstream = snapshot
-        .upstream
-        .clone()
-        .ok_or("No upstream to pull from: push with u first")?;
-    let (ahead, behind) = upstream
-        .ahead_behind
-        .ok_or("The upstream is gone from the remote")?;
+    let upstream =
+        snapshot.upstream.clone().ok_or("No upstream to pull from: push with u first")?;
+    let (ahead, behind) = upstream.ahead_behind.ok_or("The upstream is gone from the remote")?;
     let incoming = log(&root, &["HEAD..@{upstream}"]);
     let base: String = text(&root, &["merge-base", "HEAD", "@{upstream}"])
         .unwrap_or_default()
@@ -224,16 +204,10 @@ pub fn pull(editor: &mut Editor) -> CommandResult {
     let [autostash, remember] = [true, false].map(|on| Rc::new(Cell::new(on)));
     let mut summary = Vec::new();
     if ahead > 0 {
-        summary.push(BannerPart::Chip(chip(
-            &format!("↑{ahead} yours"),
-            RefKind::Head,
-        )));
+        summary.push(BannerPart::Chip(chip(&format!("↑{ahead} yours"), RefKind::Head)));
     }
     if behind > 0 {
-        summary.push(BannerPart::Chip(chip(
-            &format!("↓{behind} incoming"),
-            RefKind::Main,
-        )));
+        summary.push(BannerPart::Chip(chip(&format!("↓{behind} incoming"), RefKind::Main)));
     }
     summary.push(BannerPart::Word(
         match (ahead, behind) {
@@ -251,10 +225,7 @@ pub fn pull(editor: &mut Editor) -> CommandResult {
     let prompt = Prompt {
         read_only: true,
         from_toolbar: true,
-        title: Some((
-            format!("Pull into {}", quote(&branch)),
-            quote(&upstream.name),
-        )),
+        title: Some((format!("Pull into {}", quote(&branch)), quote(&upstream.name))),
         summary,
         keymap: Some(keymap),
         hints: PULL_HINTS,
@@ -287,10 +258,7 @@ pub fn pull(editor: &mut Editor) -> CommandResult {
     let complete = {
         let mode = mode.clone();
         move |_: &Editor, _: &str| Completions {
-            outcome: Some((
-                String::new(),
-                pull_chain(&base, &head, ahead, behind, mode.get()),
-            )),
+            outcome: Some((String::new(), pull_chain(&base, &head, ahead, behind, mode.get()))),
             ..Completions::default()
         }
     };
@@ -311,12 +279,8 @@ pub fn pull(editor: &mut Editor) -> CommandResult {
         if autostash.get() {
             args.push("--autostash".into());
         }
-        let remember = (remember.get() && mode != FAST_FORWARD).then(|| {
-            (
-                format!("branch.{branch}.rebase"),
-                (mode == REBASE).to_string(),
-            )
-        });
+        let remember = (remember.get() && mode != FAST_FORWARD)
+            .then(|| (format!("branch.{branch}.rebase"), (mode == REBASE).to_string()));
         let pull = git_job(args, "git pull");
         let job: Job = Box::new(move |root| {
             if let Some((key, value)) = &remember {
@@ -344,14 +308,10 @@ fn pull_chain(base: &str, head: &str, ahead: u64, behind: u64, mode: usize) -> C
         count => count.to_string(),
     };
     let (commits, note) = match mode {
-        _ if behind == 0 => (
-            commits,
-            "Nothing new since the last fetch; pulling fetches first.".to_owned(),
-        ),
-        _ if ahead == 0 => (
-            0,
-            format!("{head} fast-forwards to the incoming {incoming_ones}."),
-        ),
+        _ if behind == 0 => {
+            (commits, "Nothing new since the last fetch; pulling fetches first.".to_owned())
+        }
+        _ if ahead == 0 => (0, format!("{head} fast-forwards to the incoming {incoming_ones}.")),
         REBASE => {
             let yours = match commits {
                 1 => "Your commit is".to_owned(),
@@ -371,10 +331,7 @@ fn pull_chain(base: &str, head: &str, ahead: u64, behind: u64, mode: usize) -> C
                 plural_commits(commits)
             ),
         ),
-        _ => (
-            commits,
-            "Fast-forward isn't possible while the branches have diverged.".into(),
-        ),
+        _ => (commits, "Fast-forward isn't possible while the branches have diverged.".into()),
     };
     CommitChain {
         base: chip(base, RefKind::Remote),
@@ -387,11 +344,8 @@ fn pull_chain(base: &str, head: &str, ahead: u64, behind: u64, mode: usize) -> C
 
 /// `branch.<name>.rebase`, else `pull.rebase`; rebasing when neither says.
 fn configured_mode(root: &Path, branch: &str) -> usize {
-    let configured = text(
-        root,
-        &["config", "--get", &format!("branch.{branch}.rebase")],
-    )
-    .or_else(|| text(root, &["config", "--get", "pull.rebase"]));
+    let configured = text(root, &["config", "--get", &format!("branch.{branch}.rebase")])
+        .or_else(|| text(root, &["config", "--get", "pull.rebase"]));
     match configured.as_deref() {
         Some("false") => MERGE,
         _ => REBASE,
@@ -410,11 +364,7 @@ pub fn by_merge(editor: &mut Editor) -> CommandResult {
 
 fn set_mode(editor: &mut Editor, mode: usize) -> CommandResult {
     let minibuffer = editor.minibuffer().ok_or("Not in the minibuffer")?;
-    let choice = minibuffer
-        .prompt()
-        .choices
-        .first()
-        .ok_or("Nothing to choose")?;
+    let choice = minibuffer.prompt().choices.first().ok_or("Nothing to choose")?;
     choice.selected.set(mode);
     editor.refresh_minibuffer();
     Ok(())
@@ -431,33 +381,22 @@ pub fn elsewhere(editor: &mut Editor) -> CommandResult {
 }
 
 fn choose(editor: &mut Editor, index: usize) -> CommandResult {
-    editor
-        .minibuffer_mut()
-        .ok_or("Not in the minibuffer")?
-        .select(index);
+    editor.minibuffer_mut().ok_or("Not in the minibuffer")?.select(index);
     editor.exit_minibuffer(false)
 }
 
 fn chip(name: &str, kind: RefKind) -> RefChip {
-    RefChip {
-        name: name.into(),
-        kind,
-    }
+    RefChip { name: name.into(), kind }
 }
 
 fn commit_item(commit: &Commit) -> ListItem {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| since.as_secs() as i64);
+    let now =
+        SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs() as i64);
     ListItem {
         icon: None,
         mark: None,
         label: format!("{}  {}", commit.id, commit.subject),
-        detail: format!(
-            "{} · {}",
-            short_author(&commit.author),
-            ago(now - commit.time)
-        ),
+        detail: format!("{} · {}", short_author(&commit.author), ago(now - commit.time)),
         state: None,
         lines: None,
     }
@@ -465,11 +404,7 @@ fn commit_item(commit: &Commit) -> ListItem {
 
 /// `2 commits`.
 fn plural_commits(count: usize) -> String {
-    if count == 1 {
-        "1 commit".into()
-    } else {
-        format!("{count} commits")
-    }
+    if count == 1 { "1 commit".into() } else { format!("{count} commits") }
 }
 
 fn log(root: &Path, range: &[&str]) -> Vec<Commit> {
@@ -495,23 +430,16 @@ fn log(root: &Path, range: &[&str]) -> Vec<Commit> {
 }
 
 fn remotes(root: &Path) -> Vec<String> {
-    text(root, &["remote"])
-        .unwrap_or_default()
-        .lines()
-        .map(str::to_owned)
-        .collect()
+    text(root, &["remote"]).unwrap_or_default().lines().map(str::to_owned).collect()
 }
 
 fn remote_branches(root: &Path) -> Vec<String> {
-    text(
-        root,
-        &["for-each-ref", "--format=%(refname:short)", "refs/remotes"],
-    )
-    .unwrap_or_default()
-    .lines()
-    .filter(|name| !name.ends_with("/HEAD") && name.contains('/'))
-    .map(str::to_owned)
-    .collect()
+    text(root, &["for-each-ref", "--format=%(refname:short)", "refs/remotes"])
+        .unwrap_or_default()
+        .lines()
+        .filter(|name| !name.ends_with("/HEAD") && name.contains('/'))
+        .map(str::to_owned)
+        .collect()
 }
 
 fn text(root: &Path, args: &[&str]) -> Option<String> {

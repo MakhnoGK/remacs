@@ -4,6 +4,7 @@
 mod comment;
 mod cursors;
 mod editing;
+mod editorconfig;
 mod expand;
 mod folding;
 mod indent;
@@ -15,10 +16,15 @@ mod rectangle;
 mod transform;
 mod transpose;
 
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use remacs_core::{Command, Editor, MenuItem, Plugin, Registry, SELF_INSERT_COMMAND, Section};
+use remacs_core::{
+    Command, Editor, IndentUnit, MenuItem, Plugin, Registry, SELF_INSERT_COMMAND, Section,
+};
 use serde::Deserialize;
+
+pub use indent::{buffer_indent_unit, insert_indented};
 
 pub struct EditingPlugin;
 
@@ -28,11 +34,15 @@ pub struct EditingPlugin;
 pub struct EditingSettings {
     /// Cursors a buffer has at most, point included.
     pub max_cursors: usize,
+    /// Indentation of a file not indented yet, without `.editorconfig` or mode telling.
+    pub indent: IndentUnit,
+    /// The same by a mode's name, ahead of the mode's own.
+    pub indent_by_mode: BTreeMap<String, IndentUnit>,
 }
 
 impl Default for EditingSettings {
     fn default() -> Self {
-        Self { max_cursors: 1000 }
+        Self { max_cursors: 1000, indent: IndentUnit::Spaces(4), indent_by_mode: BTreeMap::new() }
     }
 }
 
@@ -342,13 +352,11 @@ const MENU_ITEMS: &[MenuItem] = &[
 impl Plugin for EditingPlugin {
     fn register(&self, registry: &mut Registry) {
         for &command in COMMANDS {
-            registry
-                .commands
-                .add(if EACH_CURSOR.contains(&command.name) {
-                    command.each_cursor()
-                } else {
-                    command
-                });
+            registry.commands.add(if EACH_CURSOR.contains(&command.name) {
+                command.each_cursor()
+            } else {
+                command
+            });
         }
         for &(keys, command) in BINDINGS {
             registry.keymap.bind(keys, command);
@@ -357,6 +365,10 @@ impl Plugin for EditingPlugin {
         registry.key_sinks.push(Rc::new(transform::take_zap_key));
         registry.settings_hooks.push(Rc::new(|editor| {
             let settings = editor.settings_section::<EditingSettings>();
+            let unknown = settings.indent_by_mode.keys().find(|mode| editor.mode(mode).is_none());
+            if let Some(mode) = unknown {
+                editor.set_error(format!("editing.toml: indent-by-mode: no mode {mode}"));
+            }
             *editor.plugin_state() = settings;
         }));
         registry.status_providers.push(Rc::new(cursors::status));
@@ -372,10 +384,7 @@ fn has_mark(editor: &Editor) -> bool {
 }
 
 fn after_yank(editor: &Editor) -> bool {
-    matches!(
-        editor.last_command(),
-        Some(killing::YANK | killing::YANK_POP)
-    )
+    matches!(editor.last_command(), Some(killing::YANK | killing::YANK_POP))
 }
 
 #[cfg(test)]

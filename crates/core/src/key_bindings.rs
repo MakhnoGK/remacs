@@ -75,12 +75,6 @@ mod tests {
         assert_eq!(bound(&keymap, "<f5>"), Some("run"));
         assert_eq!(bound(&keymap, "C-r"), None);
         assert_eq!(bound(&keymap, "s-<f2>"), Some("stop"));
-        assert_eq!(
-            errors,
-            [
-                "keys.toml: not a key sequence: C-",
-                "keys.toml: no command nothing"
-            ]
-        );
+        assert_eq!(errors, ["keys.toml: not a key sequence: C-", "keys.toml: no command nothing"]);
     }
 }

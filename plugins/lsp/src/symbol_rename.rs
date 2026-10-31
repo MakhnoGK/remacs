@@ -69,39 +69,19 @@ fn send(editor: &mut Editor, request: Request, held: Option<Snapshot>) {
         return;
     }
     client.send(match request {
-        Request::Name { id, offset, .. } => Outgoing::PrepareRename {
-            id,
-            uri,
-            text,
-            offset,
-        },
-        Request::Rename {
-            id,
-            offset,
-            new_name,
-            ..
-        } => Outgoing::Rename {
-            id,
-            uri,
-            text,
-            offset,
-            new_name,
-        },
+        Request::Name { id, offset, .. } => Outgoing::PrepareRename { id, uri, text, offset },
+        Request::Rename { id, offset, new_name, .. } => {
+            Outgoing::Rename { id, uri, text, offset, new_name }
+        }
     });
 }
 
 /// Changes that move files are completed with what the servers say moving them calls
 /// for first.
 fn hand_over_answers(editor: &mut Editor, servers: &'static [LanguageServer]) {
-    let clients: Vec<Rc<Client>> = editor
-        .plugin_state::<Clients>()
-        .running()
-        .map(|(_, client)| Rc::clone(client))
-        .collect();
-    for answer in clients
-        .iter()
-        .flat_map(|client| client.take_symbol_renamed())
-    {
+    let clients: Vec<Rc<Client>> =
+        editor.plugin_state::<Clients>().running().map(|(_, client)| Rc::clone(client)).collect();
+    for answer in clients.iter().flat_map(|client| client.take_symbol_renamed()) {
         match answer {
             SymbolRenamed::Name { id, name } => remacs_rename::deliver_name(editor, id, name),
             SymbolRenamed::Edit { id, edit, encoding } => {
@@ -190,18 +170,11 @@ mod tests {
         let text = Text::from("fn helper() {}\n").snapshot();
         let range = Range::new(Position::new(0, 3), Position::new(0, 9));
         let name = |response| name(response, &text, 5, Encoding::Utf16);
-        assert_eq!(
-            name(PrepareRenameResponse::Range(range)).as_deref(),
-            Some("helper")
-        );
-        let placeholder = PrepareRenameResponse::RangeWithPlaceholder {
-            range,
-            placeholder: "aid".into(),
-        };
+        assert_eq!(name(PrepareRenameResponse::Range(range)).as_deref(), Some("helper"));
+        let placeholder =
+            PrepareRenameResponse::RangeWithPlaceholder { range, placeholder: "aid".into() };
         assert_eq!(name(placeholder).as_deref(), Some("aid"));
-        let default = PrepareRenameResponse::DefaultBehavior {
-            default_behavior: true,
-        };
+        let default = PrepareRenameResponse::DefaultBehavior { default_behavior: true };
         assert_eq!(name(default).as_deref(), Some("helper"));
     }
 }

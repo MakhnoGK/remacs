@@ -99,9 +99,7 @@ impl Drop for Scan {
 }
 
 fn lock(found: &Mutex<Found>) -> MutexGuard<'_, Found> {
-    found
-        .lock()
-        .expect("no search thread panics holding the results")
+    found.lock().expect("no search thread panics holding the results")
 }
 
 struct Worker {
@@ -116,12 +114,8 @@ impl Worker {
     /// Files are taken in turn by as many threads as there are cores, up to a few.
     fn run(self) {
         let next = AtomicUsize::new(0);
-        let unsaved: HashSet<&str> = self
-            .job
-            .unsaved
-            .iter()
-            .map(|(file, _)| file.as_str())
-            .collect();
+        let unsaved: HashSet<&str> =
+            self.job.unsaved.iter().map(|(file, _)| file.as_str()).collect();
         let threads =
             thread::available_parallelism().map_or(1, |count| count.get().min(MAX_THREADS));
         thread::scope(|scope| {
@@ -226,12 +220,7 @@ fn hit(words: &Words, line: usize, text: &str) -> Hit {
     let shown = &text[from..to];
     // Matched before trimming, as the spaces may be part of a match.
     let (label, matches) = trimmed(shown, words.ranges_in(shown));
-    Hit {
-        line,
-        column,
-        matches,
-        label,
-    }
+    Hit { line, column, matches, label }
 }
 
 /// Reads a smaller file into `buffer`, replacing what it held; maps a larger one.

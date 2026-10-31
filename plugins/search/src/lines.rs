@@ -57,11 +57,7 @@ fn search_lines(editor: &mut Editor, regex: bool, backward: bool) -> CommandResu
         placeholder: "Find in buffer…",
         require_match: true,
         count: Count::Position,
-        hints: &[
-            ("↵", "Go to"),
-            ("C-s C-r", "Next / previous"),
-            ("C-g", "Cancel"),
-        ],
+        hints: &[("↵", "Go to"), ("C-s C-r", "Next / previous"), ("C-g", "Cancel")],
         keymap: Some(keymap),
         options: vec![regexp_option(&regex)],
         ..Prompt::default()
@@ -151,12 +147,7 @@ struct LineCursor<'a> {
 
 impl<'a> LineCursor<'a> {
     fn new(text: &'a Snapshot) -> Self {
-        Self {
-            text,
-            counted_to: 0,
-            line: 0,
-            line_start: 0,
-        }
+        Self { text, counted_to: 0, line: 0, line_start: 0 }
     }
 
     /// The line of `offset`, at or after the last one asked for.
@@ -186,21 +177,14 @@ impl<'a> LineCursor<'a> {
         }
         // No newline before the line's end.
         self.counted_to = end;
-        Line {
-            number: self.line,
-            range: self.line_start..end,
-        }
+        Line { number: self.line, range: self.line_start..end }
     }
 }
 
 fn candidate(text: &Snapshot, query: &Query, line: Line, start: usize) -> Candidate {
     let Line { number, range } = line;
     let boundary = |offset| {
-        if text.is_char_boundary(offset) {
-            offset
-        } else {
-            text.previous_char_boundary(offset)
-        }
+        if text.is_char_boundary(offset) { offset } else { text.previous_char_boundary(offset) }
     };
     let from = if range.len() > MAX_LABEL {
         boundary(start.saturating_sub(CONTEXT_BEFORE_MATCH).max(range.start))

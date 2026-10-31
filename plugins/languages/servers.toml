@@ -6,8 +6,10 @@
 # languages     major modes and their LSP language ids
 # when          the server serves only projects where one of these holds: `files` there
 #               (`*` matches any part of a name), `dependencies` of a package.json
-#               (`@scope/*` a whole scope), or text a file `contains`
-# group         alternatives for the same languages: the first found serves, and a project
+#               (`@scope/*` a whole scope), text a file `contains`, or packages installed
+#               in node_modules there `older` than a major version
+# unless        as `when`, for projects the server leaves alone
+# group        alternatives for the same languages: the first found serves, and a project
 #               lacking all of them is offered a choice
 # env           added to the server's environment, for projects where `env-when` holds
 #               (as `when`; without it, for every project)
@@ -57,7 +59,21 @@ min-version = 7
 languages = { TypeScript = "typescript", TSX = "typescriptreact", JavaScript = "javascript", JSX = "javascriptreact" }
 root-markers = ["package.json", "tsconfig.json", "jsconfig.json"]
 pull-diagnostics = true
+unless = { older = { typescript = 7 } }
 install = { from = "npm", package = "typescript" }
+
+# Projects that build with an older TypeScript, through its own tsserver: TypeScript 7
+# drops options their tsconfig may still rely on, such as `baseUrl`.
+[[servers]]
+name = "typescript-language-server"
+command = "typescript-language-server"
+args = ["--stdio"]
+languages = { TypeScript = "typescript", TSX = "typescriptreact", JavaScript = "javascript", JSX = "javascriptreact" }
+root-markers = ["package.json", "tsconfig.json", "jsconfig.json"]
+when = { older = { typescript = 7 } }
+# Its own TypeScript, for a project whose copy lies below the root it is started in, is
+# the version the projects it serves mostly have.
+install = { from = "npm", package = "typescript-language-server", with = ["typescript@5"] }
 
 [[servers]]
 name = "vscode-html-language-server"

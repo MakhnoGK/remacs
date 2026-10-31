@@ -27,20 +27,21 @@ pub struct EchoMessage {
 impl EchoMessage {
     /// The local time it came at, `14:02:37`.
     pub fn clock(&self) -> String {
-        let seconds = self
-            .at
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .map_or(0, |since| since.as_secs()) as libc::time_t;
-        // SAFETY: `localtime_r` only writes the `tm` it is given.
-        let local = unsafe {
-            let mut local = std::mem::zeroed::<libc::tm>();
-            libc::localtime_r(&seconds, &mut local);
-            local
-        };
-        format!(
-            "{:02}:{:02}:{:02}",
-            local.tm_hour, local.tm_min, local.tm_sec
-        )
+        let local = local_tm(self.at);
+        format!("{:02}:{:02}:{:02}", local.tm_hour, local.tm_min, local.tm_sec)
+    }
+}
+
+/// `at` broken down in local time; a time before the epoch reads as the epoch.
+pub fn local_tm(at: SystemTime) -> libc::tm {
+    let seconds =
+        at.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs() as libc::time_t;
+    // SAFETY: `tm` is plain data, valid zeroed, and `localtime_r` only writes the `tm` it is
+    // given.
+    unsafe {
+        let mut local = std::mem::zeroed();
+        libc::localtime_r(&seconds, &mut local);
+        local
     }
 }
 
@@ -54,11 +55,7 @@ pub struct MessageLog {
 
 impl Default for MessageLog {
     fn default() -> Self {
-        Self {
-            messages: VecDeque::new(),
-            limit: DEFAULT_LOG_LIMIT,
-            revision: 0,
-        }
+        Self { messages: VecDeque::new(), limit: DEFAULT_LOG_LIMIT, revision: 0 }
     }
 }
 
@@ -107,13 +104,8 @@ mod tests {
     use super::*;
 
     fn message(text: &str) -> EchoMessage {
-        EchoMessage {
-            text: text.to_owned(),
-            kind: MessageKind::Info,
-            command: None,
-            at: SystemTime::now(),
-            repeats: 0,
-        }
+        let (kind, at) = (MessageKind::Info, SystemTime::now());
+        EchoMessage { text: text.to_owned(), kind, command: None, at, repeats: 0 }
     }
 
     #[test]
@@ -122,11 +114,8 @@ mod tests {
         for text in ["a", "a", "b", "a"] {
             log.add(&message(text));
         }
-        let kept: Vec<_> = log
-            .messages()
-            .iter()
-            .map(|message| (message.text.as_str(), message.repeats))
-            .collect();
+        let kept: Vec<_> =
+            log.messages().iter().map(|message| (message.text.as_str(), message.repeats)).collect();
         assert_eq!(kept, [("a", 1), ("b", 0), ("a", 0)]);
     }
 

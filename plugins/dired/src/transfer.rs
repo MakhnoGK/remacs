@@ -19,18 +19,10 @@ use crate::references;
 
 const DESTINATION_CATEGORY: &str = "dired-destination";
 const RECENT_DESTINATIONS: usize = 5;
-const MOVE_HINTS: &[(&str, &str)] = &[
-    ("↵", "Move"),
-    ("⇥", "Complete path"),
-    ("M-↵", "Use path as typed"),
-    ("C-g", "Cancel"),
-];
-const COPY_HINTS: &[(&str, &str)] = &[
-    ("↵", "Copy"),
-    ("⇥", "Complete path"),
-    ("M-↵", "Use path as typed"),
-    ("C-g", "Cancel"),
-];
+const MOVE_HINTS: &[(&str, &str)] =
+    &[("↵", "Move"), ("⇥", "Complete path"), ("M-↵", "Use path as typed"), ("C-g", "Cancel")];
+const COPY_HINTS: &[(&str, &str)] =
+    &[("↵", "Copy"), ("⇥", "Complete path"), ("M-↵", "Use path as typed"), ("C-g", "Cancel")];
 
 /// Copies the marked entries, or the one at point, like Emacs `dired-do-copy`.
 pub fn copy(editor: &mut Editor) -> CommandResult {
@@ -59,23 +51,18 @@ struct Transfer {
 /// there are replaced.
 fn read_destination(editor: &mut Editor, moving: bool) -> CommandResult {
     let buffer = editor.window_buffer();
-    let directory = buffer
-        .default_directory()
-        .ok_or(NOT_A_LISTING)?
-        .to_path_buf();
+    let directory = buffer.default_directory().ok_or(NOT_A_LISTING)?.to_path_buf();
     let (sources, marked) = marked_or_at_point(buffer)?;
     let moving = Rc::new(Cell::new(moving));
     let overwrite = Rc::new(Cell::new(false));
     let record_moves = Rc::new(Cell::new(true));
-    let record_option = editor
-        .version_control(&directory)
-        .map(|control| PromptOption {
-            key: 'g',
-            labels: vec![format!("Move with {}", control.move_command())],
-            state: Rc::clone(&record_moves),
-            shown_while: Some(Rc::clone(&moving)),
-            hidden_while: None,
-        });
+    let record_option = editor.version_control(&directory).map(|control| PromptOption {
+        key: 'g',
+        labels: vec![format!("Move with {}", control.move_command())],
+        state: Rc::clone(&record_moves),
+        shown_while: Some(Rc::clone(&moving)),
+        hidden_while: None,
+    });
     let mut options = vec![PromptOption {
         key: 'm',
         labels: vec!["Copy".into(), "Move".into()],
@@ -85,11 +72,8 @@ fn read_destination(editor: &mut Editor, moving: bool) -> CommandResult {
     }];
     options.extend(record_option);
     options.push(PromptOption::chip('o', "Overwrite existing", &overwrite));
-    let bytes: u64 = sources
-        .iter()
-        .filter(|entry| !entry.is_directory)
-        .map(|entry| entry.size)
-        .sum();
+    let bytes: u64 =
+        sources.iter().filter(|entry| !entry.is_directory).map(|entry| entry.size).sum();
     let file_count = sources.iter().filter(|entry| !entry.is_directory).count();
     let prompt = Prompt {
         label: "To".into(),
@@ -147,7 +131,7 @@ fn destinations(
     count: usize,
     moving: bool,
 ) -> Completions {
-    let mut completions = directory_completions(input);
+    let mut completions = directory_completions(directory, input);
     completions.hints = Some(if moving { MOVE_HINTS } else { COPY_HINTS });
     let target = directory.join(expand_home(input));
     if !input.is_empty() && fs::symlink_metadata(&target).is_err() {
@@ -177,10 +161,8 @@ fn new_destination(
     count: usize,
     moving: bool,
 ) -> (Candidate, &'static str) {
-    let name = target
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
+    let name =
+        target.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
     let parent = target.parent().map(abbreviate_home).unwrap_or_default();
     let verb = if moving { "move" } else { "copy" };
     let keys = vec!["↵".to_owned()];
@@ -211,25 +193,14 @@ fn new_destination(
 /// Into `answer` when it is a directory, ends in `/` or several files go there, which
 /// creates it if needed; else to that name.
 fn start(editor: &mut Editor, transfer: Transfer, answer: &str) -> CommandResult {
-    let Transfer {
-        directory,
-        names,
-        what,
-        moving,
-        overwrite,
-        record_moves,
-    } = transfer;
+    let Transfer { directory, names, what, moving, overwrite, record_moves } = transfer;
     let record_moves = moving && record_moves;
     let destination = directory.join(expand_home(answer));
     let into = destination.is_dir() || answer.ends_with('/') || names.len() > 1;
     let pairs: Vec<(PathBuf, PathBuf)> = names
         .iter()
         .map(|name| {
-            let to = if into {
-                destination.join(name)
-            } else {
-                destination.clone()
-            };
+            let to = if into { destination.join(name) } else { destination.clone() };
             (directory.join(name), to)
         })
         .collect();
@@ -251,40 +222,23 @@ fn start(editor: &mut Editor, transfer: Transfer, answer: &str) -> CommandResult
     let target_directory = if into {
         destination.clone()
     } else {
-        destination
-            .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_default()
+        destination.parent().map(Path::to_path_buf).unwrap_or_default()
     };
-    let job = Job {
-        directory,
-        target_directory,
-        pairs,
-        what,
-        shown,
-        moving,
-        overwrite,
-        record_moves,
-    };
+    let job =
+        Job { directory, target_directory, pairs, what, shown, moving, overwrite, record_moves };
     if !moving {
         run(editor, job, Vec::new());
         return Ok(());
     }
     // Files already there are skipped, so references to them stay.
-    let moves = job
-        .pairs
-        .iter()
-        .filter(|(from, to)| overwrite || !taken(from, to))
-        .cloned()
-        .collect();
-    references::ask_before_moving(
-        editor,
-        moves,
-        move |editor, edits| match references::update(editor, edits) {
+    let moves =
+        job.pairs.iter().filter(|(from, to)| overwrite || !taken(from, to)).cloned().collect();
+    references::ask_before_moving(editor, moves, move |editor, edits| {
+        match references::update(editor, edits) {
             Ok(updated) => run(editor, job, updated),
             Err(error) => editor.set_error(error),
-        },
-    )?;
+        }
+    })?;
     Ok(())
 }
 
@@ -304,16 +258,8 @@ struct Job {
 /// Copies or moves in the background; `updated` names the buffers whose references to
 /// the moved files were updated.
 fn run(editor: &mut Editor, job: Job, updated: Vec<String>) {
-    let Job {
-        directory,
-        target_directory,
-        pairs,
-        what,
-        shown,
-        moving,
-        overwrite,
-        record_moves,
-    } = job;
+    let Job { directory, target_directory, pairs, what, shown, moving, overwrite, record_moves } =
+        job;
     let verb = if moving { "move" } else { "copy" };
     let busy = if moving { "Moving…" } else { "Copying…" };
     let count = pairs.len();
@@ -353,12 +299,7 @@ fn run(editor: &mut Editor, job: Job, updated: Vec<String>) {
         if !updated.is_empty() {
             message.push_str(&format!("; updated {}", updated.join(", ")));
         }
-        Report {
-            directories: vec![directory, target_directory],
-            moved,
-            record_moves,
-            message,
-        }
+        Report { directories: vec![directory, target_directory], moved, record_moves, message }
     });
 }
 
@@ -378,10 +319,8 @@ fn onto_or_into_itself(from: &Path, to: &Path) -> bool {
 
 /// Whether `to` names `from` itself, written in other letter case.
 fn renames_case(from: &Path, to: &Path) -> bool {
-    let lowercase = |path: &Path| {
-        path.file_name()
-            .map(|name| name.to_string_lossy().to_lowercase())
-    };
+    let lowercase =
+        |path: &Path| path.file_name().map(|name| name.to_string_lossy().to_lowercase());
     same_entry(from, to) && from.file_name() != to.file_name() && lowercase(from) == lowercase(to)
 }
 
@@ -409,7 +348,5 @@ fn resolved(path: &Path) -> PathBuf {
 }
 
 fn file_name(path: &Path) -> String {
-    path.file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default()
+    path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default()
 }

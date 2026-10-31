@@ -44,11 +44,7 @@ pub(crate) fn answer(
         HoverContents::Markup(content) => markdown::blocks(&content.value, modes),
         HoverContents::Scalar(marked) => markdown::blocks(&to_markdown(marked), modes),
         HoverContents::Array(marked) => markdown::blocks(
-            &marked
-                .into_iter()
-                .map(to_markdown)
-                .collect::<Vec<_>>()
-                .join("\n\n"),
+            &marked.into_iter().map(to_markdown).collect::<Vec<_>>().join("\n\n"),
             modes,
         ),
     };
@@ -75,9 +71,7 @@ fn documentation(mut blocks: Vec<DocBlock>) -> Documentation {
     let mut container = Vec::new();
     let mut kind = String::new();
     let mut signature = take_code(&mut blocks, 0);
-    if signature
-        .as_ref()
-        .is_some_and(|code| !code.text.contains('\n'))
+    if signature.as_ref().is_some_and(|code| !code.text.contains('\n'))
         && let Some(declaration) = take_code(&mut blocks, 0)
     {
         container.extend(signature.replace(declaration).map(|module| module.text));
@@ -93,9 +87,8 @@ fn documentation(mut blocks: Vec<DocBlock>) -> Documentation {
     let signature = signature.map(|Code { text, mode, .. }| {
         let (context, mut declaration) = split_context(&text);
         container.extend(context);
-        if let Some((named, rest)) = declaration
-            .strip_prefix('(')
-            .and_then(|rest| rest.split_once(") "))
+        if let Some((named, rest)) =
+            declaration.strip_prefix('(').and_then(|rest| rest.split_once(") "))
         {
             kind = named.to_owned();
             declaration = rest.to_owned();
@@ -104,12 +97,7 @@ fn documentation(mut blocks: Vec<DocBlock>) -> Documentation {
         }
         Code::new(declaration, mode)
     });
-    Documentation {
-        container: container.join(" · "),
-        kind,
-        signature,
-        blocks,
-    }
+    Documentation { container: container.join(" · "), kind, signature, blocks }
 }
 
 fn take_code(blocks: &mut Vec<DocBlock>, index: usize) -> Option<Code> {
@@ -153,11 +141,7 @@ fn kind_of(declaration: &str) -> Option<&'static str> {
         if let Some(&(_, kind)) = KINDS.iter().find(|(keyword, _)| keyword == word) {
             let takes_self =
                 line.contains("(self") || line.contains("self,") || line.contains("self)");
-            return Some(if kind == "function" && takes_self {
-                "method"
-            } else {
-                kind
-            });
+            return Some(if kind == "function" && takes_self { "method" } else { kind });
         }
     }
     let name = words.iter().find(|word| !word.starts_with("pub"))?;
@@ -171,26 +155,13 @@ mod tests {
 
     use super::*;
 
-    const LANGUAGES: &[(&str, &str)] = &[
-        ("Rust", "rust"),
-        ("C", "c"),
-        ("C++", "cpp"),
-        ("TypeScript", "typescript"),
-    ];
+    const LANGUAGES: &[(&str, &str)] =
+        &[("Rust", "rust"), ("C", "c"), ("C++", "cpp"), ("TypeScript", "typescript")];
 
     fn convert(hover: serde_json::Value, source: &str, document: &'static str) -> Answer {
         let hover = serde_json::from_value(hover).unwrap();
-        let modes = CodeModes {
-            document,
-            languages: LANGUAGES,
-        };
-        answer(
-            Some(hover),
-            &Text::from(source).snapshot(),
-            Encoding::Utf16,
-            modes,
-        )
-        .unwrap()
+        let modes = CodeModes { document, languages: LANGUAGES };
+        answer(Some(hover), &Text::from(source).snapshot(), Encoding::Utf16, modes).unwrap()
     }
 
     #[test]
@@ -227,10 +198,7 @@ mod tests {
         assert_eq!(documentation.kind, "method");
         assert_eq!(
             documentation.signature,
-            Some(Code::new(
-                "String.toUpperCase(): string",
-                Some("TypeScript")
-            ))
+            Some(Code::new("String.toUpperCase(): string", Some("TypeScript")))
         );
         assert_eq!(documentation.container, "");
         assert_eq!(kind_of("pub start: usize"), Some("field"));
@@ -249,10 +217,7 @@ mod tests {
             Documentation {
                 container: "string.h".into(),
                 kind: "function".into(),
-                signature: Some(Code::new(
-                    "unsigned long strlen(const char *__s)",
-                    Some("C++")
-                )),
+                signature: Some(Code::new("unsigned long strlen(const char *__s)", Some("C++"))),
                 blocks: vec![
                     DocBlock::Text("provided by `<string.h>`".into()),
                     DocBlock::Text("→ `unsigned long`".into()),

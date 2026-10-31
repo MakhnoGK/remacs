@@ -3,7 +3,7 @@ use std::mem;
 use std::path::Path;
 
 use super::Editor;
-use crate::buffer::BufferId;
+use crate::buffer::{Buffer, BufferId};
 use crate::command::CommandResult;
 use crate::window::{Axis, Layout, WindowId};
 
@@ -26,9 +26,7 @@ impl Editor {
     /// The window that the window buffer and the viewport are now: the selected one,
     /// unless another is displayed.
     pub fn displayed_window(&self) -> WindowId {
-        self.displayed
-            .as_ref()
-            .map_or(self.windows.selected(), |displayed| displayed.window)
+        self.displayed.as_ref().map_or(self.windows.selected(), |displayed| displayed.window)
     }
 
     pub fn window_count(&self) -> usize {
@@ -40,30 +38,14 @@ impl Editor {
     /// returns true; the buffer stays as it is in the others.
     pub fn leave_shared_buffer(&mut self) -> bool {
         let shown = self.buffers[0].id();
-        if !self
-            .windows
-            .others
-            .iter()
-            .any(|window| window.buffer == shown)
-        {
+        let in_windows: Vec<BufferId> = self.windows.other_buffers().collect();
+        if !in_windows.contains(&shown) {
             return false;
         }
-        let in_windows: Vec<BufferId> = self
-            .windows
-            .others
-            .iter()
-            .map(|window| window.buffer)
-            .collect();
-        let replacement = self
-            .buffers
-            .iter()
-            .position(|buffer| buffer.id() != shown && !in_windows.contains(&buffer.id()))
-            .or((self.buffers.len() > 1).then_some(1));
-        let Some(index) = replacement else {
-            return false;
-        };
-        self.select_buffer(index);
-        true
+        let free = |buffer: &Buffer| buffer.id() != shown && !in_windows.contains(&buffer.id());
+        let replacement =
+            self.buffers.iter().position(free).or((self.buffers.len() > 1).then_some(1));
+        replacement.inspect(|&index| self.select_buffer(index)).is_some()
     }
 
     /// The window selected before the selected one, where Emacs `*-other-window` commands
@@ -82,17 +64,13 @@ impl Editor {
             Axis::Rows => self.viewport.height,
             Axis::Columns => self.viewport.width,
         };
-        let Some(share) = self.windows.layout.share(selected, axis) else {
+        // 0 until the window is first laid out.
+        let share = self.windows.layout.share(selected, axis);
+        let Some(share) = share.filter(|_| size > 0) else {
             return false;
         };
-        // 0 until the window is first laid out.
-        if size == 0 {
-            return false;
-        }
         let whole = size as f32 / share;
-        self.windows
-            .layout
-            .resize(selected, axis, cells as f32 / whole, min as f32 / whole)
+        self.windows.layout.resize(selected, axis, cells as f32 / whole, min as f32 / whole)
     }
 
     /// Sets the share of the first side of the `split`th split, counted depth first, as
@@ -116,9 +94,7 @@ impl Editor {
     /// Deletes the selected window and selects the one selected before it.
     pub fn delete_window(&mut self) -> CommandResult {
         let deleted = self.windows.selected();
-        let previous = self
-            .previous_window()
-            .ok_or("Can't delete the only window")?;
+        let previous = self.previous_window().ok_or("Can't delete the only window")?;
         self.select_window(previous);
         self.remove_window(deleted);
         Ok(())
@@ -192,12 +168,7 @@ impl Editor {
     pub fn display_file(&mut self, path: &Path, place: impl FnOnce(&mut Editor)) -> io::Result<()> {
         let index = self.find_file(path)?;
         let buffer = self.buffers[index].id();
-        let shown = self
-            .windows
-            .others
-            .iter()
-            .find(|window| window.buffer == buffer)
-            .map(|window| window.id);
+        let shown = self.windows.showing(buffer).next();
         let window = match shown {
             _ if index == 0 => None,
             Some(window) => Some(window),
@@ -221,26 +192,11 @@ impl Editor {
     /// After `killed` was killed, the windows that showed it show the most recent buffer
     /// no window shows, else the most recent one.
     pub(super) fn replace_in_windows(&mut self, killed: BufferId) {
-        let shown: Vec<BufferId> = self
-            .windows
-            .others
-            .iter()
-            .map(|window| window.buffer)
-            .chain([self.buffers[0].id()])
-            .collect();
-        let replacement = self
-            .buffers
-            .iter()
-            .find(|buffer| !shown.contains(&buffer.id()))
-            .unwrap_or(&self.buffers[0])
-            .id();
-        let showing: Vec<WindowId> = self
-            .windows
-            .others
-            .iter()
-            .filter(|window| window.buffer == killed)
-            .map(|window| window.id)
-            .collect();
+        let mut shown: Vec<BufferId> = self.windows.other_buffers().collect();
+        shown.push(self.buffers[0].id());
+        let unshown = self.buffers.iter().find(|buffer| !shown.contains(&buffer.id()));
+        let replacement = unshown.unwrap_or(&self.buffers[0]).id();
+        let showing: Vec<WindowId> = self.windows.showing(killed).collect();
         for window in showing {
             self.show_in_window(window, replacement);
         }
@@ -252,12 +208,10 @@ impl Editor {
         let mut done = vec![self.buffers[0].id()];
         let others: Vec<WindowId> = self.windows.recent[1..].into();
         for window in others {
-            let Some(buffer) = self.windows.other(window).map(|window| window.buffer) else {
+            let buffer = self.windows.other(window).map(|window| window.buffer);
+            let Some(buffer) = buffer.filter(|buffer| !done.contains(buffer)) else {
                 continue;
             };
-            if done.contains(&buffer) {
-                continue;
-            }
             done.push(buffer);
             self.display_window(window);
             for hook in &hooks {
@@ -274,7 +228,7 @@ impl Editor {
         };
         let left = mem::replace(&mut other.buffer, buffer);
         let first_line = other.viewport.first_line;
-        if let Some(left) = self.buffers.iter_mut().find(|shown| shown.id() == left) {
+        if let Some(left) = self.buffer_with_id_mut(left) {
             left.window_start = first_line;
             left.forget_window(window);
         }
@@ -289,14 +243,8 @@ impl Editor {
     }
 
     fn remove_window(&mut self, window: WindowId) {
-        let Some(removed) = self.windows.remove(window) else {
-            return;
-        };
-        if let Some(buffer) = self
-            .buffers
-            .iter_mut()
-            .find(|buffer| buffer.id() == removed.buffer)
-        {
+        let removed = self.windows.remove(window);
+        if let Some(buffer) = removed.and_then(|removed| self.buffer_with_id_mut(removed.buffer)) {
             buffer.forget_window(window);
         }
     }
@@ -314,8 +262,8 @@ mod tests {
     use remacs_text::Text;
 
     use super::*;
-    use crate::buffer::Buffer;
     use crate::editor::SCRATCH_BUFFER;
+    use crate::editor::tests::{buffer_names, editor_registering, temp_dir};
 
     fn editor_with(name: &str, text: &str) -> Editor {
         let mut editor = Editor::new(&[]);
@@ -335,18 +283,15 @@ mod tests {
         editor.buffer_mut().set_point(0);
         editor.buffer_mut().insert("zero\n");
         editor.display_window(bottom);
-        assert_eq!(
-            editor.window_buffer().point(),
-            9,
-            "moved by the insert above it"
-        );
+        let point = |editor: &Editor| editor.window_buffer().point();
+        assert_eq!(point(&editor), 9, "moved by the insert above it");
         assert!(!editor.buffer_has_keys());
         editor.end_display();
-        assert_eq!(editor.window_buffer().point(), 5);
+        assert_eq!(point(&editor), 5);
         editor.select_window(bottom);
-        assert_eq!(editor.window_buffer().point(), 9);
+        assert_eq!(point(&editor), 9);
         editor.select_window(top);
-        assert_eq!(editor.window_buffer().point(), 5);
+        assert_eq!(point(&editor), 5);
     }
 
     #[test]
@@ -357,13 +302,7 @@ mod tests {
         let right = editor.layout().windows()[1];
         editor.switch_to_buffer(SCRATCH_BUFFER);
         editor.viewport.first_line = 0;
-        let order = |editor: &Editor| -> Vec<String> {
-            editor
-                .buffers()
-                .iter()
-                .map(|b| b.name().to_owned())
-                .collect()
-        };
+        let order = |editor: &Editor| buffer_names(editor).join(" ");
         let before = order(&editor);
         editor.display_window(right);
         assert_eq!(editor.window_buffer().name(), "a");
@@ -407,10 +346,8 @@ mod tests {
         assert!((ratio(&editor) - 0.6).abs() < 1e-6, "24 of 40 lines");
         editor.viewport.height = 24;
         assert!(editor.resize_window(Axis::Rows, 100, 4));
-        assert!(
-            (ratio(&editor) - 0.9).abs() < 1e-6,
-            "the other keeps 4 lines"
-        );
+        let kept = (ratio(&editor) - 0.9).abs() < 1e-6;
+        assert!(kept, "the other keeps 4 lines");
         assert!(!editor.resize_window(Axis::Columns, 1, 4));
         editor.balance_windows();
         assert_eq!(ratio(&editor), 0.5);
@@ -432,28 +369,21 @@ mod tests {
 
     #[test]
     fn a_file_shown_from_a_list_goes_to_another_window() {
-        let directory = std::env::temp_dir().join(format!("remacs-windows-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).unwrap();
+        let directory = temp_dir("windows");
         let file = directory.join("shown.txt");
         std::fs::write(&file, "one\ntwo\n").unwrap();
         let mut editor = editor_with("list", "");
-        editor
-            .display_file(&file, |editor| editor.set_point_at(1, 0))
-            .unwrap();
-        assert_eq!(
-            editor.window_buffer().name(),
-            "shown.txt",
-            "one window: in it"
-        );
+        let at = |line, column| move |editor: &mut Editor| editor.set_point_at(line, column);
+        editor.display_file(&file, at(1, 0)).unwrap();
+        let name = |editor: &Editor| editor.window_buffer().name().to_owned();
+        assert_eq!(name(&editor), "shown.txt", "one window: in it");
         editor.switch_to_buffer("list");
         editor.split_window(Axis::Columns);
         let right = editor.layout().windows()[1];
-        editor
-            .display_file(&file, |editor| editor.set_point_at(0, 2))
-            .unwrap();
-        assert_eq!(editor.window_buffer().name(), "list", "stays selected");
+        editor.display_file(&file, at(0, 2)).unwrap();
+        assert_eq!(name(&editor), "list", "stays selected");
         editor.select_window(right);
-        assert_eq!(editor.window_buffer().name(), "shown.txt");
+        assert_eq!(name(&editor), "shown.txt");
         assert_eq!(editor.window_buffer().point(), 2);
         std::fs::remove_dir_all(&directory).unwrap();
     }
@@ -462,16 +392,12 @@ mod tests {
     fn display_hooks_run_once_for_each_buffer_only_other_windows_show() {
         #[derive(Default)]
         struct Seen(Vec<String>);
-        struct Recorder;
-        impl crate::Plugin for Recorder {
-            fn register(&self, registry: &mut crate::Registry) {
-                registry.display_hooks.push(std::rc::Rc::new(|editor| {
-                    let name = editor.window_buffer().name().to_owned();
-                    editor.plugin_state::<Seen>().0.push(name);
-                }));
-            }
-        }
-        let mut editor = Editor::new(&[&Recorder]);
+        let mut editor = editor_registering(|registry| {
+            registry.display_hooks.push(std::rc::Rc::new(|editor| {
+                let name = editor.window_buffer().name().to_owned();
+                editor.plugin_state::<Seen>().0.push(name);
+            }));
+        });
         editor.add_buffer(Buffer::new("a", Text::default(), "Fundamental"));
         editor.add_buffer(Buffer::new("b", Text::default(), "Fundamental"));
         editor.split_window(Axis::Rows);

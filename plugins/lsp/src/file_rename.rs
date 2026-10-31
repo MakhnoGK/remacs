@@ -77,16 +77,9 @@ pub(crate) fn ask(
     asked.last_key += 1;
     let key = asked.last_key;
     for part in &unanswered {
-        part.client.send(Outgoing::WillRename {
-            id: key,
-            files: part.files.clone(),
-        });
+        part.client.send(Outgoing::WillRename { id: key, files: part.files.clone() });
     }
-    let collected = Collected {
-        asker,
-        unanswered,
-        edits: Vec::new(),
-    };
+    let collected = Collected { asker, unanswered, edits: Vec::new() };
     asked.by_key.insert(key, collected);
 }
 
@@ -111,16 +104,9 @@ fn by_server(
     for rename in renames {
         for client in clients_for(editor, servers, served(rename)) {
             let files = (uri::from_path(&rename.0), uri::from_path(&rename.1));
-            match parts
-                .iter_mut()
-                .find(|part| Rc::ptr_eq(&part.client, &client))
-            {
+            match parts.iter_mut().find(|part| Rc::ptr_eq(&part.client, &client)) {
                 Some(part) => part.files.push(files),
-                None => parts.push(Part {
-                    client,
-                    files: vec![files],
-                    ask_again: false,
-                }),
+                None => parts.push(Part { client, files: vec![files], ask_again: false }),
             }
         }
     }
@@ -148,9 +134,8 @@ pub(crate) fn clients_for(
     let wanted: Vec<_> = document::wanted(servers, clients, mode, path)
         .into_iter()
         .map(|(server, _)| {
-            let downloaded = server
-                .tool
-                .and_then(|tool| remacs_tools::installed(editor, tool.name));
+            let downloaded =
+                server.tool.and_then(|tool| remacs_tools::installed(editor, tool.name));
             (server, downloaded)
         })
         .collect();
@@ -158,30 +143,22 @@ pub(crate) fn clients_for(
     wanted
         .into_iter()
         .filter_map(|(server, downloaded)| {
-            clients
-                .client_for(server, path, downloaded, Arc::clone(&notifier))
-                .ok()
-                .flatten()
+            clients.client_for(server, path, downloaded, Arc::clone(&notifier)).ok().flatten()
         })
         .collect()
 }
 
 fn collect_answers(editor: &mut Editor) {
-    let clients: Vec<Rc<Client>> = editor
-        .plugin_state::<Clients>()
-        .running()
-        .map(|(_, client)| Rc::clone(client))
-        .collect();
+    let clients: Vec<Rc<Client>> =
+        editor.plugin_state::<Clients>().running().map(|(_, client)| Rc::clone(client)).collect();
     for client in clients {
         for renamed in client.take_renamed() {
             let asked = &mut editor.plugin_state::<Asked>().by_key;
             let Some(collected) = asked.get_mut(&renamed.id) else {
                 continue;
             };
-            let Some(index) = collected
-                .unanswered
-                .iter()
-                .position(|part| Rc::ptr_eq(&part.client, &client))
+            let Some(index) =
+                collected.unanswered.iter().position(|part| Rc::ptr_eq(&part.client, &client))
             else {
                 continue;
             };
@@ -214,10 +191,7 @@ fn ask_settled_servers_again(editor: &mut Editor) {
         for part in &mut collected.unanswered {
             if part.ask_again && part.client.is_settled() {
                 part.ask_again = false;
-                part.client.send(Outgoing::WillRename {
-                    id: *key,
-                    files: part.files.clone(),
-                });
+                part.client.send(Outgoing::WillRename { id: *key, files: part.files.clone() });
             }
         }
     }

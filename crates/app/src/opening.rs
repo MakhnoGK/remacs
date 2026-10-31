@@ -27,24 +27,15 @@ pub fn file_paths(urls: &[String]) -> Vec<PathBuf> {
 }
 
 fn percent_decoded(text: &str) -> Vec<u8> {
-    let bytes = text.as_bytes();
-    let mut decoded = Vec::with_capacity(bytes.len());
-    let mut index = 0;
-    while index < bytes.len() {
-        let escaped = (bytes[index] == b'%')
-            .then(|| bytes.get(index + 1..index + 3))
+    let mut decoded = Vec::with_capacity(text.len());
+    let mut rest = text.as_bytes();
+    while let [byte, tail @ ..] = rest {
+        let escaped = (*byte == b'%')
+            .then(|| tail.get(..2))
             .flatten()
             .and_then(|hex| u8::from_str_radix(std::str::from_utf8(hex).ok()?, 16).ok());
-        match escaped {
-            Some(byte) => {
-                decoded.push(byte);
-                index += 3;
-            }
-            None => {
-                decoded.push(bytes[index]);
-                index += 1;
-            }
-        }
+        decoded.push(escaped.unwrap_or(*byte));
+        rest = &tail[escaped.map_or(0, |_| 2)..];
     }
     decoded
 }

@@ -9,21 +9,11 @@ const RUST_INJECTIONS: &str = include_str!("../queries/rust/injections.scm");
 
 /// Code in strings, comments and Markdown blocks: no document of its own.
 const fn within(host: &'static str, query: &'static str) -> Injections {
-    Injections {
-        host,
-        query,
-        documents: false,
-        servers: false,
-    }
+    Injections { host, query, documents: false, servers: false }
 }
 
 pub const INJECTIONS: &[Injections] = &[
-    Injections {
-        host: HTML,
-        query: HTML_INJECTIONS,
-        documents: true,
-        servers: true,
-    },
+    Injections { host: HTML, query: HTML_INJECTIONS, documents: true, servers: true },
     within(JAVASCRIPT, TEMPLATE_INJECTIONS),
     within(JSX, TEMPLATE_INJECTIONS),
     within(TYPESCRIPT, TEMPLATE_INJECTIONS),

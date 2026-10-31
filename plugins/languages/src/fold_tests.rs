@@ -35,11 +35,7 @@ fn a_block_hides_its_lines_but_its_first_and_its_closer() {
     editor.run_command("hs-toggle-hiding");
     let hidden_if = ["fn f() {", "    if a {", "    }", "}", "fn g() {}", ""];
     assert_eq!(shown(&editor), hidden_if);
-    assert_eq!(
-        editor.buffer().point_line(),
-        1,
-        "point goes to the block's first line"
-    );
+    assert_eq!(editor.buffer().point_line(), 1, "point goes to the block's first line");
     editor.run_command("hs-toggle-hiding");
     assert_eq!(shown(&editor).len(), 7, "shown again from its first line");
 
@@ -47,11 +43,7 @@ fn a_block_hides_its_lines_but_its_first_and_its_closer() {
     assert_eq!(shown(&editor), ["fn f() {", "}", "fn g() {}", ""]);
     editor.buffer_mut().set_point(0);
     editor.run_command("next-line");
-    assert_eq!(
-        editor.buffer().point_line(),
-        4,
-        "C-n goes over the hidden lines"
-    );
+    assert_eq!(editor.buffer().point_line(), 4, "C-n goes over the hidden lines");
     editor.buffer_mut().set_point(0);
     editor.run_command("hs-toggle-hiding");
     assert_eq!(shown(&editor), hidden_if, "the blocks within stay hidden");
@@ -77,9 +69,7 @@ fn an_edit_in_a_hidden_block_shows_it() {
     editor.run_command("hs-toggle-hiding");
     assert_eq!(shown(&editor), ["{", "}", ""]);
     let inside = text.find('1').unwrap();
-    editor
-        .buffer_mut()
-        .apply_edits(vec![(inside..inside + 1, "2".into())]);
+    editor.buffer_mut().apply_edits(vec![(inside..inside + 1, "2".into())]);
     editor.refresh();
     assert_eq!(shown(&editor).len(), 6);
 }
@@ -90,10 +80,7 @@ fn a_function_in_a_pages_script_is_a_block() {
     let mut editor = parsed("page.html", HTML, text);
     editor.buffer_mut().set_point(text.find("a()").unwrap());
     editor.run_command("hs-toggle-hiding");
-    assert_eq!(
-        shown(&editor),
-        ["<script>", "function f() {", "}", "</script>", ""]
-    );
+    assert_eq!(shown(&editor), ["<script>", "function f() {", "}", "</script>", ""]);
 }
 
 /// Without an indent query, the lists between brackets are the blocks.

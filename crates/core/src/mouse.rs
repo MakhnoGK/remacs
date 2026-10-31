@@ -45,14 +45,8 @@ impl MouseSelection {
     pub fn press(buffer: &mut Buffer, offset: usize, clicks: usize, extend: bool) -> Self {
         let unit = Unit::of_clicks(clicks);
         if extend {
-            let from = buffer
-                .mark()
-                .filter(|_| buffer.is_mark_active())
-                .unwrap_or(buffer.point());
-            let selection = Self {
-                anchor: from..from,
-                unit,
-            };
+            let from = buffer.mark().filter(|_| buffer.is_mark_active()).unwrap_or(buffer.point());
+            let selection = Self { anchor: from..from, unit };
             selection.drag(buffer, offset);
             return selection;
         }
@@ -90,9 +84,7 @@ impl MouseSelection {
 /// the run before it.
 fn word_at(buffer: &Buffer, offset: usize) -> Range<usize> {
     let text = buffer.text();
-    let line = text
-        .line_range(text.line_of(offset))
-        .unwrap_or(offset..offset);
+    let line = text.line_range(text.line_of(offset)).unwrap_or(offset..offset);
     let after = buffer.char_after(offset).filter(|_| offset < line.end);
     let before = buffer.char_before(offset).filter(|_| offset > line.start);
     let Some(class) = after.or(before).map(CharClass::of) else {
@@ -170,11 +162,7 @@ mod tests {
         MouseSelection::press(&mut buffer, 16, 2, false);
         assert_eq!(region(&buffer), Some(" "));
         MouseSelection::press(&mut buffer, 21, 2, false);
-        assert_eq!(
-            region(&buffer),
-            Some(");"),
-            "past the end, the run before it"
-        );
+        assert_eq!(region(&buffer), Some(");"), "past the end, the run before it");
     }
 
     #[test]
@@ -194,10 +182,6 @@ mod tests {
         MouseSelection::press(&mut buffer, 9, 1, true);
         assert_eq!(region(&buffer), Some("snake"));
         MouseSelection::press(&mut buffer, 0, 1, true);
-        assert_eq!(
-            region(&buffer),
-            Some("let "),
-            "from the active region's mark"
-        );
+        assert_eq!(region(&buffer), Some("let "), "from the active region's mark");
     }
 }

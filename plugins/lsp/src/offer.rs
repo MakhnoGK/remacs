@@ -58,13 +58,8 @@ impl Offers {
     }
 
     fn known(&self, key: &str, project: &Path) -> bool {
-        self.offered
-            .get(project)
-            .is_some_and(|offered| offered.contains(key))
-            || self
-                .pending
-                .iter()
-                .any(|offer| offer.key == key && offer.project == project)
+        self.offered.get(project).is_some_and(|offered| offered.contains(key))
+            || self.pending.iter().any(|offer| offer.key == key && offer.project == project)
     }
 }
 
@@ -89,10 +84,7 @@ pub(crate) fn missing(
                 .iter()
                 .filter(|other| other.group == Some(group) && other.language_id(mode).is_some())
                 .collect();
-            if !members
-                .iter()
-                .all(|member| clients.passes_over(member, path))
-            {
+            if !members.iter().all(|member| clients.passes_over(member, path)) {
                 return;
             }
             members
@@ -100,11 +92,7 @@ pub(crate) fn missing(
     };
     let servers: Vec<_> = alternatives
         .into_iter()
-        .filter(|server| {
-            server
-                .tool
-                .is_some_and(|tool| remacs_tools::can_install(editor, tool))
-        })
+        .filter(|server| server.tool.is_some_and(|tool| remacs_tools::can_install(editor, tool)))
         .collect();
     if servers.is_empty() {
         return;
@@ -113,11 +101,7 @@ pub(crate) fn missing(
     let key = server.group.unwrap_or(server.name);
     let offers = editor.plugin_state::<Offers>();
     if offers.store.is_some() && !offers.known(key, &project) {
-        offers.pending.push(Offer {
-            project,
-            key,
-            servers,
-        });
+        offers.pending.push(Offer { project, key, servers });
     }
 }
 
@@ -125,10 +109,7 @@ pub(crate) fn missing(
 fn project_of(server: &LanguageServer, path: &Path) -> PathBuf {
     path.ancestors()
         .find(|ancestor| ancestor.join(".git").exists())
-        .map_or_else(
-            || document::project_root(path, server.root_markers),
-            Path::to_path_buf,
-        )
+        .map_or_else(|| document::project_root(path, server.root_markers), Path::to_path_buf)
 }
 
 /// Asks about what waits to be offered for one project, once no prompt is open: a
@@ -142,10 +123,8 @@ pub(crate) fn ask(editor: &mut Editor) {
         return;
     };
     let mut asked: Vec<Offer> = Vec::new();
-    let choice = offers
-        .pending
-        .iter()
-        .position(|offer| offer.project == project && offer.servers.len() > 1);
+    let choice =
+        offers.pending.iter().position(|offer| offer.project == project && offer.servers.len() > 1);
     match choice {
         Some(index) => asked.push(offers.pending.remove(index)),
         None => offers.pending.retain_mut(|offer| {
@@ -174,10 +153,9 @@ pub(crate) fn ask(editor: &mut Editor) {
 }
 
 fn project_name(project: &Path) -> String {
-    project.file_name().map_or_else(
-        || project.display().to_string(),
-        |name| name.to_string_lossy().into(),
-    )
+    project
+        .file_name()
+        .map_or_else(|| project.display().to_string(), |name| name.to_string_lossy().into())
 }
 
 fn confirm(
@@ -207,10 +185,7 @@ fn dialog(project: &str, servers: &[&'static LanguageServer]) -> Dialog {
     let (title, wanted) = match tools.as_slice() {
         [tool] => (
             format!("Download {}?", quote(tool.name)),
-            format!(
-                "{project} wants {}. Once downloaded, it serves",
-                quote(tool.name)
-            ),
+            format!("{project} wants {}. Once downloaded, it serves", quote(tool.name)),
         ),
         _ => (
             format!("Download {} language servers?", tools.len()),
@@ -248,10 +223,7 @@ fn choose(
         .iter()
         .filter_map(|server| {
             let tool = server.tool?;
-            Some(Candidate {
-                annotation: tool.origin().to_owned(),
-                ..Candidate::new(server.name)
-            })
+            Some(Candidate { annotation: tool.origin().to_owned(), ..Candidate::new(server.name) })
         })
         .collect();
     let prompt = Prompt {
@@ -264,10 +236,8 @@ fn choose(
     let complete =
         move |_: &Editor, input: &str| filter_candidates(input, candidates.clone(), false);
     editor.read(prompt, complete, move |editor, answer| {
-        let chosen = servers
-            .iter()
-            .find(|server| server.name == answer)
-            .ok_or("No such language server")?;
+        let chosen =
+            servers.iter().find(|server| server.name == answer).ok_or("No such language server")?;
         download(editor, &[*chosen]);
         Ok(())
     })
@@ -301,11 +271,7 @@ fn downloadable(editor: &Editor) -> Vec<&'static LanguageServer> {
     };
     clients
         .missing_in(directory)
-        .filter(|server| {
-            server
-                .tool
-                .is_some_and(|tool| remacs_tools::can_install(editor, tool))
-        })
+        .filter(|server| server.tool.is_some_and(|tool| remacs_tools::can_install(editor, tool)))
         .collect()
 }
 

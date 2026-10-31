@@ -59,16 +59,10 @@ struct Apropos {
 /// Reads a symbol's name and goes to it.
 pub(crate) fn find_apropos(editor: &mut Editor) -> CommandResult {
     let buffer = editor.window_buffer();
-    let from = buffer
-        .path()
-        .or(buffer.default_directory())
-        .ok_or("No project to search")?
-        .to_path_buf();
-    let root = project_root(if from.is_dir() {
-        &from
-    } else {
-        from.parent().unwrap_or(Path::new("/"))
-    });
+    let from =
+        buffer.path().or(buffer.default_directory()).ok_or("No project to search")?.to_path_buf();
+    let root =
+        project_root(if from.is_dir() { &from } else { from.parent().unwrap_or(Path::new("/")) });
     let preview = FilePreview::begin(editor);
     let state = editor.plugin_state::<Apropos>();
     *state = Apropos {
@@ -128,9 +122,8 @@ pub(crate) fn update(editor: &mut Editor) {
         }
         return;
     };
-    let location = selected
-        .and_then(|index| state.found.get(index))
-        .map(|symbol| symbol.location.clone());
+    let location =
+        selected.and_then(|index| state.found.get(index)).map(|symbol| symbol.location.clone());
     show(editor, location);
     let state = editor.plugin_state::<Apropos>();
     let query = input.trim();
@@ -143,11 +136,8 @@ pub(crate) fn update(editor: &mut Editor) {
         return;
     }
     state.next_id += 1;
-    let request = SymbolRequest {
-        id: state.next_id,
-        query: query.to_owned(),
-        from: state.from.clone(),
-    };
+    let request =
+        SymbolRequest { id: state.next_id, query: query.to_owned(), from: state.from.clone() };
     state.latest = Some(request.id);
     state.searching = true;
     state.requests.push(request);
@@ -205,10 +195,7 @@ fn symbol_candidates(editor: &Editor, input: &str) -> Completions {
         return Completions::default();
     }
     if let Some(failure) = &state.failure {
-        return Completions {
-            note: Some(failure.clone()),
-            ..Completions::default()
-        };
+        return Completions { note: Some(failure.clone()), ..Completions::default() };
     }
     let fresh = state.found_for == query;
     let candidates: Vec<_> = state
@@ -228,10 +215,7 @@ fn symbol_candidates(editor: &Editor, input: &str) -> Completions {
         (true, false) => Some("No symbols".to_owned()),
         (false, _) => None,
     };
-    Completions {
-        note,
-        ..candidates.into()
-    }
+    Completions { note, ..candidates.into() }
 }
 
 /// The symbol's name, what it is in, its kind and where.

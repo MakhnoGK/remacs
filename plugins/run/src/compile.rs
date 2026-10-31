@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use remacs_core::{Candidate, CommandResult, Completions, Editor, Prompt, filter_candidates};
 use remacs_dired::DIRED_MODE;
 use remacs_files::links::follow;
-use remacs_files::{abbreviate_home, with_slash};
+use remacs_files::{abbreviate_home, directory_candidates, with_slash};
 
 use crate::configuration::{Configuration, Kind};
 use crate::console::{Console, next_location};
@@ -26,12 +26,8 @@ pub const PREVIOUS_ERROR: &str = "compile-previous-error";
 /// one, until the problems of a buffer are gone to.
 pub const OUTPUT: &str = "compile output";
 
-const HINTS: &[(&str, &str)] = &[
-    ("↵", "Run"),
-    ("TAB", "Edit"),
-    ("M-↵", "Run as typed"),
-    ("C-g", "Cancel"),
-];
+const HINTS: &[(&str, &str)] =
+    &[("↵", "Run"), ("TAB", "Edit"), ("M-↵", "Run as typed"), ("C-g", "Cancel")];
 
 /// The command lines compiled so far, newest first, by project root; kept in a state
 /// file across sessions.
@@ -92,9 +88,8 @@ pub fn compile_directory(editor: &Editor) -> Option<PathBuf> {
     if buffer.local::<Console>().is_some() {
         return Some(root);
     }
-    let settings = editor
-        .find_plugin_state::<Sessions>()
-        .map(|sessions| &sessions.settings.compile);
+    let settings =
+        editor.find_plugin_state::<Sessions>().map(|sessions| &sessions.settings.compile);
     let nearest = directory.zip(settings).and_then(|(directory, settings)| {
         directory
             .ancestors()
@@ -106,9 +101,7 @@ pub fn compile_directory(editor: &Editor) -> Option<PathBuf> {
 }
 
 fn canonical(directory: &Path) -> PathBuf {
-    directory
-        .canonicalize()
-        .unwrap_or_else(|_| directory.to_path_buf())
+    directory.canonicalize().unwrap_or_else(|_| directory.to_path_buf())
 }
 
 /// Asks for a command line, the directory's last one first, and runs it there in its
@@ -127,34 +120,58 @@ pub fn compile(editor: &mut Editor) -> CommandResult {
         hints: HINTS,
         ..Prompt::default()
     };
-    let complete =
-        move |_: &Editor, input: &str| candidates(&commands, suggested.as_deref(), input);
-    editor.read(prompt, complete, move |editor, command| {
-        run(editor, &root, &command)
-    })
+    let directory = root.clone();
+    let complete = move |_: &Editor, input: &str| {
+        candidates(&directory, &commands, suggested.as_deref(), input)
+    };
+    editor.read(prompt, complete, move |editor, command| run(editor, &root, &command))
 }
 
-/// The commands run before, best matches first; what is typed comes first, so that the
-/// answer is it unless a command is chosen.
-pub fn candidates(commands: &[String], suggested: Option<&str>, input: &str) -> Completions {
+/// What is typed first, so that the answer is it unless a command is chosen; then the
+/// paths from `root` its last word completes to; then the commands run before, best
+/// matches first.
+pub fn candidates(
+    root: &Path,
+    commands: &[String],
+    suggested: Option<&str>,
+    input: &str,
+) -> Completions {
+    let mut paths = path_candidates(root, input);
     let input = input.trim();
+    paths.retain(|path| path.value != input);
     let mut known: Vec<Candidate> = commands.iter().map(Candidate::new).collect();
     if let Some(suggested) =
         suggested.filter(|suggested| !commands.iter().any(|command| command == suggested))
     {
-        known.push(Candidate {
-            annotation: "suggested".into(),
-            ..Candidate::new(suggested)
-        });
+        known.push(Candidate { annotation: "suggested".into(), ..Candidate::new(suggested) });
     }
     if input.is_empty() {
         return known.into();
     }
-    known.retain(|candidate| candidate.value != input);
+    known.retain(|candidate| {
+        candidate.value != input && paths.iter().all(|path| path.value != candidate.value)
+    });
     let mut completions = filter_candidates(input, known, true);
-    completions.candidates.insert(0, Candidate::new(input));
-    completions.total += 1;
+    completions.total += 1 + paths.len();
+    completions.candidates.splice(0..0, std::iter::once(Candidate::new(input)).chain(paths));
     completions
+}
+
+/// The entries the last word names, as `cc ma` does `main.c`, once a command is typed or
+/// the word starts like a path; each is the whole line with that word completed.
+// shortcut: names with spaces are not quoted for the shell; quote them once a word can
+// hold quotes.
+fn path_candidates(root: &Path, input: &str) -> Vec<Candidate> {
+    let word = input.rsplit(char::is_whitespace).next().unwrap_or_default();
+    let line = &input[..input.len() - word.len()];
+    if line.trim().is_empty() && !word.starts_with(['.', '/', '~']) {
+        return Vec::new();
+    }
+    directory_candidates(root, word)
+        .candidates
+        .into_iter()
+        .map(|path| Candidate { value: format!("{line}{}", path.value), ..path })
+        .collect()
 }
 
 /// The command of the first of `run.toml`'s defaults whose file is at the project root,
@@ -183,12 +200,7 @@ pub fn run(editor: &mut Editor, root: &Path, command: &str) -> CommandResult {
     if let Err(error) = history(editor).add(root, command, limit) {
         editor.set_error(format!("Could not keep the command: {error}"));
     }
-    let configuration = Configuration::new(
-        command,
-        Kind::Shell {
-            command: command.to_owned(),
-        },
-    );
+    let configuration = Configuration::new(command, Kind::Shell { command: command.to_owned() });
     sessions::compile(editor, root, configuration)
 }
 
@@ -222,17 +234,10 @@ fn visit_location(editor: &mut Editor, forward: bool) -> CommandResult {
     } else {
         output_console(editor).ok_or("Nothing compiled or run yet")?
     };
-    let buffer = editor
-        .buffers()
-        .iter()
-        .find(|buffer| buffer.name() == name)
-        .ok_or("No such console")?;
+    let buffer =
+        editor.buffers().iter().find(|buffer| buffer.name() == name).ok_or("No such console")?;
     let console = buffer.local::<Console>().ok_or("Not a console")?;
-    let offset = if in_window {
-        Some(buffer.point())
-    } else {
-        console.location
-    };
+    let offset = if in_window { Some(buffer.point()) } else { console.location };
     let (start, target) = next_location(buffer, offset, forward).ok_or(if forward {
         "No more locations"
     } else {
@@ -257,9 +262,7 @@ struct Visited(Option<u64>);
 /// so that a location in another package goes on there, else of the latest run.
 fn output_console(editor: &Editor) -> Option<String> {
     let compiled = compile_directory(editor).and_then(|root| find_compile(editor, &root));
-    let visited = editor
-        .find_plugin_state::<Visited>()
-        .and_then(|visited| visited.0);
+    let visited = editor.find_plugin_state::<Visited>().and_then(|visited| visited.0);
     [compiled, visited, latest(editor)]
         .into_iter()
         .flatten()

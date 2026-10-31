@@ -14,45 +14,25 @@ use remacs_config::Section;
 use remacs_terminal::find_program;
 use serde::Deserialize;
 
+use crate::settings::settings_sections;
+
 /// Printed before the environment, so that whatever the shell's startup files print is
 /// told apart from it.
 const MARKER: &str = "__remacs_environment__";
 /// Set by the shell itself, or by a terminal, not part of what the user set up.
-const SKIPPED: &[&str] = &[
-    "_",
-    "SHLVL",
-    "PWD",
-    "OLDPWD",
-    "TERM",
-    "TERM_PROGRAM",
-    "COLUMNS",
-    "LINES",
-];
-const FALLBACK_SHELL: &str = if cfg!(target_os = "macos") {
-    "/bin/zsh"
-} else {
-    "/bin/sh"
-};
+const SKIPPED: &[&str] =
+    &["_", "SHLVL", "PWD", "OLDPWD", "TERM", "TERM_PROGRAM", "COLUMNS", "LINES"];
+const FALLBACK_SHELL: &str = if cfg!(target_os = "macos") { "/bin/zsh" } else { "/bin/sh" };
 
-/// `environment.toml`.
-#[derive(Debug, Deserialize, PartialEq)]
-#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
-pub struct EnvironmentSettings {
-    pub from_login_shell: FromLoginShell,
-    /// The shell whose environment is taken, a path or a name, in place of the account's
-    /// login shell, e.g. when terminals run another one.
-    pub shell: String,
-    /// Milliseconds the shell may take to start.
-    pub timeout: u64,
-}
-
-impl Default for EnvironmentSettings {
-    fn default() -> Self {
-        Self {
-            from_login_shell: FromLoginShell::Auto,
-            shell: String::new(),
-            timeout: 5000,
-        }
+settings_sections! {
+    /// `environment.toml`.
+    pub struct EnvironmentSettings {
+        pub from_login_shell: FromLoginShell = FromLoginShell::Auto,
+        /// The shell whose environment is taken, a path or a name, in place of the account's
+        /// login shell, e.g. when terminals run another one.
+        pub shell: String = String::new(),
+        /// Milliseconds the shell may take to start.
+        pub timeout: u64 = 5000,
     }
 }
 
@@ -124,9 +104,7 @@ pub fn import(settings: &EnvironmentSettings) -> Result<(), String> {
 fn run_shell(shell: &str, timeout: Duration) -> Result<String, String> {
     let mut child = Command::new(shell)
         .args(["-l", "-i", "-c"])
-        .arg(format!(
-            "printf '%s' {MARKER}; /usr/bin/env -0; printf '%s' {MARKER}"
-        ))
+        .arg(format!("printf '%s' {MARKER}; /usr/bin/env -0; printf '%s' {MARKER}"))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -152,10 +130,9 @@ fn run_shell(shell: &str, timeout: Duration) -> Result<String, String> {
     let _ = child.kill();
     let _ = child.wait();
     variables.map_err(|error| match error {
-        RecvTimeoutError::Timeout => format!(
-            "{shell} took longer than {} ms to start",
-            timeout.as_millis()
-        ),
+        RecvTimeoutError::Timeout => {
+            format!("{shell} took longer than {} ms to start", timeout.as_millis())
+        }
         RecvTimeoutError::Disconnected => format!("{shell} printed no environment"),
     })
 }

@@ -83,11 +83,7 @@ impl CompileSettings {
     pub fn shell(&self) -> String {
         Some(self.shell.clone())
             .filter(|shell| !shell.is_empty())
-            .or_else(|| {
-                std::env::var("SHELL")
-                    .ok()
-                    .filter(|shell| !shell.is_empty())
-            })
+            .or_else(|| std::env::var("SHELL").ok().filter(|shell| !shell.is_empty()))
             .unwrap_or_else(|| FALLBACK_SHELL.to_owned())
     }
 }
@@ -111,14 +107,10 @@ impl Default for RunSettings {
             stop_timeout: 2_000,
             entry_point_delay: 300,
             typescript: TypeScriptRuntime::Auto,
-            env: [
-                ("CARGO_TERM_COLOR", "always"),
-                ("CLICOLOR_FORCE", "1"),
-                ("FORCE_COLOR", "1"),
-            ]
-            .into_iter()
-            .map(|(name, value)| (name.to_owned(), value.to_owned()))
-            .collect(),
+            env: [("CARGO_TERM_COLOR", "always"), ("CLICOLOR_FORCE", "1"), ("FORCE_COLOR", "1")]
+                .into_iter()
+                .map(|(name, value)| (name.to_owned(), value.to_owned()))
+                .collect(),
             compile: CompileSettings::default(),
         }
     }
@@ -142,11 +134,7 @@ impl Section for RunSettings {
             if range.contains(&value) {
                 Ok(())
             } else {
-                Err(format!(
-                    "{name} must be {} to {}",
-                    range.start(),
-                    range.end()
-                ))
+                Err(format!("{name} must be {} to {}", range.start(), range.end()))
             }
         };
         if !CONSOLE_LINES.contains(&self.console_lines) {
@@ -157,21 +145,9 @@ impl Section for RunSettings {
             ));
         }
         within(self.stop_timeout, &STOP_TIMEOUTS, "stop-timeout")?;
-        within(
-            self.output_backlog as u64,
-            &OUTPUT_BACKLOGS,
-            "output-backlog",
-        )?;
-        within(
-            self.entry_point_delay,
-            &ENTRY_POINT_DELAYS,
-            "entry-point-delay",
-        )?;
-        within(
-            self.compile.history as u64,
-            &COMPILE_HISTORY,
-            "compile.history",
-        )
+        within(self.output_backlog as u64, &OUTPUT_BACKLOGS, "output-backlog")?;
+        within(self.entry_point_delay, &ENTRY_POINT_DELAYS, "entry-point-delay")?;
+        within(self.compile.history as u64, &COMPILE_HISTORY, "compile.history")
     }
 }
 

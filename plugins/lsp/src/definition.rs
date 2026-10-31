@@ -15,10 +15,9 @@ pub(crate) fn targets(response: Option<GotoDefinitionResponse>) -> Vec<(PathBuf,
         Some(GotoDefinitionResponse::Scalar(location)) => {
             vec![(location.uri, location.range.start)]
         }
-        Some(GotoDefinitionResponse::Array(locations)) => locations
-            .into_iter()
-            .map(|location| (location.uri, location.range.start))
-            .collect(),
+        Some(GotoDefinitionResponse::Array(locations)) => {
+            locations.into_iter().map(|location| (location.uri, location.range.start)).collect()
+        }
         Some(GotoDefinitionResponse::Link(links)) => links
             .into_iter()
             .map(|link| (link.target_uri, link.target_selection_range.start))

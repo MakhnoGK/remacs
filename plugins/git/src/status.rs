@@ -111,24 +111,17 @@ impl Snapshot {
     /// How the file or directory at `relative` differs from the last commit.
     pub fn status(&self, relative: &Path) -> Option<FileStatus> {
         if let Some(entry) = self.files.get(relative) {
-            return Some(FileStatus {
-                state: entry.state(),
-                lines: entry.lines,
-            });
+            return Some(FileStatus { state: entry.state(), lines: entry.lines });
         }
         self.untracked_directories
             .iter()
             .any(|directory| relative.starts_with(directory))
-            .then_some(FileStatus {
-                state: FileState::Untracked,
-                lines: None,
-            })
+            .then_some(FileStatus { state: FileState::Untracked, lines: None })
     }
 
     /// Untracked itself, or inside an untracked directory.
     pub fn is_untracked(&self, relative: &Path) -> bool {
-        self.status(relative)
-            .is_some_and(|status| status.state == FileState::Untracked)
+        self.status(relative).is_some_and(|status| status.state == FileState::Untracked)
     }
 
     pub fn is_unborn(&self) -> bool {
@@ -167,10 +160,8 @@ pub fn parse_status(output: &[u8]) -> Snapshot {
                     "branch.oid" => oid = value.to_owned(),
                     "branch.head" => branch = Some(value.to_owned()),
                     "branch.upstream" => {
-                        snapshot.upstream = Some(Upstream {
-                            name: value.to_owned(),
-                            ahead_behind: None,
-                        });
+                        snapshot.upstream =
+                            Some(Upstream { name: value.to_owned(), ahead_behind: None });
                     }
                     "branch.ab" => {
                         if let Some(upstream) = &mut snapshot.upstream {
@@ -246,10 +237,7 @@ fn entry(xy: &[u8], conflicted: bool, original: Option<PathBuf>) -> FileEntry {
 /// `+2 -0`
 fn parse_ahead_behind(value: &str) -> Option<(u64, u64)> {
     let (ahead, behind) = value.split_once(' ')?;
-    Some((
-        ahead.strip_prefix('+')?.parse().ok()?,
-        behind.strip_prefix('-')?.parse().ok()?,
-    ))
+    Some((ahead.strip_prefix('+')?.parse().ok()?, behind.strip_prefix('-')?.parse().ok()?))
 }
 
 /// Paths and their added and removed lines, `None` for a binary file; a renamed file by
@@ -308,10 +296,7 @@ u UU N... 100644 100644 100644 100644 4444 5555 6666 src/conflict.rs\0\
         assert_eq!(snapshot.head, Head::Branch("feature/mark-ring".into()));
         assert_eq!(
             snapshot.upstream,
-            Some(Upstream {
-                name: "origin/feature/mark-ring".into(),
-                ahead_behind: Some((2, 0)),
-            })
+            Some(Upstream { name: "origin/feature/mark-ring".into(), ahead_behind: Some((2, 0)) })
         );
         assert_eq!(snapshot.stashes, 1);
         let state = |path: &str| snapshot.status(Path::new(path)).map(|status| status.state);

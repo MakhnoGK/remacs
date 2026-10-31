@@ -21,11 +21,7 @@ fn data(lines: u32, one_line: bool) -> Vec<u32> {
     let mut data = Vec::new();
     let mut previous: Option<u32> = None;
     for copy in 0..lines {
-        let shift = if one_line {
-            copy * LINE.trim_end().len() as u32
-        } else {
-            0
-        };
+        let shift = if one_line { copy * LINE.trim_end().len() as u32 } else { 0 };
         for (index, (start, length)) in TOKENS.into_iter().enumerate() {
             let start = shift + start;
             let new_line = !one_line && index == 0 && copy > 0;

@@ -23,10 +23,8 @@ struct PoppingMarks(bool);
 /// again; right after `pop-to-mark-command`, it pops the next mark, like Emacs with
 /// `set-mark-command-repeat-pop`.
 pub fn set_mark_command(editor: &mut Editor) -> CommandResult {
-    let after_pop = matches!(
-        editor.last_command(),
-        Some(SET_MARK_COMMAND | POP_TO_MARK_COMMAND)
-    ) && editor.plugin_state::<PoppingMarks>().0;
+    let after_pop = matches!(editor.last_command(), Some(SET_MARK_COMMAND | POP_TO_MARK_COMMAND))
+        && editor.plugin_state::<PoppingMarks>().0;
     if after_pop {
         return pop_mark(editor);
     }
@@ -51,11 +49,7 @@ pub fn pop_to_mark_command(editor: &mut Editor) -> CommandResult {
 }
 
 fn pop_mark(editor: &mut Editor) -> CommandResult {
-    if editor.buffer_mut().pop_mark() {
-        Ok(())
-    } else {
-        Err("No mark set in this buffer".into())
-    }
+    if editor.buffer_mut().pop_mark() { Ok(()) } else { Err("No mark set in this buffer".into()) }
 }
 
 pub fn exchange_point_and_mark(editor: &mut Editor) -> CommandResult {
@@ -105,11 +99,7 @@ pub fn kill_line(editor: &mut Editor) -> CommandResult {
     let buffer = writable_buffer(editor)?;
     let (point, line_end, len) = (buffer.point(), line_end(buffer), buffer.text().len());
     let rest_is_blank = buffer.contents(point..line_end).trim().is_empty();
-    let end = if rest_is_blank && line_end < len {
-        line_end + 1
-    } else {
-        line_end
-    };
+    let end = if rest_is_blank && line_end < len { line_end + 1 } else { line_end };
     if end == point {
         return at_end_of_buffer(editor);
     }
@@ -148,11 +138,7 @@ pub fn mark_paragraph(editor: &mut Editor) -> CommandResult {
     let buffer = editor.buffer_mut();
     let end = paragraph_end(buffer, buffer.point_line());
     let end_line = buffer.text().line_of(end);
-    let last_line = if end == buffer.text().len() {
-        end_line
-    } else {
-        end_line.saturating_sub(1)
-    };
+    let last_line = if end == buffer.text().len() { end_line } else { end_line.saturating_sub(1) };
     buffer.set_mark(end);
     buffer.set_point(paragraph_start(buffer, last_line));
     buffer.activate_mark();
@@ -165,11 +151,7 @@ pub fn yank(editor: &mut Editor) -> CommandResult {
         rectangle::insert_rectangle(editor.buffer_mut(), &lines);
         return Ok(());
     }
-    let text = editor
-        .kill_ring
-        .newest()
-        .ok_or("Kill ring is empty")?
-        .to_owned();
+    let text = editor.kill_ring.newest().ok_or("Kill ring is empty")?.to_owned();
     insert_yanked(editor, &text);
     Ok(())
 }
@@ -181,11 +163,7 @@ pub fn yank_pop(editor: &mut Editor) -> CommandResult {
     if !matches!(editor.last_command(), Some(YANK | YANK_POP)) {
         return yank_from_kill_ring(editor);
     }
-    let text = editor
-        .kill_ring
-        .rotate()
-        .ok_or("Kill ring is empty")?
-        .to_owned();
+    let text = editor.kill_ring.rotate().ok_or("Kill ring is empty")?.to_owned();
     let buffer = editor.buffer_mut();
     let yanked = buffer.mark_range().ok_or(NO_MARK)?;
     buffer.delete(yanked.clone());
@@ -212,10 +190,7 @@ fn yank_from_kill_ring(editor: &mut Editor) -> CommandResult {
             let candidates = editor
                 .kill_ring
                 .entries()
-                .map(|entry| Candidate {
-                    label: preview(entry),
-                    ..Candidate::new(entry)
-                })
+                .map(|entry| Candidate { label: preview(entry), ..Candidate::new(entry) })
                 .collect();
             filter_candidates(input, candidates, false)
         },

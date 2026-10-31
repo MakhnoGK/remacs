@@ -37,10 +37,9 @@ pub(crate) fn file_changes(
     encoding: Encoding,
 ) -> Result<Vec<FileChange>, String> {
     let operations = match edit.document_changes {
-        Some(DocumentChanges::Edits(edits)) => edits
-            .into_iter()
-            .map(DocumentChangeOperation::Edit)
-            .collect(),
+        Some(DocumentChanges::Edits(edits)) => {
+            edits.into_iter().map(DocumentChangeOperation::Edit).collect()
+        }
         Some(DocumentChanges::Operations(operations)) => operations,
         None => edit
             .changes

@@ -33,15 +33,9 @@ impl Rectangle {
             .clone()
             .map(|line| {
                 let line_end = text.line_range(line).map_or(text.len(), |range| range.end);
-                let short = self
-                    .columns
-                    .start
-                    .saturating_sub(text.char_column(line_end));
+                let short = self.columns.start.saturating_sub(text.char_column(line_end));
                 let start = text.offset_at_char_column(line, self.columns.start);
-                (
-                    start..text.offset_at_char_column(line, self.columns.end),
-                    short,
-                )
+                (start..text.offset_at_char_column(line, self.columns.end), short)
             })
             .collect()
     }
@@ -105,11 +99,8 @@ fn save_rectangle(editor: &mut Editor) -> CommandResult {
 pub fn delete_rectangle(editor: &mut Editor) -> CommandResult {
     let buffer = writable_buffer(editor)?;
     let rectangle = rectangle(buffer)?;
-    let edits = rectangle
-        .spans(buffer)
-        .into_iter()
-        .map(|(span, _)| (span, String::new()))
-        .collect();
+    let edits =
+        rectangle.spans(buffer).into_iter().map(|(span, _)| (span, String::new())).collect();
     finish(buffer, &rectangle, edits);
     Ok(())
 }
@@ -199,18 +190,15 @@ pub(crate) fn insert_rectangle(buffer: &mut Buffer, lines: &[String]) {
     let start = buffer.point();
     buffer.apply_edits(edits);
     buffer.set_mark(start);
-    let corner = buffer
-        .text()
-        .offset_at_char_column(last_line, column + last_width);
+    let corner = buffer.text().offset_at_char_column(last_line, column + last_width);
     buffer.set_point(corner);
 }
 
 /// Makes `edits` and leaves point at the rectangle's top left corner.
 fn finish(buffer: &mut Buffer, rectangle: &Rectangle, edits: Vec<(Range<usize>, String)>) {
     buffer.apply_edits(edits);
-    let corner = buffer
-        .text()
-        .offset_at_char_column(*rectangle.lines.start(), rectangle.columns.start);
+    let corner =
+        buffer.text().offset_at_char_column(*rectangle.lines.start(), rectangle.columns.start);
     buffer.set_point(corner);
     buffer.deactivate_mark();
 }

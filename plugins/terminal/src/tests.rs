@@ -14,18 +14,11 @@ use super::*;
 use crate::terminals::{in_panel, in_window};
 
 const WAIT: Duration = Duration::from_secs(10);
-const SIZE: ScreenSize = ScreenSize {
-    columns: 80,
-    rows: 12,
-};
+const SIZE: ScreenSize = ScreenSize { columns: 80, rows: 12 };
 
 fn editor(terminal_toml: &str) -> Editor {
-    let mut editor = Editor::new(&[
-        &EditingPlugin,
-        &MinibufferPlugin,
-        &FilesPlugin,
-        &TerminalPlugin,
-    ]);
+    let mut editor =
+        Editor::new(&[&EditingPlugin, &MinibufferPlugin, &FilesPlugin, &TerminalPlugin]);
     editor.set_settings(Settings::from_files([(
         PathBuf::from("terminal.toml"),
         format!("directory = \"home\"\n{terminal_toml}"),
@@ -64,12 +57,7 @@ fn text(screen: &Screen) -> String {
         .rows
         .iter()
         .map(|row| {
-            row.runs
-                .iter()
-                .map(|run| run.text.as_str())
-                .collect::<String>()
-                .trim_end()
-                .to_owned()
+            row.runs.iter().map(|run| run.text.as_str()).collect::<String>().trim_end().to_owned()
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -88,9 +76,7 @@ fn wait_for(editor: &mut Editor, what: &str, done: impl Fn(&Screen) -> bool) {
         assert!(
             start.elapsed() < WAIT,
             "gave up waiting for {what}; screen:\n{}",
-            shown(editor)
-                .map(|screen| text(&screen))
-                .unwrap_or_default()
+            shown(editor).map(|screen| text(&screen)).unwrap_or_default()
         );
         thread::sleep(Duration::from_millis(10));
     }
@@ -150,10 +136,7 @@ fn a_screen_has_the_keys_in_the_focused_panel_or_the_window_but_not_under_a_prom
     press(&mut editor, "C-g");
     assert!(editor.screen_has_keys());
     press(&mut editor, "C-x o");
-    assert!(
-        !editor.screen_has_keys(),
-        "the text has them, the panel still shown"
-    );
+    assert!(!editor.screen_has_keys(), "the text has them, the panel still shown");
     press(&mut editor, "C-`");
     press(&mut editor, "s-RET");
     assert!(editor.screen_has_keys(), "the window's terminal");
@@ -203,9 +186,7 @@ fn terminals_are_listed_apart_counted_and_named_without_tabs_in_the_window() {
     // Both in the same directory, with no title: told apart as their names are.
     assert_ne!(terminals[0].label, terminals[1].label);
     assert_eq!(
-        candidates
-            .last()
-            .and_then(|candidate| candidate.group.as_deref()),
+        candidates.last().and_then(|candidate| candidate.group.as_deref()),
         Some("Terminals"),
         "after the other buffers"
     );
@@ -258,10 +239,7 @@ fn a_terminal_moves_between_the_panel_and_the_window() {
 fn wait_for_running(editor: &mut Editor, running: bool) {
     let start = Instant::now();
     while editor.running_programs().is_empty() == running {
-        assert!(
-            start.elapsed() < WAIT,
-            "gave up waiting for running = {running}"
-        );
+        assert!(start.elapsed() < WAIT, "gave up waiting for running = {running}");
         editor.refresh();
         thread::sleep(Duration::from_millis(10));
     }
@@ -290,10 +268,7 @@ fn an_ended_shell_restarts_or_closes() {
     wait_for(&mut editor, "the prompt", |screen| screen.notice.is_none());
     type_text(&mut editor, "exit 3\n");
     wait_for(&mut editor, "the exit", |screen| {
-        screen
-            .banner
-            .as_ref()
-            .is_some_and(|banner| banner.text == "Process exited with code 3")
+        screen.banner.as_ref().is_some_and(|banner| banner.text == "Process exited with code 3")
     });
     press(&mut editor, "RET");
     wait_for(&mut editor, "a new shell", |screen| {
@@ -303,12 +278,7 @@ fn an_ended_shell_restarts_or_closes() {
     wait_for(&mut editor, "the exit", |screen| screen.banner.is_some());
     press(&mut editor, "q");
     assert_eq!(editor.shown_pane(), None);
-    assert!(
-        editor
-            .buffers()
-            .iter()
-            .all(|buffer| !buffer.name().starts_with("*term"))
-    );
+    assert!(editor.buffers().iter().all(|buffer| !buffer.name().starts_with("*term")));
 }
 
 #[test]
@@ -316,10 +286,7 @@ fn a_shell_that_is_not_found_says_so_and_another_can_start() {
     let mut editor = editor("shell = \"no-such-shell-anywhere\"\n");
     press(&mut editor, "C-`");
     let screen = shown(&editor).unwrap();
-    assert_eq!(
-        screen.notice.map(|notice| notice.title),
-        Some("Shell not found".to_owned())
-    );
+    assert_eq!(screen.notice.map(|notice| notice.title), Some("Shell not found".to_owned()));
     press(&mut editor, "z");
     wait_for(&mut editor, "zsh", |screen| screen.notice.is_none());
 }
@@ -327,17 +294,12 @@ fn a_shell_that_is_not_found_says_so_and_another_can_start() {
 #[test]
 fn commands_the_shell_reports_are_marked_by_their_prompt() {
     let script = r"printf '\033]133;A\007P1> \033]133;C\007\nout\n\033]133;D;7\007\033]133;A\007P2> '; sleep 5";
-    let mut editor = editor(&format!(
-        "shell = \"/bin/sh\"\nargs = [\"-c\", {script:?}]\n"
-    ));
+    let mut editor = editor(&format!("shell = \"/bin/sh\"\nargs = [\"-c\", {script:?}]\n"));
     press(&mut editor, "C-`");
     wait_for_text(&mut editor, "P2>");
     let screen = shown(&editor).unwrap();
-    let marked: Vec<_> = screen
-        .rows
-        .iter()
-        .filter_map(|row| row.mark.as_ref().map(|mark| mark.exit))
-        .collect();
+    let marked: Vec<_> =
+        screen.rows.iter().filter_map(|row| row.mark.as_ref().map(|mark| mark.exit)).collect();
     assert_eq!(marked, vec![Some(7)]);
 }
 
@@ -346,28 +308,18 @@ fn the_marks_hide_while_a_program_draws_its_own_screen() {
     // A finished command is marked; the next runs a program that takes the keys as
     // Claude Code does, drawing in place.
     let script = r"printf '\033]133;A\007P1> \033]133;C\007\nout\n\033]133;D;0\007\033]133;A\007P2> \033]133;C\007'; sleep 1; printf '\033[?2004h\033[>5utui'; sleep 1; printf '\033[?2004l\033[<u\033[2J\033[Hclear'; sleep 5";
-    let mut editor = editor(&format!(
-        "shell = \"/bin/sh\"\nargs = [\"-c\", {script:?}]\n"
-    ));
+    let mut editor = editor(&format!("shell = \"/bin/sh\"\nargs = [\"-c\", {script:?}]\n"));
     press(&mut editor, "C-`");
     let marked = |screen: &Screen| screen.rows.iter().any(|row| row.mark.is_some());
-    wait_for(&mut editor, "the mark", |screen| {
-        text(screen).contains("P2>") && marked(screen)
-    });
-    wait_for(&mut editor, "the program", |screen| {
-        text(screen).contains("tui") && !marked(screen)
-    });
+    wait_for(&mut editor, "the mark", |screen| text(screen).contains("P2>") && marked(screen));
+    wait_for(&mut editor, "the program", |screen| text(screen).contains("tui") && !marked(screen));
     // Left the keys, but cleared the screen: no mark shows.
-    wait_for(&mut editor, "no mark", |screen| {
-        text(screen).contains("clear") && !marked(screen)
-    });
+    wait_for(&mut editor, "no mark", |screen| text(screen).contains("clear") && !marked(screen));
 }
 
 /// A terminal in the panel running `script` in sh, its buffer's name.
 fn running(script: &str) -> (Editor, String) {
-    let mut editor = editor(&format!(
-        "shell = \"/bin/sh\"\nargs = [\"-c\", {script:?}]\n"
-    ));
+    let mut editor = editor(&format!("shell = \"/bin/sh\"\nargs = [\"-c\", {script:?}]\n"));
     press(&mut editor, "C-`");
     let name = terminals::buffer_name(&editor, in_panel(&editor).unwrap()).unwrap();
     (editor, name)
@@ -375,12 +327,7 @@ fn running(script: &str) -> (Editor, String) {
 
 fn pointer(row: usize, column: usize, modifiers: &str, mouse: ScreenMouse) -> ScreenPointer {
     let key = Key::parse(&format!("{modifiers}a")).unwrap();
-    ScreenPointer {
-        row,
-        column,
-        modifiers: key.modifiers,
-        mouse,
-    }
+    ScreenPointer { row, column, modifiers: key.modifiers, mouse }
 }
 
 #[test]
@@ -395,18 +342,12 @@ fn command_click_visits_a_file_line_in_the_output() {
     assert!(editor.screen_mouse(&name, pointer(0, column, "s-", ScreenMouse::Move)));
     let screen = shown(&editor).unwrap();
     assert!(screen.pointing);
-    let press = ScreenMouse::Press {
-        button: ScreenButton::Left,
-        clicks: 1,
-    };
+    let press = ScreenMouse::Press { button: ScreenButton::Left, clicks: 1 };
     editor.screen_mouse(&name, pointer(0, column, "s-", press));
     std::fs::remove_file(&path).unwrap();
     let buffer = editor.window_buffer();
     assert!(buffer.name().starts_with("remacs-link-"));
-    assert_eq!(
-        buffer.contents(buffer.point()..buffer.text().len()),
-        "three\n"
-    );
+    assert_eq!(buffer.contents(buffer.point()..buffer.text().len()), "three\n");
 }
 
 #[test]
@@ -439,10 +380,7 @@ fn reports_with_hooks(shell: &str, args: &str, files: &[(&str, &str)], prompt: &
     wait_for_text(&mut editor, prompt);
     type_text(&mut editor, "false\n");
     wait_for(&mut editor, "the mark", |screen| {
-        screen
-            .rows
-            .iter()
-            .any(|row| row.mark.as_ref().is_some_and(|mark| mark.exit == Some(1)))
+        screen.rows.iter().any(|row| row.mark.as_ref().is_some_and(|mark| mark.exit == Some(1)))
     });
     type_text(
         &mut editor,
@@ -477,23 +415,15 @@ fn copy_mode_searches_the_scrollback_and_copies() {
     wait_for(&mut editor, "the prompt", |screen| screen.notice.is_none());
     type_text(&mut editor, "echo needle; echo hay; echo needle\n");
     // Twice in the command line, twice in its output.
-    wait_for(&mut editor, "the output", |screen| {
-        text(screen).matches("needle").count() == 4
-    });
+    wait_for(&mut editor, "the output", |screen| text(screen).matches("needle").count() == 4);
     press(&mut editor, "C-x [");
     let screen = shown(&editor).unwrap();
     assert_eq!(screen.mode.map(|mode| mode.label), Some("COPY"));
     press(&mut editor, "C-s");
     type_text(&mut editor, "needle");
-    let found = shown(&editor)
-        .unwrap()
-        .search
-        .and_then(|search| search.found);
+    let found = shown(&editor).unwrap().search.and_then(|search| search.found);
     assert_eq!(found.map(|(_, total)| total), Some(4));
     press(&mut editor, "RET C-SPC M-f M-w");
     assert_eq!(editor.kill_ring.newest(), Some("needle"));
-    assert!(
-        shown(&editor).unwrap().mode.is_none(),
-        "copying leaves copy mode"
-    );
+    assert!(shown(&editor).unwrap().mode.is_none(), "copying leaves copy mode");
 }

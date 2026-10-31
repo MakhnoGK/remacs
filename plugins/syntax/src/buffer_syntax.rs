@@ -93,12 +93,7 @@ impl BufferSyntax {
     }
 
     fn take_parse(&mut self) {
-        let Some(parse) = self
-            .slot
-            .lock()
-            .expect("parse slots are never poisoned")
-            .take()
-        else {
+        let Some(parse) = self.slot.lock().expect("parse slots are never poisoned").take() else {
             return;
         };
         self.tree = Some(parse.tree);
@@ -126,9 +121,8 @@ pub(crate) fn sync(
         .filter(|grammar| buffer.text().len() <= MAX_PARSED_BYTES && grammar.language().is_some());
     let Some(grammar) = grammar else {
         buffer.remove_local::<BufferSyntax>();
-        let stale = buffer
-            .local::<Fallback>()
-            .is_none_or(|fallback| fallback.mode != buffer.mode());
+        let stale =
+            buffer.local::<Fallback>().is_none_or(|fallback| fallback.mode != buffer.mode());
         if stale {
             match mode.as_ref().and_then(Fallback::of) {
                 Some(fallback) => {
@@ -156,9 +150,7 @@ pub(crate) fn sync(
     };
     if let Some(request) = request {
         let notifier = editor.notifier();
-        editor
-            .plugin_state::<ParserThread>()
-            .send(request, notifier);
+        editor.plugin_state::<ParserThread>().send(request, notifier);
     }
 }
 
@@ -186,10 +178,7 @@ fn paint_layers(
 ) -> Vec<Span> {
     let mut held = Vec::new();
     let mut injected = Vec::new();
-    for layer in layers
-        .iter()
-        .filter(|layer| overlaps(&layer.bounds(), range))
-    {
+    for layer in layers.iter().filter(|layer| overlaps(&layer.bounds(), range)) {
         let Some(highlighter) = &layer.highlighter else {
             continue;
         };
@@ -224,30 +213,18 @@ pub(crate) fn outside(spans: Vec<Span>, held: &[Range<usize>]) -> Vec<Span> {
     let mut kept = Vec::with_capacity(spans.len());
     let mut first = 0;
     for span in spans {
-        while held
-            .get(first)
-            .is_some_and(|held| held.end <= span.range.start)
-        {
+        while held.get(first).is_some_and(|held| held.end <= span.range.start) {
             first += 1;
         }
         let mut start = span.range.start;
-        for held in held[first..]
-            .iter()
-            .take_while(|held| held.start < span.range.end)
-        {
+        for held in held[first..].iter().take_while(|held| held.start < span.range.end) {
             if start < held.start {
-                kept.push(Span {
-                    range: start..held.start,
-                    face: span.face,
-                });
+                kept.push(Span { range: start..held.start, face: span.face });
             }
             start = start.max(held.end);
         }
         if start < span.range.end {
-            kept.push(Span {
-                range: start..span.range.end,
-                face: span.face,
-            });
+            kept.push(Span { range: start..span.range.end, face: span.face });
         }
     }
     kept
@@ -277,9 +254,7 @@ fn layer_at<'a>(layers: &'a [Layer], range: &Range<usize>) -> Option<&'a Layer> 
 impl BufferSyntax {
     /// The tree that holds `range`: an injected layer's, else the buffer's own.
     fn tree_at(&self, range: Range<usize>) -> Option<&Tree> {
-        layer_at(&self.layers, &range)
-            .map(|layer| &layer.tree)
-            .or(self.tree.as_ref())
+        layer_at(&self.layers, &range).map(|layer| &layer.tree).or(self.tree.as_ref())
     }
 }
 
@@ -293,10 +268,7 @@ pub(crate) fn own_tree(buffer: &Buffer) -> Option<(&'static Grammar, &Tree, &Sna
 /// The buffer's syntax, while its trees match the text.
 fn current(buffer: &Buffer) -> Option<&BufferSyntax> {
     let syntax = buffer.local::<BufferSyntax>()?;
-    syntax
-        .snapshot
-        .is_same(&buffer.text().snapshot())
-        .then_some(syntax)
+    syntax.snapshot.is_same(&buffer.text().snapshot()).then_some(syntax)
 }
 
 /// The tree that holds `range`, an injected language's or the buffer's, while it matches
@@ -343,9 +315,7 @@ pub(crate) fn context_at(buffer: &Buffer, offset: usize) -> Option<SyntaxContext
         return syntax.tree.as_ref().map(|_| SyntaxContext::Code);
     }
     let tree = syntax.tree_at(offset - 1..offset)?;
-    let mut node = tree
-        .root_node()
-        .descendant_for_byte_range(offset - 1, offset);
+    let mut node = tree.root_node().descendant_for_byte_range(offset - 1, offset);
     while let Some(current) = node {
         let kind = current.kind();
         let (start, end) = (current.start_byte(), current.end_byte());
@@ -427,9 +397,8 @@ pub(crate) fn layers_in<'a>(
         range: &Range<usize>,
         found: &mut Vec<(&'static Grammar, &'a Tree)>,
     ) {
-        for layer in layers
-            .iter()
-            .filter(|layer| !layer.overlay && overlaps(&layer.bounds(), range))
+        for layer in
+            layers.iter().filter(|layer| !layer.overlay && overlaps(&layer.bounds(), range))
         {
             found.push((layer.grammar, &layer.tree));
             collect(&layer.layers, range, found);
@@ -454,9 +423,7 @@ pub(crate) fn is_reparsed(buffer: &Buffer) -> bool {
 }
 
 pub(crate) fn is_parsed(buffer: &Buffer) -> bool {
-    buffer
-        .local::<BufferSyntax>()
-        .is_some_and(|syntax| syntax.tree.is_some())
+    buffer.local::<BufferSyntax>().is_some_and(|syntax| syntax.tree.is_some())
 }
 
 /// Whether a comment ending at `end` closes there (`*/`, `-->`), unlike a line comment,

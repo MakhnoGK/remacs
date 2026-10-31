@@ -17,10 +17,7 @@ pub fn record(root: &Path, moves: &[(PathBuf, PathBuf)]) -> io::Result<()> {
     )?;
     let input = index_info(&staged, moves);
     if !input.is_empty() {
-        output_with_input(
-            git(root).args(["update-index", "-z", "--index-info"]),
-            &input,
-        )?;
+        output_with_input(git(root).args(["update-index", "-z", "--index-info"]), &input)?;
     }
     Ok(())
 }
@@ -34,10 +31,7 @@ fn index_info(staged: &[u8], moves: &[(PathBuf, PathBuf)]) -> Vec<u8> {
         let Some(tab) = record.iter().position(|&byte| byte == b'\t') else {
             continue;
         };
-        let (info, path) = (
-            &record[..tab],
-            Path::new(OsStr::from_bytes(&record[tab + 1..])),
-        );
+        let (info, path) = (&record[..tab], Path::new(OsStr::from_bytes(&record[tab + 1..])));
         let mut fields = info.split(|&byte| byte == b' ');
         let (Some(mode), Some(object), Some(b"0")) = (fields.next(), fields.next(), fields.next())
         else {
@@ -45,11 +39,7 @@ fn index_info(staged: &[u8], moves: &[(PathBuf, PathBuf)]) -> Vec<u8> {
         };
         let Some(moved) = moves.iter().find_map(|(from, to)| {
             let rest = path.strip_prefix(from).ok()?;
-            Some(if rest.as_os_str().is_empty() {
-                to.clone()
-            } else {
-                to.join(rest)
-            })
+            Some(if rest.as_os_str().is_empty() { to.clone() } else { to.join(rest) })
         }) else {
             continue;
         };
@@ -62,15 +52,7 @@ fn index_info(staged: &[u8], moves: &[(PathBuf, PathBuf)]) -> Vec<u8> {
 
 /// `mode object\tpath\0`
 fn entry(mode: &[u8], object: &[u8], path: &Path) -> Vec<u8> {
-    [
-        mode,
-        b" ",
-        object,
-        b"\t",
-        path.as_os_str().as_bytes(),
-        b"\0",
-    ]
-    .concat()
+    [mode, b" ", object, b"\t", path.as_os_str().as_bytes(), b"\0"].concat()
 }
 
 #[cfg(test)]

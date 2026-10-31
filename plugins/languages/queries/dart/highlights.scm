@@ -7,7 +7,7 @@
 (class_declaration name: (identifier) @type)
 (enum_declaration name: (identifier) @type)
 (mixin_declaration name: (identifier) @type)
-(enum_constant name: (identifier) @constant)
+(enum_entry name: (identifier) @constant)
 
 (function_signature name: (identifier) @function)
 (getter_signature name: (identifier) @function)
@@ -26,8 +26,7 @@
 [(true) (false)] @boolean
 (null_literal) @constant.builtin
 (comment) @comment
-(documentation_block_comment) @comment.doc
-((comment) @comment.doc (#match? @comment.doc "^///"))
+[(documentation_block_comment) (documentation_comment)] @comment.doc
 (script_tag) @comment
 
 [

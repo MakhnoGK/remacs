@@ -29,14 +29,12 @@ pub fn toggle(editor: &mut Editor) -> CommandResult {
     }
     let placement = settings(editor).open_in;
     let in_panel_before = terminals(editor).panel.current;
-    let shown_before = in_panel_before
-        .filter(|&id| find(editor, id).is_some())
-        .or_else(|| {
-            editor
-                .buffers()
-                .iter()
-                .find_map(|buffer| buffer.local::<Terminal>().map(|terminal| terminal.id))
-        });
+    let shown_before = in_panel_before.filter(|&id| find(editor, id).is_some()).or_else(|| {
+        editor
+            .buffers()
+            .iter()
+            .find_map(|buffer| buffer.local::<Terminal>().map(|terminal| terminal.id))
+    });
     let Some(id) = shown_before else {
         create(editor, placement);
         return Ok(());
@@ -151,11 +149,7 @@ fn candidates(editor: &Editor, input: &str) -> Completions {
         .into_iter()
         .map(|terminal| Candidate {
             label: terminal.label(),
-            annotation: format!(
-                "{} · {}",
-                terminal.shell(),
-                abbreviate_home(&terminal.directory)
-            ),
+            annotation: format!("{} · {}", terminal.shell(), abbreviate_home(&terminal.directory)),
             tag: (Some(terminal.id) == shown).then_some("current"),
             ..Candidate::new(terminal.id.to_string())
         })
@@ -174,19 +168,12 @@ pub fn search(editor: &mut Editor) -> CommandResult {
 fn start_copy(editor: &mut Editor, searching: bool) -> CommandResult {
     let id = current(editor).ok_or("No terminal")?;
     let terminal = find_mut(editor, id).ok_or("No terminal")?;
-    let session = terminal
-        .session
-        .as_ref()
-        .ok_or("The terminal has no screen")?;
+    let session = terminal.session.as_ref().ok_or("The terminal has no screen")?;
     let mut term = session.screen.lock();
     copy::enter(&mut term);
     let copying = terminal.copy.get_or_insert_with(CopyMode::default);
     if searching {
-        copy::take_key(
-            copying,
-            &mut term,
-            remacs_core::Key::parse("C-r").expect("a key"),
-        );
+        copy::take_key(copying, &mut term, remacs_core::Key::parse("C-r").expect("a key"));
     }
     Ok(())
 }
@@ -194,9 +181,8 @@ fn start_copy(editor: &mut Editor, searching: bool) -> CommandResult {
 /// Copies the text selected with the mouse.
 pub fn copy_selection(editor: &mut Editor) -> CommandResult {
     let id = current(editor).ok_or("No terminal")?;
-    let session = find(editor, id)
-        .and_then(|terminal| terminal.session.as_ref())
-        .ok_or("No terminal")?;
+    let session =
+        find(editor, id).and_then(|terminal| terminal.session.as_ref()).ok_or("No terminal")?;
     let mut term = session.screen.lock();
     let text = term.selection_to_string().filter(|text| !text.is_empty());
     term.selection = None;
@@ -208,19 +194,10 @@ pub fn copy_selection(editor: &mut Editor) -> CommandResult {
 /// Types the newest kill, which the system clipboard keeps in step with.
 pub fn paste_kill(editor: &mut Editor) -> CommandResult {
     let id = current(editor).ok_or("No terminal")?;
-    let text = editor
-        .kill_ring
-        .newest()
-        .ok_or("Nothing to paste")?
-        .to_owned();
-    let session = find(editor, id)
-        .and_then(|terminal| terminal.session.as_ref())
-        .ok_or("No terminal")?;
-    let bracketed = session
-        .screen
-        .lock()
-        .mode()
-        .contains(TermMode::BRACKETED_PASTE);
+    let text = editor.kill_ring.newest().ok_or("Nothing to paste")?.to_owned();
+    let session =
+        find(editor, id).and_then(|terminal| terminal.session.as_ref()).ok_or("No terminal")?;
+    let bracketed = session.screen.lock().mode().contains(TermMode::BRACKETED_PASTE);
     session.write(paste(&text, bracketed));
     Ok(())
 }
@@ -228,9 +205,8 @@ pub fn paste_kill(editor: &mut Editor) -> CommandResult {
 /// Clears the scrollback and the screen; the shell, if waiting, draws its prompt again.
 pub fn clear(editor: &mut Editor) -> CommandResult {
     let id = current(editor).ok_or("No terminal")?;
-    let session = find(editor, id)
-        .and_then(|terminal| terminal.session.as_ref())
-        .ok_or("No terminal")?;
+    let session =
+        find(editor, id).and_then(|terminal| terminal.session.as_ref()).ok_or("No terminal")?;
     {
         let mut term = session.screen.lock();
         term.clear_screen(ClearMode::Saved);
@@ -254,9 +230,8 @@ pub fn next_prompt(editor: &mut Editor) -> CommandResult {
 /// shell reports them, as fish does.
 fn jump_to_prompt(editor: &mut Editor, forward: bool) -> CommandResult {
     let id = current(editor).ok_or("No terminal")?;
-    let session = find(editor, id)
-        .and_then(|terminal| terminal.session.as_ref())
-        .ok_or("No terminal")?;
+    let session =
+        find(editor, id).and_then(|terminal| terminal.session.as_ref()).ok_or("No terminal")?;
     let mut term = session.screen.lock();
     let prompts = prompt_lines(&term);
     if prompts.is_empty() {
@@ -268,11 +243,7 @@ fn jump_to_prompt(editor: &mut Editor, forward: bool) -> CommandResult {
     } else {
         prompts.keys().rev().find(|&&line| line < top).copied()
     };
-    let target = target.ok_or(if forward {
-        "No later command"
-    } else {
-        "No earlier command"
-    })?;
+    let target = target.ok_or(if forward { "No later command" } else { "No earlier command" })?;
     // The view cannot go below the screen: a prompt on it is shown with the screen.
     let line = target.min(0);
     term.scroll_display(Scroll::Delta(top - line));
@@ -317,9 +288,7 @@ pub fn open_settings(editor: &mut Editor) -> CommandResult {
     if in_window(editor).is_none() {
         editor.focus_pane(false);
     }
-    editor
-        .visit_file(&path)
-        .map_err(|error| error.to_string())?;
+    editor.visit_file(&path).map_err(|error| error.to_string())?;
     let buffer = editor.window_buffer();
     let text = buffer.text();
     let line = (0..text.line_count())

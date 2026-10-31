@@ -144,21 +144,13 @@ impl Plugin for DiredPlugin {
         });
         registry.tables.push(Rc::new(listing::table));
         registry.status_providers.push(Rc::new(wdired::status));
-        registry
-            .status_providers
-            .push(Rc::new(listing::marks_status));
+        registry.status_providers.push(Rc::new(listing::marks_status));
         registry.status_providers.push(Rc::new(listing::status));
-        registry
-            .post_command_hooks
-            .push(Rc::new(listing::pick_up_listings));
+        registry.post_command_hooks.push(Rc::new(listing::pick_up_listings));
         registry.post_command_hooks.push(Rc::new(preview::sync));
         registry.post_command_hooks.push(Rc::new(jobs::pick_up));
-        registry
-            .post_command_hooks
-            .push(Rc::new(references::after_command));
-        registry
-            .post_command_hooks
-            .push(Rc::new(wdired::after_command));
+        registry.post_command_hooks.push(Rc::new(references::after_command));
+        registry.post_command_hooks.push(Rc::new(wdired::after_command));
     }
 }
 

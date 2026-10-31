@@ -9,20 +9,12 @@ fn c_c_and_a_letter_is_left_to_the_user() {
     for plugin in crate::BUILTIN_PLUGINS {
         plugin.register(&mut registry);
     }
-    let keymaps = [
-        &registry.keymap,
-        &registry.minibuffer_keymap,
-        &registry.message_keymap,
-    ]
-    .into_iter()
-    .chain(registry.minor_keymaps.iter().map(|minor| &minor.keymap));
+    let keymaps = [&registry.keymap, &registry.minibuffer_keymap, &registry.message_keymap]
+        .into_iter()
+        .chain(registry.minor_keymaps.iter().map(|minor| &minor.keymap));
     let prefix = [Key::parse("C-c").unwrap()];
     let taken: Vec<String> = keymaps
-        .flat_map(|keymap| {
-            keymap
-                .continuations(&prefix)
-                .map(|(key, _)| key.to_string())
-        })
+        .flat_map(|keymap| keymap.continuations(&prefix).map(|(key, _)| key.to_string()))
         .filter(|key| key.len() == 1 && key.chars().all(|char| char.is_ascii_alphabetic()))
         .map(|key| format!("C-c {key}"))
         .collect();

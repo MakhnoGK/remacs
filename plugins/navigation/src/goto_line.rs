@@ -33,14 +33,6 @@ pub(crate) fn goto_line(editor: &mut Editor) -> CommandResult {
 /// end is clamped by the caller.
 fn parse(answer: &str) -> Option<(usize, usize)> {
     let mut parts = answer.trim().splitn(2, ':');
-    let number = |text: &str| {
-        text.trim()
-            .parse::<usize>()
-            .ok()
-            .map(|n| n.saturating_sub(1))
-    };
-    Some((
-        number(parts.next()?)?,
-        parts.next().map_or(Some(0), number)?,
-    ))
+    let number = |text: &str| text.trim().parse::<usize>().ok().map(|n| n.saturating_sub(1));
+    Some((number(parts.next()?)?, parts.next().map_or(Some(0), number)?))
 }

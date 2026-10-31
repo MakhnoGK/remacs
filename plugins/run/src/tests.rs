@@ -41,11 +41,7 @@ struct ModesPlugin;
 impl Plugin for ModesPlugin {
     fn register(&self, registry: &mut Registry) {
         for (name, extensions) in [("JavaScript", &["js", "mjs"][..]), ("Rust", &["rs"][..])] {
-            registry.modes.add(Mode {
-                name,
-                extensions,
-                ..Mode::default()
-            });
+            registry.modes.add(Mode { name, extensions, ..Mode::default() });
         }
     }
 }
@@ -79,23 +75,14 @@ fn contents(editor: &Editor) -> String {
 fn wait_until(editor: &mut Editor, done: impl Fn(&Editor) -> bool) {
     let start = Instant::now();
     while !done(editor) {
-        assert!(
-            start.elapsed() < WAIT,
-            "gave up waiting; console:\n{}",
-            contents(editor)
-        );
+        assert!(start.elapsed() < WAIT, "gave up waiting; console:\n{}", contents(editor));
         thread::sleep(Duration::from_millis(10));
         editor.refresh();
     }
 }
 
 fn shell(name: &str, script: &str) -> Configuration {
-    let mut configuration = Configuration::new(
-        name,
-        Kind::Executable {
-            program: "sh".into(),
-        },
-    );
+    let mut configuration = Configuration::new(name, Kind::Executable { program: "sh".into() });
     configuration.args = vec!["-c".into(), script.into()];
     configuration
 }
@@ -127,10 +114,7 @@ fn escape_codes_style_the_text_and_are_left_out() {
             (" api", ConsoleStyle::default()),
             (
                 "!",
-                ConsoleStyle {
-                    color: Some(ConsoleColor::Indexed(208)),
-                    ..ConsoleStyle::default()
-                }
+                ConsoleStyle { color: Some(ConsoleColor::Indexed(208)), ..ConsoleStyle::default() }
             ),
             (
                 "x",
@@ -149,14 +133,8 @@ fn escape_codes_and_characters_split_across_chunks_are_put_together() {
     let mut segments = parser.feed(b"a\x1b[3");
     segments.extend(parser.feed(b"1mb\xd0"));
     segments.extend(parser.feed(b"\xb6\x1b]8;;http://x\x07c"));
-    let red = ConsoleStyle {
-        color: Some(ConsoleColor::Indexed(1)),
-        ..ConsoleStyle::default()
-    };
-    assert_eq!(
-        text(&segments),
-        [("a", ConsoleStyle::default()), ("b", red), ("жc", red)]
-    );
+    let red = ConsoleStyle { color: Some(ConsoleColor::Indexed(1)), ..ConsoleStyle::default() };
+    assert_eq!(text(&segments), [("a", ConsoleStyle::default()), ("b", red), ("жc", red)]);
 }
 
 #[test]
@@ -175,10 +153,7 @@ fn a_carriage_return_redraws_the_line_unless_a_newline_follows() {
 }
 
 fn settings() -> RunSettings {
-    RunSettings {
-        env: Default::default(),
-        ..RunSettings::default()
-    }
+    RunSettings { env: Default::default(), ..RunSettings::default() }
 }
 
 #[test]
@@ -195,10 +170,7 @@ fn cargo_and_npm_configurations_launch_their_tools() {
     );
     api.args = vec!["--port".into(), "3000".into()];
     let launched = launch(&api, &root, &settings()).unwrap();
-    assert_eq!(
-        launched.command_line(),
-        "cargo run -p api --example seed --release -- --port 3000"
-    );
+    assert_eq!(launched.command_line(), "cargo run -p api --example seed --release -- --port 3000");
     assert_eq!(launched.cwd, root);
 
     let mut tests = Configuration::new(
@@ -230,10 +202,7 @@ fn cargo_and_npm_configurations_launch_their_tools() {
     site.args = vec!["--port".into(), "5173".into()];
     site.env.insert("A".into(), "from config".into());
     site.env_file = Some(".env".into());
-    write(
-        &root.join("apps/site/.env"),
-        "export A=from file\nB=\"two words\" # note\n",
-    );
+    write(&root.join("apps/site/.env"), "export A=from file\nB=\"two words\" # note\n");
     let launched = launch(&site, &root, &settings()).unwrap();
     assert_eq!(launched.command_line(), "pnpm run dev --port 5173");
     assert_eq!(launched.cwd, root.join("apps/site"));
@@ -285,9 +254,7 @@ fn typescript_runs_on_node_when_it_strips_types_else_on_tsx() {
     );
     assert!(typescript_command(auto, None, no_tsx).is_err());
     assert_eq!(
-        typescript_command(TypeScriptRuntime::Tsx, Some((24, 0, 0)), tsx)
-            .unwrap()
-            .0,
+        typescript_command(TypeScriptRuntime::Tsx, Some((24, 0, 0)), tsx).unwrap().0,
         "/p/node_modules/.bin/tsx"
     );
     assert_eq!(parse_version("v22.18.1\n"), Some((22, 18, 1)));
@@ -304,17 +271,11 @@ fn command_lines_quote_what_a_shell_would_split() {
         shown: None,
     };
     assert_eq!(launch.command_line(), r"env 'a b' 'it'\''s' --x=1");
-    assert_eq!(
-        parse_dotenv("# c\n\nX='a=b'\n"),
-        [("X".into(), "a=b".into())]
-    );
+    assert_eq!(parse_dotenv("# c\n\nX='a=b'\n"), [("X".into(), "a=b".into())]);
 }
 
 fn names(points: &[EntryPoint]) -> Vec<(usize, &str)> {
-    points
-        .iter()
-        .map(|point| (point.line, point.configuration.name.as_str()))
-        .collect()
+    points.iter().map(|point| (point.line, point.configuration.name.as_str())).collect()
 }
 
 #[test]
@@ -350,10 +311,7 @@ fn rust_binaries_and_examples_have_their_main_as_entry_point() {
     assert_eq!(names(&entry("api/examples/seed/main.rs")), [(3, "seed")]);
     assert!(entry("api/src/lib.rs").is_empty());
     // A package the workspace leaves out is run from its own directory.
-    write(
-        &root.join("vendor/lib/Cargo.toml"),
-        "[package]\nname = \"lib\"\n",
-    );
+    write(&root.join("vendor/lib/Cargo.toml"), "[package]\nname = \"lib\"\n");
     let vendored = entry("vendor/lib/examples/demo.rs");
     assert_eq!(vendored[0].configuration.cwd.as_deref(), Some("vendor/lib"));
     fs::remove_dir_all(root).unwrap();
@@ -421,45 +379,24 @@ mod tests {
         test_filters(&points),
         [
             (3, 20, "store::tests", Some("store::tests::"), &[][..]),
-            (
-                7,
-                9,
-                "store::tests::reads",
-                Some("store::tests::reads"),
-                &exact[..]
-            ),
-            (
-                13,
-                13,
-                "store::tests::writes",
-                Some("store::tests::writes"),
-                &exact[..]
-            ),
+            (7, 9, "store::tests::reads", Some("store::tests::reads"), &exact[..]),
+            (13, 13, "store::tests::writes", Some("store::tests::writes"), &exact[..]),
         ]
     );
-    let Kind::Cargo(cargo) = &points[0].configuration.kind else {
-        unreachable!()
-    };
+    let Kind::Cargo(cargo) = &points[0].configuration.kind else { unreachable!() };
     assert_eq!(cargo.selection(), ["-p", "api", "--lib"]);
     assert_eq!(points[0].configuration.cwd.as_deref(), Some("."));
 
     let integration = entry("tests/http.rs", "#[test]\nfn ok() {}\n");
-    assert_eq!(
-        test_filters(&integration),
-        [(1, 1, "ok", Some("ok"), &exact[..])]
-    );
-    let Kind::Cargo(cargo) = &integration[0].configuration.kind else {
-        unreachable!()
-    };
+    assert_eq!(test_filters(&integration), [(1, 1, "ok", Some("ok"), &exact[..])]);
+    let Kind::Cargo(cargo) = &integration[0].configuration.kind else { unreachable!() };
     assert_eq!(cargo.selection(), ["-p", "api", "--test", "http"]);
 
     // A binary's main and its tests.
     let main = entry("src/main.rs", "fn main() {}\n\n#[test]\nfn starts() {}\n");
     assert_eq!(names(&main), [(0, "api"), (3, "starts")]);
     assert!(!main[0].temporary && main[1].temporary);
-    let Kind::Cargo(cargo) = &main[1].configuration.kind else {
-        unreachable!()
-    };
+    let Kind::Cargo(cargo) = &main[1].configuration.kind else { unreachable!() };
     assert_eq!(cargo.selection(), ["-p", "api", "--bin", "api"]);
     fs::remove_dir_all(root).unwrap();
 }
@@ -507,10 +444,7 @@ fn a_test_run_is_kept_as_the_temporary_configuration_until_saved() {
 fn script_files_and_package_scripts_are_entry_points() {
     let root = directory("scripts");
     let seed = root.join("scripts/seed.ts");
-    assert_eq!(
-        names(&entry_points(&seed, "TypeScript", "", &root)),
-        [(0, "seed.ts")]
-    );
+    assert_eq!(names(&entry_points(&seed, "TypeScript", "", &root)), [(0, "seed.ts")]);
     let test = root.join("src/a.test.ts");
     assert!(entry_points(&test, "TypeScript", "", &root).is_empty());
     let package = "{\n  \"name\": \"site\",\n  \"scripts\": {\n    \"dev\": \"vite\",\n    \"test\" : \"vitest\"\n  }\n}\n";
@@ -531,12 +465,8 @@ fn a_new_configuration_is_appended_to_the_run_file_under_a_free_name() {
     assert_eq!(first.name, "main");
     let again = store.find_or_add(&root, shell("other", "false")).unwrap();
     assert_eq!(again.name, "main", "the same program finds the saved one");
-    let other_program = Configuration::new(
-        "main",
-        Kind::Executable {
-            program: "build/main".into(),
-        },
-    );
+    let other_program =
+        Configuration::new("main", Kind::Executable { program: "build/main".into() });
     let second = store.find_or_add(&root, other_program).unwrap();
     assert_eq!(second.name, "main (2)");
     let path = store.project(&root).0.path().unwrap().to_path_buf();
@@ -548,11 +478,7 @@ fn a_new_configuration_is_appended_to_the_run_file_under_a_free_name() {
 
     // Edited by hand, it is read again.
     thread::sleep(Duration::from_millis(20));
-    fs::write(
-        &path,
-        written.replace("name = \"main (2)\"", "name = \"fails\""),
-    )
-    .unwrap();
+    fs::write(&path, written.replace("name = \"main (2)\"", "name = \"fails\"")).unwrap();
     let names: Vec<String> = store
         .project(&root)
         .0
@@ -589,9 +515,7 @@ fn a_run_shows_its_output_colored_and_how_it_ended() {
     let script = r"printf '\033[31mfailed\033[0m at src/x.rs:2:5\n'; exit 3";
     commands::run_configuration(&mut editor, &root, shell("check", script), None).unwrap();
     assert_eq!(editor.window_buffer().name(), "*run: check*");
-    wait_until(&mut editor, |editor| {
-        contents(editor).contains("Process exited")
-    });
+    wait_until(&mut editor, |editor| contents(editor).contains("Process exited"));
     assert_eq!(
         contents(&editor),
         "sh -c 'printf '\\''\\033[31mfailed\\033[0m at src/x.rs:2:5\\n'\\''; exit 3'\n\
@@ -600,20 +524,11 @@ fn a_run_shows_its_output_colored_and_how_it_ended() {
     let found = styles(&editor);
     let red = Face::Console(console::colored(1));
     assert!(found.contains(&("failed".into(), red)), "{found:?}");
-    assert!(
-        found.contains(&("src/x.rs:2:5".into(), Face::Link)),
-        "{found:?}"
-    );
+    assert!(found.contains(&("src/x.rs:2:5".into(), Face::Link)), "{found:?}");
     let id = of_window(&editor).unwrap();
-    assert_eq!(
-        sessions::get(&editor, id).unwrap().state,
-        State::Exited(process::Exit::Code(3))
-    );
+    assert_eq!(sessions::get(&editor, id).unwrap().state, State::Exited(process::Exit::Code(3)));
     // The project now runs it with C-r.
-    assert_eq!(
-        editor.find_plugin_state::<Store>().unwrap().selected(&root),
-        Some("check")
-    );
+    assert_eq!(editor.find_plugin_state::<Store>().unwrap().selected(&root), Some("check"));
 
     // A link opens its file at its line and column.
     write(&root.join("src/x.rs"), "a\nbcdefg\n");
@@ -622,10 +537,7 @@ fn a_run_shows_its_output_colored_and_how_it_ended() {
     press(&mut editor, "RET");
     assert_eq!(editor.window_buffer().name(), "x.rs");
     assert_eq!(
-        (
-            editor.window_buffer().point_line(),
-            editor.window_buffer().point_column()
-        ),
+        (editor.window_buffer().point_line(), editor.window_buffer().point_column()),
         (1, 4)
     );
     fs::remove_dir_all(home).unwrap();
@@ -654,9 +566,7 @@ fn a_running_program_reads_input_and_stops_when_asked() {
     let console = editor.window_buffer().name().to_owned();
     assert_eq!(editor.running_programs(), [console]);
     press(&mut editor, "s-<f2>");
-    wait_until(&mut editor, |editor| {
-        contents(editor).ends_with("Process stopped\n")
-    });
+    wait_until(&mut editor, |editor| contents(editor).ends_with("Process stopped\n"));
     let id = of_window(&editor).unwrap();
     assert_eq!(sessions::get(&editor, id).unwrap().state, State::Stopped);
     assert_eq!(editor.running_programs(), Vec::<String>::new());
@@ -679,17 +589,13 @@ fn rerunning_a_running_program_stops_it_first_and_reuses_its_console() {
         let text = contents(editor);
         !text.contains("stopped")
             && text.contains("started")
-            && of_window(editor)
-                .and_then(|id| sessions::get(editor, id))
-                .is_some_and(|session| {
-                    session.state == State::Running && session.finished.is_none()
-                })
+            && of_window(editor).and_then(|id| sessions::get(editor, id)).is_some_and(|session| {
+                session.state == State::Running && session.finished.is_none()
+            })
     });
     assert_eq!(editor.buffers().len(), 2, "one console and *scratch*");
     press(&mut editor, "C-c C-c");
-    wait_until(&mut editor, |editor| {
-        contents(editor).ends_with("Process stopped\n")
-    });
+    wait_until(&mut editor, |editor| contents(editor).ends_with("Process stopped\n"));
     fs::remove_dir_all(home).unwrap();
 }
 
@@ -702,13 +608,8 @@ fn a_failed_step_before_launch_stops_the_run() {
     let mut configuration = shell("main", "echo main ran");
     configuration.before_launch = vec!["echo building".into(), "exit 2".into()];
     commands::run_configuration(&mut editor, &root, configuration, None).unwrap();
-    wait_until(&mut editor, |editor| {
-        contents(editor).contains("Process exited")
-    });
-    assert_eq!(
-        contents(&editor),
-        "echo building\nbuilding\nexit 2\nProcess exited with code 2\n"
-    );
+    wait_until(&mut editor, |editor| contents(editor).contains("Process exited"));
+    assert_eq!(contents(&editor), "echo building\nbuilding\nexit 2\nProcess exited with code 2\n");
     fs::remove_dir_all(home).unwrap();
 }
 
@@ -722,55 +623,33 @@ fn the_gutter_marks_entry_points_and_its_menu_runs_them() {
     write(&script, "console.log('hello')\n");
     editor.visit_file(&script).unwrap();
     wait_until(&mut editor, |editor| {
-        editor
-            .gutter_marks(0..10)
-            .is_some_and(|marks| !marks.is_empty())
+        editor.gutter_marks(0..10).is_some_and(|marks| !marks.is_empty())
     });
     let marks = editor.gutter_marks(0..10).unwrap();
     assert_eq!(
-        marks
-            .iter()
-            .map(|mark| (mark.line, mark.icon))
-            .collect::<Vec<_>>(),
+        marks.iter().map(|mark| (mark.line, mark.icon)).collect::<Vec<_>>(),
         [(0, GutterIcon::Run)]
     );
     editor.run_command(window::ENTRY_POINT_MENU);
     let popup = editor.popups().pop().unwrap();
-    let rows: Vec<(String, Option<&str>)> = popup
-        .rows
-        .iter()
-        .map(|row| (row.label.clone(), row.tag))
-        .collect();
+    let rows: Vec<(String, Option<&str>)> =
+        popup.rows.iter().map(|row| (row.label.clone(), row.tag)).collect();
     assert_eq!(
         rows,
-        [
-            ("Run 'hello.mjs'".into(), Some("new")),
-            ("Edit configuration…".into(), None)
-        ]
+        [("Run 'hello.mjs'".into(), Some("new")), ("Edit configuration…".into(), None)]
     );
     press(&mut editor, "C-n");
     press(&mut editor, "RET");
     let run_file = editor.window_buffer().path().unwrap().to_path_buf();
-    assert!(
-        run_file.starts_with(home.join("run")),
-        "{}",
-        run_file.display()
-    );
+    assert!(run_file.starts_with(home.join("run")), "{}", run_file.display());
     assert_eq!(
         editor.window_buffer().contents(
-            editor
-                .window_buffer()
-                .text()
-                .line_range(editor.window_buffer().point_line())
-                .unwrap()
+            editor.window_buffer().text().line_range(editor.window_buffer().point_line()).unwrap()
         ),
         "name = \"hello.mjs\""
     );
     let text = fs::read_to_string(&run_file).unwrap();
-    assert!(
-        text.contains("kind = \"node\"\nfile = \"hello.mjs\""),
-        "{text}"
-    );
+    assert!(text.contains("kind = \"node\"\nfile = \"hello.mjs\""), "{text}");
     fs::remove_dir_all(home).unwrap();
 }
 
@@ -783,9 +662,7 @@ fn the_chooser_lists_configurations_then_what_the_project_can_run() {
     let package = "{\n  \"scripts\": {\n    \"dev\": \"vite\",\n    \"test\": \"vitest\"\n  }\n}\n";
     write(&root.join("apps/site/package.json"), package);
     write(&root.join("README"), "");
-    configuration_store(&mut editor)
-        .find_or_add(&root, shell("check", "true"))
-        .unwrap();
+    configuration_store(&mut editor).find_or_add(&root, shell("check", "true")).unwrap();
     editor.visit_file(&root.join("README")).unwrap();
     editor.refresh();
     press(&mut editor, "M-S-<f10>");
@@ -814,14 +691,9 @@ fn the_chooser_lists_configurations_then_what_the_project_can_run() {
     // C-e saves a new one and edits it in the run file.
     press(&mut editor, "C-e");
     let visited = editor.window_buffer().path().map(Path::to_path_buf);
+    assert_eq!(visited.as_deref(), configuration_store(&mut editor).project(&root).0.path());
     assert_eq!(
-        visited.as_deref(),
-        configuration_store(&mut editor).project(&root).0.path()
-    );
-    assert_eq!(
-        contents(&editor)
-            .lines()
-            .nth(editor.window_buffer().point_line()),
+        contents(&editor).lines().nth(editor.window_buffer().point_line()),
         Some("name = \"site: dev\"")
     );
     let saved: Vec<String> = configuration_store(&mut editor)
@@ -867,10 +739,7 @@ fn compile_editor(home: &Path) -> Editor {
 }
 
 fn message(editor: &Editor) -> String {
-    editor
-        .message()
-        .map(|message| message.text.clone())
-        .unwrap_or_default()
+    editor.message().map(|message| message.text.clone()).unwrap_or_default()
 }
 
 fn position(editor: &Editor) -> (&str, usize, usize) {
@@ -880,12 +749,8 @@ fn position(editor: &Editor) -> (&str, usize, usize) {
 
 #[test]
 fn shell_configurations_run_their_command_line_on_the_configured_shell() {
-    let mut configuration = Configuration::new(
-        "lint",
-        Kind::Shell {
-            command: "cargo clippy | tee out".into(),
-        },
-    );
+    let mut configuration =
+        Configuration::new("lint", Kind::Shell { command: "cargo clippy | tee out".into() });
     configuration.args = vec!["a b".into()];
     let mut settings = settings();
     settings.compile.shell = "/bin/zsh".into();
@@ -911,9 +776,7 @@ fn compile_runs_a_command_line_and_next_error_visits_its_locations_in_turn() {
     let script = "sh build.sh";
     compile::run(&mut editor, &root, script).unwrap();
     assert_eq!(editor.window_buffer().name(), "*compile: project*");
-    wait_until(&mut editor, |editor| {
-        contents(editor).contains("Process exited")
-    });
+    wait_until(&mut editor, |editor| contents(editor).contains("Process exited"));
     assert_eq!(
         contents(&editor),
         format!(
@@ -921,15 +784,9 @@ fn compile_runs_a_command_line_and_next_error_visits_its_locations_in_turn() {
              Process exited with code 1\n"
         )
     );
-    assert_eq!(
-        message(&editor),
-        "Compilation exited abnormally with code 1"
-    );
+    assert_eq!(message(&editor), "Compilation exited abnormally with code 1");
     // The project's chosen configuration stays as it was.
-    assert_eq!(
-        editor.find_plugin_state::<Store>().unwrap().selected(&root),
-        None
-    );
+    assert_eq!(editor.find_plugin_state::<Store>().unwrap().selected(&root), None);
 
     press(&mut editor, "M-<");
     press(&mut editor, "M-g M-n");
@@ -971,6 +828,36 @@ fn compile_runs_a_command_line_and_next_error_visits_its_locations_in_turn() {
 }
 
 #[test]
+fn compile_completes_the_last_word_as_a_path_from_the_compile_directory() {
+    let home = directory("compile-paths");
+    let root = home.join("project");
+    for file in ["main.c", "src/util.c", "../shared.h"] {
+        write(&root.join(file), "");
+    }
+    let values = |input: &str| -> Vec<String> {
+        compile::candidates(&root, &[], None, input)
+            .candidates
+            .into_iter()
+            .map(|candidate| candidate.value)
+            .collect()
+    };
+    assert_eq!(values("cc ma"), ["cc ma", "cc main.c"]);
+    assert_eq!(values("cc src/"), ["cc src/", "cc src/util.c"]);
+    assert_eq!(values("cc ../sh"), ["cc ../sh", "cc ../shared.h"]);
+    assert_eq!(values("ma"), ["ma"], "a command name alone is not a path");
+    assert_eq!(values("./ma"), ["./ma", "./main.c"]);
+    assert_eq!(values("cc main.c"), ["cc main.c"], "the line typed is listed once");
+    assert_eq!(values("cc\u{a0}ma"), ["cc\u{a0}ma", "cc\u{a0}main.c"], "Option-Space");
+    let ran_before = compile::candidates(&root, &["cc main.c".into()], None, "cc ma").candidates;
+    let ran_before: Vec<_> = ran_before.iter().map(|candidate| &candidate.value).collect();
+    assert_eq!(ran_before, ["cc ma", "cc main.c"], "a path run before is listed once");
+    let main = compile::candidates(&root, &[], None, "cc ma").candidates.remove(1);
+    assert_eq!(main.label, "main.c");
+    assert_eq!(main.matches, [std::ops::Range { start: 0, end: 2 }]);
+    fs::remove_dir_all(home).unwrap();
+}
+
+#[test]
 fn compile_commands_are_remembered_per_project_newest_first() {
     let home = directory("compile-history");
     let mut editor = compile_editor(&home);
@@ -978,16 +865,10 @@ fn compile_commands_are_remembered_per_project_newest_first() {
     write(&root.join("Cargo.toml"), "");
     for command in ["echo one", "echo two", "echo one"] {
         compile::run(&mut editor, &root, command).unwrap();
-        wait_until(&mut editor, |editor| {
-            contents(editor).contains("Process exited")
-        });
+        wait_until(&mut editor, |editor| contents(editor).contains("Process exited"));
     }
     assert_eq!(message(&editor), "Compilation finished");
-    assert_eq!(
-        editor.buffers().len(),
-        2,
-        "one compile console and *scratch*"
-    );
+    assert_eq!(editor.buffers().len(), 2, "one compile console and *scratch*");
 
     let mut reopened = compile::History::default();
     reopened.keep_in(home.join("state/compile.json"));
@@ -995,39 +876,26 @@ fn compile_commands_are_remembered_per_project_newest_first() {
     assert_eq!(reopened.of(&root), commands);
 
     let labels = |completions: Completions| -> Vec<String> {
-        completions
-            .candidates
-            .into_iter()
-            .map(|candidate| candidate.value)
-            .collect()
+        completions.candidates.into_iter().map(|candidate| candidate.value).collect()
     };
     assert_eq!(
-        labels(compile::candidates(&commands, Some("cargo build"), "")),
+        labels(compile::candidates(&root, &commands, Some("cargo build"), "")),
         ["echo one", "echo two", "cargo build"]
     );
     assert_eq!(
-        labels(compile::candidates(&commands, None, "echo t")),
-        ["echo t", "echo two"],
+        labels(compile::candidates(&root, &commands, None, "echo t")),
+        ["echo t", "echo Cargo.toml", "echo two"],
         "what is typed is the answer unless a command is chosen"
     );
     let settings = CompileSettings::default();
-    assert_eq!(
-        compile::default_command(&root, &settings).as_deref(),
-        Some("cargo build")
-    );
+    assert_eq!(compile::default_command(&root, &settings).as_deref(), Some("cargo build"));
     let web = root.join("web");
     fs::create_dir_all(&web).unwrap();
     fs::write(web.join("package.json"), "{}\n").unwrap();
-    assert_eq!(
-        compile::default_command(&web, &settings).as_deref(),
-        Some("npm run build")
-    );
+    assert_eq!(compile::default_command(&web, &settings).as_deref(), Some("npm run build"));
     let vite_plus = r#"{ "devDependencies": { "vite-plus": "1" } }"#;
     fs::write(web.join("package.json"), vite_plus).unwrap();
-    assert_eq!(
-        compile::default_command(&web, &settings).as_deref(),
-        Some("vp check")
-    );
+    assert_eq!(compile::default_command(&web, &settings).as_deref(), Some("vp check"));
 
     // From a file of the project, RET runs the last command; what is typed runs as typed.
     editor.visit_file(&root.join("Cargo.toml")).unwrap();
@@ -1081,9 +949,7 @@ fn compile_runs_from_the_nearest_manifest_or_a_dired_directory() {
     let script = "echo crates/b/src/x.rs:1:1: e; echo crates/b/src/x.rs:2:1: e";
     compile::run(&mut editor, &package, script).unwrap();
     in_window(&mut editor, Some(&package));
-    wait_until(&mut editor, |editor| {
-        contents(editor).contains("Process exited")
-    });
+    wait_until(&mut editor, |editor| contents(editor).contains("Process exited"));
     press(&mut editor, "M-<");
     press(&mut editor, "M-g M-n");
     assert_eq!(position(&editor), ("x.rs", 0, 0));
@@ -1092,9 +958,7 @@ fn compile_runs_from_the_nearest_manifest_or_a_dired_directory() {
     let other = root.join("crates/c");
     write(&other.join("Cargo.toml"), "");
     compile::run(&mut editor, &other, "true").unwrap();
-    wait_until(&mut editor, |editor| {
-        contents(editor).contains("Process exited")
-    });
+    wait_until(&mut editor, |editor| contents(editor).contains("Process exited"));
     editor.switch_to_buffer("x.rs");
     window::update(&mut editor);
     press(&mut editor, "M-g M-n");

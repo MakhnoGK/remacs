@@ -148,9 +148,7 @@ end",
 #[test]
 fn every_locals_query_compiles() {
     for locals in LOCALS {
-        let grammar = (GRAMMARS.iter())
-            .find(|grammar| grammar.mode == locals.mode)
-            .unwrap();
+        let grammar = (GRAMMARS.iter()).find(|grammar| grammar.mode == locals.mode).unwrap();
         let query = Query::new(&grammar.language().unwrap(), &locals.queries.join("\n"))
             .unwrap_or_else(|error| panic!("{}: {error}", locals.mode));
         for name in query.capture_names() {
@@ -200,16 +198,8 @@ fn each_language_highlights_its_locals_and_nothing_else() {
                 .collect::<Vec<_>>()
         };
         let (missing, extra): (Vec<_>, Vec<_>) = (
-            expected
-                .iter()
-                .filter(|range| !locals.contains(range))
-                .cloned()
-                .collect(),
-            locals
-                .iter()
-                .filter(|range| !expected.contains(range))
-                .cloned()
-                .collect(),
+            expected.iter().filter(|range| !locals.contains(range)).cloned().collect(),
+            locals.iter().filter(|range| !expected.contains(range)).cloned().collect(),
         );
         if !missing.is_empty() || !extra.is_empty() {
             wrong.push(format!(

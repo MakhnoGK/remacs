@@ -10,8 +10,8 @@ use remacs_text::Text;
 static ALLOC: divan::AllocProfiler = divan::AllocProfiler::system();
 
 const WORDS: &[&str] = &[
-    "iter", "map", "filter", "collect", "push", "extend", "insert", "remove", "contains",
-    "sort", "split", "with", "capacity", "clone", "into", "as", "ref", "mut", "len", "get",
+    "iter", "map", "filter", "collect", "push", "extend", "insert", "remove", "contains", "sort",
+    "split", "with", "capacity", "clone", "into", "as", "ref", "mut", "len", "get",
 ];
 
 fn main() {
@@ -46,14 +46,7 @@ fn popup(items: usize) -> Editor {
             }
         })
         .collect();
-    deliver(
-        &mut editor,
-        1,
-        List {
-            items,
-            incomplete: false,
-        },
-    );
+    deliver(&mut editor, 1, List { items, incomplete: false });
     assert!(!editor.popups().is_empty());
     editor
 }

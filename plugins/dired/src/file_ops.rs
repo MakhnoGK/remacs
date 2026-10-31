@@ -39,11 +39,7 @@ pub fn replace(
 ) -> io::Result<()> {
     if fs::symlink_metadata(from)?.is_dir() || fs::symlink_metadata(to)?.is_dir() {
         discard(to)?;
-        return if moving {
-            move_path(from, to)
-        } else {
-            copy_path(from, to)
-        };
+        return if moving { move_path(from, to) } else { copy_path(from, to) };
     }
     if moving {
         match fs::rename(from, to) {
@@ -126,9 +122,6 @@ pub fn copy_path(from: &Path, to: &Path) -> io::Result<()> {
         fs::set_permissions(to, metadata.permissions())
     } else {
         fs::copy(from, to)?;
-        File::options()
-            .write(true)
-            .open(to)?
-            .set_modified(metadata.modified()?)
+        File::options().write(true).open(to)?.set_modified(metadata.modified()?)
     }
 }

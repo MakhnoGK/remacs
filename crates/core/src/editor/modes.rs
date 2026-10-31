@@ -33,77 +33,55 @@ impl Editor {
         if self.registry.embedded_probes.is_empty() {
             return Some(Vec::new());
         }
-        self.registry
-            .embedded_probes
-            .iter()
-            .find_map(|probe| probe(buffer))
+        self.registry.embedded_probes.iter().find_map(|probe| probe(buffer))
     }
 
     /// The document servers and formatters are given for `file`'s code in `mode`, named
     /// with the mode's first extension.
     pub fn embedded_document(&self, file: &Path, mode: &'static str) -> PathBuf {
-        let extension = self
-            .mode(mode)
-            .and_then(|mode| mode.extensions.first().copied());
+        let extension = self.mode(mode).and_then(|mode| mode.extensions.first().copied());
         syntax::embedded_document(file, extension.unwrap_or(mode))
     }
 
     /// The mode of the language at `offset` in `buffer`: code of another language there,
     /// else the buffer's own.
     pub fn language_at(&self, buffer: &Buffer, offset: usize) -> &'static str {
-        self.embedded(buffer)
-            .and_then(|embedded| {
-                let code = embedded.into_iter().find(|code| code.holds(offset))?;
-                Some(code.mode)
-            })
-            .unwrap_or(buffer.mode())
+        let embedded = self.embedded(buffer).unwrap_or_default();
+        let code = embedded.into_iter().find(|code| code.holds(offset));
+        code.map_or(buffer.mode(), |code| code.mode)
     }
 
     /// The major mode of the language at `offset` in the current buffer, as
     /// [`Self::language_at`] tells it; none for Fundamental.
     pub fn mode_at(&self, offset: usize) -> Option<&Mode> {
-        self.registry
-            .modes
-            .get(self.language_at(self.buffer(), offset))
+        self.registry.modes.get(self.language_at(self.buffer(), offset))
     }
 
     /// Where `line` of `buffer` takes its indentation from, as its syntax tells it; `None`
     /// when no plugin can tell.
     pub fn indentation_of(&self, buffer: &Buffer, line: usize) -> Option<Indentation> {
-        self.registry
-            .indent_probes
-            .iter()
-            .find_map(|probe| probe(buffer, line))
+        self.registry.indent_probes.iter().find_map(|probe| probe(buffer, line))
     }
 
     /// The blocks of `buffer`'s code that touch `lines`, which folds can hide; `None`
     /// when no plugin can tell.
     pub fn blocks(&self, buffer: &Buffer, lines: Range<usize>) -> Option<Vec<Block>> {
-        self.registry
-            .block_probes
-            .iter()
-            .find_map(|probe| probe(buffer, lines.clone()))
+        self.registry.block_probes.iter().find_map(|probe| probe(buffer, lines.clone()))
     }
 
     /// Whether `offset` in the current buffer is in a string, a comment or code; code
     /// when no plugin can tell.
     pub fn syntax_at(&self, offset: usize) -> SyntaxContext {
         let buffer = self.buffer();
-        self.registry
-            .syntax_probes
-            .iter()
-            .find_map(|probe| probe(buffer, offset))
-            .unwrap_or(SyntaxContext::Code)
+        let context = self.registry.syntax_probes.iter().find_map(|probe| probe(buffer, offset));
+        context.unwrap_or(SyntaxContext::Code)
     }
 
     /// Faces for `code` written in `mode`, sorted and non-overlapping; none when no
     /// highlighter knows the mode.
     pub fn highlight_code(&self, mode: &'static str, code: &str) -> Vec<Span> {
-        self.registry
-            .code_highlighters
-            .iter()
-            .find_map(|highlight| highlight(mode, code))
-            .unwrap_or_default()
+        let highlighters = &self.registry.code_highlighters;
+        highlighters.iter().find_map(|highlight| highlight(mode, code)).unwrap_or_default()
     }
 
     /// What [`Editor::highlight_code`] asks, for a decorator, which has only the buffer.
