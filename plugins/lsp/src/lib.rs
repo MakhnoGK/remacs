@@ -81,6 +81,9 @@ pub struct LanguageServer {
     /// The server runs only for projects where this holds, e.g. a linter's config is
     /// there; empty, for every file.
     pub when: When,
+    /// The server leaves alone projects where this holds, e.g. tsc those whose own
+    /// TypeScript is older than 7; empty, none.
+    pub unless: When,
     /// Added to the server's environment for projects where `env_when` holds, e.g.
     /// `VP_VERSION`, without which oxlint and oxfmt ignore Vite+'s `vite.config.ts`.
     pub env: &'static [(&'static str, &'static str)],
