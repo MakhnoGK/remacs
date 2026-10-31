@@ -131,7 +131,7 @@ fn destinations(
     count: usize,
     moving: bool,
 ) -> Completions {
-    let mut completions = directory_completions(input);
+    let mut completions = directory_completions(directory, input);
     completions.hints = Some(if moving { MOVE_HINTS } else { COPY_HINTS });
     let target = directory.join(expand_home(input));
     if !input.is_empty() && fs::symlink_metadata(&target).is_err() {
