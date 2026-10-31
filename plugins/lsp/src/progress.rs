@@ -43,18 +43,35 @@ impl Progress {
         }
     }
 
-    pub(crate) fn initialized(&mut self, now: Instant) {
-        self.initialized = true;
-        self.refresh(now);
+    /// False while the server says it is loading the project.
+    pub(crate) fn is_settled(&self) -> bool {
+        self.settled
     }
 
-    pub(crate) fn settle(&mut self, settled: bool, now: Instant) {
-        self.settled = settled;
+    /// Whether `change` changed what the status shows, so the editor need wake only then.
+    fn changes(&mut self, now: Instant, change: impl FnOnce(&mut Self)) -> bool {
+        let before = self.status("");
+        change(self);
         self.refresh(now);
+        self.status("") != before
+    }
+
+    pub(crate) fn initialized(&mut self, now: Instant) -> bool {
+        self.changes(now, |progress| progress.initialized = true)
+    }
+
+    /// True when it flipped too: requests waiting for the server to settle are asked again.
+    pub(crate) fn settle(&mut self, settled: bool, now: Instant) -> bool {
+        let flipped = self.settled != settled;
+        self.changes(now, |progress| progress.settled = settled) || flipped
     }
 
     /// Takes in a `$/progress` notification's params.
-    pub(crate) fn report(&mut self, params: &Value, now: Instant) {
+    pub(crate) fn report(&mut self, params: &Value, now: Instant) -> bool {
+        self.changes(now, |progress| progress.take_report(params))
+    }
+
+    fn take_report(&mut self, params: &Value) {
         let (token, value) = (&params["token"], &params["value"]);
         // A message without a counter takes away the one before; none at all keeps it.
         let message_counter = value["message"].as_str().map(counter);
@@ -73,9 +90,8 @@ impl Progress {
                 }
             }
             Some("end") => self.work.retain(|work| work.token != *token),
-            _ => return,
+            _ => {}
         }
-        self.refresh(now);
     }
 
     fn refresh(&mut self, now: Instant) {
@@ -155,7 +171,10 @@ mod tests {
         progress.report(&progress_params("1", report), start);
         let indexing = StatusItem::working("ra: Indexing 25%", start, Some(25));
         assert_eq!(progress.status("ra"), Some(indexing));
-        progress.settle(true, start);
+        let same = json!({ "kind": "report", "message": "4/12 (std)", "percentage": 25 });
+        assert!(!progress.report(&progress_params("1", same), start), "nothing shown changed");
+        assert!(progress.settle(true, start), "waiting requests are asked again");
+        assert_eq!(progress.status("ra").map(|item| item.text), Some("ra: Indexing 25%".into()));
         progress.report(
             &progress_params("1", json!({ "kind": "end" })),
             start + Duration::from_secs(9),

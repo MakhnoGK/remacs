@@ -6,7 +6,7 @@ use std::iter;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::process::{ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::thread;
@@ -518,9 +518,8 @@ pub(crate) struct Client {
     /// The action whose command ran last, which edits the server asks for belong to.
     executing: Cell<Option<u64>>,
     signatures: SharedSignatureSupport,
-    /// False while the server says it is busy loading the project; servers that never say
+    /// What the server is busy with; servers that never say they are loading the project
     /// are taken as settled.
-    settled: Arc<AtomicBool>,
     progress: SharedProgress,
     replies: SharedReplies,
     tsserver: Option<&'static str>,
@@ -560,7 +559,6 @@ impl Client {
         let (agreed, negotiated) = mpsc::channel();
         let inbox = SharedInbox::default();
         let pull_generation = Arc::new(AtomicU64::new(0));
-        let settled = Arc::new(AtomicBool::new(!server.reports_loading));
         let progress = Arc::new(Mutex::new(Progress::new(Instant::now(), !server.reports_loading)));
         let signatures = SharedSignatureSupport::default();
         let writer = Writer {
@@ -594,7 +592,6 @@ impl Client {
             inbox: Arc::clone(&inbox),
             pull_generation: Arc::clone(&pull_generation),
             notifier: Arc::clone(&notifier),
-            settled: Arc::clone(&settled),
             progress: Arc::clone(&progress),
             signatures: Arc::clone(&signatures),
             legend: None,
@@ -614,7 +611,6 @@ impl Client {
             pull_generation,
             notifier,
             executing: Cell::new(None),
-            settled,
             progress,
             signatures,
             replies,
@@ -644,7 +640,7 @@ impl Client {
     }
 
     pub fn is_settled(&self) -> bool {
-        self.settled.load(Ordering::Relaxed)
+        lock_progress(&self.progress).is_settled()
     }
 
     /// What the server, `name`, is busy with, if it is.
@@ -1284,7 +1280,6 @@ struct Reader {
     inbox: SharedInbox,
     pull_generation: Arc<AtomicU64>,
     notifier: Notifier,
-    settled: Arc<AtomicBool>,
     progress: SharedProgress,
     signatures: SharedSignatureSupport,
     /// What the server's semantic token numbers stand for, once `initialize` is answered.
@@ -1318,14 +1313,16 @@ impl Reader {
             (Some(TSSERVER_REQUEST), None) => self.ask_tsserver(params),
             (Some(SERVER_STATUS), None) => {
                 let settled = params["quiescent"].as_bool().unwrap_or(true);
-                if self.settled.swap(settled, Ordering::Relaxed) != settled {
-                    lock_progress(&self.progress).settle(settled, Instant::now());
+                let changed = lock_progress(&self.progress).settle(settled, Instant::now());
+                if changed {
                     (self.notifier)();
                 }
             }
             (Some(PROGRESS), None) => {
-                lock_progress(&self.progress).report(&params, Instant::now());
-                (self.notifier)();
+                let changed = lock_progress(&self.progress).report(&params, Instant::now());
+                if changed {
+                    (self.notifier)();
+                }
             }
             (None, Some(id)) => match id.as_u64() {
                 Some(INITIALIZE_ID) => self.initialized(&message),
@@ -1391,11 +1388,13 @@ impl Reader {
         let Some(agreed) = self.agreed.take() else {
             return;
         };
-        lock_progress(&self.progress).initialized(Instant::now());
-        (self.notifier)();
         if let Some(error) = response.get("error") {
             eprintln!("remacs: {} failed to initialize: {error}", self.server);
             return;
+        }
+        // Only after the error: a server failing to start is not ready, and soon exits.
+        if lock_progress(&self.progress).initialized(Instant::now()) {
+            (self.notifier)();
         }
         let capabilities = &response["result"]["capabilities"];
         self.encoding = if capabilities["positionEncoding"] == "utf-8" {
@@ -1520,7 +1519,7 @@ impl Reader {
                         id,
                         action,
                         encoding: self.encoding,
-                        settled: self.settled.load(Ordering::Relaxed),
+                        settled: lock_progress(&self.progress).is_settled(),
                     },
                     (error, _) => Answer::ActionFailed {
                         id,
@@ -1554,22 +1553,24 @@ impl Reader {
             }
             Pending::WillRename { id } => {
                 let edit = error.is_none().then(|| serde_json::from_value(result).ok()).flatten();
+                let settled = lock_progress(&self.progress).is_settled();
                 lock(&self.inbox).renamed.push(Renamed {
                     id,
                     edit,
                     encoding: self.encoding,
-                    settled: self.settled.load(Ordering::Relaxed),
+                    settled,
                 });
                 (self.notifier)();
             }
             Pending::Symbols { id } => {
                 let response =
                     error.is_none().then(|| serde_json::from_value(result).ok()).flatten();
+                let settled = lock_progress(&self.progress).is_settled();
                 lock(&self.inbox).found.push(Found {
                     id,
                     symbols: symbols::found(response),
                     encoding: self.encoding,
-                    settled: self.settled.load(Ordering::Relaxed),
+                    settled,
                 });
                 (self.notifier)();
             }
