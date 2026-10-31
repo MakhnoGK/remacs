@@ -2,6 +2,22 @@
 
 What changed for people using remacs, release by release; written by `cargo xtask changelog` from the commit subjects.
 
+## 0.1.0-alpha.5 — 2026-10-31
+
+### Added
+
+- show long-running work in the status with a progress ring, starting with language servers
+- complete relative paths in find-file and the compile command's last word
+
+### Fixed
+
+- check projects on TypeScript older than 7 with their own TypeScript
+- preserve a file's indentation in new lines, snippets and formatting
+- follow tree-sitter-dart 0.3 node names in the Dart highlights
+- start the text right under the title bar
+- update wasmtime to 48.0.8 for RUSTSEC-2026-0422, 0423 and 0424
+- follow cursor.height in prompts, tables and terminals
+
 ## 0.1.0-alpha.4 — 2026-10-29
 
 ### Added
