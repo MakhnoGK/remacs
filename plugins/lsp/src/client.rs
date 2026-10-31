@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use lsp_types::notification::{
     DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidRenameFiles,
@@ -31,7 +32,7 @@ use lsp_types::{
 };
 use remacs_actions::Action;
 use remacs_completion::{Item, List, Trigger};
-use remacs_core::Notifier;
+use remacs_core::{Notifier, StatusItem};
 use remacs_documentation::{SignatureTrigger, Signatures};
 use remacs_format::{Failure, Formatted};
 use remacs_text::{Edit, Snapshot};
@@ -42,6 +43,7 @@ use crate::color::{self, Swatch};
 use crate::completion::{self, CompletionSupport, Origin};
 use crate::markdown::CodeModes;
 use crate::position::{Encoding, from_lsp, to_lsp};
+use crate::progress::Progress;
 use crate::semantic::{self, Legend, Token};
 use crate::signature::{self, SignatureSupport};
 use crate::symbols::{self, FoundSymbol};
@@ -55,6 +57,7 @@ const SERVER_STATUS: &str = "experimental/serverStatus";
 /// `[id, body]`, each wrapped in one more array as vscode-jsonrpc sends an array argument.
 const TSSERVER_REQUEST: &str = "tsserver/request";
 const TSSERVER_RESPONSE: &str = "tsserver/response";
+const PROGRESS: &str = "$/progress";
 /// Stands for the directory of the server's program, as links lead to it, in its
 /// initialization options: where plugins installed beside it are found.
 const PROGRAM_DIR: &str = "{program-dir}";
@@ -440,6 +443,12 @@ fn lock(inbox: &SharedInbox) -> MutexGuard<'_, Inbox> {
     inbox.lock().expect("no thread panics holding the inbox")
 }
 
+type SharedProgress = Arc<Mutex<Progress>>;
+
+fn lock_progress(progress: &SharedProgress) -> MutexGuard<'_, Progress> {
+    progress.lock().expect("no thread panics holding the progress")
+}
+
 /// The reader's way to the writer, taken when the client is dropped: the writer ends
 /// once no one can send to it, which closes the server's input so that it exits.
 type SharedReplies = Arc<Mutex<Option<Sender<Outgoing>>>>;
@@ -512,6 +521,7 @@ pub(crate) struct Client {
     /// False while the server says it is busy loading the project; servers that never say
     /// are taken as settled.
     settled: Arc<AtomicBool>,
+    progress: SharedProgress,
     replies: SharedReplies,
     tsserver: Option<&'static str>,
 }
@@ -551,6 +561,7 @@ impl Client {
         let inbox = SharedInbox::default();
         let pull_generation = Arc::new(AtomicU64::new(0));
         let settled = Arc::new(AtomicBool::new(!server.reports_loading));
+        let progress = Arc::new(Mutex::new(Progress::new(Instant::now(), !server.reports_loading)));
         let signatures = SharedSignatureSupport::default();
         let writer = Writer {
             server: server.name,
@@ -584,6 +595,7 @@ impl Client {
             pull_generation: Arc::clone(&pull_generation),
             notifier: Arc::clone(&notifier),
             settled: Arc::clone(&settled),
+            progress: Arc::clone(&progress),
             signatures: Arc::clone(&signatures),
             legend: None,
         };
@@ -603,6 +615,7 @@ impl Client {
             notifier,
             executing: Cell::new(None),
             settled,
+            progress,
             signatures,
             replies,
             tsserver: server.tsserver,
@@ -632,6 +645,16 @@ impl Client {
 
     pub fn is_settled(&self) -> bool {
         self.settled.load(Ordering::Relaxed)
+    }
+
+    /// What the server, `name`, is busy with, if it is.
+    pub fn busy_status(&self, name: &str) -> Option<StatusItem> {
+        lock_progress(&self.progress).status(name)
+    }
+
+    /// How long the server took to start and load, once it first has.
+    pub fn take_ready(&self) -> Option<Duration> {
+        lock_progress(&self.progress).take_ready()
     }
 
     /// Whether a request for `trigger` may show signatures; true until the server agreed
@@ -742,6 +765,8 @@ fn initialize_params(options: Option<Value>, configured: bool, root: &Path) -> V
             "general": { "positionEncodings": ["utf-8", "utf-16"] },
             // rust-analyzer then says when it is done loading the project.
             "experimental": { "serverStatusNotification": true },
+            // Servers then say what they are busy with, as `$/progress`.
+            "window": { "workDoneProgress": true },
             "textDocument": {
                 "synchronization": { "didSave": true },
                 "publishDiagnostics": { "versionSupport": true },
@@ -1260,6 +1285,7 @@ struct Reader {
     pull_generation: Arc<AtomicU64>,
     notifier: Notifier,
     settled: Arc<AtomicBool>,
+    progress: SharedProgress,
     signatures: SharedSignatureSupport,
     /// What the server's semantic token numbers stand for, once `initialize` is answered.
     legend: Option<Arc<Legend>>,
@@ -1293,8 +1319,13 @@ impl Reader {
             (Some(SERVER_STATUS), None) => {
                 let settled = params["quiescent"].as_bool().unwrap_or(true);
                 if self.settled.swap(settled, Ordering::Relaxed) != settled {
+                    lock_progress(&self.progress).settle(settled, Instant::now());
                     (self.notifier)();
                 }
+            }
+            (Some(PROGRESS), None) => {
+                lock_progress(&self.progress).report(&params, Instant::now());
+                (self.notifier)();
             }
             (None, Some(id)) => match id.as_u64() {
                 Some(INITIALIZE_ID) => self.initialized(&message),
@@ -1360,6 +1391,8 @@ impl Reader {
         let Some(agreed) = self.agreed.take() else {
             return;
         };
+        lock_progress(&self.progress).initialized(Instant::now());
+        (self.notifier)();
         if let Some(error) = response.get("error") {
             eprintln!("remacs: {} failed to initialize: {error}", self.server);
             return;

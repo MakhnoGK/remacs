@@ -159,6 +159,8 @@ pub struct EditorView {
     /// Since when a prefix has been pending, and the timer that then lists its keys.
     prefix_since: Option<Instant>,
     prefix_timer: Option<Task<()>>,
+    /// When the status's work is next drawn: a ring turning, or work due to show.
+    spinner_timer: Option<(Instant, Task<()>)>,
     window_handle: AnyWindowHandle,
     _activation: Subscription,
     _appearance: Subscription,
@@ -390,6 +392,7 @@ impl EditorView {
             hints_open: false,
             prefix_since: None,
             prefix_timer: None,
+            spinner_timer: None,
             window_handle: window.window_handle(),
             _activation: activation,
             _appearance: appearance,

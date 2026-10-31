@@ -32,6 +32,8 @@ use crate::outline_view::{
 use crate::pane_view::{PANE_BOTTOM, PANE_GAP, PaneChrome, render_pane, screen_bounds};
 use crate::popup_view::{Placement, PopupView, render_popup};
 use crate::preview_view::render_preview;
+use crate::settings::SpinnersSettings;
+use crate::spinner::{ring, shown_segments};
 use crate::transition::{Look, Retained, Side};
 use crate::widgets::{
     PressExt, Scrolled, StyleExt, icon, modified_dot, over, pill, pill_separator, tone_color,
@@ -289,7 +291,12 @@ impl EditorView {
 
     /// A plugin's group of the status pill, e.g. problem counts; a click runs its command.
     /// One without a command is a plain label, like the mode.
-    fn render_segment(segment: StatusSegment, cx: &mut Context<Self>) -> Div {
+    fn render_segment(
+        segment: StatusSegment,
+        spinners: SpinnersSettings,
+        now: Instant,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let text_color = match (segment.active, segment.command, segment.code) {
             (true, ..) => color::fg_main(),
             (false, Some(_), _) | (false, None, true) => color::fg_kbd(),
@@ -298,7 +305,8 @@ impl EditorView {
         let items = segment.items.into_iter().map(|item| {
             let item_color = tone_color(item.tone, text_color);
             let item_icon = item.icon.map(|item_icon| icon(item_icon, item_color));
-            div().row(5.0).fg(item_color).children(item_icon).child(item.text)
+            let item_ring = item.spinner.map(|spinner| ring(spinner, spinners, now));
+            div().row(5.0).fg(item_color).children(item_ring).children(item_icon).child(item.text)
         });
         let family = if segment.code { font::mono() } else { font::ui() };
         (div().row(10.0).bar(24.0, 8.0).rounded(px(6.0)).font_family(family).fg(text_color))
@@ -374,7 +382,8 @@ impl EditorView {
         };
         let listed = self.hints_open || self.editor.key_hints_listed();
         let hints_pill = render_hints(&fitted, listed, cx);
-        let row = render_row(echo, hints_pill, self.render_status(cx).into_any_element());
+        let (status, redraw_status) = self.render_status(cx);
+        let row = render_row(echo, hints_pill, status.into_any_element());
 
         let message = self.editor.message().filter(|_| self.message_open).cloned();
         let message = message.map(|message| OpenMessage { message, all_messages: whole_key });
@@ -387,6 +396,7 @@ impl EditorView {
         });
         let prefix_keys = (self.prefix_keys_due() && !pending.is_empty())
             .then(|| PrefixKeys::new(pending, self.editor.prefix_continuations()));
+        self.redraw_status(redraw_status, cx);
         (row.into_any_element(), self.render_cards(message, keys, prefix_keys, window))
     }
 
@@ -444,7 +454,8 @@ impl EditorView {
         message.into_iter().chain(keys).chain(prefix_keys).collect()
     }
 
-    fn render_status(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// The status pill, and when it must be drawn again for its work, if it must.
+    fn render_status(&self, cx: &mut Context<Self>) -> (Div, Option<Instant>) {
         let buffer = self.editor.window_buffer();
         let position = format!("{}:{}", buffer.point_line() + 1, buffer.point_column() + 1);
         // The zoom the keys change: the screens' while one has them, else the text's, which
@@ -462,13 +473,18 @@ impl EditorView {
                 active: false,
                 code: true,
             });
-        let mut segments: Vec<_> = (self.editor.status_segments().into_iter().chain(zoom))
-            .flat_map(|segment| [Self::render_segment(segment, cx), pill_separator()])
+        let (spinners, now) = (self.bottom.spinners, Instant::now());
+        let (segments, redraw) = shown_segments(self.editor.status_segments(), spinners, now);
+        let redraw = redraw.map(|after| now + after);
+        let mut segments: Vec<_> = (segments.into_iter().chain(zoom))
+            .flat_map(|segment| {
+                [Self::render_segment(segment, spinners, now, cx), pill_separator()]
+            })
             .collect();
         if state.showing_screen {
             // A screen shows neither position nor mode after the segments.
             segments.pop();
-            return pill().flex_none().children(segments);
+            return (pill().flex_none().children(segments), redraw);
         }
         // The selected row is the position; a screen has none.
         if !state.showing_rows {
@@ -478,7 +494,26 @@ impl EditorView {
         }
         let language = self.editor.language_at(buffer, buffer.point());
         let mode = div().pl(px(8.0)).pr(px(10.0)).ui().child(mode_label(buffer.mode(), language));
-        pill().flex_none().children(segments).child(mode)
+        (pill().flex_none().children(segments).child(mode), redraw)
+    }
+
+    /// Draws the status again at `due`, unless it already will be by then.
+    fn redraw_status(&mut self, due: Option<Instant>, cx: &mut Context<Self>) {
+        let Some(due) = due else {
+            self.spinner_timer = None;
+            return;
+        };
+        if self.spinner_timer.as_ref().is_some_and(|&(timed, _)| timed <= due) {
+            return;
+        }
+        let timer = cx.spawn(async move |view, cx| {
+            cx.background_executor().timer(due.saturating_duration_since(Instant::now())).await;
+            let _ = view.update(cx, |view, cx| {
+                view.spinner_timer = None;
+                cx.notify();
+            });
+        });
+        self.spinner_timer = Some((due, timer));
     }
 }
 

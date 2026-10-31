@@ -112,24 +112,21 @@ fn pick_up(editor: &mut Editor) {
 /// How the download going on goes; a click shows the Tools panel.
 fn status(editor: &Editor) -> Option<StatusSegment> {
     let tools = editor.find_plugin_state::<Tools>()?;
-    let text = tools.entries.iter().find_map(|entry| {
+    let item = tools.entries.iter().find_map(|entry| {
         let name = entry.tool.name;
-        match &entry.progress {
+        let (text, percent) = match &entry.progress {
             Progress::Downloading { version, percent: Some(percent) } => {
                 let version = version.as_deref().unwrap_or_default();
-                Some(format!("Downloading {name} {version} — {percent}%"))
+                (format!("Downloading {name} {version} — {percent}%"), Some(*percent))
             }
-            Progress::Downloading { percent: None, .. } => Some(format!("Looking up {name}…")),
-            Progress::Installing { version } => Some(format!("Installing {name} {version}…")),
-            Progress::Idle | Progress::Failed(_) => None,
-        }
+            Progress::Downloading { percent: None, .. } => (format!("Looking up {name}…"), None),
+            Progress::Installing { version } => (format!("Installing {name} {version}…"), None),
+            Progress::Idle | Progress::Failed(_) => return None,
+        };
+        let started = entry.job.as_ref()?.started;
+        Some(StatusItem { tone: Tone::Accent, ..StatusItem::working(text, started, percent) })
     })?;
-    Some(StatusSegment {
-        items: vec![StatusItem::toned(text, Tone::Accent)],
-        command: Some(panel::OPEN),
-        active: true,
-        code: true,
-    })
+    Some(StatusSegment { items: vec![item], command: Some(panel::OPEN), active: true, code: true })
 }
 
 #[cfg(test)]

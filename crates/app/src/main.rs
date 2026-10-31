@@ -25,6 +25,7 @@ mod preview_view;
 mod screen_view;
 mod settings;
 mod smooth_scroll;
+mod spinner;
 mod table_view;
 mod tabs_view;
 mod text_zoom;
