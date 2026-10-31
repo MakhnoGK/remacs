@@ -3,9 +3,10 @@ use std::sync::Arc;
 
 use gpui::{
     App, BoxShadow, Context, Div, Font, FontFeatures, FontWeight, HighlightStyle, Hsla,
-    InteractiveElement, IntoElement, MouseButton, MouseDownEvent, ParentElement, Rgba, Styled,
-    StyledText, Svg, TextRun, Window, canvas, div, fill, linear_color_stop, linear_gradient, point,
-    prelude::FluentBuilder, px, rgb, rgba, svg, transparent_black,
+    InteractiveElement, IntoElement, MouseButton, MouseDownEvent, ParentElement, Pixels, Rgba,
+    Styled, StyledText, Svg, TextRun, Window, canvas, div, fill, linear_color_stop,
+    linear_gradient, point, prelude::FluentBuilder, px, relative, rgb, rgba, svg,
+    transparent_black,
 };
 use remacs_core::{FileState, Icon, LineCounts, ListItem, Mark, Tone, quoted_parts};
 use remacs_theme::{color, cursor, font, glass};
@@ -437,6 +438,18 @@ pub fn block_cursor() -> Div {
         .text_color(rgb(color::bg_main()))
 }
 
+/// The block cursor in text laid out inline, as in prompts: the font's height when
+/// `cursor.height` is "font", centered by a parent that aligns its items to the center.
+pub fn inline_cursor() -> Div {
+    block_cursor()
+        .when(cursor::font_height(), |block| block.line_height(relative(cursor::glyph_ratio())))
+}
+
+/// Of the cursor in a row `row` high, of text `glyph` high, as `cursor.height` sets it.
+pub fn cursor_height(row: Pixels, glyph: Pixels) -> Pixels {
+    if cursor::font_height() { glyph.min(row) } else { row }
+}
+
 /// Where point is in a window that is not selected, like Emacs
 /// `cursor-in-non-selected-windows`: an outline, the text under it left as it is.
 pub fn hollow_cursor() -> Div {
@@ -457,11 +470,12 @@ pub fn text_with_cursor(
         let text = StyledText::new(text[range].to_owned()).with_highlights(styled);
         div().flex_none().child(text)
     };
-    let cursor = block_cursor()
+    let cursor = inline_cursor()
         .children(composition.map(Composition::track_caret))
         .child(text[at.clone()].to_owned());
     div()
         .flex()
+        .items_center()
         .child(part(0..at.start))
         .children(composition.and_then(Composition::render_marked))
         .child(cursor)

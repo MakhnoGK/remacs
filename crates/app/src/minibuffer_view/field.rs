@@ -78,7 +78,7 @@ fn render_input(
     let typed = !minibuffer.in_description() && minibuffer.is_typed();
     let composition = composition.filter(|_| typed);
     let cursor_part = if typed {
-        block_cursor().children(composition.map(Composition::track_caret))
+        inline_cursor().children(composition.map(Composition::track_caret))
     } else {
         div().flex_none()
     };
@@ -91,6 +91,7 @@ fn render_input(
         .ml(-margin)
         .when(text_after, |part| part.pr(margin).mr(-margin))
         .flex()
+        .items_center()
         // Scrolled into sight with the cursor.
         .children(composition.and_then(Composition::render_marked))
         .child(cursor_part.child(line.text[cursor.clone()].to_owned()));

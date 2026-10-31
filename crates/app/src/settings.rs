@@ -86,6 +86,7 @@ pub fn read_settings(system: Appearance) -> ReadSettings {
     set_text_strokes(ui.font.strokes.into());
     glass::set_blurs(ui.glass.blur > 0);
     cursor::set_radius(ui.cursor.radius);
+    cursor::set_font_height(ui.cursor.height == CursorHeight::Font);
     ReadSettings { settings, ui, errors }
 }
 

@@ -25,7 +25,7 @@ use crate::outline_view::{lift_selected, ref_chip};
 use crate::popup_view::render_hints;
 use crate::settings::{DirectoryPosition, PromptsSettings};
 use crate::widgets::{
-    GlassBlur, PressExt, StyleExt, block_cursor, choice_chip, glass_surface, hsla, icon, kbd,
+    GlassBlur, PressExt, StyleExt, choice_chip, glass_surface, hsla, icon, inline_cursor, kbd,
     list_items, modal_surface, modified_dot, option_chip, segment, segmented, shadow,
     text_with_cursor, tone_color, ui_text,
 };

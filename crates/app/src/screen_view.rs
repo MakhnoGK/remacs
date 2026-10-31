@@ -17,8 +17,8 @@ use crate::editor_view::EditorView;
 use crate::highlights::console_color;
 use crate::transition::Look;
 use crate::widgets::{
-    Edge, StyleExt, block_cursor, bottom_centered, edge_fade, glass_surface, hsla, key_hint,
-    tone_color,
+    Edge, StyleExt, block_cursor, bottom_centered, cursor_height, edge_fade, glass_surface, hsla,
+    inline_cursor, key_hint, tone_color,
 };
 
 /// The edge down a command's rows, in the screen's left padding.
@@ -202,19 +202,20 @@ fn colors(face: &CellFace) -> (Hsla, Option<Hsla>) {
 
 fn render_cursor(cursor: ScreenCursor, rows: &[ScreenRow], cell: Cell) -> Div {
     let left = cell.width * cursor.column as f32;
-    let top = cell.height * cursor.row as f32 + (cell.height - cell.glyph) / 2.0;
+    let height = cursor_height(cell.height, cell.glyph);
+    let top = cell.height * cursor.row as f32 + (cell.height - height) / 2.0;
     let placed = |element: Div, top: Pixels, width: Pixels, height: Pixels| {
         element.absolute().left(left).top(top).w(width).h(height)
     };
     let bar = |top, width, height| placed(div(), top, width, height).bg(rgb(color::fg_main()));
     match cursor.shape {
-        CursorShape::Block => placed(block_cursor(), top, cell.width, cell.glyph)
+        CursorShape::Block => placed(block_cursor(), top, cell.width, height)
             .flex()
             .items_center()
             .child(character_at(rows, cursor).unwrap_or_default()),
-        CursorShape::Bar => bar(top, px(2.0), cell.glyph),
-        CursorShape::Underline => bar(top + cell.glyph - px(2.0), cell.width, px(2.0)),
-        CursorShape::Hollow => placed(div(), top, cell.width, cell.glyph)
+        CursorShape::Bar => bar(top, px(2.0), height),
+        CursorShape::Underline => bar(top + height - px(2.0), cell.width, px(2.0)),
+        CursorShape::Hollow => placed(div(), top, cell.width, height)
             .rounded(px(cursor::radius()))
             .bordered(color::fg_main() << 8 | 0x99),
     }
@@ -405,7 +406,7 @@ fn render_search(search: ScreenSearch) -> Div {
         None if search.input.is_empty() => String::new(),
         None => "no match".to_owned(),
     };
-    let caret = div().ml(px(1.0)).w(px(8.0)).h(px(17.0)).rounded(px(1.0)).bg(rgb(color::fg_main()));
+    let caret = inline_cursor().ml(px(1.0)).child(" ");
     let input =
         div().row(0.0).mono().text_color(rgb(color::fg_main())).child(search.input).child(caret);
     let hints = search

@@ -85,7 +85,8 @@ wheel-step = 100
 blur = 60
 
 [cursor]
-# "line": the whole row; "font": the font's height, centered in the row.
+# "line": the whole row; "font": the font's height, centered in the row. Both in text,
+# tables, prompts and terminals.
 height = "line"
 # Pixels the block's corners are rounded by, in text, tables, prompts and terminals: 0 to 4.
 radius = 1
