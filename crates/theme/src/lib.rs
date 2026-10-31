@@ -468,7 +468,7 @@ pub mod glass {
 
 /// The block cursor, wherever text has one.
 pub mod cursor {
-    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
     /// Pixels.
     pub const DEFAULT_RADIUS: f32 = 1.0;
@@ -482,6 +482,27 @@ pub mod cursor {
 
     pub fn set_radius(radius: f32) {
         RADIUS.store(radius.to_bits(), Ordering::Relaxed);
+    }
+
+    static FONT_HEIGHT: AtomicBool = AtomicBool::new(false);
+    /// The code font's ascent and descent over its size, as `f32` bits; measured on render.
+    static GLYPH_RATIO: AtomicU32 = AtomicU32::new(1.2f32.to_bits());
+
+    /// Whether the block is the font's height, centered in the row, rather than the row's.
+    pub fn font_height() -> bool {
+        FONT_HEIGHT.load(Ordering::Relaxed)
+    }
+
+    pub fn set_font_height(font_height: bool) {
+        FONT_HEIGHT.store(font_height, Ordering::Relaxed);
+    }
+
+    pub fn glyph_ratio() -> f32 {
+        f32::from_bits(GLYPH_RATIO.load(Ordering::Relaxed))
+    }
+
+    pub fn set_glyph_ratio(ratio: f32) {
+        GLYPH_RATIO.store(ratio.to_bits(), Ordering::Relaxed);
     }
 }
 

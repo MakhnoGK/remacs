@@ -38,10 +38,10 @@ use crate::opening::open;
 use crate::pane_view::{PANE_BOTTOM, PANE_GAP, PaneChrome};
 use crate::popup_view::DocumentationScroll;
 use crate::settings::{
-    BottomSettings, CursorHeight, DiffSettings, DocumentationSettings, FoldsSettings,
-    GlassSettings, KeyboardSettings, MouseSettings, ProblemsSettings, PromptsSettings,
-    ReadSettings, ScrollSettings, SwatchesSettings, TransitionsSettings, UiSettings, ZoomSettings,
-    read_settings, report,
+    BottomSettings, DiffSettings, DocumentationSettings, FoldsSettings, GlassSettings,
+    KeyboardSettings, MouseSettings, ProblemsSettings, PromptsSettings, ReadSettings,
+    ScrollSettings, SwatchesSettings, TransitionsSettings, UiSettings, ZoomSettings, read_settings,
+    report,
 };
 use crate::smooth_scroll::{Glide, SmoothScroll};
 use crate::table_view::SIDE_ROOM;
@@ -77,7 +77,6 @@ macro_rules! forward_to_editor {
 pub struct EditorView {
     editor: Editor,
     focus_handle: FocusHandle,
-    cursor_height: CursorHeight,
     keyboard: KeyboardSettings,
     composition: Composition,
     mouse: MouseSettings,
@@ -344,7 +343,6 @@ impl EditorView {
         let mut view = Self {
             editor,
             focus_handle: cx.focus_handle(),
-            cursor_height: ui.cursor.height,
             keyboard: ui.keyboard,
             composition: Composition::default(),
             mouse: ui.mouse,
@@ -414,7 +412,6 @@ impl EditorView {
     /// Takes settings read again: the view's part, and the plugins' sections.
     pub fn apply_settings(&mut self, read: ReadSettings, cx: &mut Context<Self>) {
         self.follows_system = read.ui.theme.follows_system();
-        self.cursor_height = read.ui.cursor.height;
         self.keyboard = read.ui.keyboard;
         self.mouse = read.ui.mouse;
         self.zoom = read.ui.zoom;
