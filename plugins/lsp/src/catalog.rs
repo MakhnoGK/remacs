@@ -4,8 +4,8 @@
 //! on to it; only a changed `lsp.toml` builds them again.
 
 use std::collections::BTreeMap;
-use std::fs;
 use std::path::{Path, PathBuf};
+use std::{fs, mem};
 
 use remacs_tools::{InstallSpec, Tool};
 use serde::Deserialize;
@@ -47,6 +47,7 @@ pub(crate) struct ServerSpec {
     node_modules: Option<bool>,
     min_version: Option<u64>,
     when: Option<WhenSpec>,
+    unless: Option<WhenSpec>,
     /// Added to the server's environment for projects where `env_when` holds.
     env: Option<BTreeMap<String, String>>,
     env_when: Option<WhenSpec>,
@@ -68,6 +69,8 @@ pub(crate) struct WhenSpec {
     dependencies: Vec<String>,
     /// Text a file there contains, by file name.
     contains: BTreeMap<String, String>,
+    /// Packages installed in `node_modules` there older than a major version.
+    older: BTreeMap<String, u64>,
 }
 
 /// `WhenSpec` as servers keep it.
@@ -76,28 +79,25 @@ pub struct When {
     pub files: &'static [&'static str],
     pub dependencies: &'static [&'static str],
     pub contains: &'static [(&'static str, &'static str)],
+    pub older: &'static [(&'static str, u64)],
 }
 
 impl When {
     pub fn always(&self) -> bool {
-        self.files.is_empty() && self.dependencies.is_empty() && self.contains.is_empty()
+        self.files.is_empty()
+            && self.dependencies.is_empty()
+            && self.contains.is_empty()
+            && self.older.is_empty()
     }
 
     /// Whether one of its conditions holds in `directory` or above, up to the Git work
     /// tree.
     pub fn holds(&self, directory: &Path) -> bool {
-        if self.always() {
-            return true;
-        }
-        for ancestor in project_ancestors(directory) {
-            if self.holds_in(ancestor) {
-                return true;
-            }
-            if ancestor.join(".git").exists() {
-                return false;
-            }
-        }
-        false
+        self.always()
+            || self.older.iter().any(|&(package, major)| {
+                installed_major(directory, package).is_some_and(|installed| installed < major)
+            })
+            || work_tree(directory).any(|ancestor| self.holds_in(ancestor))
     }
 
     fn holds_in(&self, directory: &Path) -> bool {
@@ -107,6 +107,23 @@ impl When {
                 fs::read_to_string(directory.join(file)).is_ok_and(|found| found.contains(text))
             })
     }
+}
+
+/// `directory` and those above it, up to the Git work tree's root.
+fn work_tree(directory: &Path) -> impl Iterator<Item = &Path> {
+    let mut past_root = false;
+    project_ancestors(directory)
+        .take_while(move |ancestor| !mem::replace(&mut past_root, ancestor.join(".git").exists()))
+}
+
+/// The major version of `package` as Node finds it from `directory`: in the nearest
+/// `node_modules` that has it.
+fn installed_major(directory: &Path, package: &str) -> Option<u64> {
+    let manifest = work_tree(directory)
+        .map(|ancestor| ancestor.join("node_modules").join(package).join("package.json"))
+        .find(|manifest| manifest.exists())?;
+    let manifest: Value = serde_json::from_str(&fs::read_to_string(manifest).ok()?).ok()?;
+    manifest.get("version")?.as_str()?.split('.').next()?.parse().ok()
 }
 
 /// `directory` and those above it, short of the home directory: a home is never a
@@ -197,6 +214,7 @@ impl ServerSpec {
             node_modules: change.node_modules.or(self.node_modules),
             min_version: change.min_version.or(self.min_version),
             when: change.when.or(self.when),
+            unless: change.unless.or(self.unless),
             env: change.env.or(self.env),
             env_when: change.env_when.or(self.env_when),
             formats_first: change.formats_first.or(self.formats_first),
@@ -237,6 +255,7 @@ impl ServerSpec {
             node_modules: self.node_modules.unwrap_or(false),
             min_version: self.min_version.unwrap_or(0),
             when: leak_when(self.when.as_ref()),
+            unless: leak_when(self.unless.as_ref()),
             env: (self.env.iter().flatten())
                 .map(|(name, value)| (leak(name), leak(value)))
                 .collect::<Vec<_>>()
@@ -260,6 +279,10 @@ fn leak_when(when: Option<&WhenSpec>) -> When {
         dependencies: leak_all(&when.dependencies),
         contains: (when.contains.iter())
             .map(|(file, text)| (leak(file), leak(text)))
+            .collect::<Vec<_>>()
+            .leak(),
+        older: (when.older.iter())
+            .map(|(package, &major)| (leak(package), major))
             .collect::<Vec<_>>()
             .leak(),
     }
@@ -290,6 +313,7 @@ mod tests {
             files: files.to_vec().leak(),
             dependencies: dependencies.to_vec().leak(),
             contains: &[],
+            older: &[],
         }
     }
 
@@ -315,6 +339,17 @@ mod tests {
         let ruff =
             When { contains: vec![("pyproject.toml", "[tool.ruff]")].leak(), ..When::default() };
         assert!(ruff.holds(&app));
+        for (directory, version) in [(&root, "5.9.3"), (&root.join("app"), "7.0.2")] {
+            let typescript = directory.join("node_modules/typescript");
+            fs::create_dir_all(&typescript).unwrap();
+            let manifest = format!(r#"{{ "version": "{version}" }}"#);
+            fs::write(typescript.join("package.json"), manifest).unwrap();
+        }
+        let older = |major| When { older: vec![("typescript", major)].leak(), ..When::default() };
+        assert!(!older(7).holds(&app), "the nearest copy is the project's");
+        assert!(older(8).holds(&app));
+        assert!(older(7).holds(&root));
+        assert!(!When { older: vec![("vue", 9)].leak(), ..When::default() }.holds(&app));
         assert!(!when(&["tailwind.config.*"], &[]).holds(&std::env::temp_dir()));
         fs::remove_dir_all(&root).unwrap();
     }

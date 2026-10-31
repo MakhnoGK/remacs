@@ -1240,4 +1240,13 @@ mod tests {
             assert!(served, "{}", mode.name);
         }
     }
+
+    #[test]
+    fn typescript_projects_get_exactly_one_typescript_server() {
+        let servers = remacs_lsp::catalog_servers(SERVERS).unwrap();
+        let server = |name| servers.iter().find(|server| server.name == name).unwrap();
+        let older = server("typescript-language-server").when.older;
+        assert!(!older.is_empty());
+        assert_eq!(server("tsc").unless.older, older);
+    }
 }

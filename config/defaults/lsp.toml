@@ -84,6 +84,8 @@ semantic-tokens = true
 #
 # [servers.tsc]
 # min-version = 7                    # a tsc found older is passed over; 0 takes any
+# unless = { older = { typescript = 7 } }   # leaves alone projects whose own TypeScript
+#                                    # is older, served by typescript-language-server
 #
 # [servers.oxfmt]
 # formats-first = false              # leave formatting to tsc

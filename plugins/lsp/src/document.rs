@@ -665,7 +665,8 @@ impl Clients {
             return Ok(None);
         }
         let directory = path.parent().unwrap_or(path);
-        if !server.when.holds(directory) {
+        let excluded = !server.unless.always() && server.unless.holds(directory);
+        if excluded || !server.when.holds(directory) {
             let declined = self.declined.entry(server.name).or_default();
             declined.insert(directory.to_path_buf());
             return Ok(None);
@@ -829,6 +830,8 @@ pub(crate) fn restart(editor: &mut Editor, name: &'static str) {
     clients.running.retain(|(server, _), _| *server != name);
     clients.failed.remove(name);
     clients.missing.remove(name);
+    // What `when` and `unless` saw may have changed since, e.g. `node_modules` installed.
+    clients.declined.clear();
     clients.versions.forget();
     detach(editor, name);
 }
@@ -1817,6 +1820,35 @@ mod tests {
         let (attached, completions) = documents(&mut editor, index).unwrap();
         assert_eq!(attached, 1);
         assert!(completions.is_some(), "the completion asked still waits");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn servers_leave_alone_projects_their_unless_names() {
+        use remacs_core::Buffer;
+        use remacs_text::Text;
+
+        let root = std::env::temp_dir().join(format!("remacs-unless-{}", std::process::id()));
+        let (served, skipped) = (root.join("served"), root.join("skipped"));
+        std::fs::create_dir_all(&served).unwrap();
+        std::fs::create_dir_all(&skipped).unwrap();
+        std::fs::write(skipped.join("skip.me"), "").unwrap();
+        let catalog = "[[servers]]\nname = \"picky\"\ncommand = \"sh\"\n\
+             args = [\"-c\", \"cat >/dev/null\"]\nlanguages = { Fundamental = \"plaintext\" }\n\
+             unless = { files = [\"skip.me\"] }\n";
+        let plugin: &'static crate::LspPlugin = Box::leak(Box::new(crate::LspPlugin::new(catalog)));
+        let mut editor = Editor::new(&[plugin]);
+        for directory in [&served, &skipped] {
+            let file = directory.join("notes.txt");
+            let name = directory.file_name().unwrap().to_string_lossy().into_owned();
+            editor.add_buffer(Buffer::new(name, Text::default(), "Fundamental").with_file(file));
+        }
+        editor.refresh();
+        let attached = |name: &str| {
+            let buffer = editor.buffers().iter().find(|buffer| buffer.name() == name).unwrap();
+            buffer.local::<Documents>().map_or(0, |documents| documents.list.len())
+        };
+        assert_eq!((attached("served"), attached("skipped")), (1, 0));
         std::fs::remove_dir_all(&root).unwrap();
     }
 
