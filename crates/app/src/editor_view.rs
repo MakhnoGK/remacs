@@ -54,7 +54,8 @@ use windows::{lay_out, render_dividers};
 const TITLE_BAR_HEIGHT: f32 = 44.0;
 /// Over the status pill; point stays above it.
 const FOOTER_FADE_HEIGHT: f32 = 56.0;
-const TEXT_TOP: f32 = 64.0;
+/// Right under the title bar: the top fade's line keeps the text off it.
+const TEXT_TOP: f32 = TITLE_BAR_HEIGHT;
 const ROW_MARGIN: f32 = 8.0;
 const ROW_RADIUS: f32 = 6.0;
 /// While a message is open whole: Emacs's copy and quit keys.
