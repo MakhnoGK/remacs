@@ -1138,6 +1138,19 @@ fn mark_all_and_skip_put_cursors_on_matches_of_the_region() {
 }
 
 #[test]
+fn indent_by_mode_names_a_known_mode() {
+    let editing_toml = |text: &str| {
+        let mut editor = editor_with("");
+        let file = (std::path::PathBuf::from("editing.toml"), text.to_owned());
+        editor.set_settings(remacs_core::Settings::from_files([file]));
+        (editor.echo(), editor.plugin_state::<EditingSettings>().indent_by_mode.len())
+    };
+    assert_eq!(editing_toml("[indent-by-mode]\nCode = 2\n"), (None, 1));
+    let error = "editing.toml: indent-by-mode: no mode code".to_owned();
+    assert_eq!(editing_toml("[indent-by-mode]\ncode = 2\n"), (Some(error), 1));
+}
+
+#[test]
 fn cursors_stop_at_max_cursors() {
     let mut editor = editor_with("x ab ab ab ab");
     editor.plugin_state::<crate::EditingSettings>().max_cursors = 3;

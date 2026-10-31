@@ -1,76 +1,111 @@
 use std::ops::Range;
 
-use remacs_core::{Buffer, CommandResult, Editor};
+use remacs_core::{Buffer, CommandResult, Editor, IndentUnit};
 
+use crate::EditingSettings;
 use crate::editing::writable_buffer;
+use crate::editorconfig;
 use crate::lines::lines_of;
 
 const OPENERS: &[u8] = b"{([";
 const CLOSERS: &[u8] = b"})]";
-const DEFAULT_WIDTH: usize = 4;
 /// Bounds every scan, so files measured in gigabytes stay instant.
 const MAX_SCAN: usize = 64 << 10;
 
-/// What one level of indentation is in a buffer, as its text already uses it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum IndentUnit {
-    Tabs,
-    Spaces(usize),
+/// Reads the unit from the start of `text`; `None` while nothing there is indented.
+fn detect(text: &[u8]) -> Option<IndentUnit> {
+    let mut tab_lines = 0;
+    let mut space_lines = 0;
+    let mut step_counts = [0usize; 9];
+    let mut previous_spaces = 0;
+    for line in text.split(|&byte| byte == b'\n') {
+        if line.iter().all(u8::is_ascii_whitespace) {
+            continue;
+        }
+        if line[0] == b'\t' {
+            tab_lines += 1;
+            continue;
+        }
+        let spaces = line.iter().take_while(|&&byte| byte == b' ').count();
+        if spaces > 0 {
+            space_lines += 1;
+        }
+        // Steps of one are block-comment continuations (` * `), not indentation.
+        let step = spaces.saturating_sub(previous_spaces);
+        if (2..step_counts.len()).contains(&step) {
+            step_counts[step] += 1;
+        }
+        previous_spaces = spaces;
+    }
+    if tab_lines > space_lines {
+        return Some(IndentUnit::Tabs);
+    }
+    (0..step_counts.len())
+        .rev()
+        .max_by_key(|&step| step_counts[step])
+        .filter(|&step| step_counts[step] > 0)
+        .map(IndentUnit::Spaces)
 }
 
-impl IndentUnit {
-    fn text(self) -> String {
-        match self {
-            IndentUnit::Tabs => "\t".into(),
-            IndentUnit::Spaces(width) => " ".repeat(width),
-        }
-    }
+/// What `.editorconfig` files tell of a buffer's indentation, read once.
+struct EditorConfigIndent(Option<IndentUnit>);
 
-    /// Reads the unit from the start of `text`; `None` while nothing there is indented.
-    fn detect(text: &[u8]) -> Option<Self> {
-        let mut tab_lines = 0;
-        let mut space_lines = 0;
-        let mut step_counts = [0usize; 9];
-        let mut previous_spaces = 0;
-        for line in text.split(|&byte| byte == b'\n') {
-            if line.iter().all(u8::is_ascii_whitespace) {
-                continue;
-            }
-            if line[0] == b'\t' {
-                tab_lines += 1;
-                continue;
-            }
-            let spaces = line.iter().take_while(|&&byte| byte == b' ').count();
-            if spaces > 0 {
-                space_lines += 1;
-            }
-            // Steps of one are block-comment continuations (` * `), not indentation.
-            let step = spaces.saturating_sub(previous_spaces);
-            if (2..step_counts.len()).contains(&step) {
-                step_counts[step] += 1;
-            }
-            previous_spaces = spaces;
-        }
-        if tab_lines > space_lines {
-            return Some(IndentUnit::Tabs);
-        }
-        (0..step_counts.len())
-            .rev()
-            .max_by_key(|&step| step_counts[step])
-            .filter(|&step| step_counts[step] > 0)
-            .map(IndentUnit::Spaces)
-    }
+/// The unit of buffer `index` of [`Editor::buffers`].
+pub fn buffer_indent_unit(editor: &mut Editor, index: usize) -> IndentUnit {
+    let fallback = fallback_unit(editor, editor.buffers()[index].mode());
+    unit_of(&mut editor.buffers_mut()[index], fallback)
 }
 
-/// The buffer's unit, detected once its text shows one; the default until then.
-pub fn indent_unit(buffer: &mut Buffer) -> IndentUnit {
+fn indent_unit(editor: &mut Editor) -> IndentUnit {
+    let fallback = fallback_unit(editor, editor.buffer().mode());
+    unit_of(editor.buffer_mut(), fallback)
+}
+
+/// The buffer's unit as its text shows it, detected once it does; else as `.editorconfig`
+/// tells; else `fallback`.
+fn unit_of(buffer: &mut Buffer, fallback: IndentUnit) -> IndentUnit {
     if let Some(&unit) = buffer.local::<IndentUnit>() {
         return unit;
     }
     let sample = buffer.text().bytes_in(0..buffer.text().len().min(MAX_SCAN));
-    match IndentUnit::detect(&sample) {
-        Some(unit) => *buffer.set_local(unit),
-        None => IndentUnit::Spaces(DEFAULT_WIDTH),
+    if let Some(unit) = detect(&sample) {
+        return *buffer.set_local(unit);
+    }
+    let told = match buffer.local::<EditorConfigIndent>() {
+        Some(told) => told.0,
+        None => {
+            let told = buffer.path().and_then(editorconfig::indent_unit);
+            buffer.set_local(EditorConfigIndent(told)).0
+        }
+    };
+    told.unwrap_or(fallback)
+}
+
+/// The unit of a file of `mode` that nothing else tells: editing.toml's for the mode, the
+/// mode's own, else editing.toml's.
+fn fallback_unit(editor: &mut Editor, mode: &str) -> IndentUnit {
+    let modes = editor.mode(mode).and_then(|mode| mode.indent);
+    let settings = editor.plugin_state::<EditingSettings>();
+    settings.indent_by_mode.get(mode).copied().or(modes).unwrap_or(settings.indent)
+}
+
+/// Inserts `text` at point as completions and snippets are written, for any buffer: its
+/// lines after the first at the level of point's line, their leading tabs in `unit`. Point
+/// goes to `cursor`, an offset in `text`, when there is one.
+pub fn insert_indented(buffer: &mut Buffer, unit: IndentUnit, text: &str, cursor: Option<usize>) {
+    let start = buffer.point();
+    let level = line_indentation(buffer, start);
+    let indented = |text: &str| {
+        let mut lines = text.split('\n');
+        let first = lines.next().unwrap_or_default().to_owned();
+        lines.fold(first, |indented, line| {
+            let tabs = line.len() - line.trim_start_matches('\t').len();
+            format!("{indented}\n{level}{}{}", unit.text().repeat(tabs), &line[tabs..])
+        })
+    };
+    buffer.insert(&indented(text));
+    if let Some(before_cursor) = cursor.and_then(|cursor| text.get(..cursor)) {
+        buffer.set_point(start + indented(before_cursor).len());
     }
 }
 
@@ -78,11 +113,10 @@ pub fn indent_unit(buffer: &mut Buffer) -> IndentUnit {
 /// its opener's level before a closer. Between an empty pair the closer gets a line of its
 /// own. Blanks around point go, so no line is left with trailing whitespace.
 pub fn newline(editor: &mut Editor) -> CommandResult {
-    let buffer = writable_buffer(editor)?;
-    let unit = indent_unit(buffer);
+    let left = writable_buffer(editor)?.point_line();
+    let unit = indent_unit(editor);
     // The line left first, as Emacs `electric-indent-mode` does: a `}` or `end` typed at
     // the wrong level goes to its block's, and the brackets read it there.
-    let left = buffer.point_line();
     reindent(editor, left..left + 1, unit);
     let buffer = editor.buffer_mut();
     let point = buffer.point();
@@ -128,9 +162,8 @@ pub fn indent_for_tab_command(editor: &mut Editor) -> CommandResult {
     if editor.buffer().region().is_some() {
         return indent_region(editor);
     }
-    let buffer = writable_buffer(editor)?;
-    let unit = indent_unit(buffer);
-    let line = buffer.point_line();
+    let line = writable_buffer(editor)?.point_line();
+    let unit = indent_unit(editor);
     if !reindent(editor, line..line + 1, unit) {
         return tab_to_tab_stop(editor);
     }
@@ -139,10 +172,9 @@ pub fn indent_for_tab_command(editor: &mut Editor) -> CommandResult {
 
 /// Indents the region's lines as their syntax tells; lines it cannot tell keep theirs.
 pub fn indent_region(editor: &mut Editor) -> CommandResult {
-    let buffer = writable_buffer(editor)?;
-    let unit = indent_unit(buffer);
-    let span = buffer.region().ok_or("No region to indent")?;
-    let (first, last) = lines_of(buffer, span);
+    let span = writable_buffer(editor)?.region().ok_or("No region to indent")?;
+    let unit = indent_unit(editor);
+    let (first, last) = lines_of(editor.buffer(), span);
     if !reindent(editor, first..last + 1, unit) {
         return Err("No syntax tells this buffer's indentation".into());
     }
@@ -220,8 +252,9 @@ pub fn open_line_below(editor: &mut Editor) -> CommandResult {
 
 /// Starts a line above the current one at its level, a level deeper above a closer.
 pub fn open_line_above(editor: &mut Editor) -> CommandResult {
-    let buffer = writable_buffer(editor)?;
-    let unit = indent_unit(buffer);
+    writable_buffer(editor)?;
+    let unit = indent_unit(editor);
+    let buffer = editor.buffer_mut();
     let line = buffer.text().line_range(buffer.point_line()).unwrap_or(0..0);
     let mut indentation = line_indentation(buffer, line.start);
     let first =
@@ -258,12 +291,12 @@ pub fn indent_for_closer(buffer: &mut Buffer, closer: char) {
 }
 
 pub fn tab_to_tab_stop(editor: &mut Editor) -> CommandResult {
-    let buffer = writable_buffer(editor)?;
-    let text = match indent_unit(buffer) {
+    writable_buffer(editor)?;
+    let text = match indent_unit(editor) {
         IndentUnit::Tabs => "\t".into(),
-        IndentUnit::Spaces(width) => " ".repeat(width - buffer.point_column() % width),
+        IndentUnit::Spaces(width) => " ".repeat(width - editor.buffer().point_column() % width),
     };
-    buffer.insert(&text);
+    editor.buffer_mut().insert(&text);
     Ok(())
 }
 
@@ -320,16 +353,18 @@ fn trailing_blanks(bytes: &[u8]) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::IndentUnit;
+    use remacs_core::IndentUnit;
+
+    use super::detect;
 
     #[test]
     fn detects_the_unit_a_text_uses() {
         let two = b"fn main() {\n  if x {\n    y();\n  }\n}\n";
-        assert_eq!(IndentUnit::detect(two), Some(IndentUnit::Spaces(2)));
+        assert_eq!(detect(two), Some(IndentUnit::Spaces(2)));
         let tabs = b"int main() {\n\tif (x) {\n\t\ty();\n\t}\n}\n";
-        assert_eq!(IndentUnit::detect(tabs), Some(IndentUnit::Tabs));
+        assert_eq!(detect(tabs), Some(IndentUnit::Tabs));
         let doc_comments = b"/**\n * Docs\n */\nfn f() {\n    g();\n}\n";
-        assert_eq!(IndentUnit::detect(doc_comments), Some(IndentUnit::Spaces(4)));
-        assert_eq!(IndentUnit::detect(b"flat\ntext\n"), None);
+        assert_eq!(detect(doc_comments), Some(IndentUnit::Spaces(4)));
+        assert_eq!(detect(b"flat\ntext\n"), None);
     }
 }

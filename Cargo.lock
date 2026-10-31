@@ -5075,6 +5075,7 @@ name = "remacs-editing"
 version = "0.1.0"
 dependencies = [
  "divan",
+ "globset",
  "memchr",
  "regex",
  "remacs-core",

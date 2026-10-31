@@ -176,6 +176,20 @@ fn inserting_places_point_and_makes_extra_edits() {
     assert_eq!(text(&editor), "use a;\nfn f() { ma");
 }
 
+/// Snippets are written at column 0 with tabs, as servers send them for any editor.
+#[test]
+fn inserted_lines_take_the_lines_level_and_the_buffers_unit() {
+    let mut editor = editor_with("fn f() {\n  g();\n  if");
+    press(&mut editor, "C-M-i");
+    take_requests(&mut editor);
+    let start = "fn f() {\n  g();\n  ".len();
+    let snippet = Item { insert: "if b {\n\t\n}".into(), cursor: Some(8), ..item("if", start) };
+    deliver(&mut editor, 1, List { items: vec![snippet], incomplete: false });
+    press(&mut editor, "TAB");
+    assert_eq!(text(&editor), "fn f() {\n  g();\n  if b {\n    \n  }");
+    assert_eq!(editor.window_buffer().point(), "fn f() {\n  g();\n  if b {\n    ".len());
+}
+
 #[test]
 fn moving_point_without_a_command_hides_the_popup() {
     let mut editor = editor_with("abc");

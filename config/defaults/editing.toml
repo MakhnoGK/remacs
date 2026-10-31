@@ -3,3 +3,15 @@
 # Cursors a buffer has at most, point included (C->, C-c C-<, C-S-c C-S-c, C-;): each edit
 # moves every cursor after it, so a key costs about 7 ms at 1000 and 0.8 s at 10000.
 max-cursors = 1000
+
+# One level of indentation, a number of spaces or "tabs", for a file whose text is not
+# indented yet. A file keeps the indentation its text uses; one not indented yet takes the
+# project's `.editorconfig` (indent_style, indent_size), else `indent-by-mode` below, else
+# its language's usual one (2 spaces for TypeScript, JavaScript, HTML, CSS, JSON, YAML…,
+# tabs for Go and Make), else this.
+indent = 4
+
+# The same for a mode, by its name, ahead of the language's usual one.
+[indent-by-mode]
+# Python = 2
+# Go = "tabs"

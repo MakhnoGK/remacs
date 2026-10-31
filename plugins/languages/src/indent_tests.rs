@@ -1,8 +1,9 @@
+use std::collections::BTreeMap;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use remacs_core::{Buffer, Editor};
-use remacs_editing::EditingPlugin;
+use remacs_core::{Buffer, Editor, IndentUnit};
+use remacs_editing::{EditingPlugin, EditingSettings};
 use remacs_syntax::SyntaxPlugin;
 use remacs_text::Text;
 
@@ -11,7 +12,7 @@ use crate::{GRAMMARS, INDENTS, INJECTIONS, LanguagesPlugin};
 
 static SYNTAX: SyntaxPlugin = SyntaxPlugin::new(GRAMMARS, INJECTIONS).with_indents(INDENTS);
 
-/// A file indented as its language is, with 4 spaces, the unit of a file not yet indented.
+/// A file indented as its language is, with 4 spaces, the unit the test gives its buffer.
 /// Lines in strings and comments begun above start at column 0, which they are left at.
 type Sample = (&'static str, &'static str, &'static str);
 
@@ -472,6 +473,7 @@ fn each_language_indents_its_code_as_written() {
     let mut wrong = Vec::new();
     for &(mode, name, indented) in SAMPLES {
         let mut editor = editor_with(name, mode, &stripped(indented));
+        editor.buffer_mut().set_local(IndentUnit::Spaces(4));
         editor.run_command("mark-whole-buffer");
         editor.run_command("indent-region");
         let indented_now = contents(&editor);
@@ -513,9 +515,9 @@ fn breaking_a_line_indents_the_new_one_by_the_syntax() {
         typed("main.py", PYTHON, "def f():\n    if a:\n        b = 1"),
         "def f():\n    if a:\n        b = 1\n        x"
     );
-    assert_eq!(typed("a.yaml", YAML, "key:"), "key:\n    x");
+    assert_eq!(typed("a.yaml", YAML, "key:"), "key:\n  x");
     assert_eq!(typed("a.yaml", YAML, "a:\n    b: 1"), "a:\n    b: 1\n    x");
-    assert_eq!(typed("page.html", HTML, "<div>"), "<div>\n    x");
+    assert_eq!(typed("page.html", HTML, "<div>"), "<div>\n  x");
 
     let typed_at = |name: &str, mode: &'static str, text: &str, at: &str| {
         let mut editor = editor_with(name, mode, text);
@@ -607,6 +609,32 @@ fn tab_in_python_moves_a_line_into_the_block_above() {
     editor.buffer_mut().set_point(12);
     editor.run_command("indent-for-tab-command");
     assert_eq!(contents(&editor), "if a:\n    b\n    c\n");
+}
+
+/// A file not indented yet takes its language's usual unit, or editing.toml's; one indented
+/// keeps its own.
+#[test]
+fn a_file_not_indented_yet_takes_its_languages_unit() {
+    let broken = |name: &str, mode: &'static str, text: &str, settings: EditingSettings| {
+        let mut editor = editor_with(name, mode, text);
+        *editor.plugin_state() = settings;
+        let end = editor.buffer().text().len();
+        editor.buffer_mut().set_point(end);
+        editor.run_command("newline");
+        contents(&editor)
+    };
+    let defaults = EditingSettings::default;
+    assert_eq!(broken("a.ts", TYPESCRIPT, "f() {", defaults()), "f() {\n  ");
+    assert_eq!(broken("main.go", GO, "func f() {", defaults()), "func f() {\n\t");
+    assert_eq!(broken("main.rs", RUST, "fn f() {", defaults()), "fn f() {\n    ");
+    let ts_by_four = "f() {\n    g();\n}\nh() {";
+    assert_eq!(broken("a.ts", TYPESCRIPT, ts_by_four, defaults()), format!("{ts_by_four}\n    "));
+
+    let three = EditingSettings { indent: IndentUnit::Spaces(3), ..defaults() };
+    assert_eq!(broken("main.rs", RUST, "fn f() {", three), "fn f() {\n   ");
+    let by_mode = BTreeMap::from([(TYPESCRIPT.to_owned(), IndentUnit::Tabs)]);
+    let ts_tabs = EditingSettings { indent_by_mode: by_mode, ..defaults() };
+    assert_eq!(broken("a.ts", TYPESCRIPT, "f() {", ts_tabs), "f() {\n\t");
 }
 
 #[test]

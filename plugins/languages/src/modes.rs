@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 
-use remacs_core::{CommentSyntax, Mode};
+use remacs_core::{CommentSyntax, IndentUnit, Mode};
 use serde::Deserialize;
 
 pub(crate) const RUST: &str = "Rust";
@@ -80,6 +80,7 @@ struct Language {
     comment_end: String,
     markup_comment: Option<String>,
     markup_comment_end: String,
+    indent: Option<IndentUnit>,
 }
 
 impl Language {
@@ -100,6 +101,7 @@ impl Language {
             pairs: pairs.leak(),
             comment: comment(self.comment, self.comment_end),
             markup_comment: comment(self.markup_comment, self.markup_comment_end),
+            indent: self.indent,
         }
     }
 }

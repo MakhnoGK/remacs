@@ -15,6 +15,7 @@ remacs-core.workspace = true
 remacs-diagnostics.workspace = true
 remacs-dired.workspace = true
 remacs-documentation.workspace = true
+remacs-editing.workspace = true
 remacs-format.workspace = true
 remacs-rename.workspace = true
 remacs-syntax.workspace = true
@@ -27,7 +28,6 @@ toml.workspace = true
 
 [dev-dependencies]
 divan.workspace = true
-remacs-editing.workspace = true
 remacs-minibuffer.workspace = true
 
 [[bench]]
