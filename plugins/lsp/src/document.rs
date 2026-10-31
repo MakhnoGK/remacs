@@ -987,16 +987,14 @@ pub(crate) fn code_untold(editor: &Editor, buffer: &Buffer) -> bool {
         && editor.embedded(buffer).is_none()
 }
 
-/// The server that formats `path`'s buffer, its document's URI and the text the server has:
-/// the first, unless one of the file's servers formats ahead of it.
-fn formatter(editor: &Editor, path: &Path) -> Option<(Rc<Client>, Uri, Snapshot)> {
+/// The server that formats `path`'s buffer, its document's URI, the text the server has and
+/// the buffer's index: the first, unless one of the file's servers formats ahead of it.
+fn formatter(editor: &Editor, path: &Path) -> Option<(Rc<Client>, Uri, Snapshot, usize)> {
     let file = remacs_core::embedded_file(path);
-    let list = &editor
-        .buffers()
-        .iter()
-        .find(|buffer| buffer.path() == Some(file.as_deref().unwrap_or(path)))?
-        .local::<Documents>()?
-        .list;
+    let buffers = editor.buffers();
+    let index =
+        buffers.iter().position(|buffer| buffer.path() == Some(file.as_deref().unwrap_or(path)))?;
+    let list = &buffers[index].local::<Documents>()?.list;
     // Without a server of its own, embedded code is the file's server's, at the same offsets.
     // Embedded code is formatted by regions, which formatters ahead of the server may lack.
     let document =
@@ -1004,7 +1002,7 @@ fn formatter(editor: &Editor, path: &Path) -> Option<(Rc<Client>, Uri, Snapshot)
             let whole = || list.iter().filter(|document| document.mirror.is_none());
             (whole().find(|document| document.server.formats_first)).or_else(|| whole().next())
         })?;
-    Some((Rc::clone(&document.client), document.uri.clone(), document.sent_text()))
+    Some((Rc::clone(&document.client), document.uri.clone(), document.sent_text(), index))
 }
 
 /// The text the server of embedded code has of document `path`, whose positions refer
@@ -1360,7 +1358,7 @@ fn send_formats(editor: &mut Editor) {
     // The last backend: what the others left is the language server's to format.
     requests.extend(remacs_format::take_requests(editor, |_| true));
     for (index, request) in requests.into_iter().enumerate() {
-        let Some((client, uri, text)) = formatter(editor, &request.path) else {
+        let Some((client, uri, text, buffer)) = formatter(editor, &request.path) else {
             let missing = Failure::Unsupported("No formatter for this buffer".into());
             remacs_format::deliver(editor, request.id, Err(missing));
             continue;
@@ -1372,7 +1370,8 @@ fn send_formats(editor: &mut Editor) {
             editor.plugin_state::<HeldFormats>().0.push(request);
             continue;
         }
-        client.send(Outgoing::Format { uri, id: request.id, text, range: request.range });
+        let indent = remacs_editing::buffer_indent_unit(editor, buffer);
+        client.send(Outgoing::Format { uri, id: request.id, text, range: request.range, indent });
     }
 }
 

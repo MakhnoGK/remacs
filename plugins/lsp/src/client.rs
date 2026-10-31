@@ -32,7 +32,7 @@ use lsp_types::{
 };
 use remacs_actions::Action;
 use remacs_completion::{Item, List, Trigger};
-use remacs_core::{Notifier, StatusItem};
+use remacs_core::{IndentUnit, Notifier, StatusItem};
 use remacs_documentation::{SignatureTrigger, Signatures};
 use remacs_format::{Failure, Formatted};
 use remacs_text::{Edit, Snapshot};
@@ -197,13 +197,14 @@ pub(crate) enum Outgoing {
         id: u64,
         command: lsp_types::Command,
     },
-    /// Asks for the edits that format `range` of `text`, or all of it; `id` is the format
-    /// plugin's.
+    /// Asks for the edits that format `range` of `text`, or all of it, indented by `indent`
+    /// where the project's own settings do not say; `id` is the format plugin's.
     Format {
         uri: Uri,
         id: u64,
         text: Snapshot,
         range: Option<Range<usize>>,
+        indent: IndentUnit,
     },
     /// Asks what renaming files, from and to, would change in others.
     WillRename {
@@ -1098,7 +1099,7 @@ impl Writer {
                 let pending = Pending::DocumentSymbols { id: *id, path };
                 self.ask(DocumentSymbolRequest::METHOD, params, pending)
             }
-            Outgoing::Format { uri, id, text, range } => {
+            Outgoing::Format { uri, id, text, range, indent } => {
                 let supported = match range {
                     Some(_) => negotiated.range_formatting,
                     None => negotiated.formatting,
@@ -1113,10 +1114,9 @@ impl Writer {
                     (self.notifier)();
                     return Ok(());
                 }
-                // Formatters follow the project's own settings, such as rustfmt.toml.
                 let mut params = json!({
                     "textDocument": TextDocumentIdentifier::new(uri.clone()),
-                    "options": { "tabSize": 4, "insertSpaces": true, "insertFinalNewline": true },
+                    "options": format_options(*indent),
                 });
                 let method = match range {
                     Some(range) => {
@@ -1143,6 +1143,16 @@ impl Writer {
         lock(&self.inbox).requests.insert(id, pending);
         request(id, method, params)
     }
+}
+
+/// Formatters follow the project's own settings, such as rustfmt.toml; those without, like
+/// TypeScript's, these. A tab is as wide as the display draws it.
+fn format_options(indent: IndentUnit) -> Value {
+    let (tab_size, insert_spaces) = match indent {
+        IndentUnit::Tabs => (4, false),
+        IndentUnit::Spaces(width) => (width, true),
+    };
+    json!({ "tabSize": tab_size, "insertSpaces": insert_spaces, "insertFinalNewline": true })
 }
 
 /// A pull, completion or question that a later one in the same batch repeats is not worth
@@ -1808,6 +1818,13 @@ mod tests {
             })
             .collect();
         assert_eq!(answers, [(json!(1), json!("body")), (json!(2), Value::Null)]);
+    }
+
+    #[test]
+    fn formatting_options_follow_the_buffers_indentation() {
+        let options = |tab_size: usize, insert_spaces: bool| json!({ "tabSize": tab_size, "insertSpaces": insert_spaces, "insertFinalNewline": true });
+        assert_eq!(format_options(IndentUnit::Spaces(2)), options(2, true));
+        assert_eq!(format_options(IndentUnit::Tabs), options(4, false));
     }
 
     #[test]

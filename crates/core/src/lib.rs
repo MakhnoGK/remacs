@@ -59,7 +59,7 @@ pub use minibuffer::{
     AnswerCheck, Count, Dialog, DialogOption, ListItem, Message, Minibuffer, Prompt, PromptChoice,
     PromptOption, VISIBLE_CANDIDATES, quote, quoted_parts,
 };
-pub use mode::{CommentSyntax, FUNDAMENTAL_MODE, Mode, Modes, ModesSettings};
+pub use mode::{CommentSyntax, FUNDAMENTAL_MODE, IndentUnit, Mode, Modes, ModesSettings};
 pub use mouse::MouseSelection;
 pub use outline::{
     Banner, BannerButton, BannerPart, CommitChain, CommitRow, ConflictBlock, ConflictRegion,

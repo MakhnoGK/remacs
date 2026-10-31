@@ -416,14 +416,13 @@ pub(crate) fn insert(editor: &mut Editor) -> CommandResult {
     let &index = session.matches.get(session.selection.selected()).ok_or("No completion")?;
     let mut items = session.items;
     let mut item = items.swap_remove(index);
+    // The window buffer is the first.
+    let unit = remacs_editing::buffer_indent_unit(editor, 0);
     let buffer = editor.window_buffer_mut();
     let point = buffer.point();
     let start = item.start.min(point);
     buffer.delete(start..point);
-    buffer.insert(&item.insert);
-    if let Some(cursor) = item.cursor {
-        buffer.set_point(start + cursor);
-    }
+    remacs_editing::insert_indented(buffer, unit, &item.insert, item.cursor);
     item.extra_edits.retain(|(range, _)| range.end <= start);
     item.extra_edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
     for (range, text) in &item.extra_edits {

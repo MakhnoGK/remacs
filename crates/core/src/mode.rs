@@ -30,6 +30,45 @@ pub struct Mode {
     pub comment: Option<CommentSyntax>,
     /// For lines of markup embedded in code, like JSX children.
     pub markup_comment: Option<CommentSyntax>,
+    /// The language's usual indentation, for a file not indented yet.
+    pub indent: Option<IndentUnit>,
+}
+
+/// What one level of indentation is: a tab, or a number of spaces. Settings write it as
+/// the number or `"tabs"`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(try_from = "IndentSetting")]
+pub enum IndentUnit {
+    Tabs,
+    Spaces(usize),
+}
+
+impl IndentUnit {
+    pub fn text(self) -> String {
+        match self {
+            IndentUnit::Tabs => "\t".into(),
+            IndentUnit::Spaces(width) => " ".repeat(width),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum IndentSetting {
+    Spaces(usize),
+    Named(String),
+}
+
+impl TryFrom<IndentSetting> for IndentUnit {
+    type Error = String;
+
+    fn try_from(setting: IndentSetting) -> Result<Self, String> {
+        match setting {
+            IndentSetting::Spaces(width @ 1..) => Ok(IndentUnit::Spaces(width)),
+            IndentSetting::Named(name) if name == "tabs" => Ok(IndentUnit::Tabs),
+            _ => Err("indentation is a number of spaces above 0, or \"tabs\"".into()),
+        }
+    }
 }
 
 /// How a line is commented out: `start` before it, and `end` after it for languages

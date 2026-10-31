@@ -49,5 +49,4 @@ Status: accepted, 2026-10-23 (issue #102, step 5a); extends ADR 0024
 
 - An injected script's first line, with no code above it in its language, is left where
   it is written.
-- A file not yet indented gets 4 spaces, whatever the language's custom.
 - Indent queries of one's own (ADR 0083) are not read yet.
