@@ -1,7 +1,8 @@
 # 0091 — Run and debug without writing configurations
 
 Status: accepted, 2026-11-01 (issue #215, stage 1: task runners; stage 2: new
-configurations; stage 3: the run file's schema)
+configurations; stage 3: the run file's schema; stage 4: discovery over the whole
+index)
 
 ## Decision
 
@@ -69,6 +70,32 @@ configurations; stage 3: the run file's schema)
   misspelled `evn-file`); taplo cannot, as kinds are alternatives of one table. Checked
   with taplo 0.10 and tombi 1.9.8 on a run file the store wrote, before and after
   uncommenting every optional field.
+
+- **Stage 4: the chooser finds everything, off the main thread.** The cap of 200
+  candidate files is gone: a monorepo's packages past the first 200 were never offered.
+  Each project has one search for what it can run, on a thread of its own, kept while
+  the chooser is closed: the chooser lists the saved configurations at once and the
+  rest when the search is done ("Looking through the project…" until then); opened
+  again it lists everything at once. A new search starts only when the file index
+  changes and none is going on, so quick openings start no more. A search that fails
+  says so in the chooser, and runs again once the index changes. Each entry's command
+  line is found once per search, not on every key typed, a search reads each
+  `Cargo.toml` once, and a workspace's root is looked for only for a file with a
+  `main` or tests. Measured with `cargo bench -p remacs-run --bench discovery` on a
+  monorepo of 1000 npm packages of five scripts and 1000 Cargo binaries (6001 rows),
+  median of 10, and checked again by a second reviewer:
+
+  | | before | after |
+  |---|---|---|
+  | `discover` | 90 ms | 63 ms |
+  | main thread, opening the chooser the first time | 219 ms | 15 µs, then 7 ms as the search ends 137 ms later |
+  | main thread, opening it again | 219 ms | 1.9 ms |
+  | main thread, a key typed and deleted | 279 ms | 2.6 ms |
+
+  "Before" is without the cap, which bounded the old code only by leaving packages
+  out. The first opening was measured before searches were kept per project; the bench
+  now measures opening again. The gutter's search on a pause in typing (`--bench
+  entry_points`) stays 3.1 µs.
 
 ## Later
 

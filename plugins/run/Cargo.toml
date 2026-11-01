@@ -31,5 +31,9 @@ remacs-minibuffer.workspace = true
 name = "entry_points"
 harness = false
 
+[[bench]]
+name = "discovery"
+harness = false
+
 [lints]
 workspace = true

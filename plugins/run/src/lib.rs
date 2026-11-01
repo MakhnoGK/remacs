@@ -9,7 +9,9 @@ mod commands;
 mod compile;
 mod configuration;
 pub mod console;
-mod discovery;
+/// Public for the benchmarks only.
+#[doc(hidden)]
+pub mod discovery;
 mod entry_points;
 mod launch;
 mod menu;
