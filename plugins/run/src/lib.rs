@@ -19,6 +19,7 @@ mod scanner;
 mod sessions;
 mod settings;
 mod status;
+mod tasks;
 mod window;
 
 use std::path::Path;

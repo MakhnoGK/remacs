@@ -1,11 +1,13 @@
 //! Where programs start: a Rust binary's or example's `main`, a JavaScript or TypeScript
-//! file, a `package.json` script. Each comes with the configuration that runs it.
+//! file, a `package.json` script, a Makefile's target, a justfile's recipe. Each comes
+//! with the configuration that runs it.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::configuration::{Cargo, Configuration, Kind};
 use crate::rust_tests::rust_tests;
+use crate::tasks::{is_task_file, task_entry_points};
 
 pub const RUST_MODE: &str = "Rust";
 pub const JAVASCRIPT_MODES: &[&str] = &["JavaScript", "TypeScript"];
@@ -23,14 +25,17 @@ pub struct EntryPoint {
 }
 
 impl EntryPoint {
-    fn at(line: usize, configuration: Configuration) -> Self {
+    pub(crate) fn at(line: usize, configuration: Configuration) -> Self {
         Self { line, end_line: line, configuration, temporary: false }
     }
 }
 
 /// Whether a file in `mode` named `name` can have entry points at all.
 pub fn may_have_entry_points(mode: &str, name: &str) -> bool {
-    mode == RUST_MODE || JAVASCRIPT_MODES.contains(&mode) || name == PACKAGE_JSON
+    mode == RUST_MODE
+        || JAVASCRIPT_MODES.contains(&mode)
+        || name == PACKAGE_JSON
+        || is_task_file(name)
 }
 
 /// The entry points of `text`, the file at `path` in `mode`, in the project at `root`.
@@ -49,7 +54,7 @@ pub fn entry_points(path: &Path, mode: &str, text: &str, root: &Path) -> Vec<Ent
     } else if name == PACKAGE_JSON {
         package_scripts(path, text, root)
     } else {
-        Vec::new()
+        task_entry_points(path, text, root).unwrap_or_default()
     }
 }
 

@@ -9,6 +9,7 @@ use remacs_files::expand_home;
 
 use crate::configuration::{Configuration, Kind, PackageManager};
 use crate::settings::{RunSettings, TypeScriptRuntime};
+use crate::tasks::{file_directory, task_command};
 
 /// A program to start, with the shell commands to run before it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -69,10 +70,7 @@ pub fn launch(
             ("cargo".to_owned(), args, root.to_path_buf())
         }
         Kind::Npm { package_json, script, package_manager } => {
-            let directory = root
-                .join(package_json)
-                .parent()
-                .map_or_else(|| root.to_path_buf(), Path::to_path_buf);
+            let directory = file_directory(&root.join(package_json), root);
             let manager =
                 package_manager.unwrap_or_else(|| detect_package_manager(&directory, root));
             let mut args = vec!["run".to_owned(), script.clone()];
@@ -82,6 +80,8 @@ pub fn launch(
             }
             (manager.program().to_owned(), args, directory)
         }
+        Kind::Make(task) => task_command("make", "-f", task, root),
+        Kind::Just(task) => task_command("just", "--justfile", task, root),
         Kind::Node { file } => {
             let (program, mut args) = if is_typescript(file) {
                 typescript_command(settings.typescript, node_version(), || {

@@ -662,6 +662,7 @@ fn the_chooser_lists_configurations_then_what_the_project_can_run() {
     let package = "{\n  \"scripts\": {\n    \"dev\": \"vite\",\n    \"test\": \"vitest\"\n  }\n}\n";
     write(&root.join("apps/site/package.json"), package);
     write(&root.join("README"), "");
+    write(&root.join("Makefile"), ".PHONY: dist\ndist:\n\ttar czf app.tgz app\n");
     configuration_store(&mut editor).find_or_add(&root, shell("check", "true")).unwrap();
     editor.visit_file(&root.join("README")).unwrap();
     editor.refresh();
@@ -678,12 +679,13 @@ fn the_chooser_lists_configurations_then_what_the_project_can_run() {
             })
             .unwrap_or_default()
     };
-    wait_until(&mut editor, |editor| listed(editor).len() == 4);
+    wait_until(&mut editor, |editor| listed(editor).len() == 5);
     assert_eq!(
         listed(&editor),
         [
             ("site: dev".into(), Some("New"), true),
             ("site: test".into(), Some("New"), true),
+            ("dist".into(), Some("New"), true),
             ("check".into(), None, false),
             ("New configuration…".into(), None, false),
         ]
