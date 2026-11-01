@@ -9,13 +9,11 @@ Status: accepted, 2026-11-01 (issue #215, stage 1: task runners)
   run file is for editing what was found. Each focused stack adds its own discovery
   (#197, #200, #201, #206, #209, #213) through `entry_points`, which feeds both.
 - **Clean room** (owner's rule): designs come from our own requirements, not from
-  other IDEs' features, code or docs. Another tool's file is read only as a format,
-  from its public specification, to take over a project's existing configurations.
+  other IDEs' features, code or docs. Other tools' run configurations are not imported.
 - **Stages**, one pull request each: (1) task runners; (2) "New configuration…" built
-  from what is at point, every field written out; (3) VS Code's `launch.json` and
-  `tasks.json`, JetBrains' `.run/*.run.xml` and Zed's tasks imported; (4) a schema for
-  the run file; (5) discovery over the whole file index, measured; (6) a fixture per
-  stack that runs and debugs its entry point with no typing.
+  from what is at point, every field written out; (3) a schema for the run file; (4)
+  discovery over the whole file index, measured; (5) a fixture per stack that runs and
+  debugs its entry point with no typing.
 - **Stage 1: Makefiles and justfiles.** Two kinds, `kind = "make"` and `kind = "just"`,
   each a `file` (relative to the project root) and its `task`:
 
