@@ -165,6 +165,9 @@ pub mod color {
 
             accent,
             accent_on_selection,
+            /// The block cursor, and the character under it.
+            cursor,
+            fg_on_cursor,
 
             error,
             /// Text about something to be destroyed, e.g. the flagged count.

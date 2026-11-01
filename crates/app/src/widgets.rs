@@ -434,8 +434,8 @@ pub fn block_cursor() -> Div {
     div()
         .flex_none()
         .rounded(px(cursor::radius()))
-        .bg(rgb(color::fg_main()))
-        .text_color(rgb(color::bg_main()))
+        .bg(rgb(color::cursor()))
+        .text_color(rgb(color::fg_on_cursor()))
 }
 
 /// The block cursor in text laid out inline, as in prompts: the font's height when
@@ -486,7 +486,7 @@ pub fn text_with_cursor(
 /// background, like the region's, that would cover the cursor.
 pub fn cursor_text_style() -> HighlightStyle {
     HighlightStyle {
-        color: Some(hsla(color::bg_main())),
+        color: Some(hsla(color::fg_on_cursor())),
         background_color: Some(transparent_black()),
         ..Default::default()
     }

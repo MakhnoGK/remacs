@@ -131,7 +131,7 @@ fn pill_item(gap: f32) -> Div {
 
 /// The keys of a prefix typed so far, with a caret waiting for the next one.
 pub fn render_prefix_echo(pending: &[Key]) -> Div {
-    let caret = div().w(px(7.0)).h(px(14.0)).rounded_fill(1.0, color::fg_main() << 8 | 0xd9);
+    let caret = div().w(px(7.0)).h(px(14.0)).rounded_fill(1.0, color::cursor() << 8 | 0xd9);
     let keys = pending.iter().map(|key| kbd(&key.to_string(), true));
     pill().child(pill_item(ITEM_GAP).children(keys).child(caret))
 }

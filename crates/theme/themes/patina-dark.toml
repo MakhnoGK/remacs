@@ -29,6 +29,8 @@ fg-prompt-directory = "#97aba5"
 
 accent = "#8ce6bf"
 accent-on-selection = "#b9e9d6"
+cursor = "#8ce6bf"
+fg-on-cursor = "#062e27"
 
 error = "#ff7b72"
 danger = "#ff9a92"

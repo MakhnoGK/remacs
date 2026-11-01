@@ -248,6 +248,7 @@ mod tests {
         assert_eq!(Theme::built_in(DEFAULT).appearance, Appearance::Dark);
         assert_eq!(Theme::built_in(LIGHT).appearance, Appearance::Light);
         assert_eq!(Theme::built_in("patina-dark").appearance, Appearance::Dark);
+        assert_eq!(Theme::built_in("patina-dark").colors.cursor, Rgb(0x8ce6bf));
         assert_eq!(Theme::built_in("patina-light").appearance, Appearance::Light);
     }
 
