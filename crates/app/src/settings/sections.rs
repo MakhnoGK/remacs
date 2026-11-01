@@ -83,6 +83,13 @@ settings_sections! {
         pub radius: f32 = cursor::DEFAULT_RADIUS,
     }
 
+    /// How the region is drawn in text.
+    #[derive(Clone, Copy)]
+    pub struct SelectionSettings {
+        /// Pixels, of its outer corners and the curves of its inner ones; 0 squares them.
+        pub radius: f32 = 4.0,
+    }
+
     #[derive(Clone, Copy, Eq)]
     pub struct KeyboardSettings {
         pub meta: MetaOption = MetaOption::default(),

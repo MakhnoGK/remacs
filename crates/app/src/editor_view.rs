@@ -2,6 +2,7 @@ mod chrome;
 mod input;
 mod mouse;
 mod screen;
+mod selection;
 mod text;
 mod windows;
 
@@ -40,8 +41,8 @@ use crate::popup_view::DocumentationScroll;
 use crate::settings::{
     BottomSettings, DiffSettings, DocumentationSettings, FoldsSettings, GlassSettings,
     KeyboardSettings, MouseSettings, ProblemsSettings, PromptsSettings, ReadSettings,
-    ScrollSettings, SwatchesSettings, TransitionsSettings, UiSettings, ZoomSettings, read_settings,
-    report,
+    ScrollSettings, SelectionSettings, SwatchesSettings, TransitionsSettings, UiSettings,
+    ZoomSettings, read_settings, report,
 };
 use crate::smooth_scroll::{Glide, SmoothScroll};
 use crate::table_view::SIDE_ROOM;
@@ -120,6 +121,7 @@ pub struct EditorView {
     folds: FoldsSettings,
     prompts: PromptsSettings,
     swatches: SwatchesSettings,
+    selection: SelectionSettings,
     /// How far the minibuffer input is scrolled sideways.
     input_scroll: ScrollHandle,
     /// What the window title names, the window buffer as buffers are listed.
@@ -373,6 +375,7 @@ impl EditorView {
             folds: ui.folds,
             prompts: ui.prompts,
             swatches: ui.swatches,
+            selection: ui.selection,
             input_scroll: ScrollHandle::new(),
             window_title: String::new(),
             code_faces: RefCell::default(),
@@ -427,6 +430,7 @@ impl EditorView {
         self.folds = read.ui.folds;
         self.prompts = read.ui.prompts;
         self.swatches = read.ui.swatches;
+        self.selection = read.ui.selection;
         self.bottom = read.ui.bottom();
         self.transitions = read.ui.transitions;
         self.editor.message_log_mut().set_limit(self.bottom.echo.history);

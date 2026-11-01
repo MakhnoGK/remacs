@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::ops::{Range, RangeInclusive};
+use std::ops::Range;
 use std::time::Instant;
 
 use gpui::{
@@ -7,19 +7,20 @@ use gpui::{
     prelude::*, px, rgb, rgba, size, svg,
 };
 use remacs_core::{
-    BreakpointIcon, Buffer, ChangedLines, Cursor, Face, GutterIcon, GutterMark, Icon, LineChange,
-    LineExtra, ShownLines, Span, TextLabel,
+    BreakpointIcon, ChangedLines, Face, GutterIcon, GutterMark, Icon, LineChange, LineExtra,
+    ShownLines, Span, TextLabel,
 };
 use remacs_theme::font::CodeFont;
 use remacs_theme::{color, cursor, font, glass};
 
+use super::selection::{region_columns, region_shape};
 use super::{
     EditorView, FOOTER_FADE_HEIGHT, MeasuredFonts, Metrics, ROW_MARGIN, ROW_RADIUS, TEXT_TOP,
     placed,
 };
 use crate::assets::{CHEVRON_DOWN_ICON, CHEVRON_ICON, EXECUTION_POINT_ICON, LOGPOINT_ICON};
 use crate::display_line::{DisplayLine, display_width, slice_line};
-use crate::highlights::{Highlights, combine, face_style, region_style, swatch_style};
+use crate::highlights::{Highlights, combine, face_style, swatch_style};
 use crate::settings::{FoldToggles, SwatchesSettings};
 use crate::widgets::{
     Edge, PressExt, SCROLL_FADE_SIZE, StyleExt, block_cursor, cursor_height, cursor_text_style,
@@ -137,8 +138,7 @@ impl EditorView {
     /// The row of `line`, shown as `display_line` with the decorators' faces on its
     /// `visible` bytes, its gutter mark in `mark_slot` when the gutter has a column for
     /// marks, the count of lines `folded` when it starts a hidden block, `labels` over its
-    /// text and the part of the `rectangle` region on it, and whether the line goes on past
-    /// its right edge.
+    /// text and the `region` shape under it, and whether the line goes on past its right edge.
     #[allow(clippy::too_many_arguments)]
     fn render_line(
         &self,
@@ -150,7 +150,7 @@ impl EditorView {
         (mark_slot, folded): (Option<Div>, Option<Div>),
         extra: Option<LineExtra>,
         labels: Vec<TextLabel>,
-        rectangle: Option<&(RangeInclusive<usize>, Range<usize>)>,
+        region: Option<AnyElement>,
     ) -> (AnyElement, bool) {
         let LineExtra { band, fill, number, note, .. } = extra.unwrap_or_default();
         let fill_alpha = u32::from(self.diff.band_opacity) * 0xff / 100;
@@ -166,21 +166,6 @@ impl EditorView {
         let mut layers = Self::face_layers(&visible, decorations, &display_line, self.swatches);
         let line_range = buffer.text().line_range(line).unwrap_or_default();
         let cursors = if selected { buffer.cursors() } else { &[] };
-        let rectangle = rectangle
-            .filter(|_| selected)
-            .and_then(|rectangle| rectangle_columns(buffer, rectangle, line, &line_range));
-        let regions: Vec<_> = buffer
-            .region()
-            .filter(|_| selected && !buffer.is_rectangle())
-            .into_iter()
-            .chain(cursors.iter().filter_map(Cursor::region))
-            .filter_map(|region| region_columns(buffer, region, line))
-            .chain(rectangle)
-            .map(|columns| (display_line.cell_range(columns), region_style()))
-            .collect();
-        if !regions.is_empty() {
-            layers.push(regions);
-        }
         let on_line = cursors.partition_point(|cursor| cursor.point < line_range.start)
             ..cursors.partition_point(|cursor| cursor.point <= line_range.end);
         let points = cursors[on_line].iter().map(|cursor| cursor.point);
@@ -247,7 +232,8 @@ impl EditorView {
         let text = div().flex().child(content).children(folded);
         let text = text.children(note.map(|note| note.ml(metrics.char_width * 4.0)));
         // Before the text, so that it is drawn under it.
-        let shifted = div().relative().text_size(px(code_font.size)).children(cursor).child(text);
+        let shifted = div().relative().text_size(px(code_font.size)).children(region);
+        let shifted = shifted.children(cursor).child(text);
         let shifted = shifted.left(-metrics.char_width * scrolled_past.max(0.0));
         let shifted = shifted.children(label_elements).children(marked);
         let fade = |edge| edge_fade(edge, SCROLL_FADE_SIZE, under);
@@ -434,19 +420,31 @@ impl EditorView {
         for label in self.editor.text_labels(first_line..last_line) {
             labels.entry(text.line_of(label.offset)).or_default().push(label);
         }
-        let shown: Vec<_> = drawn.iter().map(|&line| self.display_line(line)).collect();
+        let mut shown: Vec<_> = drawn.iter().map(|&line| self.display_line(line)).collect();
         let visible: Vec<_> = shown.iter().map(|(_, visible)| visible.clone()).collect();
         let decorations = self.editor.decorations_by_line(&visible);
         // Once a frame: finding the columns reads the lines of point and mark.
         let buffer = self.editor.window_buffer();
         let rectangle = buffer.is_rectangle().then(|| buffer.rectangle()).flatten();
+        let spans: Vec<_> = (drawn.iter().zip(&mut shown))
+            .map(|(&line, (display_line, _))| {
+                self.region_spans(line, display_line, rectangle.as_ref())
+            })
+            .collect();
+        let spans_at =
+            |row: Option<usize>| row.and_then(|row| spans.get(row)).map_or(&[][..], Vec::as_slice);
         let (lines, continued): (Vec<_>, Vec<_>) = (drawn.iter().copied())
             .zip(shown)
             .zip(decorations)
-            .map(|((line, shown), decorations)| {
+            .enumerate()
+            .map(|(row, ((line, shown), decorations))| {
                 let slot = mark_slots.as_mut().and_then(|slots| slots.remove(&line));
                 let extra = extras.remove(&line);
                 let labels = labels.remove(&line).unwrap_or_default();
+                let rows = [row.checked_sub(1), Some(row), Some(row + 1)].map(spans_at);
+                let (first_column, radius) = (shown.0.first_column(), self.selection.radius);
+                let region =
+                    region_shape(rows, first_column, metrics.char_width, line_height, radius);
                 self.render_line(
                     line,
                     shown,
@@ -456,7 +454,7 @@ impl EditorView {
                     (slot, folded.remove(&line)),
                     extra,
                     labels,
-                    rectangle.as_ref(),
+                    region,
                 )
             })
             .unzip();
@@ -552,39 +550,6 @@ pub(super) fn cached_metrics(
     metrics
 }
 
-/// Characters of `line` inside `region`; past the end means the newline too.
-fn region_columns(buffer: &Buffer, region: Range<usize>, line: usize) -> Option<Range<usize>> {
-    let text = buffer.text();
-    let line_range = text.line_range(line)?;
-    if region.start > line_range.end || region.end <= line_range.start {
-        return None;
-    }
-    let column_of =
-        |offset: usize| text.char_column(offset.clamp(line_range.start, line_range.end));
-    let end = if region.end > line_range.end {
-        column_of(line_range.end) + 1
-    } else {
-        column_of(region.end)
-    };
-    Some(column_of(region.start)..end)
-}
-
-/// Characters of `line`, at `line_range`, inside `rectangle`'s lines and columns, none
-/// where the line is too short to reach it.
-fn rectangle_columns(
-    buffer: &Buffer,
-    (lines, columns): &(RangeInclusive<usize>, Range<usize>),
-    line: usize,
-    line_range: &Range<usize>,
-) -> Option<Range<usize>> {
-    if !lines.contains(&line) {
-        return None;
-    }
-    let line_len = buffer.text().char_column(line_range.end);
-    let columns = columns.start.min(line_len)..columns.end.min(line_len);
-    (!columns.is_empty()).then_some(columns)
-}
-
 /// A gutter mark as drawn: run triangles and execution arrows are icons, breakpoints dots.
 fn gutter_glyph(mark: GutterIcon) -> AnyElement {
     let dot = || div().flex_none().size(px(12.0)).rounded_full();
@@ -652,32 +617,7 @@ fn render_line_change(
 
 #[cfg(test)]
 mod tests {
-    use remacs_text::Text;
-
     use super::*;
-
-    fn buffer(text: &str) -> Buffer {
-        Buffer::new("test", Text::from(text), "Fundamental")
-    }
-
-    #[test]
-    fn region_columns_count_characters_and_the_newline_past_the_end() {
-        let buffer = buffer("ab\nжcd\n");
-        assert_eq!(region_columns(&buffer, 1..5, 0), Some(1..3));
-        assert_eq!(region_columns(&buffer, 1..5, 1), Some(0..1));
-        assert_eq!(region_columns(&buffer, 0..3, 1), None);
-        assert_eq!(region_columns(&buffer, 8..9, 0), None);
-    }
-
-    #[test]
-    fn rectangle_columns_stop_at_short_lines() {
-        let buffer = buffer("abcdef\nab\n");
-        let rectangle = (0..=1, 1..4);
-        assert_eq!(rectangle_columns(&buffer, &rectangle, 0, &(0..6)), Some(1..4));
-        assert_eq!(rectangle_columns(&buffer, &rectangle, 1, &(7..9)), Some(1..2));
-        assert_eq!(rectangle_columns(&buffer, &rectangle, 2, &(10..10)), None);
-        assert_eq!(rectangle_columns(&buffer, &(0..=1, 3..5), 1, &(7..9)), None);
-    }
 
     #[test]
     #[allow(clippy::single_range_in_vec_init)]

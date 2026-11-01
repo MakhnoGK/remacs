@@ -91,6 +91,11 @@ height = "line"
 # Pixels the block's corners are rounded by, in text, tables, prompts and terminals: 0 to 4.
 radius = 1
 
+[selection]
+# Pixels the region's corners are rounded by in text, its inside corners curved by as
+# much: 0 (square) to 12; past half a row's height the ends are round.
+radius = 4
+
 [keyboard]
 # The Option keys that are Meta: "both", "left" or "right". The other one types what
 # the keyboard layout gives it, like @ or | on many European layouts, or a dead key's
