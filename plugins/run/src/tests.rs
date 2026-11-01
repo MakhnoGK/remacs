@@ -20,6 +20,8 @@ use crate::launch::{
 use crate::sessions::{State, of_window};
 use crate::settings::{CompileSettings, TypeScriptRuntime};
 
+mod new_configuration;
+
 const WAIT: Duration = Duration::from_secs(10);
 
 /// An empty directory of its own for `test`.
@@ -430,13 +432,9 @@ fn a_test_run_is_kept_as_the_temporary_configuration_until_saved() {
     assert!(store.project(&root).0.temporary.is_none());
     assert_eq!(store.find_or_keep_temporary(&root, test("writes")), saved);
 
-    let path = store.add_template(&root).unwrap();
-    let written = fs::read_to_string(path).unwrap();
-    assert!(
-        written.ends_with("# command = \"test\"\n# cargo-args = [\"--workspace\"]\n"),
-        "{written}"
-    );
-    assert_eq!(store.project(&root).0.configurations.len(), 1);
+    // A new one is saved beside it, though it runs the same.
+    assert_eq!(store.add_new(&root, test("writes")).unwrap().name, "writes (2)");
+    assert_eq!(store.project(&root).0.configurations.len(), 2);
     fs::remove_dir_all(home).unwrap();
 }
 

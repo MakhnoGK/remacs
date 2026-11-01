@@ -235,7 +235,8 @@ const HEADER: &str = "\
 # {root}
 #
 # One [[configurations]] table each. remacs adds one whenever something is run for the
-# first time; changes apply once the file is saved.
+# first time, and New configuration… one from what runs where point is, each with the
+# fields it leaves out as comments to fill in; changes apply once the file is saved.
 #
 # kind = \"cargo\": package; bin, example, lib = true or test (a file of tests/);
 #   command (\"run\"; \"test\" runs tests, those whose path contains filter); cargo-args
@@ -315,13 +316,12 @@ impl Project {
         Ok(())
     }
 
-    /// Keeps `configuration` and appends it to the run file, which is created if needed;
-    /// what else the file holds stays as it was written.
+    /// Keeps `configuration` and appends it to the run file, which is created if needed,
+    /// with the fields it leaves out as comments; what else the file holds stays as it
+    /// was written.
     fn add(&mut self, root: &Path, configuration: Configuration) -> io::Result<()> {
         if self.path.is_some() {
-            let table = toml::to_string(&RunFile { configurations: vec![configuration.clone()] })
-                .map_err(io::Error::other)?;
-            self.append(root, &table)?;
+            self.append(root, &written_out(&configuration)?)?;
         }
         self.configurations.push(configuration);
         Ok(())
@@ -451,20 +451,96 @@ impl Store {
         configuration
     }
 
-    /// Appends a commented example to the run file of `root`, created if needed, and
-    /// returns the file.
-    pub fn add_template(&mut self, root: &Path) -> io::Result<PathBuf> {
+    /// Saves `configuration` as a new one of `root` under a name not yet taken, though
+    /// the project may run its kind already.
+    pub fn add_new(
+        &mut self,
+        root: &Path,
+        configuration: Configuration,
+    ) -> io::Result<Configuration> {
         let (project, _) = self.project(root);
-        project.append(root, TEMPLATE)?;
-        Ok(project.path.clone().expect("appended to it"))
+        let configuration =
+            Configuration { name: project.unique_name(&configuration.name), ..configuration };
+        project.add(root, configuration.clone())?;
+        Ok(configuration)
     }
 }
 
-/// What "New configuration…" adds: one to uncomment and change.
-const TEMPLATE: &str = "\
-# [[configurations]]
-# name = \"all tests\"
-# kind = \"cargo\"
-# command = \"test\"
-# cargo-args = [\"--workspace\"]
-";
+/// Fields a configuration may leave out, written as comments under a new one: the key,
+/// the kind it belongs to ("" for any), an example value and what it does.
+const OPTIONAL_FIELDS: &[(&str, &str, &str, &str)] = &[
+    ("command", "cargo", "\"test\"", "\"run\" when left out; \"test\" runs tests"),
+    ("filter", "cargo", "\"tests::\"", "the tests whose path contains it"),
+    ("cargo-args", "cargo", "[\"--release\"]", "given to cargo"),
+    ("package-manager", "npm", "\"pnpm\"", "npm, pnpm, yarn or bun; the nearest lock file's"),
+    ("args", "", "[]", "given to the program"),
+    ("cwd", "", "\".\"", "relative to the project root; the kind's own directory"),
+    ("env", "", "{ NAME = \"value\" }", "set for the program, over env-file"),
+    ("env-file", "", "\".env\"", "a dotenv file, relative to the working directory"),
+    ("before-launch", "", "[\"make assets\"]", "shell commands run first; one failing stops it"),
+];
+
+/// `configuration` as a run file table, followed by the optional fields it leaves out as
+/// comments to fill in.
+fn written_out(configuration: &Configuration) -> io::Result<String> {
+    let table = toml::to_string(&RunFile { configurations: vec![configuration.clone()] })
+        .map_err(io::Error::other)?;
+    let present = toml::Table::try_from(configuration).map_err(io::Error::other)?;
+    let kind = present.get("kind").and_then(toml::Value::as_str).unwrap_or_default();
+    let comments: String = OPTIONAL_FIELDS
+        .iter()
+        .filter(|(key, of_kind, ..)| {
+            (of_kind.is_empty() || *of_kind == kind) && !present.contains_key(*key)
+        })
+        .map(|(key, _, example, note)| format!("# {key} = {example}  # {note}\n"))
+        .collect();
+    // Ahead of a sub-table, such as `[configurations.env]`, so that a line uncommented
+    // stays the configuration's own.
+    let at = table.find("\n[configurations.").map_or(table.len(), |at| at + 1);
+    Ok(format!("{}{comments}{}", &table[..at], &table[at..]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_new_configuration_lists_the_fields_it_leaves_out_as_comments() {
+        let mut api = Configuration::new(
+            "api",
+            Kind::Cargo(Cargo { package: Some("api".into()), ..Cargo::default() }),
+        );
+        api.cwd = Some(".".into());
+        assert_eq!(
+            written_out(&api).unwrap(),
+            "[[configurations]]\n\
+             name = \"api\"\n\
+             kind = \"cargo\"\n\
+             package = \"api\"\n\
+             cwd = \".\"\n\
+             # command = \"test\"  # \"run\" when left out; \"test\" runs tests\n\
+             # filter = \"tests::\"  # the tests whose path contains it\n\
+             # cargo-args = [\"--release\"]  # given to cargo\n\
+             # args = []  # given to the program\n\
+             # env = { NAME = \"value\" }  # set for the program, over env-file\n\
+             # env-file = \".env\"  # a dotenv file, relative to the working directory\n\
+             # before-launch = [\"make assets\"]  # shell commands run first; one failing stops it\n"
+        );
+
+        let mut dev = Configuration::new(
+            "dev",
+            Kind::Npm {
+                package_json: "package.json".into(),
+                script: "dev".into(),
+                package_manager: None,
+            },
+        );
+        dev.env.insert("PORT".into(), "3000".into());
+        let written = written_out(&dev).unwrap();
+        let (own, env) = written.split_once("[configurations.env]").expect(&written);
+        assert!(own.contains("# package-manager = ") && own.contains("# env-file = "), "{own}");
+        assert!(!own.contains("# env = ") && !env.contains('#'), "{written}");
+        let read: RunFile = toml::from_str(&written).unwrap();
+        assert_eq!(read.configurations, [dev]);
+    }
+}
