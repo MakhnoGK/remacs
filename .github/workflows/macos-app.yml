@@ -95,3 +95,8 @@ jobs:
           git push origin "$branch"
           gh pr create --base main --head "$branch" --title "remacs $VERSION (cask)" \
             --body "Release https://github.com/$GITHUB_REPOSITORY/releases/tag/v$VERSION"
+          # Not `--auto`: required checks on the tap's main would block `brew pr-pull`'s bottle push.
+          # shortcut: the sleep lets the tap's checks register; poll for them if 30 s is ever short.
+          sleep 30
+          gh pr checks "$branch" --watch --fail-fast
+          gh pr merge --squash --delete-branch "$branch"
