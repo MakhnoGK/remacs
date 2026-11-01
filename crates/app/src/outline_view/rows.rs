@@ -51,14 +51,14 @@ fn render_fact(fact: Fact, cx: &mut Context<EditorView>) -> Div {
 
 /// A branch or tag, colored by what it is.
 pub fn ref_chip(chip: RefChip) -> Div {
-    let tint = |color: u32, alpha: u32| color << 8 | alpha;
-    let accent = |alpha: u32| tint(color::accent(), alpha);
     // A color of 0 is transparent.
     let (background, foreground, border) = match chip.kind {
-        RefKind::Head => (accent(0x33), color::fg_ref_head(), accent(0x73)),
-        RefKind::Main => (tint(color::keyword(), 0x29), color::fg_ref_main(), 0),
-        RefKind::Branch => (tint(color::type_name(), 0x24), color::fg_ref_branch(), 0),
-        RefKind::Remote => (0, color::fg_ref_remote(), glass::ink(0x29)),
+        RefKind::Head => (glass::ref_head(), color::fg_ref_head(), glass::ref_head_border()),
+        RefKind::Main => (glass::ref_main(), color::fg_ref_main(), 0),
+        RefKind::Branch => (glass::ref_branch(), color::fg_ref_branch(), 0),
+        RefKind::Remote => {
+            (glass::ref_remote(), color::fg_ref_remote(), glass::ref_remote_border())
+        }
         RefKind::Tag => (glass::chip(), color::fg_body(), 0),
     };
     let frame = chip_frame(20.0, 7.0, 5.0).bordered(border).bg(rgba(background)).mono();

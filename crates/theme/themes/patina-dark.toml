@@ -1,0 +1,156 @@
+# Patina Dark: deep teal glass instead of black, mint its one accent (cursor, selection,
+# matches, the main button). Glass grows denser with height: pill 0.55, popup 0.80, modal 0.86.
+
+name = "Patina Dark"
+appearance = "dark"
+opacity = 0.84
+
+ansi = [
+    "#6f837d", "#ff7b72", "#8ce6bf", "#f0c26a", "#6ccbe8", "#c3a6ef", "#5cd0d6", "#cfe0db",
+    "#8ea29c", "#ff9a92", "#b4f0d5", "#f5d595", "#a9d4f2", "#ddc8f7", "#9ce8ec", "#ffffff",
+]
+
+[colors]
+bg-main = "#08100f"
+bg-popup = "#13201d"
+bg-kbd-selected = "#1f4a41"
+
+fg-main = "#e4efeb"
+fg-body = "#cfe0db"
+fg-kbd = "#cfe0db"
+fg-alt = "#b9e9d6"
+fg-dim = "#97aba5"
+fg-faint = "#7f9690"
+fg-placeholder = "#7a8f88"
+fg-line-number = "#5f736d"
+fg-muted = "#5d716b"
+fg-directory = "#3cc9a8"
+fg-prompt-directory = "#97aba5"
+
+accent = "#8ce6bf"
+accent-on-selection = "#a6f0d0"
+cursor = "#8ce6bf"
+fg-on-cursor = "#062e27"
+
+error = "#ff7b72"
+danger = "#ff9a92"
+fg-flagged = "#ffaaa4"
+bg-danger = "#8f2621"
+bg-danger-kbd = "#6e1c18"
+fg-on-danger = "#ffe2df"
+warning = "#f0c26a"
+fg-on-warning = "#f5d595"
+info = "#6ccbe8"
+fg-note-source = "#9bd9ec"
+fg-note-code = "#d2f0f9"
+
+fg-added = "#a9e9cc"
+fg-removed = "#ffbcb6"
+
+vc-added = "#8ce6bf"
+vc-modified = "#6ccbe8"
+vc-removed = "#ff7b72"
+vc-added-on-selection = "#c4f5df"
+vc-removed-on-selection = "#ffc0bb"
+
+fg-ref-head = "#bfe3f7"
+fg-ref-main = "#ddd0f5"
+fg-ref-branch = "#b9e9d6"
+fg-ref-remote = "#97aba5"
+
+link = "#6ccbe8"
+
+# Attributes and macros are both `builtin`.
+keyword = "#5fd4b4"
+type-name = "#a9d4f2"
+function = "#e8cc94"
+constant = "#f0a58c"
+builtin = "#c3a6ef"
+docstring = "#7f9d95"
+string = "#c2e38f"
+comment = "#7f9d95"
+variable = "#bfe6d8"
+
+graph-1 = "#5fd4b4"
+graph-2 = "#e8cc94"
+graph-3 = "#a9d4f2"
+graph-4 = "#f0a58c"
+graph-5 = "#c3a6ef"
+graph-6 = "#c2e38f"
+graph-7 = "#6ccbe8"
+graph-8 = "#97aba5"
+
+[styles]
+keyword = []
+type-name = []
+function = []
+constant = []
+builtin = []
+docstring = []
+string = []
+comment = []
+variable = []
+
+[glass]
+line-highlight = "#8ce6bf12"
+region = "#3cc9a83d"
+
+vc-added-mark = "#8ce6bfb3"
+vc-modified-mark = "#6ccbe8b3"
+vc-removed-mark = "#ff7b72bf"
+
+surface = "#14211fcc"
+surface-border = "#c4ffe821"
+
+note = "#0c2129c7"
+note-border = "#6ccbe873"
+note-separator = "#6ccbe82e"
+note-code = "#6ccbe824"
+
+scrim = "#03090840"
+
+modal = "#162421db"
+modal-border = "#c4ffe826"
+modal-scrim = "#03090873"
+
+pill = "#121e1c8c"
+pill-border = "#c4ffe81a"
+
+pane = "#c4ffe80a"
+pane-border = "#c4ffe81a"
+well = "#00000047"
+well-border = "#c4ffe812"
+card-border = "#c4ffe826"
+card-footer = "#c4ffe80a"
+divider = "#c4ffe814"
+key-on-control = "#0000004d"
+added = "#0b3a2bd9"
+removed = "#4a1a18d9"
+
+field = "#00000059"
+control = "#c4ffe812"
+control-border = "#c4ffe81f"
+chip = "#c4ffe81a"
+selection = "#3cc9a833"
+segment = "#c4ffe81f"
+disabled = "#c4ffe80a"
+
+flagged = "#ff7b721a"
+notice = "#f0c26a24"
+
+# One neutral chip for every branch, told apart by its text.
+ref-head = "#c4ffe814"
+ref-main = "#c4ffe814"
+ref-branch = "#c4ffe814"
+ref-remote = "#c4ffe814"
+ref-head-border = "#00000000"
+ref-remote-border = "#00000000"
+
+# Lines, hovers and tints over the glass: mint-white, as the borders are.
+[ink]
+color = "#c4ffe8"
+strength = 1.0
+
+[shadow]
+color = "#000000"
+strength = 1.0
