@@ -13,6 +13,7 @@ use super::{CLOSE_KEY, COPY_MESSAGE_KEY, EditorView};
 use crate::composition::discard_marked_text;
 use crate::frame;
 use crate::key_input::{option_is_meta, to_key};
+use crate::logs;
 use crate::menu_bar::RunCommand;
 
 /// macOS input methods see only the text being composed, not the buffer: committed text
@@ -100,6 +101,9 @@ impl EditorView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if logs::frame_latency() {
+            self.key_pressed_at.get_or_insert_with(Instant::now);
+        }
         let Some(key) = to_key(&event.keystroke, option_is_meta(self.keyboard.meta)) else {
             return;
         };

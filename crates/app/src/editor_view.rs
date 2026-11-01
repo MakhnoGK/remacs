@@ -16,9 +16,9 @@ use std::time::{Duration, Instant, SystemTime};
 use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
-    AnyElement, AnyWindowHandle, Bounds, Context, FocusHandle, MouseButton, MouseDownEvent, Pixels,
-    Point, Render, ScrollHandle, Subscription, Task, Window, div, inert, point, prelude::*, px,
-    rgba, size,
+    AnyElement, AnyWindowHandle, App, Bounds, Context, FocusHandle, MouseButton, MouseDownEvent,
+    Pixels, Point, Render, ScrollHandle, Subscription, Task, Window, canvas, div, inert, point,
+    prelude::*, px, rgba, size,
 };
 
 use remacs_core::{
@@ -150,6 +150,8 @@ pub struct EditorView {
     side_row_lift: Option<Pixels>,
     /// A screen was drawn this frame, so the tooltip over its marks moved on.
     screen_drawn: bool,
+    /// The first key not yet drawn, while `logs.toml` asks for `frame-latency`.
+    key_pressed_at: Option<Instant>,
     bottom: BottomSettings,
     transitions: TransitionsSettings,
     surfaces: Surfaces,
@@ -388,6 +390,7 @@ impl EditorView {
             side_beside: false,
             side_row_lift: None,
             screen_drawn: false,
+            key_pressed_at: None,
             bottom,
             transitions: ui.transitions,
             surfaces: Surfaces::default(),
@@ -740,5 +743,14 @@ impl Render for EditorView {
             .children(prompt)
             .children(self.render_drag_listeners(cx))
             .child(self.render_text_input(cx))
+            .children(self.key_pressed_at.take().map(latency_probe))
     }
+}
+
+/// Painted last, it logs how long ago the first key this frame shows was pressed.
+fn latency_probe(pressed: Instant) -> impl IntoElement {
+    let log = move |_, _, _: &mut Window, _: &mut App| {
+        eprintln!("frame-latency {}", pressed.elapsed().as_micros());
+    };
+    canvas(|_, _, _| {}, log).absolute()
 }

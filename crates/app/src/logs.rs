@@ -10,6 +10,7 @@ use std::os::fd::AsRawFd;
 use std::panic::{self, PanicHookInfo};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::SystemTime;
 
 use futures::channel::mpsc::UnboundedSender;
@@ -35,7 +36,16 @@ settings_sections! {
         pub log_size: u64 = 1024 * 1024,
         /// Crash reports kept; each start removes the oldest past it.
         pub crash_reports: usize = 20,
+        /// Writes how long each key took to its drawn frame to `remacs.log`.
+        pub frame_latency: bool = false,
     }
+}
+
+static FRAME_LATENCY: AtomicBool = AtomicBool::new(false);
+
+/// Whether `logs.toml` asks for each key's time to its drawn frame.
+pub fn frame_latency() -> bool {
+    FRAME_LATENCY.load(Ordering::Relaxed)
 }
 
 impl Section for LogSettings {
@@ -52,6 +62,7 @@ impl Section for LogSettings {
 /// Sends stdout and stderr to the log unless they are a terminal, and has every panic
 /// write a report. Returns what to say of the reports written since the last start.
 pub fn start(state: &Path, settings: &LogSettings) -> Option<String> {
+    FRAME_LATENCY.store(settings.frame_latency, Ordering::Relaxed);
     if let Err(error) = redirect_output(state, settings.log_size) {
         eprintln!("remacs: {}: {error}", state.join(LOG).display());
     }
