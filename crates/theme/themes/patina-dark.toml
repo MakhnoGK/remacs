@@ -71,6 +71,15 @@ string = "#c2e38f"
 comment = "#7f9d95"
 variable = "#bfe6d8"
 
+graph-1 = "#5fd4b4"
+graph-2 = "#e8cc94"
+graph-3 = "#a9d4f2"
+graph-4 = "#f0a58c"
+graph-5 = "#c3a6ef"
+graph-6 = "#c2e38f"
+graph-7 = "#6ccbe8"
+graph-8 = "#97aba5"
+
 [styles]
 keyword = []
 type-name = []
@@ -125,6 +134,17 @@ chip = "#c4ffe81a"
 selection = "#3cc9a833"
 segment = "#c4ffe81f"
 disabled = "#c4ffe80a"
+
+flagged = "#ff7b721a"
+notice = "#f0c26a24"
+
+# One neutral chip for every branch, told apart by its text.
+ref-head = "#c4ffe814"
+ref-main = "#c4ffe814"
+ref-branch = "#c4ffe814"
+ref-remote = "#c4ffe814"
+ref-head-border = "#00000000"
+ref-remote-border = "#00000000"
 
 # Lines, hovers and tints over the glass: mint-white, as the borders are.
 [ink]

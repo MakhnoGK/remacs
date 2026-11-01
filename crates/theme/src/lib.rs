@@ -215,14 +215,32 @@ pub mod color {
             comment,
             /// A function's parameters and local variables.
             variable,
+
+            /// Lines of the commit graph: the checked out branch's, its base's, then the
+            /// others' in turn.
+            graph_1,
+            graph_2,
+            graph_3,
+            graph_4,
+            graph_5,
+            graph_6,
+            graph_7,
+            graph_8,
         }
     }
 
-    /// Lines of the commit graph: the checked out branch's, its base's, then the others'
-    /// in turn.
+    /// Of the commit graph's line `index`; past the eighth, the third to the eighth again.
     pub fn graph(index: usize) -> u32 {
-        let colors =
-            [accent(), keyword(), type_name(), function(), warning(), info(), builtin(), string()];
+        let colors = [
+            graph_1(),
+            graph_2(),
+            graph_3(),
+            graph_4(),
+            graph_5(),
+            graph_6(),
+            graph_7(),
+            graph_8(),
+        ];
         match index {
             0 | 1 => colors[index],
             _ => colors[2 + (index - 2) % (colors.len() - 2)],
@@ -388,6 +406,20 @@ pub mod glass {
             segment,
             /// A control that cannot be used now.
             disabled,
+
+            /// A row flagged for deletion.
+            flagged,
+            /// What rows are being edited for, e.g. renaming files in place.
+            notice,
+
+            /// Branch chips, by what the branch is: the one checked out, the main one,
+            /// others, remote ones; and the borders of the first and last.
+            ref_head,
+            ref_main,
+            ref_branch,
+            ref_remote,
+            ref_head_border,
+            ref_remote_border,
         }
     }
 

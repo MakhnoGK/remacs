@@ -71,6 +71,15 @@ string = "#4b7a14"
 comment = "#5f756e"
 variable = "#1f4a40"
 
+graph-1 = "#0a7d68"
+graph-2 = "#865a00"
+graph-3 = "#22609a"
+graph-4 = "#b0482c"
+graph-5 = "#7344b6"
+graph-6 = "#4b7a14"
+graph-7 = "#1679a8"
+graph-8 = "#5a6f69"
+
 [styles]
 keyword = []
 type-name = []
@@ -125,6 +134,17 @@ chip = "#10302a0f"
 selection = "#0f9c8621"
 segment = "#ffffffe6"
 disabled = "#10302a08"
+
+flagged = "#d13b3314"
+notice = "#a66a001f"
+
+# One neutral chip for every branch, told apart by its text.
+ref-head = "#10302a0d"
+ref-main = "#10302a0d"
+ref-branch = "#10302a0d"
+ref-remote = "#10302a0d"
+ref-head-border = "#00000000"
+ref-remote-border = "#00000000"
 
 # Lines, hovers and tints over the glass: teal ink, as the borders are.
 [ink]

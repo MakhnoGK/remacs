@@ -258,6 +258,7 @@ mod tests {
         assert_eq!(theme.colors.bg_main, Rgb(0xffffff));
         assert_eq!(theme.colors.keyword, Rgb(0x531ab6));
         assert_eq!(theme.colors.string, Rgb(0x3548cf));
+        assert_eq!(theme.colors.graph_1, theme.colors.accent);
         assert_eq!(theme.glass.region.0, 0xbdbdbdff);
         assert_eq!(theme.glass.line_highlight.0, 0xdae5ecff);
         assert_eq!(theme.styles.comment, Style::default());

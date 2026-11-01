@@ -154,7 +154,7 @@ fn render_notice(notice: Notice) -> Div {
         .h(px(28.0))
         .pl(px(10.0))
         .pr(px(6.0))
-        .rounded_fill(8.0, color::warning() << 8 | 0x1a)
+        .rounded_fill(8.0, glass::notice())
         .bordered(color::warning() << 8 | 0x4d)
         .ui()
         .status_text(color::fg_on_warning())
@@ -226,8 +226,8 @@ fn render_row(
         RowFace::Dim => color::fg_faint(),
     };
     let mark_tint = row.mark.map(|mark| match mark {
-        Mark::Marked => color::accent(),
-        Mark::Flagged => color::error(),
+        Mark::Marked => color::accent() << 8 | 0x14,
+        Mark::Flagged => glass::flagged(),
     });
     let icon_color = match (selected, row.face) {
         (true, _) => color::fg_alt(),
@@ -267,7 +267,7 @@ fn render_row(
         .flex_none()
         .bar(ROW_HEIGHT, 12.0)
         .rounded(px(8.0))
-        .when_some(mark_tint.filter(|_| !highlighted), |row, tint| row.bg(rgba(tint << 8 | 0x14)))
+        .when_some(mark_tint.filter(|_| !highlighted), |row, tint| row.bg(rgba(tint)))
         .when(highlighted, |row| row.bg(rgba(glass::selection())).shadow(lifted))
         .on_mouse_down(
             MouseButton::Left,

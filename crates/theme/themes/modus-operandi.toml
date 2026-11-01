@@ -73,6 +73,15 @@ string = "#3548cf"
 comment = "#595959"
 variable = "#005e8b"
 
+graph-1 = "#0031a9"
+graph-2 = "#531ab6"
+graph-3 = "#005f5f"
+graph-4 = "#721045"
+graph-5 = "#884900"
+graph-6 = "#005e8b"
+graph-7 = "#8f0075"
+graph-8 = "#3548cf"
+
 [styles]
 keyword = []
 type-name = []
@@ -127,6 +136,16 @@ chip = "#0000000f"
 selection = "#bdbdbde6"
 segment = "#ffffffe6"
 disabled = "#00000008"
+
+flagged = "#a6000014"
+notice = "#8849001a"
+
+ref-head = "#0031a933"
+ref-main = "#531ab629"
+ref-branch = "#005f5f24"
+ref-remote = "#00000000"
+ref-head-border = "#0031a973"
+ref-remote-border = "#00000029"
 
 # Lines, hovers and tints over the glass.
 [ink]
