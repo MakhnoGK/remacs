@@ -27,6 +27,7 @@ pub struct UiSettings {
     pub ui_font: UiFontSettings,
     pub zoom: ZoomSettings,
     pub cursor: CursorSettings,
+    pub selection: SelectionSettings,
     pub keyboard: KeyboardSettings,
     pub mouse: MouseSettings,
     pub scroll: ScrollSettings,
@@ -96,6 +97,8 @@ impl Section for UiSettings {
             "zoom.wheel-step": zoom.wheel_step, 10.0..=1000.0;
             // Past half a narrow font's character the block is a pill.
             "cursor.radius": self.cursor.radius, 0.0..=4.0;
+            // Past half a row's height the ends are round.
+            "selection.radius": self.selection.radius, 0.0..=12.0;
             "mouse.drag-scroll-interval": self.mouse.drag_scroll_interval, 5..=1000;
             // 0 turns the animation off.
             "scroll.animation-duration": scroll.animation_duration, 0..=1000;
@@ -198,7 +201,7 @@ mod tests {
              ligatures = false\n\
              [ui-font]\nfamily = \"Helvetica Neue\"\nsize = 14\nweight = \"medium\"\n\
              [zoom]\nstep = 2\nmin-size = 10\nmax-size = 24\nwheel-step = 50\n\
-             [cursor]\nheight = \"font\"\nradius = 2.5\n[keyboard]\nmeta = \"left\"\n\
+             [cursor]\nheight = \"font\"\nradius = 2.5\n[selection]\nradius = 0\n[keyboard]\nmeta = \"left\"\n\
              [mouse]\ndrag-scroll-interval = 60\n\
              [scroll]\nanimation-duration = 0\nlines-per-notch = 5\n[glass]\nopacity = 0.5\nblur = 0\n\
              [echo]\nlines = 6\nhistory = 50\nhide-after = 0\n\
@@ -260,6 +263,7 @@ mod tests {
         );
         assert_eq!(settings.cursor.height, CursorHeight::Font);
         assert_eq!(settings.cursor.radius, 2.5);
+        assert_eq!(settings.selection, SelectionSettings { radius: 0.0 });
         assert_eq!(
             settings.zoom,
             ZoomSettings { step: 2.0, min_size: 10.0, max_size: 24.0, wheel_step: 50.0 }
@@ -293,6 +297,7 @@ mod tests {
             "[ui-font]\nweight = 50\n",
             "[cursor]\nheight = \"half\"\n",
             "[cursor]\nradius = 5\n",
+            "[selection]\nradius = 13\n",
             "[keyboard]\nmeta = \"none\"\n",
             "[mouse]\ndrag-scroll-interval = 0\n",
             "[scroll]\nanimation-duration = 5000\n",
