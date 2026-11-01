@@ -1,7 +1,7 @@
 # 0091 — Run and debug without writing configurations
 
 Status: accepted, 2026-11-01 (issue #215, stage 1: task runners; stage 2: new
-configurations)
+configurations; stage 3: the run file's schema)
 
 ## Decision
 
@@ -57,6 +57,18 @@ configurations)
   # args = []  # given to the program
   # env-file = ".env"  # a dotenv file, relative to the working directory
   ```
+
+- **Stage 3: the run file names its schema.** `run.schema.json` is derived from the
+  configuration types (schemars), written beside the run files whenever one is read or
+  added and differs, and named on the first line, `#:schema ./run.schema.json`, which
+  taplo and tombi both follow: completion of fields and kinds, the types' doc comments
+  as hover, and errors for a wrong kind, value or type. A run file written before gets
+  the line on its next addition. The schema is JSON Schema draft 7, the draft taplo
+  checks against: in 2020-12 a `$ref` beside the `kind` constant is ignored by it, and
+  every kind of task matched every other. tombi also warns of keys no kind has (a
+  misspelled `evn-file`); taplo cannot, as kinds are alternatives of one table. Checked
+  with taplo 0.10 and tombi 1.9.8 on a run file the store wrote, before and after
+  uncommenting every optional field.
 
 ## Later
 

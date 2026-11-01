@@ -2,14 +2,17 @@ use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 use std::time::SystemTime;
 
 use remacs_config::project_name;
 use remacs_core::Icon;
+use schemars::JsonSchema;
+use schemars::generate::SchemaSettings;
 use serde::{Deserialize, Serialize};
 
 /// Something to run, as a project's run file holds it: one `[[configurations]]` table.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub struct Configuration {
     pub name: String,
@@ -33,7 +36,7 @@ pub struct Configuration {
     pub before_launch: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "kebab-case", rename_all_fields = "kebab-case")]
 pub enum Kind {
     Cargo(Cargo),
@@ -65,7 +68,7 @@ pub enum Kind {
 
 /// `cargo <command> -p <package> [--lib | --bin <bin> | --test <test> | --example
 /// <example>] [<filter>]`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub struct Cargo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -91,7 +94,7 @@ pub struct Cargo {
 }
 
 /// A task a task runner's file declares: a Makefile's target, a justfile's recipe.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Task {
     /// Relative to the project root.
     pub file: String,
@@ -152,7 +155,7 @@ fn is_false(value: &bool) -> bool {
     !value
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum PackageManager {
     Npm,
@@ -224,11 +227,15 @@ impl Configuration {
 }
 
 /// What a run file holds.
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize, JsonSchema)]
 struct RunFile {
     #[serde(default)]
     configurations: Vec<Configuration>,
 }
+
+/// The run file's schema, beside it, for the TOML server to complete and check it with.
+const SCHEMA_DIRECTIVE: &str = "#:schema ./run.schema.json";
+const SCHEMA_FILE: &str = "run.schema.json";
 
 const HEADER: &str = "\
 # Run configurations of
@@ -308,6 +315,10 @@ impl Project {
             }
             Err(error) => return Err(format!("{}: {error}", path.display())),
         };
+        // Kept up to date for run files written by an older remacs.
+        if let Some(directory) = path.parent() {
+            write_schema(directory).map_err(|error| format!("{SCHEMA_FILE}: {error}"))?;
+        }
         let file: RunFile = toml::from_str(&text).map_err(|error| {
             let name = path.file_name().unwrap_or_default().to_string_lossy();
             format!("{name}: {}", error.message())
@@ -334,11 +345,22 @@ impl Project {
         };
         if let Some(directory) = path.parent() {
             fs::create_dir_all(directory)?;
+            write_schema(directory)?;
         }
-        let header = if path.exists() {
-            String::new()
-        } else {
-            HEADER.replace("{root}", &root.display().to_string())
+        let header = match fs::read_to_string(path) {
+            Ok(text) if text.starts_with(SCHEMA_DIRECTIVE) => String::new(),
+            // Written before the schema was.
+            Ok(text) => {
+                fs::write(path, format!("{SCHEMA_DIRECTIVE}\n{text}"))?;
+                String::new()
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                format!(
+                    "{SCHEMA_DIRECTIVE}\n{}",
+                    HEADER.replace("{root}", &root.display().to_string())
+                )
+            }
+            Err(error) => return Err(error),
         };
         let mut file = fs::OpenOptions::new().create(true).append(true).open(path)?;
         write!(file, "{header}\n{text}")?;
@@ -466,6 +488,21 @@ impl Store {
     }
 }
 
+/// Writes the run files' schema into `directory`, unless it is there as it is now.
+fn write_schema(directory: &Path) -> io::Result<()> {
+    static SCHEMA: LazyLock<String> = LazyLock::new(|| {
+        // Draft 7, which taplo checks against: a `$ref` beside other keywords goes into an
+        // `allOf`, else they are ignored and every kind of task matches every other.
+        let schema = SchemaSettings::draft07().into_generator().into_root_schema_for::<RunFile>();
+        serde_json::to_string_pretty(&schema).expect("a schema serializes")
+    });
+    let path = directory.join(SCHEMA_FILE);
+    if fs::read_to_string(&path).is_ok_and(|written| written == *SCHEMA) {
+        return Ok(());
+    }
+    fs::write(path, SCHEMA.as_bytes())
+}
+
 /// Fields a configuration may leave out, written as comments under a new one: the key,
 /// the kind it belongs to ("" for any), an example value and what it does.
 const OPTIONAL_FIELDS: &[(&str, &str, &str, &str)] = &[
@@ -496,13 +533,36 @@ fn written_out(configuration: &Configuration) -> io::Result<String> {
         .collect();
     // Ahead of a sub-table, such as `[configurations.env]`, so that a line uncommented
     // stays the configuration's own.
-    let at = table.find("\n[configurations.").map_or(table.len(), |at| at + 1);
-    Ok(format!("{}{comments}{}", &table[..at], &table[at..]))
+    Ok(match table.find("\n[configurations.") {
+        Some(at) => format!("{}\n{comments}\n{}", table[..at].trim_end(), &table[at + 1..]),
+        None => format!("{table}{comments}"),
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn run_files_name_their_schema_which_is_written_beside_them() {
+        let dir = std::env::temp_dir().join(format!("remacs-run-schema-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let mut store = Store::default();
+        store.keep_in(dir.clone(), dir.join("run.json"));
+        let root = Path::new("/p");
+        let path = dir.join(format!("{}.toml", project_name(root)));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(&path, "# from before the schema\n").unwrap();
+        let ls = Configuration::new("ls", Kind::Shell { command: "ls".into() });
+        store.find_or_add(root, ls).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        let start = format!("{SCHEMA_DIRECTIVE}\n# from before the schema\n\n[[configurations]]");
+        assert!(text.starts_with(&start), "{text}");
+        let schema = fs::read_to_string(dir.join(SCHEMA_FILE)).unwrap();
+        let schema: serde_json::Value = serde_json::from_str(&schema).unwrap();
+        assert_eq!(schema["$schema"], "http://json-schema.org/draft-07/schema#");
+        fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn a_new_configuration_lists_the_fields_it_leaves_out_as_comments() {
