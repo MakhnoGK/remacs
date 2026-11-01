@@ -9,3 +9,7 @@
 log-size = 1048576
 # Crash reports kept; each start removes the oldest past it.
 crash-reports = 20
+# Writes a `frame-latency <microseconds>` line to remacs.log for each frame that shows a key:
+# from the first key it shows to the end of its painting, before the GPU draws it.
+# crates/app/benches/baseline.sh turns it on to measure it.
+frame-latency = false
