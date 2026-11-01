@@ -6,24 +6,24 @@ appearance = "light"
 opacity = 0.8
 
 ansi = [
-    "#13221f", "#c0362f", "#0b7a66", "#8f5c00", "#1679a8", "#7344b6", "#0a7d68", "#b4c4bf",
-    "#5a6f69", "#d13b33", "#0f9c86", "#a86d00", "#22609a", "#8a5cc7", "#138f9a", "#859893",
+    "#13221f", "#c0362f", "#0b7a66", "#8f5c00", "#1679a8", "#7344b6", "#0b7480", "#586c66",
+    "#3d524c", "#d13b33", "#2e7d1f", "#875800", "#22609a", "#7d4fc0", "#087a8f", "#62766f",
 ]
 
 [colors]
 bg-main = "#f7fbf9"
 bg-popup = "#ebf3f0"
-bg-kbd-selected = "#cdebe4"
+bg-kbd-selected = "#c8e8e0"
 
 fg-main = "#13221f"
-fg-body = "#13221f"
+fg-body = "#23342f"
 fg-kbd = "#3d524c"
 fg-alt = "#0b2c26"
 fg-dim = "#5a6f69"
 fg-faint = "#6f847e"
-fg-placeholder = "#859893"
+fg-placeholder = "#5e726c"
 fg-line-number = "#859893"
-fg-muted = "#b4c4bf"
+fg-muted = "#7a8d87"
 fg-directory = "#0f9c86"
 fg-prompt-directory = "#5a6f69"
 
@@ -53,14 +53,14 @@ vc-removed = "#d13b33"
 vc-added-on-selection = "#075e50"
 vc-removed-on-selection = "#a8231c"
 
-fg-ref-head = "#0b7d6b"
+fg-ref-head = "#22609a"
 fg-ref-main = "#7344b6"
 fg-ref-branch = "#0b7a66"
 fg-ref-remote = "#5a6f69"
 
 link = "#1679a8"
 
-# Attributes take the macros' color: both are `builtin`. Variables stay plain text.
+# Attributes and macros are both `builtin`.
 keyword = "#0a7d68"
 type-name = "#22609a"
 function = "#865a00"
@@ -69,7 +69,7 @@ builtin = "#7344b6"
 docstring = "#5f756e"
 string = "#4b7a14"
 comment = "#5f756e"
-variable = "#13221f"
+variable = "#1f4a40"
 
 [styles]
 keyword = []
