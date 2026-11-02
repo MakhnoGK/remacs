@@ -13,6 +13,7 @@ remacs-core.workspace = true
 remacs-dired.workspace = true
 remacs-files.workspace = true
 remacs-text.workspace = true
+schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml = { workspace = true, features = ["display"] }

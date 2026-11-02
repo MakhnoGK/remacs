@@ -469,8 +469,10 @@ fn a_new_configuration_is_appended_to_the_run_file_under_a_free_name() {
     assert_eq!(second.name, "main (2)");
     let path = store.project(&root).0.path().unwrap().to_path_buf();
     let written = fs::read_to_string(&path).unwrap();
-    let header = format!("# Run configurations of\n# {}\n", root.display());
+    let header =
+        format!("#:schema ./run.schema.json\n# Run configurations of\n# {}\n", root.display());
     assert!(written.starts_with(&header), "{written}");
+    assert!(home.join("run/run.schema.json").is_file());
     let tables = written.lines().filter(|line| *line == "[[configurations]]");
     assert_eq!(tables.count(), 2);
 
