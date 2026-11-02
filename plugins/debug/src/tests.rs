@@ -19,6 +19,8 @@ use crate::breakpoints::Breakpoints;
 use crate::dap::{encode, read_message};
 use crate::prepare::{Built, CargoBuild, built_executable};
 
+mod stacks;
+
 const WAIT: Duration = Duration::from_secs(60);
 
 /// An empty directory of its own for `test`.
@@ -272,7 +274,9 @@ struct ModesPlugin;
 
 impl Plugin for ModesPlugin {
     fn register(&self, registry: &mut Registry) {
-        for (name, extensions) in [("JavaScript", &["js", "mjs"][..]), ("Rust", &["rs"][..])] {
+        let modes =
+            [("JavaScript", &["js", "mjs"][..]), ("TypeScript", &["ts"]), ("Rust", &["rs"])];
+        for (name, extensions) in modes {
             registry.modes.add(Mode { name, extensions, ..Mode::default() });
         }
     }

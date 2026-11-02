@@ -104,7 +104,8 @@ fn text(segments: &[Segment]) -> Vec<(&str, ConsoleStyle)> {
 fn escape_codes_style_the_text_and_are_left_out() {
     let mut parser = Parser::default();
     let segments =
-        parser.feed(b"\x1b[1;32m   Compiling\x1b[0m api\x1b[38;5;208m!\x1b[38;2;1;2;3mx\x1b[K");
+        // `ESC ( B`, picking the character set, follows the colors of terminfo's `sgr0`.
+        parser.feed(b"\x1b[1;32m   Compiling\x1b(B\x1b[m api\x1b[38;5;208m!\x1b[38;2;1;2;3mx\x1b[K");
     let bold_green = ConsoleStyle {
         color: Some(ConsoleColor::Indexed(2)),
         bold: true,
