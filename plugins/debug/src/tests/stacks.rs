@@ -23,16 +23,6 @@ fn fixture(stack: &str) -> (PathBuf, PathBuf) {
     (home, root)
 }
 
-/// The user's remacs home when it has `adapter` installed.
-fn with_adapter(adapter: &str) -> Option<PathBuf> {
-    let home = remacs_config::home()?;
-    let installed = home.join("cache/tools").join(adapter).is_dir();
-    if !installed {
-        eprintln!("skipped: {adapter} is not installed");
-    }
-    installed.then_some(home)
-}
-
 /// Visits `file` with point on `line`, once its entry point there is found.
 fn at_entry_point(editor: &mut Editor, file: &Path, line: usize) {
     editor.visit_file(file).unwrap();
@@ -63,15 +53,6 @@ fn paused_at(editor: &mut Editor, file: &str, line: usize) {
         editor.window_buffer().name() == file
             && editor.window_buffer().point_line() == line
             && status(editor).contains("paused")
-    });
-}
-
-fn finished(editor: &mut Editor) {
-    press(editor, "<f9>");
-    wait_until(editor, "the end", |editor| {
-        editor
-            .find_plugin_state::<crate::session::Debugger>()
-            .is_some_and(|debugger| debugger.sessions.is_empty())
     });
 }
 

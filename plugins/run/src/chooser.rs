@@ -49,18 +49,21 @@ pub(crate) struct Search {
     found: Arc<Vec<Entry>>,
     /// Counts the times `found` was replaced, so that a listing knows it is behind.
     pub(crate) generation: u64,
+    /// Why the last search failed, until another starts; shown in place of what it would
+    /// have found.
+    failed: Option<String>,
 }
 
 impl Search {
     /// Takes what the search going on found, and starts one for files the index lists
-    /// since; an error when the search failed.
+    /// since.
     fn update(
         &mut self,
         root: &Path,
         files: Arc<Vec<String>>,
         settings: &RunSettings,
         notifier: Notifier,
-    ) -> Result<(), String> {
+    ) {
         if let Some(running) = &self.running {
             match running.try_recv() {
                 Ok(found) => {
@@ -68,35 +71,38 @@ impl Search {
                     self.generation += 1;
                     self.running = None;
                 }
-                Err(TryRecvError::Empty) => return Ok(()),
+                Err(TryRecvError::Empty) => return,
                 // It panicked; tried again once the index changes.
                 Err(TryRecvError::Disconnected) => {
                     self.running = None;
-                    return Err("Could not look through the project for what it runs".into());
+                    self.failed =
+                        Some("Could not look through the project for what it runs".into());
+                    return;
                 }
             }
         }
         if self.files.as_ref().is_some_and(|known| Arc::ptr_eq(known, &files)) {
-            return Ok(());
+            return;
         }
         let (send, receive) = mpsc::channel();
         let (root, settings, searched) = (root.to_path_buf(), settings.clone(), Arc::clone(&files));
-        thread::Builder::new()
-            .name("run-discovery".into())
-            .spawn(move || {
-                let found = discover(&root, &searched)
-                    .into_iter()
-                    .map(|found| Entry::new(found, Origin::Found, &root, &settings))
-                    .collect();
-                // The chooser may be closed by now.
-                if send.send(found).is_ok() {
-                    notifier();
-                }
-            })
-            .map_err(|error| format!("Could not look through the project: {error}"))?;
-        self.running = Some(receive);
-        self.files = Some(files);
-        Ok(())
+        let spawned = thread::Builder::new().name("run-discovery".into()).spawn(move || {
+            let found = discover(&root, &searched)
+                .into_iter()
+                .map(|found| Entry::new(found, Origin::Found, &root, &settings))
+                .collect();
+            // The chooser may be closed by now.
+            if send.send(found).is_ok() {
+                notifier();
+            }
+        });
+        self.failed = None;
+        match spawned {
+            Ok(_) => (self.running, self.files) = (Some(receive), Some(files)),
+            Err(error) => {
+                self.failed = Some(format!("Could not look through the project: {error}"))
+            }
+        }
     }
 }
 
@@ -110,7 +116,6 @@ struct Listing {
     search: Rc<RefCell<Search>>,
     scanned: bool,
     searching: bool,
-    /// Why the search failed, shown in place of what it would have found.
     failed: Option<String>,
     /// The generation of the project's search `entries` list.
     listed: Option<u64>,
@@ -178,11 +183,9 @@ impl Listing {
         self.scanned = scanned;
         let settings = run_settings(editor);
         let mut search = self.search.borrow_mut();
-        match search.update(&self.root, files, &settings, editor.notifier()) {
-            Ok(()) => {}
-            Err(error) => self.failed = Some(error),
-        }
+        search.update(&self.root, files, &settings, editor.notifier());
         self.searching = search.running.is_some();
+        self.failed = search.failed.clone();
         let (generation, found) = (search.generation, Arc::clone(&search.found));
         drop(search);
         if self.listed != Some(generation) {

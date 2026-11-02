@@ -348,13 +348,9 @@ fn main() {
 /// Needs codelldb installed by remacs; skipped when it is not.
 #[test]
 fn a_cargo_program_stops_at_a_breakpoint_steps_and_runs_to_its_end() {
-    let Some(real_home) = remacs_config::home() else {
+    let Some(real_home) = with_adapter("codelldb") else {
         return;
     };
-    if !real_home.join("cache/tools/codelldb").is_dir() {
-        eprintln!("skipped: codelldb is not installed");
-        return;
-    }
     let home = directory("cargo");
     let root = home.join("demo");
     fs::create_dir_all(root.join(".git")).unwrap();
@@ -365,19 +361,7 @@ fn a_cargo_program_stops_at_a_breakpoint_steps_and_runs_to_its_end() {
     let main = root.join("src/main.rs");
     write(&main, PROGRAM);
 
-    let mut editor = Editor::new(&[
-        &EditingPlugin,
-        &MinibufferPlugin,
-        &ModesPlugin,
-        // Before the run plugin, which then sees in the same pass what the debugger did.
-        &DebugPlugin,
-        &RunPlugin,
-        &ToolsPlugin,
-    ]);
-    editor.set_settings(Default::default());
-    keep_configurations_in(&mut editor, &home);
-    keep_tools_in(&mut editor, &real_home);
-
+    let mut editor = debugging_editor(&home, &real_home);
     editor.visit_file(&main).unwrap();
     editor.set_point_at(8, 0);
     press(&mut editor, "s-<f8>");
@@ -442,12 +426,7 @@ fn a_cargo_program_stops_at_a_breakpoint_steps_and_runs_to_its_end() {
     wait_until(&mut editor, "stepping out", |editor| {
         editor.window_buffer().point_line() == 13 && status(editor).contains("paused")
     });
-    press(&mut editor, "<f9>");
-    wait_until(&mut editor, "the end", |editor| {
-        editor
-            .find_plugin_state::<crate::session::Debugger>()
-            .is_some_and(|debugger| debugger.sessions.is_empty())
-    });
+    finished(&mut editor);
     let console = contents(&editor, "*run: demo*");
     assert!(console.contains("cargo build -p demo --bin demo"), "{console}");
     assert!(console.contains("total 2788\n"), "{console}");
@@ -455,11 +434,32 @@ fn a_cargo_program_stops_at_a_breakpoint_steps_and_runs_to_its_end() {
     fs::remove_dir_all(home).unwrap();
 }
 
+/// The user's remacs home when it has `adapter` installed.
+fn with_adapter(adapter: &str) -> Option<PathBuf> {
+    let home = remacs_config::home()?;
+    let installed = home.join("cache/tools").join(adapter).is_dir();
+    if !installed {
+        eprintln!("skipped: {adapter} is not installed");
+    }
+    installed.then_some(home)
+}
+
+/// Goes on from a pause and waits for the program's end.
+fn finished(editor: &mut Editor) {
+    press(editor, "<f9>");
+    wait_until(editor, "the end", |editor| {
+        editor
+            .find_plugin_state::<crate::session::Debugger>()
+            .is_some_and(|debugger| debugger.sessions.is_empty())
+    });
+}
+
 fn debugging_editor(home: &Path, real_home: &Path) -> Editor {
     let mut editor = Editor::new(&[
         &EditingPlugin,
         &MinibufferPlugin,
         &ModesPlugin,
+        // Before the run plugin, which then sees in the same pass what the debugger did.
         &DebugPlugin,
         &RunPlugin,
         &ToolsPlugin,
@@ -473,13 +473,9 @@ fn debugging_editor(home: &Path, real_home: &Path) -> Editor {
 /// Needs js-debug installed by remacs, and Node; skipped when they are not.
 #[test]
 fn a_node_script_stops_at_a_breakpoint_in_the_session_js_debug_starts() {
-    let Some(real_home) = remacs_config::home() else {
+    let Some(real_home) = with_adapter("js-debug") else {
         return;
     };
-    if !real_home.join("cache/tools/js-debug").is_dir() {
-        eprintln!("skipped: js-debug is not installed");
-        return;
-    }
     let home = directory("node");
     let root = home.join("site");
     fs::create_dir_all(root.join(".git")).unwrap();

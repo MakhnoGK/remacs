@@ -315,16 +315,14 @@ impl Project {
             }
             Err(error) => return Err(format!("{}: {error}", path.display())),
         };
-        // Kept up to date for run files written by an older remacs.
-        if let Some(directory) = path.parent() {
-            write_schema(directory).map_err(|error| format!("{SCHEMA_FILE}: {error}"))?;
-        }
         let file: RunFile = toml::from_str(&text).map_err(|error| {
             let name = path.file_name().unwrap_or_default().to_string_lossy();
             format!("{name}: {}", error.message())
         })?;
         self.configurations = file.configurations;
-        Ok(())
+        // Written after the configurations are read, which it must not keep from running.
+        let directory = path.parent().unwrap_or(Path::new("."));
+        write_schema(directory).map_err(|error| format!("{SCHEMA_FILE}: {error}"))
     }
 
     /// Keeps `configuration` and appends it to the run file, which is created if needed,
@@ -338,20 +336,23 @@ impl Project {
         Ok(())
     }
 
-    /// Appends `text` to the run file, created with its header if need be.
+    /// Appends `text` to the run file, created with its header if need be. The file is
+    /// read again on the next look, which writes its schema.
     fn append(&mut self, root: &Path, text: &str) -> io::Result<()> {
         let Some(path) = &self.path else {
             return Err(io::Error::other("Run configurations are not kept in files"));
         };
         if let Some(directory) = path.parent() {
             fs::create_dir_all(directory)?;
-            write_schema(directory)?;
         }
         let header = match fs::read_to_string(path) {
             Ok(text) if text.starts_with(SCHEMA_DIRECTIVE) => String::new(),
-            // Written before the schema was.
+            // Written before the schema was; replaced whole, so that a write that fails,
+            // e.g. on a full disk, leaves it as it was.
             Ok(text) => {
-                fs::write(path, format!("{SCHEMA_DIRECTIVE}\n{text}"))?;
+                let replacement = path.with_extension("toml.new");
+                fs::write(&replacement, format!("{SCHEMA_DIRECTIVE}\n{text}"))?;
+                fs::rename(replacement, path)?;
                 String::new()
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
@@ -363,9 +364,7 @@ impl Project {
             Err(error) => return Err(error),
         };
         let mut file = fs::OpenOptions::new().create(true).append(true).open(path)?;
-        write!(file, "{header}\n{text}")?;
-        self.read_at = fs::metadata(path).and_then(|metadata| metadata.modified()).ok();
-        Ok(())
+        write!(file, "{header}\n{text}")
     }
 }
 
@@ -561,6 +560,17 @@ mod tests {
         let schema = fs::read_to_string(dir.join(SCHEMA_FILE)).unwrap();
         let schema: serde_json::Value = serde_json::from_str(&schema).unwrap();
         assert_eq!(schema["$schema"], "http://json-schema.org/draft-07/schema#");
+        assert!(!path.with_extension("toml.new").exists());
+
+        // A schema that cannot be written is said, and keeps nothing from being read or saved.
+        fs::remove_file(dir.join(SCHEMA_FILE)).unwrap();
+        fs::create_dir(dir.join(SCHEMA_FILE)).unwrap();
+        let pwd = Configuration::new("pwd", Kind::Shell { command: "pwd".into() });
+        store.find_or_add(root, pwd).unwrap();
+        let (project, error) = store.project(root);
+        assert!(error.is_some_and(|error| error.starts_with(SCHEMA_FILE)));
+        let names: Vec<&str> = project.configurations.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["ls", "pwd"]);
         fs::remove_dir_all(dir).unwrap();
     }
 
