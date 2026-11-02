@@ -37,5 +37,16 @@ fn the_chooser_opened_again_lists_what_was_found_at_once() {
     assert_eq!(labels(&editor), found);
     editor.refresh();
     assert_eq!(search(&mut editor), searched);
+
+    // A search that fails, as one that panics, is said each time the chooser opens.
+    let (send, receive) = std::sync::mpsc::channel();
+    drop(send);
+    editor.plugin_state::<chooser::Chooser>().searches[&root].borrow_mut().running = Some(receive);
+    let failed = Some("Could not look through the project for what it runs");
+    for _ in 0..2 {
+        press(&mut editor, "C-g");
+        chooser::choose(&mut editor).unwrap();
+        assert_eq!(editor.minibuffer().and_then(|minibuffer| minibuffer.note()), failed);
+    }
     fs::remove_dir_all(home).unwrap();
 }

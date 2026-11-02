@@ -2,7 +2,7 @@
 
 Status: accepted, 2026-11-01 (issue #215, stage 1: task runners; stage 2: new
 configurations; stage 3: the run file's schema; stage 4: discovery over the whole
-index)
+index; stage 5: a fixture per stack)
 
 ## Decision
 
@@ -60,11 +60,14 @@ index)
   ```
 
 - **Stage 3: the run file names its schema.** `run.schema.json` is derived from the
-  configuration types (schemars), written beside the run files whenever one is read or
-  added and differs, and named on the first line, `#:schema ./run.schema.json`, which
-  taplo and tombi both follow: completion of fields and kinds, the types' doc comments
-  as hover, and errors for a wrong kind, value or type. A run file written before gets
-  the line on its next addition. The schema is JSON Schema draft 7, the draft taplo
+  configuration types (schemars), written beside the run files whenever one is read
+  (so also after it is added to) and differs, and named on the first line,
+  `#:schema ./run.schema.json`, which taplo and tombi both follow: completion of fields
+  and kinds, the types' doc comments as hover, and errors for a wrong kind, value or
+  type. The schema is written after the configurations are read: one that cannot be
+  written is reported and keeps none from being read or saved. A run file written
+  before gets the line on its next addition, by being replaced whole, so that a write
+  that fails leaves it as it was. The schema is JSON Schema draft 7, the draft taplo
   checks against: in 2020-12 a `$ref` beside the `kind` constant is ignored by it, and
   every kind of task matched every other. tombi also warns of keys no kind has (a
   misspelled `evn-file`); taplo cannot, as kinds are alternatives of one table. Checked
@@ -96,6 +99,17 @@ index)
   out. The first opening was measured before searches were kept per project; the bench
   now measures opening again. The gutter's search on a pause in typing (`--bench
   entry_points`) stays 3.1 µs.
+
+- **Stage 5: a fixture per stack.** `plugins/debug/fixtures/<stack>` is a small project
+  of each stack with discovery; a test copies it and runs and debugs it with keys alone:
+  the ▶ at point run (`C-S-<f10>`) and debugged (`C-S-<f9>`) to a breakpoint set with
+  `s-<f8>`. Rust: `main` run, a `#[test]` debugged. Node: an npm script run and
+  debugged, and its TypeScript file debugged (Node's own type stripping). Make: a target
+  run, and Debug saying it cannot. A stack gets its fixture with its discovery (Go #206,
+  CMake #209, JavaScript tests #200, just once a runner has it installed). The tests
+  that debug are skipped where remacs has not installed the adapter. The first run
+  found libtest's `ESC ( B` after its colors drawn as a `B` in the console; escape
+  sequences with intermediate bytes are now left out.
 
 ## Later
 

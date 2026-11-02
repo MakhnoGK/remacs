@@ -17,6 +17,8 @@ enum State {
     #[default]
     Ground,
     Escape,
+    /// Inside `ESC` and bytes from space to `/`, e.g. `ESC ( B`, up to its final byte.
+    EscapeIntermediate,
     /// Inside `ESC [`, its parameters so far.
     Csi(String),
     /// Inside `ESC ]`, up to BEL or `ESC \`.
@@ -46,7 +48,13 @@ impl Parser {
                     self.state = match byte {
                         b'[' => State::Csi(String::new()),
                         b']' => State::Osc,
+                        0x20..=0x2f => State::EscapeIntermediate,
                         _ => State::Ground,
+                    }
+                }
+                State::EscapeIntermediate => {
+                    if (0x20..=0x2f).contains(&byte) {
+                        self.state = State::EscapeIntermediate;
                     }
                 }
                 State::Csi(mut parameters) => {
