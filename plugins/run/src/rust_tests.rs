@@ -26,7 +26,7 @@ struct Test {
     function: bool,
 }
 
-pub fn rust_tests(path: &Path, text: &str, root: &Path, package: &CargoPackage) -> Vec<EntryPoint> {
+pub fn rust_tests(path: &Path, text: &str, package: &CargoPackage) -> Vec<EntryPoint> {
     if !text.contains("test") {
         return Vec::new();
     }
@@ -43,7 +43,8 @@ pub fn rust_tests(path: &Path, text: &str, root: &Path, package: &CargoPackage) 
     let mut tests = Vec::new();
     let mut module = target.module.clone();
     find_tests(tree.root_node(), text, &mut module, &mut tests);
-    tests.into_iter().map(|test| entry_point(test, &target.cargo, package.cwd(root))).collect()
+    let cwd = package.cwd();
+    tests.into_iter().map(|test| entry_point(test, &target.cargo, cwd.clone())).collect()
 }
 
 fn entry_point(test: Test, cargo: &Cargo, cwd: String) -> EntryPoint {

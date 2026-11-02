@@ -2,8 +2,11 @@
 //! file, a `package.json` script, a Makefile's target, a justfile's recipe. Each comes
 //! with the configuration that runs it.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use crate::configuration::{Cargo, Configuration, Kind};
 use crate::rust_tests::rust_tests;
@@ -40,14 +43,24 @@ pub fn may_have_entry_points(mode: &str, name: &str) -> bool {
 
 /// The entry points of `text`, the file at `path` in `mode`, in the project at `root`.
 pub fn entry_points(path: &Path, mode: &str, text: &str, root: &Path) -> Vec<EntryPoint> {
+    entry_points_with(path, mode, text, root, &Manifests::default())
+}
+
+/// As `entry_points`, with the Cargo manifests read for other files of the same pass.
+pub fn entry_points_with(
+    path: &Path,
+    mode: &str,
+    text: &str,
+    root: &Path,
+    manifests: &Manifests,
+) -> Vec<EntryPoint> {
     let name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
     if mode == RUST_MODE {
-        let Some(package) = CargoPackage::of(path, root) else {
+        let Some(package) = CargoPackage::of(path, root, manifests) else {
             return Vec::new();
         };
-        let mut points: Vec<EntryPoint> =
-            rust_main(path, text, root, &package).into_iter().collect();
-        points.extend(rust_tests(path, text, root, &package));
+        let mut points: Vec<EntryPoint> = rust_main(path, text, &package).into_iter().collect();
+        points.extend(rust_tests(path, text, &package));
         points
     } else if JAVASCRIPT_MODES.contains(&mode) {
         script_file(path, name, root).into_iter().collect()
@@ -63,31 +76,52 @@ pub(crate) fn relative(path: &Path, root: &Path) -> String {
     if relative.as_os_str().is_empty() { ".".to_owned() } else { relative.display().to_string() }
 }
 
-/// The Cargo package a file belongs to.
-pub(crate) struct CargoPackage {
-    pub name: String,
-    pub dir: PathBuf,
-    pub manifest: toml::Table,
+/// Cargo manifests read so far, by directory, so that a pass over the files of one
+/// workspace reads and parses each once.
+#[derive(Default)]
+pub struct Manifests(RefCell<HashMap<PathBuf, Option<Rc<toml::Table>>>>);
+
+impl Manifests {
+    /// The `Cargo.toml` of `directory`, if it has one that parses.
+    fn get(&self, directory: &Path) -> Option<Rc<toml::Table>> {
+        self.0
+            .borrow_mut()
+            .entry(directory.to_path_buf())
+            .or_insert_with(|| {
+                let text = fs::read_to_string(directory.join("Cargo.toml")).ok()?;
+                text.parse().ok().map(Rc::new)
+            })
+            .clone()
+    }
 }
 
-impl CargoPackage {
+/// The Cargo package a file belongs to.
+pub(crate) struct CargoPackage<'a> {
+    pub name: String,
+    pub dir: PathBuf,
+    pub manifest: Rc<toml::Table>,
+    root: &'a Path,
+    manifests: &'a Manifests,
+}
+
+impl<'a> CargoPackage<'a> {
     /// The package whose `Cargo.toml` is nearest above `path`, up to `root`.
-    fn of(path: &Path, root: &Path) -> Option<Self> {
+    fn of(path: &Path, root: &'a Path, manifests: &'a Manifests) -> Option<Self> {
         let (dir, manifest) =
             path.ancestors().skip(1).take_while(|ancestor| ancestor.starts_with(root)).find_map(
                 |ancestor| {
-                    let manifest: toml::Table =
-                        fs::read_to_string(ancestor.join("Cargo.toml")).ok()?.parse().ok()?;
+                    let manifest = manifests.get(ancestor)?;
                     manifest.contains_key("package").then(|| (ancestor.to_path_buf(), manifest))
                 },
             )?;
         let name = manifest.get("package")?.get("name")?.as_str()?.to_owned();
-        Some(Self { name, dir, manifest })
+        Some(Self { name, dir, manifest, root, manifests })
     }
 
-    /// Where cargo runs for it: its workspace's root, as `cwd` relative to `root`.
-    pub fn cwd(&self, root: &Path) -> String {
-        relative(&workspace_root(&self.dir, root), root)
+    /// Where cargo runs for it: its workspace's root, relative to the project root;
+    /// looked for only once it has something to run.
+    pub fn cwd(&self) -> String {
+        relative(&workspace_root(&self.dir, self.root, self.manifests), self.root)
     }
 
     /// The binary or example whose root file is `path`.
@@ -97,7 +131,7 @@ impl CargoPackage {
 }
 
 /// A binary or an example of a Cargo package, run from its workspace's root.
-fn rust_main(path: &Path, text: &str, root: &Path, package: &CargoPackage) -> Option<EntryPoint> {
+fn rust_main(path: &Path, text: &str, package: &CargoPackage) -> Option<EntryPoint> {
     let line = text.lines().position(is_main_line)?;
     let (name, bin, example) = match package.main_target(path)? {
         Target::Bin(bin) => (bin.clone(), Some(bin), None),
@@ -112,7 +146,7 @@ fn rust_main(path: &Path, text: &str, root: &Path, package: &CargoPackage) -> Op
             ..Cargo::default()
         }),
     );
-    configuration.cwd = Some(package.cwd(root));
+    configuration.cwd = Some(package.cwd());
     Some(EntryPoint::at(line, configuration))
 }
 
@@ -159,16 +193,15 @@ fn cargo_target(file: &Path, manifest: &toml::Table, package: &str) -> Option<Ta
 }
 
 /// The root of the Cargo workspace `package_dir` belongs to, else the package's own.
-fn workspace_root(package_dir: &Path, root: &Path) -> PathBuf {
+fn workspace_root(package_dir: &Path, root: &Path, manifests: &Manifests) -> PathBuf {
     package_dir
         .ancestors()
         .take_while(|ancestor| ancestor.starts_with(root))
         .find(|ancestor| {
-            let Some(workspace) = fs::read_to_string(ancestor.join("Cargo.toml"))
-                .ok()
-                .and_then(|text| text.parse::<toml::Table>().ok())
-                .and_then(|mut manifest| manifest.remove("workspace"))
-            else {
+            let Some(manifest) = manifests.get(ancestor) else {
+                return false;
+            };
+            let Some(workspace) = manifest.get("workspace") else {
                 return false;
             };
             let relative = package_dir.strip_prefix(ancestor).unwrap_or(package_dir);

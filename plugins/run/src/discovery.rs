@@ -6,23 +6,21 @@ use std::fs;
 use std::path::Path;
 
 use crate::configuration::Configuration;
-use crate::entry_points::{PACKAGE_JSON, RUST_MODE, entry_points};
+use crate::entry_points::{Manifests, PACKAGE_JSON, RUST_MODE, entry_points_with};
 use crate::tasks::is_task_file;
 
-/// Files read at most, so that a huge monorepo still opens the chooser at once.
-const MAX_FILES: usize = 200;
-
-/// Configurations for what the project's `files`, relative to `root`, can run.
+/// Configurations for what the project's `files`, relative to `root`, can run: all of
+/// them, as it runs off the main thread.
 pub fn discover(root: &Path, files: &[String]) -> Vec<Configuration> {
+    let manifests = Manifests::default();
     files
         .iter()
         .filter(|file| may_start_programs(file))
-        .take(MAX_FILES)
         .flat_map(|file| {
             let path = root.join(file);
             let mode = if file.ends_with(".rs") { RUST_MODE } else { "" };
             let text = fs::read_to_string(&path).unwrap_or_default();
-            entry_points(&path, mode, &text, root)
+            entry_points_with(&path, mode, &text, root, &manifests)
         })
         .filter(|entry| !entry.temporary)
         .map(|entry| entry.configuration)
