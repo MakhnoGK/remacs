@@ -30,6 +30,8 @@ fg-prompt-directory = "#989898"
 
 accent = "#2fafff"
 accent-on-selection = "#9cd7ff"
+cursor = "#ffffff"
+fg-on-cursor = "#000000"
 
 error = "#ff5f59"
 danger = "#ff7f86"
@@ -68,6 +70,15 @@ docstring = "#9ac8e0"
 string = "#79a8ff"
 comment = "#989898"
 variable = "#00d3d0"
+
+graph-1 = "#2fafff"
+graph-2 = "#b6a0ff"
+graph-3 = "#6ae4b9"
+graph-4 = "#feacd0"
+graph-5 = "#fec43f"
+graph-6 = "#00d3d0"
+graph-7 = "#f78fe7"
+graph-8 = "#79a8ff"
 
 [styles]
 keyword = []
@@ -123,6 +134,16 @@ chip = "#ffffff1a"
 selection = "#2f447fe6"
 segment = "#ffffff1f"
 disabled = "#ffffff0a"
+
+flagged = "#ff5f5914"
+notice = "#fec43f1a"
+
+ref-head = "#2fafff33"
+ref-main = "#b6a0ff29"
+ref-branch = "#6ae4b924"
+ref-remote = "#00000000"
+ref-head-border = "#2fafff73"
+ref-remote-border = "#ffffff29"
 
 # Lines, hovers and tints over the glass.
 [ink]

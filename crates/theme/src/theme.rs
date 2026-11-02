@@ -17,6 +17,8 @@ use crate::{Rgb, ensure_theme};
 pub const BUILT_IN: &[(&str, &str)] = &[
     (DEFAULT, include_str!("../themes/modus-vivendi.toml")),
     (LIGHT, include_str!("../themes/modus-operandi.toml")),
+    ("patina-dark", include_str!("../themes/patina-dark.toml")),
+    ("patina-light", include_str!("../themes/patina-light.toml")),
 ];
 
 pub const DEFAULT: &str = "modus-vivendi";
@@ -245,6 +247,9 @@ mod tests {
         }
         assert_eq!(Theme::built_in(DEFAULT).appearance, Appearance::Dark);
         assert_eq!(Theme::built_in(LIGHT).appearance, Appearance::Light);
+        assert_eq!(Theme::built_in("patina-dark").appearance, Appearance::Dark);
+        assert_eq!(Theme::built_in("patina-dark").colors.cursor, Rgb(0x8ce6bf));
+        assert_eq!(Theme::built_in("patina-light").appearance, Appearance::Light);
     }
 
     #[test]
@@ -253,6 +258,7 @@ mod tests {
         assert_eq!(theme.colors.bg_main, Rgb(0xffffff));
         assert_eq!(theme.colors.keyword, Rgb(0x531ab6));
         assert_eq!(theme.colors.string, Rgb(0x3548cf));
+        assert_eq!(theme.colors.graph_1, theme.colors.accent);
         assert_eq!(theme.glass.region.0, 0xbdbdbdff);
         assert_eq!(theme.glass.line_highlight.0, 0xdae5ecff);
         assert_eq!(theme.styles.comment, Style::default());
@@ -319,7 +325,11 @@ mod tests {
     #[test]
     fn lists_built_in_themes_and_the_users() {
         let dir = themes_dir("names", &[("paper.toml", ""), ("notes.txt", "")]);
-        assert_eq!(names(Some(&dir)), ["modus-operandi", "modus-vivendi", "paper"]);
+        let names = names(Some(&dir));
+        assert_eq!(
+            names,
+            ["modus-operandi", "modus-vivendi", "paper", "patina-dark", "patina-light"]
+        );
         fs::remove_dir_all(dir).unwrap();
     }
 

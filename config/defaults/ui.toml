@@ -1,10 +1,10 @@
 # How remacs looks. Changes apply as soon as the file is saved.
 
 [theme]
-# The colors of everything: "modus-vivendi" (dark), "modus-operandi" (light), or
-# a file <name>.toml of yours in ~/.config/remacs/themes. A theme file sets only what it
-# changes; the rest comes from `inherits = "<theme>"`, else from the built-in theme of its
-# `appearance` ("light" or "dark"). M-x select-theme (View > Theme…) writes this line.
+# The colors of everything: "modus-vivendi" (dark), "modus-operandi" (light),
+# "patina-dark", "patina-light", or a file <name>.toml of yours in ~/.config/remacs/themes.
+# A theme file sets only what it changes; the rest comes from `inherits = "<theme>"`, else
+# from the built-in theme of its `appearance` ("light" or "dark"). M-x select-theme (View > Theme…) writes this line.
 # "system" shows `light` or `dark` below as macOS is, and switches when macOS does; on
 # Linux, as the desktop's settings portal says.
 name = "modus-vivendi"
