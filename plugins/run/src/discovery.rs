@@ -1,11 +1,13 @@
 //! What a project can run that it has no configuration for yet: the scripts of its
-//! `package.json` files, its Cargo binaries and examples.
+//! `package.json` files, its Cargo binaries and examples, its Makefiles' targets and
+//! justfiles' recipes.
 
 use std::fs;
 use std::path::Path;
 
 use crate::configuration::Configuration;
 use crate::entry_points::{PACKAGE_JSON, RUST_MODE, entry_points};
+use crate::tasks::is_task_file;
 
 /// Files read at most, so that a huge monorepo still opens the chooser at once.
 const MAX_FILES: usize = 200;
@@ -33,7 +35,7 @@ fn may_start_programs(file: &str) -> bool {
         return false;
     }
     match parts.as_slice() {
-        [.., last] if *last == PACKAGE_JSON => true,
+        [.., last] if *last == PACKAGE_JSON || is_task_file(last) => true,
         [.., "src", "main.rs"] => true,
         [.., "src", "bin", name] | [.., "examples", name] => name.ends_with(".rs"),
         [.., "src", "bin", _, "main.rs"] | [.., "examples", _, "main.rs"] => true,

@@ -45,6 +45,10 @@ pub enum Kind {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         package_manager: Option<PackageManager>,
     },
+    /// A target of a Makefile, run by make from the file's directory.
+    Make(Task),
+    /// A recipe of a justfile, run by just from the file's directory.
+    Just(Task),
     /// A JavaScript or TypeScript file, relative to the project root, run by Node.
     Node {
         file: String,
@@ -84,6 +88,14 @@ pub struct Cargo {
     /// Given to cargo, before `--` and the program's arguments, e.g. `--release`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cargo_args: Vec<String>,
+}
+
+/// A task a task runner's file declares: a Makefile's target, a justfile's recipe.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Task {
+    /// Relative to the project root.
+    pub file: String,
+    pub task: String,
 }
 
 pub const CARGO_TEST: &str = "test";
@@ -164,7 +176,7 @@ impl Kind {
     pub fn icon(&self) -> Icon {
         match self {
             Kind::Cargo(_) => Icon::Package,
-            Kind::Npm { .. } => Icon::Script,
+            Kind::Npm { .. } | Kind::Make(_) | Kind::Just(_) => Icon::Script,
             Kind::Node { .. } => Icon::File,
             Kind::Executable { .. } | Kind::Shell { .. } => Icon::Terminal,
         }
@@ -175,6 +187,8 @@ impl Kind {
         match self {
             Kind::Cargo(_) => "Cargo",
             Kind::Npm { .. } => "npm scripts",
+            Kind::Make(_) => "Make targets",
+            Kind::Just(_) => "just recipes",
             Kind::Node { .. } => "Files",
             Kind::Executable { .. } => "Executables",
             Kind::Shell { .. } => "Shell commands",
@@ -186,9 +200,11 @@ impl Kind {
         match self {
             Kind::Cargo(_) => 0,
             Kind::Npm { .. } => 1,
-            Kind::Node { .. } => 2,
-            Kind::Executable { .. } => 3,
-            Kind::Shell { .. } => 4,
+            Kind::Make(_) => 2,
+            Kind::Just(_) => 3,
+            Kind::Node { .. } => 4,
+            Kind::Executable { .. } => 5,
+            Kind::Shell { .. } => 6,
         }
     }
 }
@@ -224,6 +240,8 @@ const HEADER: &str = "\
 # kind = \"cargo\": package; bin, example, lib = true or test (a file of tests/);
 #   command (\"run\"; \"test\" runs tests, those whose path contains filter); cargo-args
 # kind = \"npm\": package-json, script, package-manager (npm, pnpm, yarn, bun)
+# kind = \"make\": file (a Makefile), task (its target)
+# kind = \"just\": file (a justfile), task (its recipe)
 # kind = \"node\": file (.js or .ts)
 # kind = \"executable\": program
 # kind = \"shell\": command, a command line run by the shell run.toml [compile] names

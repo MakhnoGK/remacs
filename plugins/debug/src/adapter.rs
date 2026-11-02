@@ -102,7 +102,9 @@ pub fn plan(configuration: &Configuration, launch: &Launch) -> Result<(Adapter, 
             Adapter::CodeLldb
         }
         Kind::Node { .. } | Kind::Npm { .. } => Adapter::JsDebug,
-        Kind::Shell { .. } => return Err("A shell command cannot be debugged".into()),
+        Kind::Shell { .. } | Kind::Make(_) | Kind::Just(_) => {
+            return Err(format!("{} cannot be debugged", configuration.kind.group()));
+        }
     };
     let plan = Plan { before: launch.before.clone(), cargo_build, target };
     Ok((adapter, plan))
