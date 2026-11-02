@@ -4,10 +4,12 @@ use remacs_core::{CommandResult, Completions, Editor, Prompt};
 use remacs_files::links::follow;
 
 use crate::chooser;
-use crate::configuration::Configuration;
+use crate::compile::default_command;
+use crate::configuration::{Configuration, Kind};
 use crate::configuration_store;
 use crate::console::{self, Console, link_at};
 use crate::entry_points::EntryPoint;
+use crate::launch::launch;
 use crate::process::Starter;
 use crate::sessions::{self, Session, get, of_window, sessions};
 use crate::window::{entry_point_for, window_root};
@@ -68,14 +70,36 @@ pub fn run_entry_point(
     run_configuration(editor, root, configuration, starter)
 }
 
-/// Adds an example configuration to the project's run file and visits it there.
-pub fn new_configuration(editor: &mut Editor, root: &Path) -> CommandResult {
-    let path = configuration_store(editor).add_template(root)?;
-    editor.visit_file(&path)?;
-    let last_line = editor.window_buffer().text().line_count().saturating_sub(1);
-    editor.set_point_at(last_line, 0);
-    Ok(())
+/// Saves a new configuration and visits it in the run file, to be edited: made from the
+/// entry point at point, else `fallback`, else the project's compile command. It reads
+/// the program's `.env` when there is one.
+pub fn new_configuration(
+    editor: &mut Editor,
+    root: &Path,
+    fallback: Option<Configuration>,
+) -> CommandResult {
+    let line = editor.window_buffer().point_line();
+    let at_point = entry_point_for(editor, line)
+        .filter(|(entry_root, _)| entry_root == root)
+        .map(|(_, entry)| entry.configuration);
+    let settings = sessions(editor).settings.clone();
+    let mut configuration = at_point.or(fallback).unwrap_or_else(|| {
+        let command = default_command(root, &settings.compile).unwrap_or_default();
+        let name = if command.is_empty() { "new".to_owned() } else { command.clone() };
+        Configuration::new(name, Kind::Shell { command })
+    });
+    let has_env_file = launch(&configuration, root, &settings)
+        .is_ok_and(|launch| launch.cwd.join(ENV_FILE).is_file());
+    if configuration.env_file.is_none() && has_env_file {
+        configuration.env_file = Some(ENV_FILE.to_owned());
+    }
+    let configuration = configuration_store(editor)
+        .add_new(root, configuration)
+        .map_err(|error| format!("Could not save the configuration: {error}"))?;
+    visit_configuration(editor, root, &configuration.name)
 }
+
+const ENV_FILE: &str = ".env";
 
 /// Makes `configuration` the project's chosen one and runs it.
 pub fn run_configuration(
@@ -96,12 +120,16 @@ pub fn edit_configuration(
     root: &Path,
     configuration: Configuration,
 ) -> CommandResult {
-    let store = configuration_store(editor);
-    let configuration = store.find_or_add(root, configuration)?;
-    let (project, _) = store.project(root);
+    let configuration = configuration_store(editor).find_or_add(root, configuration)?;
+    visit_configuration(editor, root, &configuration.name)
+}
+
+/// Visits the project's run file at the configuration named `name`.
+fn visit_configuration(editor: &mut Editor, root: &Path, name: &str) -> CommandResult {
+    let (project, _) = configuration_store(editor).project(root);
     let path = project.path().ok_or("Run configurations are not kept in files")?.to_path_buf();
     editor.visit_file(&path)?;
-    let name_line = format!("name = {}", toml::Value::String(configuration.name));
+    let name_line = format!("name = {}", toml::Value::String(name.to_owned()));
     let buffer = editor.window_buffer();
     let text = buffer.text();
     let line = (0..text.line_count()).find(|&line| {

@@ -1,6 +1,7 @@
 # 0091 — Run and debug without writing configurations
 
-Status: accepted, 2026-11-01 (issue #215, stage 1: task runners)
+Status: accepted, 2026-11-01 (issue #215, stage 1: task runners; stage 2: new
+configurations)
 
 ## Decision
 
@@ -37,6 +38,25 @@ Status: accepted, 2026-11-01 (issue #215, stage 1: task runners)
   `[private]`, settings, aliases and variables. Checked against `make -pRrq` on five
   real Makefiles and by hand on four justfiles from crates.io.
 - Neither kind can be debugged; Debug says so.
+
+- **Stage 2: "New configuration…" is made, not written.** It saves a configuration of
+  what runs at point (the entry point the ▶ would run), else of the chooser's first
+  entry, else the project's compile command as `kind = "shell"`, under a free name
+  even when the project runs that kind already, so that a variant only needs editing.
+  `env-file = ".env"` is set when the program's working directory has one.
+- **Every configuration saved lists what it leaves out**, as comments under its table:
+  each optional field of its kind and of every kind, with an example and what it does,
+  ahead of any sub-table so that a line uncommented stays its own:
+
+  ```toml
+  [[configurations]]
+  name = "api"
+  kind = "cargo"
+  package = "api"
+  # command = "test"  # "run" when left out; "test" runs tests
+  # args = []  # given to the program
+  # env-file = ".env"  # a dotenv file, relative to the working directory
+  ```
 
 ## Later
 

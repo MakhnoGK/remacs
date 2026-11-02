@@ -108,7 +108,7 @@ impl Listing {
         let new = Candidate {
             value: NEW.into(),
             icon: Some(Icon::Create),
-            detail: Some("an example to fill in, in the run file".into()),
+            detail: Some("made from what runs here, to edit in the run file".into()),
             ..Candidate::new("New configuration…")
         };
         self.entries
@@ -186,9 +186,9 @@ pub fn choose_with(editor: &mut Editor, starter: Option<Starter>) -> CommandResu
             listing.completions(editor, input)
         },
         |editor, value| {
-            let (root, entry) = take_entry(editor, &value)?;
-            let Some(entry) = entry else {
-                return new_configuration(editor, &root);
+            let (root, entry) = match take_entry(editor, &value)? {
+                (root, Chosen::Entry(entry)) => (root, entry),
+                (root, Chosen::New(first)) => return new_configuration(editor, &root, first),
             };
             let configuration = match entry.origin {
                 Origin::Saved | Origin::Temporary => entry.configuration,
@@ -201,16 +201,24 @@ pub fn choose_with(editor: &mut Editor, starter: Option<Starter>) -> CommandResu
     )
 }
 
-/// The project and the entry chosen; none for "New configuration…".
-fn take_entry(editor: &mut Editor, value: &str) -> Result<(PathBuf, Option<Entry>), String> {
+/// What was chosen: an entry, or "New configuration…" with the first one listed, which it
+/// is made from when nothing at point runs.
+enum Chosen {
+    Entry(Entry),
+    New(Option<Configuration>),
+}
+
+/// The project and what was chosen.
+fn take_entry(editor: &mut Editor, value: &str) -> Result<(PathBuf, Chosen), String> {
     let listing = editor.plugin_state::<Chooser>().listing.take().ok_or("No such configuration")?;
     let listing = listing.borrow();
     if value == NEW {
-        return Ok((listing.root.clone(), None));
+        let first = listing.entries.first().map(|entry| entry.configuration.clone());
+        return Ok((listing.root.clone(), Chosen::New(first)));
     }
     let index: usize = value.parse().map_err(|_| "No such configuration")?;
     let entry = listing.entries.get(index).cloned().ok_or("No such configuration")?;
-    Ok((listing.root.clone(), Some(entry)))
+    Ok((listing.root.clone(), Chosen::Entry(entry)))
 }
 
 /// Edits the selected candidate's configuration, saved first if it is not yet.
@@ -222,8 +230,8 @@ pub fn edit(editor: &mut Editor) -> CommandResult {
         .ok_or("No configuration")?;
     editor.cancel_minibuffer();
     match take_entry(editor, &value)? {
-        (root, Some(entry)) => edit_configuration(editor, &root, entry.configuration),
-        (root, None) => new_configuration(editor, &root),
+        (root, Chosen::Entry(entry)) => edit_configuration(editor, &root, entry.configuration),
+        (root, Chosen::New(first)) => new_configuration(editor, &root, first),
     }
 }
 
