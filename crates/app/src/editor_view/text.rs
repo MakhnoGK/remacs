@@ -3,7 +3,7 @@ use std::ops::Range;
 use std::time::Instant;
 
 use gpui::{
-    AnyElement, Bounds, Context, Div, Pixels, Point, StyledText, Window, div, font, point,
+    AnyElement, Bounds, Context, Div, Hsla, Pixels, Point, StyledText, Window, div, font, point,
     prelude::*, px, rgb, rgba, size, svg,
 };
 use remacs_core::{
@@ -24,7 +24,7 @@ use crate::highlights::{Highlights, combine, face_style, swatch_style};
 use crate::settings::{FoldToggles, SwatchesSettings};
 use crate::widgets::{
     Edge, PressExt, SCROLL_FADE_SIZE, StyleExt, block_cursor, cursor_height, cursor_text_style,
-    edge_fade, hollow_cursor, icon, over, tone_color,
+    edge_fade, hollow_cursor, icon, over, text_run, tone_color,
 };
 
 /// Minified files can hold megabytes on one line; lay out only what can be on screen.
@@ -534,8 +534,14 @@ pub(super) fn cached_metrics(
     // Prompts size their cursor by it, in the code font at their own sizes.
     // shortcut: measured from the code font only; measure per font if a prompt cursor uses the UI font.
     cursor::set_glyph_ratio(glyph_height / size);
+    let char_width = advance(code_font.size, 'm');
+    // Monaco Nerd Font joins fi into one column's glyph, which the column grid cannot place.
+    let ligatures_fit = ["ff", "fi", "fl"].into_iter().all(|pair| {
+        let run = text_run(pair.len(), font(code_font.family.clone()), Hsla::default());
+        text_system.shape_line(pair.into(), size, &[run], None).width + px(0.5) >= char_width * 2.0
+    });
     let metrics = Metrics {
-        char_width: advance(code_font.size, 'm'),
+        char_width,
         // The font's descent is negative here, unlike a laid-out line's.
         glyph_height,
         digit_width: advance(code_font.line_number_size(), '0'),
@@ -545,6 +551,7 @@ pub(super) fn cached_metrics(
         ui_char_width: text_system
             .advance(text_system.resolve_font(&font(fonts.1.clone())), px(fonts.2), 'n')
             .map_or(px(fonts.2 * 0.55), |advance| advance.width),
+        ligatures_fit,
     };
     *cache = Some((fonts, metrics));
     metrics

@@ -281,6 +281,8 @@ struct Metrics {
     small_mono_width: Pixels,
     /// About, of text in notes.
     ui_char_width: Pixels,
+    /// Whether the font's standard ligatures keep a column per character.
+    ligatures_fit: bool,
 }
 
 /// The code font, and the UI font's family and size.
@@ -720,7 +722,10 @@ impl Render for EditorView {
         }
 
         let root = div().size_full().relative().overflow_hidden().bg(rgba(glass::window_tint()));
-        let root = root.mono().font_features(code_font_features()).fg(color::fg_main());
+        let root = root
+            .mono()
+            .font_features(code_font_features(metrics.ligatures_fit))
+            .fg(color::fg_main());
         root.line_height(px(font::LINE_HEIGHT))
             .track_focus(&self.focus_handle)
             .on_key_down(cx.listener(Self::on_key_down))

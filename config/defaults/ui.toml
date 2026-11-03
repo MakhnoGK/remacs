@@ -36,7 +36,8 @@ weight = "regular"
 strokes = "thick"
 
 # Whether the font may join characters into one glyph, e.g. => into an arrow, if it has
-# such ligatures.
+# such ligatures. A font whose fi, fl or ff takes one column instead of two, as Monaco
+# Nerd Font's, keeps those apart either way.
 ligatures = true
 
 [ui-font]

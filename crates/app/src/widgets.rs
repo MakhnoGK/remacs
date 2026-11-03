@@ -151,11 +151,14 @@ pub trait PressExt: InteractiveElement + Sized {
 impl<E: InteractiveElement> PressExt for E {}
 
 /// What the code font may do with its characters; fonts join them through either feature.
-pub fn code_font_features() -> FontFeatures {
-    if font::code().ligatures {
-        FontFeatures::default()
-    } else {
-        FontFeatures(Arc::new(vec![("calt".into(), 0), ("liga".into(), 0)]))
+/// Standard ligatures (`liga`) stay off when they do not `fit` a column per character;
+/// code ligatures, as `=>`, come through `calt`.
+pub fn code_font_features(fit: bool) -> FontFeatures {
+    let off = |tags: &[&str]| tags.iter().map(|tag| (tag.to_string(), 0)).collect();
+    match (font::code().ligatures, fit) {
+        (true, true) => FontFeatures::default(),
+        (true, false) => FontFeatures(Arc::new(off(&["liga"]))),
+        (false, _) => FontFeatures(Arc::new(off(&["calt", "liga"]))),
     }
 }
 
@@ -576,4 +579,16 @@ fn key_label(key: &str) -> String {
     [("⌘", "Super+"), ("⌃", "Ctrl+"), ("⌥", "Alt+"), ("⇧", "Shift+"), ("↩", "↵")]
         .iter()
         .fold(key.to_owned(), |label, (symbol, name)| label.replace(symbol, name))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn standard_ligatures_stay_off_only_where_they_do_not_fit_the_columns() {
+        assert!(font::code().ligatures);
+        assert_eq!(code_font_features(true), FontFeatures::default());
+        assert_eq!(code_font_features(false), FontFeatures(Arc::new(vec![("liga".into(), 0)])));
+    }
 }
