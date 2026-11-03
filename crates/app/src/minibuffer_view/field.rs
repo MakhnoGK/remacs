@@ -41,7 +41,7 @@ pub(super) fn render_field(
 /// A field's well, lit while it is the one being typed in.
 fn field_frame(active: bool) -> Div {
     let border = if active { color::accent() << 8 | 0x59 } else { glass::ink(0x0f) };
-    div().px(px(12.0)).rounded_fill(8.0, glass::field()).bordered(border)
+    div().px(px(FIELD_PADDING_X)).rounded_fill(8.0, glass::field()).bordered(border)
 }
 
 fn placeholder(text: &'static str) -> Div {
@@ -108,28 +108,27 @@ fn render_input(
         })
 }
 
-/// A message's description under its subject: a few lines, scrolled to the cursor, with
-/// `composition` before it while typed in.
+/// A message's description under its subject: a few rows, its lines wrapped at words to
+/// `columns`, scrolled to the cursor, with `composition` before it while typed in.
 pub(super) fn render_description(
     minibuffer: &Minibuffer,
     composition: Option<&Composition>,
+    columns: usize,
 ) -> Option<impl IntoElement> {
     let description = minibuffer.description()?;
     let active = minibuffer.in_description();
     let text = description.contents(0..description.text().len());
-    let point_line = description.point_line();
-    let first = if active { point_line.saturating_sub(DESCRIPTION_LINES - 1) } else { 0 };
-    let lines =
-        text.split('\n').enumerate().skip(first).take(DESCRIPTION_LINES).map(|(index, source)| {
-            let mut line = DisplayLine::new(source);
-            let text = if active && index == point_line {
-                let cursor = line.cursor_cell(description.point_column());
-                text_with_cursor(&line.text, &Vec::new(), cursor, composition)
-            } else {
-                div().child(line.text)
-            };
-            div().h(px(DESCRIPTION_LINE_HEIGHT)).whitespace_nowrap().overflow_hidden().child(text)
-        });
+    let cursor = active.then(|| (description.point_line(), description.point_column()));
+    let rows = description_rows(&text, cursor, columns);
+    let cursor_row = rows.iter().position(|(_, at)| at.is_some()).unwrap_or(0);
+    let first = cursor_row.saturating_sub(DESCRIPTION_LINES - 1);
+    let lines = rows.into_iter().skip(first).take(DESCRIPTION_LINES).map(|(row, at)| {
+        let text = match at {
+            Some(cursor) => text_with_cursor(&row, &Vec::new(), cursor, composition),
+            None => div().child(row),
+        };
+        div().h(px(DESCRIPTION_LINE_HEIGHT)).whitespace_nowrap().overflow_hidden().child(text)
+    });
     let message = minibuffer.prompt().message.as_ref();
     let placeholder_text = message.map_or("", |message| message.placeholder);
     let field = field_frame(active)
@@ -146,6 +145,49 @@ pub(super) fn render_description(
     Some(div().child(label).child(field))
 }
 
+/// `text`'s rows wrapped to `columns`, the one `cursor` (a line and a column) is on with
+/// the cursor's bytes in it.
+fn description_rows(
+    text: &str,
+    cursor: Option<(usize, usize)>,
+    columns: usize,
+) -> Vec<(String, Option<Range<usize>>)> {
+    let line_rows = |(index, source)| {
+        let mut line = DisplayLine::new(source);
+        let cursor = cursor.filter(|&(at, _)| at == index).map(|(_, at)| line.cursor_cell(at));
+        let rows = wrap_rows(&line.text, columns).into_iter().map(|row: Range<usize>| {
+            let at = cursor.clone().filter(|cursor| row.contains(&cursor.start));
+            let at = at.map(|cursor| cursor.start - row.start..cursor.end - row.start);
+            (line.text[row].to_owned(), at)
+        });
+        rows.collect::<Vec<_>>()
+    };
+    text.split('\n').enumerate().flat_map(line_rows).collect()
+}
+
+/// Byte ranges of `text`'s rows `columns` characters wide at most, each broken after its
+/// last space, or inside a word wider than a row; a space just past a row hangs off its
+/// end, so no row starts with one.
+fn wrap_rows(text: &str, columns: usize) -> Vec<Range<usize>> {
+    let columns = columns.max(1);
+    let mut rows = Vec::new();
+    let mut start = 0;
+    while let Some((end, _)) = text[start..].char_indices().nth(columns) {
+        let space = if text[start + end..].starts_with(' ') {
+            Some(end)
+        } else {
+            text[start..start + end].rfind(' ').filter(|&space| space > 0)
+        };
+        let end = start + space.map_or(end, |space| space + 1);
+        rows.push(start..end);
+        start = end;
+    }
+    if start < text.len() || rows.is_empty() {
+        rows.push(start..text.len());
+    }
+    rows
+}
+
 fn count_text(minibuffer: &Minibuffer) -> String {
     let total = minibuffer.total();
     match minibuffer.prompt().count {
@@ -155,5 +197,46 @@ fn count_text(minibuffer: &Minibuffer) -> String {
         Count::Matches if total == 1 => "1 match".into(),
         Count::Matches => format!("{total} matches"),
         Count::Total => total.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{description_rows, wrap_rows};
+
+    fn rows(text: &str, columns: usize) -> Vec<&str> {
+        wrap_rows(text, columns).into_iter().map(|row| &text[row]).collect()
+    }
+
+    #[test]
+    fn the_cursor_is_on_the_row_its_column_wrapped_to() {
+        let rows = |column| description_rows("fix the wrap\nlong", Some((0, column)), 8);
+        let row = |text: &str, cursor| (text.to_owned(), cursor);
+        assert_eq!(rows(10), [row("fix the ", None), row("wrap", Some(2..3)), row("long", None)]);
+        assert_eq!(rows(12), [row("fix the ", None), row("wrap ", Some(4..5)), row("long", None)]);
+        let unfocused = description_rows("fix the wrap", None, 8);
+        assert_eq!(unfocused, [row("fix the ", None), row("wrap", None)]);
+    }
+
+    #[test]
+    fn a_space_past_a_row_hangs_off_its_end() {
+        assert_eq!(rows("abcde fghij", 5), ["abcde ", "fghij"]);
+        assert_eq!(rows("abcde ", 5), ["abcde "]);
+    }
+
+    #[test]
+    fn rows_break_after_the_last_space_that_fits() {
+        assert_eq!(rows("fix the wrap of long lines", 10), ["fix the ", "wrap of ", "long lines"]);
+    }
+
+    #[test]
+    fn a_word_wider_than_a_row_breaks_inside_it() {
+        assert_eq!(rows("ab abcdefgh€ij", 5), ["ab ", "abcde", "fgh€i", "j"]);
+    }
+
+    #[test]
+    fn a_short_or_empty_line_is_one_row() {
+        assert_eq!(rows("short", 10), ["short"]);
+        assert_eq!(rows("", 10), [""]);
     }
 }

@@ -661,7 +661,8 @@ impl Render for EditorView {
             self.surfaces.popups.clear();
         }
         let pane = self.render_pane(pane, &screen_owners, window, cx);
-        let prompt = self.render_prompt(cx);
+        let mono_width = self.metrics(window).mono_width;
+        let prompt = self.render_prompt(mono_width, cx);
         // gpui scrolls the input to the cursor only once it has laid it out.
         if self.editor.minibuffer().is_some_and(draws_input)
             && self.input_scroll.bounds().size.width == px(0.0)

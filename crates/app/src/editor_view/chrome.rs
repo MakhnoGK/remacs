@@ -142,7 +142,11 @@ impl EditorView {
     }
 
     /// The prompt and the scrim behind it as they come, are, or go.
-    pub(super) fn render_prompt(&mut self, cx: &mut Context<Self>) -> Option<PromptSurface> {
+    pub(super) fn render_prompt(
+        &mut self,
+        mono_width: Pixels,
+        cx: &mut Context<Self>,
+    ) -> Option<PromptSurface> {
         let transition = self.transitions.prompt();
         let closed = self.editor.take_closed_minibuffer();
         let open = self.editor.minibuffer().is_some();
@@ -155,8 +159,14 @@ impl EditorView {
         let scrim = look.in_place().apply(render_scrim(minibuffer.dialog().is_some()));
         // A prompt on its way out takes no more text.
         let composition = open.then_some(&self.composition);
-        let surface =
-            render_minibuffer(minibuffer, &self.input_scroll, composition, self.prompts, cx);
+        let surface = render_minibuffer(
+            minibuffer,
+            &self.input_scroll,
+            composition,
+            self.prompts,
+            mono_width,
+            cx,
+        );
         Some(PromptSurface { surface: look.apply(surface), scrim, problem_list })
     }
 
