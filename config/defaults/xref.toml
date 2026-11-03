@@ -1,0 +1,5 @@
+# Going to definitions, uses and implementations, and the call and type hierarchies
+# (M-g M-c, M-g M-y). Changes apply as soon as the file is saved.
+
+# Pixels the hierarchy pane takes under the text: 160 to 1200.
+hierarchy-pane-height = 320

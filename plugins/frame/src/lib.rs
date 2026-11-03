@@ -72,7 +72,7 @@ const MENUS: &[Menu] = &[
     Menu { title: "File", groups: &["open", "save", "close"], trailing: false },
     Menu { title: "Edit", groups: &["undo", "clipboard", "selection", "cursors", "find", "code", "lines", "transform", "rectangle", "structure"], trailing: false },
     Menu { title: VIEW_MENU, groups: &["commands", "panels", "folding", "text-size", "theme"], trailing: false },
-    Menu { title: "Go", groups: &["history", "buffer", "jump", "structure", "definitions", "types", "problems"], trailing: false },
+    Menu { title: "Go", groups: &["history", "buffer", "jump", "structure", "definitions", "related", "problems"], trailing: false },
     Menu { title: "Git", groups: &["status", "history", "changes", "branches", "sync"], trailing: false },
     Menu { title: "Run", groups: &["run", "compile", "debug", "step", "breakpoints"], trailing: false },
     Menu { title: WINDOW_MENU, groups: &["size", "windows"], trailing: true },

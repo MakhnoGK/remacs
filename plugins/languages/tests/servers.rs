@@ -13,7 +13,8 @@ use std::time::{Duration, Instant};
 use remacs_actions::ActionsPlugin;
 use remacs_completion::CompletionPlugin;
 use remacs_core::{
-    Changes, Documentation, Editor, Elsewhere, Face, Icon, Plugin, Popup, Settings, parse_sequence,
+    Changes, Documentation, Editor, Elsewhere, Face, Icon, PaneBody, Plugin, Popup, Settings,
+    parse_sequence,
 };
 use remacs_diagnostics::DiagnosticsPlugin;
 use remacs_dired::{DiredPlugin, list_directory};
@@ -251,6 +252,60 @@ fn rust_analyzer_goes_to_implementations_and_type_definitions() {
     assert_eq!(line, "impl Speak for Dog {");
     let (_, line) = landing(&main, "pet.speak", "xref-find-type-definitions");
     assert_eq!(line, "struct Dog;");
+}
+
+/// The pane's title and the names under its first row, once the hierarchy `command`
+/// shows for `at` has some; one found empty while the server loads is asked again.
+fn hierarchy(file: &Path, at: &str, command: &str) -> (String, Vec<String>) {
+    let mut editor = Editor::new(PLUGINS);
+    editor.visit_file(file).unwrap();
+    let point = fs::read_to_string(file).unwrap().find(at).unwrap() + 1;
+    let started = Instant::now();
+    loop {
+        assert!(started.elapsed() < TIMEOUT, "{command} on {at} never answered");
+        if editor.pane().is_none() {
+            editor.visit_file(file).unwrap();
+            editor.window_buffer_mut().set_point(point);
+            editor.run_command(command);
+        }
+        thread::sleep(Duration::from_millis(300));
+        editor.refresh();
+        let Some(pane) = editor.pane() else { continue };
+        let PaneBody::Columns(columns) = pane.body else { panic!("a hierarchy is a column") };
+        let rows = &columns[0].rows;
+        if rows.first().is_some_and(|root| root.open.is_none()) {
+            editor.run_command("xref-hierarchy-close");
+            continue;
+        }
+        let children: Vec<_> =
+            rows.iter().filter(|row| row.depth == 1).map(|row| row.name.clone()).collect();
+        if !children.is_empty() {
+            eprintln!("{}: {at}: {} {children:?}", file.display(), pane.title);
+            return (pane.title, children);
+        }
+    }
+}
+
+#[test]
+#[ignore]
+fn rust_analyzer_shows_callers() {
+    let rust = project(
+        "rust-calls",
+        &[
+            ("Cargo.toml", "[package]\nname = \"demo\"\nedition = \"2024\"\n"),
+            ("src/main.rs", "fn helper() {}\n\nfn main() {\n    helper();\n}\n"),
+        ],
+    );
+    let callers = hierarchy(&rust.join("src/main.rs"), "helper()", "xref-call-hierarchy");
+    assert_eq!(callers, ("Callers of helper".into(), vec!["main".into()]));
+}
+
+#[test]
+#[ignore]
+fn clangd_shows_supertypes() {
+    let cpp = project("cpp-types", &[("main.cpp", "struct Animal {};\nstruct Dog : Animal {};\n")]);
+    let supertypes = hierarchy(&cpp.join("main.cpp"), "Dog", "xref-type-hierarchy");
+    assert_eq!(supertypes, ("Supertypes of Dog".into(), vec!["Animal".into()]));
 }
 
 #[test]

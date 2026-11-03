@@ -23,6 +23,8 @@
 # "M-g i" = "imenu"                    # also ⌘F12: a symbol of the file
 # "M-g M-i" = "xref-find-implementations"   # of the trait or interface at point
 # "M-g M-t" = "xref-find-type-definitions"  # the type of the value at point
+# "M-g M-c" = "xref-call-hierarchy"    # callers of the function at point, in a pane; d flips
+# "M-g M-y" = "xref-type-hierarchy"    # supertypes of the type at point; d for subtypes
 # "s-<left>" = "move-beginning-of-line"   # ⌘←, ⌘→ the end
 # "s-j" = "exchange-point-and-mark"    # ⌘J, also C-x C-x
 # Over the syntax tree:

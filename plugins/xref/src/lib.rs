@@ -1,20 +1,27 @@
 //! Built-in plugin: going to the definition of the symbol at point and back, to its uses,
-//! implementations and type, and to any symbol of the project by name, like Emacs xref. It knows nothing of where
-//! definitions and symbols come from; backends such as `lsp` take its requests and deliver
-//! locations.
+//! implementations and type, through its call and type hierarchies, and to any symbol of
+//! the project by name, like Emacs xref. It knows nothing of where definitions and
+//! symbols come from; backends such as `lsp` take its requests and deliver locations.
 
 mod apropos;
 mod definitions;
+mod hierarchy;
 mod imenu;
 
 use std::rc::Rc;
 
-use remacs_core::{Command, MenuItem, Plugin, Registry, visiting_file};
+use remacs_core::{
+    Command, Keymap, MenuItem, MinorKeymap, PaneSource, Plugin, Registry, visiting_file,
+};
 
 pub use apropos::{Symbol, SymbolRequest, deliver_symbols, take_symbol_requests};
 pub use definitions::{
     FIND_IMPLEMENTATIONS, FIND_TYPE_DEFINITIONS, Location, Lookup, Request, deliver, refuse,
     take_requests,
+};
+pub use hierarchy::{
+    CALL_HIERARCHY, Hierarchy, HierarchyItem, HierarchyRequest, Relation, TYPE_HIERARCHY,
+    deliver_hierarchy, take_hierarchy_requests,
 };
 pub use imenu::{DocumentSymbolRequest, deliver_document_symbols, take_document_symbol_requests};
 
@@ -36,6 +43,8 @@ const BINDINGS: &[(&str, &str)] = &[
     ("M-?", definitions::FIND_REFERENCES),
     ("M-g M-i", FIND_IMPLEMENTATIONS),
     ("M-g M-t", FIND_TYPE_DEFINITIONS),
+    ("M-g M-c", CALL_HIERARCHY),
+    ("M-g M-y", TYPE_HIERARCHY),
     ("M-,", "xref-go-back"),
     ("C-M-.", apropos::FIND_APROPOS),
     ("M-g i", imenu::IMENU),
@@ -53,12 +62,24 @@ const MENU_ITEMS: &[MenuItem] = &[
 
 impl Plugin for XrefPlugin {
     fn register(&self, registry: &mut Registry) {
-        for command in COMMANDS {
+        for command in COMMANDS.iter().chain(hierarchy::COMMANDS) {
             registry.commands.add(*command);
         }
         for &(keys, command) in BINDINGS {
             registry.keymap.bind(keys, command);
         }
+        let mut focused = Keymap::default();
+        for &(keys, command) in hierarchy::FOCUSED_BINDINGS {
+            focused.bind(keys, command);
+        }
+        registry.minor_keymaps.push(MinorKeymap { active: hierarchy::has_keys, keymap: focused });
+        registry.typing_blockers.push(hierarchy::has_keys);
+        registry.panes.push(PaneSource {
+            name: hierarchy::NAME,
+            shown: hierarchy::is_shown,
+            describe: Rc::new(hierarchy::pane),
+        });
+        registry.settings_hooks.push(Rc::new(hierarchy::read_settings));
         registry.menu_items.extend_from_slice(MENU_ITEMS);
         registry.post_command_hooks.push(Rc::new(definitions::update));
         registry.post_command_hooks.push(Rc::new(apropos::update));

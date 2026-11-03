@@ -17,12 +17,14 @@ use lsp_types::notification::{
     DidSaveTextDocument, Initialized, Notification, PublishDiagnostics,
 };
 use lsp_types::request::{
-    ApplyWorkspaceEdit, CodeActionRequest, CodeActionResolveRequest, Completion, DocumentColor,
+    ApplyWorkspaceEdit, CallHierarchyIncomingCalls, CallHierarchyOutgoingCalls,
+    CallHierarchyPrepare, CodeActionRequest, CodeActionResolveRequest, Completion, DocumentColor,
     DocumentDiagnosticRequest, DocumentSymbolRequest, ExecuteCommand, Formatting, GotoDefinition,
     GotoImplementation, GotoTypeDefinition, HoverRequest, Initialize, PrepareRenameRequest,
     RangeFormatting, References, Rename, Request, ResolveCompletionItem, SemanticTokensFullRequest,
-    SemanticTokensRefresh, SignatureHelpRequest, WillRenameFiles, WorkspaceConfiguration,
-    WorkspaceDiagnosticRefresh, WorkspaceSymbolRequest,
+    SemanticTokensRefresh, SignatureHelpRequest, TypeHierarchyPrepare, TypeHierarchySubtypes,
+    TypeHierarchySupertypes, WillRenameFiles, WorkspaceConfiguration, WorkspaceDiagnosticRefresh,
+    WorkspaceSymbolRequest,
 };
 use lsp_types::{
     ApplyWorkspaceEditParams, CodeAction, CodeActionOrCommand, CompletionItem,
@@ -37,6 +39,7 @@ use remacs_core::{IndentUnit, Notifier, StatusItem};
 use remacs_documentation::{SignatureTrigger, Signatures};
 use remacs_format::{Failure, Formatted};
 use remacs_text::{Edit, Snapshot};
+use remacs_xref::{Hierarchy, Relation};
 use serde_json::{Value, json};
 
 use crate::LanguageServer;
@@ -49,7 +52,7 @@ use crate::semantic::{self, Legend, Token};
 use crate::signature::{self, SignatureSupport};
 use crate::symbols::{self, FoundSymbol};
 use crate::transport::{read_message, write_message};
-use crate::{code_action, definition, document_symbols, hover, symbol_rename, uri};
+use crate::{code_action, definition, document_symbols, hierarchy, hover, symbol_rename, uri};
 
 const INITIALIZE_ID: u64 = 0;
 /// rust-analyzer's, with `quiescent` false while it loads the project.
@@ -226,6 +229,20 @@ pub(crate) enum Outgoing {
         id: u64,
         uri: Uri,
     },
+    /// Asks for the items of `hierarchy` at `offset` of `text`; `id` is xref's.
+    PrepareHierarchy {
+        id: u64,
+        hierarchy: Hierarchy,
+        uri: Uri,
+        text: Snapshot,
+        offset: usize,
+    },
+    /// Asks for the items `relation` of `item`, as the server gave it.
+    ExpandHierarchy {
+        id: u64,
+        relation: Relation,
+        item: Value,
+    },
     /// Asks for the name of the symbol at `offset` of `text` to rename, or whether it can
     /// be; `id` is the rename plugin's.
     PrepareRename {
@@ -276,6 +293,14 @@ pub(crate) struct Found {
     pub encoding: Encoding,
     /// Given while the server was still loading the project, so it may have missed some.
     pub settled: bool,
+}
+
+/// Items of a hierarchy as a server gave them, to ask about again; none when it cannot
+/// tell.
+pub(crate) struct Walked {
+    pub id: u64,
+    pub items: Vec<Value>,
+    pub encoding: Encoding,
 }
 
 /// What a server answered about renaming a symbol.
@@ -384,23 +409,74 @@ pub(crate) enum Answer {
 
 /// A request in flight and what its answer is for.
 enum Pending {
-    Pull { path: PathBuf, version: i32 },
-    Colors { path: PathBuf, text: Snapshot },
-    SemanticTokens { path: PathBuf, text: Snapshot },
-    Complete { id: u64, origin: Origin },
-    Resolve { id: u64, index: usize, origin: Origin },
-    AtPoint { question: Question, id: u64, origin: Origin },
-    Signatures { id: u64, mode: &'static str },
-    CodeActions { id: u64, kind: Option<&'static str> },
-    ResolveAction { id: u64 },
-    Execute { id: u64 },
-    Format { id: u64, text: Snapshot },
-    WillRename { id: u64 },
-    Symbols { id: u64 },
-    DocumentSymbols { id: u64, path: PathBuf },
-    PrepareRename { id: u64, text: Snapshot, offset: usize },
-    Rename { id: u64 },
+    Pull {
+        path: PathBuf,
+        version: i32,
+    },
+    Colors {
+        path: PathBuf,
+        text: Snapshot,
+    },
+    SemanticTokens {
+        path: PathBuf,
+        text: Snapshot,
+    },
+    Complete {
+        id: u64,
+        origin: Origin,
+    },
+    Resolve {
+        id: u64,
+        index: usize,
+        origin: Origin,
+    },
+    AtPoint {
+        question: Question,
+        id: u64,
+        origin: Origin,
+    },
+    Signatures {
+        id: u64,
+        mode: &'static str,
+    },
+    CodeActions {
+        id: u64,
+        kind: Option<&'static str>,
+    },
+    ResolveAction {
+        id: u64,
+    },
+    Execute {
+        id: u64,
+    },
+    Format {
+        id: u64,
+        text: Snapshot,
+    },
+    WillRename {
+        id: u64,
+    },
+    Symbols {
+        id: u64,
+    },
+    DocumentSymbols {
+        id: u64,
+        path: PathBuf,
+    },
+    PrepareRename {
+        id: u64,
+        text: Snapshot,
+        offset: usize,
+    },
+    Rename {
+        id: u64,
+    },
     Tsserver(TsserverReply),
+    /// `relation` is `None` for the items a hierarchy starts from.
+    Hierarchy {
+        id: u64,
+        relation: Option<Relation>,
+    },
 }
 
 impl Pending {
@@ -434,6 +510,7 @@ struct Inbox {
     renamed: Vec<Renamed>,
     found: Vec<Found>,
     document_symbols: Vec<Found>,
+    walked: Vec<Walked>,
     symbol_renamed: Vec<SymbolRenamed>,
     tsserver_requests: Vec<TsserverRequest>,
     /// Why the server exited, once it has.
@@ -676,6 +753,14 @@ impl Client {
         })
     }
 
+    /// Whether the server may walk `hierarchy`; true until it agreed on what it offers.
+    pub fn may_walk(&self, hierarchy: Hierarchy) -> bool {
+        self.offered.get().is_none_or(|offered| match hierarchy {
+            Hierarchy::Calls => offered.call_hierarchy,
+            Hierarchy::Types => offered.type_hierarchy,
+        })
+    }
+
     /// Runs the command of action `id` of the actions plugin.
     pub fn execute(&self, id: u64, command: lsp_types::Command) {
         self.executing.set(Some(id));
@@ -723,6 +808,10 @@ impl Client {
 
     pub fn take_found(&self) -> Vec<Found> {
         std::mem::take(&mut lock(&self.inbox).found)
+    }
+
+    pub fn take_walked(&self) -> Vec<Walked> {
+        std::mem::take(&mut lock(&self.inbox).walked)
     }
 
     pub fn take_document_symbols(&self) -> Vec<Found> {
@@ -800,6 +889,8 @@ fn initialize_params(options: Option<Value>, configured: bool, root: &Path) -> V
                     "contextSupport": true,
                 },
                 "colorProvider": {},
+                "callHierarchy": {},
+                "typeHierarchy": {},
                 // Whole files only; servers may leave what tree-sitter paints anyway.
                 "semanticTokens": {
                     "requests": { "full": true },
@@ -870,6 +961,8 @@ struct Offered {
     signatures: Option<SignatureSupport>,
     implementation: bool,
     type_definition: bool,
+    call_hierarchy: bool,
+    type_hierarchy: bool,
 }
 
 impl Offered {
@@ -878,6 +971,8 @@ impl Offered {
             signatures: SignatureSupport::from_capabilities(capabilities),
             implementation: is_provided(&capabilities["implementationProvider"]),
             type_definition: is_provided(&capabilities["typeDefinitionProvider"]),
+            call_hierarchy: is_provided(&capabilities["callHierarchyProvider"]),
+            type_hierarchy: is_provided(&capabilities["typeHierarchyProvider"]),
         }
     }
 }
@@ -1113,6 +1208,27 @@ impl Writer {
                 let pending = Pending::Symbols { id: *id };
                 self.ask(WorkspaceSymbolRequest::METHOD, params, pending)
             }
+            Outgoing::PrepareHierarchy { id, hierarchy, uri, text, offset } => {
+                let params = json!({
+                    "textDocument": TextDocumentIdentifier::new(uri.clone()),
+                    "position": to_lsp(text, *offset, negotiated.encoding),
+                });
+                let method = match hierarchy {
+                    Hierarchy::Calls => CallHierarchyPrepare::METHOD,
+                    Hierarchy::Types => TypeHierarchyPrepare::METHOD,
+                };
+                self.ask(method, params, Pending::Hierarchy { id: *id, relation: None })
+            }
+            Outgoing::ExpandHierarchy { id, relation, item } => {
+                let method = match relation {
+                    Relation::Callers => CallHierarchyIncomingCalls::METHOD,
+                    Relation::Callees => CallHierarchyOutgoingCalls::METHOD,
+                    Relation::Supertypes => TypeHierarchySupertypes::METHOD,
+                    Relation::Subtypes => TypeHierarchySubtypes::METHOD,
+                };
+                let pending = Pending::Hierarchy { id: *id, relation: Some(*relation) };
+                self.ask(method, json!({ "item": item }), pending)
+            }
             Outgoing::DocumentSymbols { id, uri } => {
                 let path = uri::to_path(uri).unwrap_or_default();
                 if !negotiated.document_symbols {
@@ -1253,6 +1369,8 @@ impl Outgoing {
             | Outgoing::DidRename { .. }
             | Outgoing::Symbols { .. }
             | Outgoing::DocumentSymbols { .. }
+            | Outgoing::PrepareHierarchy { .. }
+            | Outgoing::ExpandHierarchy { .. }
             | Outgoing::PrepareRename { .. }
             | Outgoing::Rename { .. }
             | Outgoing::Tsserver { .. } => unreachable!("the writer numbers requests"),
@@ -1616,6 +1734,11 @@ impl Reader {
                     encoding: self.encoding,
                     settled,
                 });
+                (self.notifier)();
+            }
+            Pending::Hierarchy { id, relation } => {
+                let items = hierarchy::items(result, relation);
+                lock(&self.inbox).walked.push(Walked { id, items, encoding: self.encoding });
                 (self.notifier)();
             }
             Pending::DocumentSymbols { id, path } => {

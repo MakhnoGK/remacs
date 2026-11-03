@@ -973,16 +973,14 @@ pub(crate) fn server_at(
     Some((Rc::clone(&document.client), document.uri.clone(), document.sent_text()))
 }
 
-/// Whether a server of the code at point in the window buffer may answer `lookup`.
-pub(crate) fn may_look_up(editor: &Editor, lookup: Lookup) -> bool {
+/// Whether a server of the code at point in the window buffer `offers` something.
+pub(crate) fn offered_at_point(editor: &Editor, offers: impl Fn(&Client) -> bool) -> bool {
     let buffer = editor.window_buffer();
     let Some(documents) = buffer.local::<Documents>() else {
         return false;
     };
     let asked = asked_at(editor, buffer, buffer.point());
-    let question = question(lookup);
-    (documents.list.iter().zip(asked))
-        .any(|(document, asked)| asked && document.client.may_answer(question))
+    (documents.list.iter().zip(asked)).any(|(document, asked)| asked && offers(&document.client))
 }
 
 fn question(lookup: Lookup) -> Question {
