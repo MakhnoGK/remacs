@@ -337,7 +337,7 @@ impl TextLayout {
             .line_height
             .to_pixels(font_size.into(), window.rem_size());
 
-        let mut runs = if let Some(runs) = runs {
+        let runs = if let Some(runs) = runs {
             runs
         } else {
             vec![text_style.to_run(text.len())]
@@ -381,17 +381,21 @@ impl TextLayout {
                     return text_layout.size.unwrap();
                 }
 
+                // remacs: a measure at another width cuts the whole text again, so it needs the
+                // uncut runs; cutting the shared ones left runs ending inside a character.
+                let mut cut_runs = None;
                 let mut line_wrapper = cx.text_system().line_wrapper(text_style.font(), font_size);
                 let text = if let Some(truncate_width) = truncate_width {
                     line_wrapper.truncate_line(
                         text.clone(),
                         truncate_width,
                         &truncation_suffix,
-                        &mut runs,
+                        cut_runs.insert(runs.clone()),
                     )
                 } else {
                     text.clone()
                 };
+                let runs = cut_runs.as_ref().unwrap_or(&runs);
                 let len = text.len();
 
                 let Some(lines) = window
@@ -916,5 +920,46 @@ impl IntoElement for InteractiveText {
 
     fn into_element(self) -> Self::Element {
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{AvailableSpace, TestAppContext, TextStyleRefinement, px, size, window::DrawPhase};
+
+    #[crate::test]
+    fn measures_at_two_widths_cut_the_text_with_uncut_runs(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        cx.update(|window, cx| {
+            window.invalidator.set_phase(DrawPhase::Prepaint);
+            let truncate = TextStyleRefinement {
+                text_overflow: Some(TextOverflow::Truncate("…".into())),
+                ..Default::default()
+            };
+            window.with_text_style(Some(truncate), |window| {
+                let text: SharedString = "абвгдежзийклмнопрсту".into();
+                let run = window.text_style().to_run(text.len() / 2);
+                let layout = TextLayout::default();
+                let id = layout.layout(text, Some(vec![run.clone(), run]), window, cx);
+                for width in [40., 120.] {
+                    let space = size(
+                        AvailableSpace::Definite(px(width)),
+                        AvailableSpace::MaxContent,
+                    );
+                    window.compute_layout(id, space, cx);
+                    let inner = layout.0.borrow();
+                    let line = &inner.as_ref().unwrap().lines[0];
+                    assert!(line.text.ends_with('…'), "at {width}px: {}", line.text);
+                    let styled: u32 = line.decoration_runs.iter().map(|run| run.len).sum();
+                    assert_eq!(
+                        styled as usize,
+                        line.text.len(),
+                        "at {width}px: {}",
+                        line.text
+                    );
+                }
+            });
+        });
     }
 }

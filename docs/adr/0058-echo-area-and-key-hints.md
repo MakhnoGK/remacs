@@ -33,7 +33,9 @@ Status: accepted, 2026-10-11 (issues #20, #21; design boards 49–53)
 - The status pill no longer carries the echo, so a long message cannot push it.
 - `text-overflow: ellipsis` works: gpui reused a nowrap text's first measure, made before
   its width was known, so `.truncate()` clipped without the ellipsis. The vendored gpui
-  now keeps the width a text was cut to (`elements/text.rs`, `truncate_width`), see
+  now keeps the width a text was cut to (`elements/text.rs`, `truncate_width`), and each
+  measure cuts a copy of the runs, since cutting the shared ones left runs ending inside a
+  character and crashed the next measure at another width; see
   ADR 0034's list of patches.
 - Keys of the opened message (`M-w`, `C-g`) are handled by the view, like copy mode's in
   a key sink, not by keymaps.
