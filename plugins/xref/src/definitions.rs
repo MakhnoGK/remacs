@@ -6,6 +6,11 @@ use remacs_text::{Snapshot, Text};
 
 pub(crate) const FIND_DEFINITIONS: &str = "xref-find-definitions";
 pub(crate) const FIND_REFERENCES: &str = "xref-find-references";
+pub const FIND_IMPLEMENTATIONS: &str = "xref-find-implementations";
+pub const FIND_TYPE_DEFINITIONS: &str = "xref-find-type-definitions";
+/// Every lookup's command, whose answers come after it.
+const LOOKUPS: [&str; 4] =
+    [FIND_DEFINITIONS, FIND_REFERENCES, FIND_IMPLEMENTATIONS, FIND_TYPE_DEFINITIONS];
 /// Places to go back to, like `xref-history-storage`'s length.
 const MAX_HISTORY: usize = 16;
 const MAX_PREVIEW_CHARS: usize = 200;
@@ -24,6 +29,25 @@ pub enum Lookup {
     Definitions,
     /// Every use, the declaration too.
     References,
+    /// Of a trait, an interface or a virtual method.
+    Implementations,
+    /// The type of the value at point.
+    TypeDefinitions,
+}
+
+type Hints = &'static [(&'static str, &'static str)];
+
+impl Lookup {
+    /// What is looked for, and the label and hints of the list of several.
+    #[rustfmt::skip]
+    fn words(self) -> (&'static str, &'static str, Hints) {
+        match self {
+            Lookup::Definitions => ("definitions", "Definitions", &[("↵", "Go to definition"), ("C-g", "Close")]),
+            Lookup::References => ("references", "References", &[("↵", "Go to reference"), ("C-g", "Close")]),
+            Lookup::Implementations => ("implementations", "Implementations", &[("↵", "Go to implementation"), ("C-g", "Close")]),
+            Lookup::TypeDefinitions => ("type definitions", "Type Definitions", &[("↵", "Go to type definition"), ("C-g", "Close")]),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -52,7 +76,7 @@ fn state(editor: &mut Editor) -> &mut State {
 pub(crate) fn update(editor: &mut Editor) {
     let count = editor.command_count();
     if mem::replace(&mut state(editor).seen_commands, count) != count
-        && !matches!(editor.last_command(), Some(FIND_DEFINITIONS | FIND_REFERENCES))
+        && !editor.last_command().is_some_and(|command| LOOKUPS.contains(&command))
     {
         state(editor).awaited = None;
     }
@@ -65,6 +89,14 @@ pub(crate) fn find_definitions(editor: &mut Editor) -> CommandResult {
 /// Lists every use of the symbol at point, like Emacs `xref-find-references`.
 pub(crate) fn find_references(editor: &mut Editor) -> CommandResult {
     look_up(editor, Lookup::References)
+}
+
+pub(crate) fn find_implementations(editor: &mut Editor) -> CommandResult {
+    look_up(editor, Lookup::Implementations)
+}
+
+pub(crate) fn find_type_definitions(editor: &mut Editor) -> CommandResult {
+    look_up(editor, Lookup::TypeDefinitions)
 }
 
 fn look_up(editor: &mut Editor, lookup: Lookup) -> CommandResult {
@@ -92,21 +124,31 @@ pub fn take_requests(editor: &mut Editor) -> Vec<Request> {
 /// Answers request `id`: goes to the one definition, or lets the user choose among several
 /// definitions or any references.
 pub fn deliver(editor: &mut Editor, id: u64, mut locations: Vec<Location>) {
-    let state = state(editor);
-    let Some(awaited) = state.awaited.filter(|awaited| awaited.id == id) else {
+    let Some(awaited) = take_awaited(editor, id) else {
         return;
     };
-    state.awaited = None;
     locations.dedup();
     let result = match (awaited.lookup, locations.as_slice()) {
-        (Lookup::Definitions, []) => Err("No definitions found".into()),
-        (Lookup::References, []) => Err("No references found".into()),
-        (Lookup::Definitions, [location]) => jump(editor, location),
+        (lookup, []) => Err(format!("No {} found", lookup.words().0).into()),
+        (Lookup::References, _) => choose(editor, Lookup::References, locations),
+        (_, [location]) => jump(editor, location),
         (lookup, _) => choose(editor, lookup, locations),
     };
     if let Err(error) = result {
         editor.set_error(error.0);
     }
+}
+
+/// Answers request `id` that `server`, the code's, cannot look up.
+pub fn refuse(editor: &mut Editor, id: u64, server: &str) {
+    if let Some(awaited) = take_awaited(editor, id) {
+        editor.set_error(format!("{server} cannot find {}", awaited.lookup.words().0));
+    }
+}
+
+fn take_awaited(editor: &mut Editor, id: u64) -> Option<Request> {
+    let awaited = &mut state(editor).awaited;
+    awaited.take_if(|awaited| awaited.id == id)
 }
 
 /// Goes to `location`, remembering where from for `xref-go-back`.
@@ -152,10 +194,7 @@ fn choose(editor: &mut Editor, lookup: Lookup, locations: Vec<Location>) -> Comm
             candidate(text, index, location)
         })
         .collect();
-    let (label, hints): (_, &[_]) = match lookup {
-        Lookup::Definitions => ("Definitions", &[("↵", "Go to definition"), ("C-g", "Close")]),
-        Lookup::References => ("References", &[("↵", "Go to reference"), ("C-g", "Close")]),
-    };
+    let (_, label, hints) = lookup.words();
     let prompt = Prompt {
         label: label.into(),
         category: "xref",

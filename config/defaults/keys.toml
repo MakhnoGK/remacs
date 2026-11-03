@@ -21,6 +21,8 @@
 # "M-g l" = "avy-goto-line"
 # "M-g g" = "goto-line"                # also M-g M-g, ⌘L: a line number, or line:column
 # "M-g i" = "imenu"                    # also ⌘F12: a symbol of the file
+# "M-g M-i" = "xref-find-implementations"   # of the trait or interface at point
+# "M-g M-t" = "xref-find-type-definitions"  # the type of the value at point
 # "s-<left>" = "move-beginning-of-line"   # ⌘←, ⌘→ the end
 # "s-j" = "exchange-point-and-mark"    # ⌘J, also C-x C-x
 # Over the syntax tree:

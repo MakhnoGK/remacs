@@ -19,9 +19,10 @@ use lsp_types::notification::{
 use lsp_types::request::{
     ApplyWorkspaceEdit, CodeActionRequest, CodeActionResolveRequest, Completion, DocumentColor,
     DocumentDiagnosticRequest, DocumentSymbolRequest, ExecuteCommand, Formatting, GotoDefinition,
-    HoverRequest, Initialize, PrepareRenameRequest, RangeFormatting, References, Rename, Request,
-    ResolveCompletionItem, SemanticTokensFullRequest, SemanticTokensRefresh, SignatureHelpRequest,
-    WillRenameFiles, WorkspaceConfiguration, WorkspaceDiagnosticRefresh, WorkspaceSymbolRequest,
+    GotoImplementation, GotoTypeDefinition, HoverRequest, Initialize, PrepareRenameRequest,
+    RangeFormatting, References, Rename, Request, ResolveCompletionItem, SemanticTokensFullRequest,
+    SemanticTokensRefresh, SignatureHelpRequest, WillRenameFiles, WorkspaceConfiguration,
+    WorkspaceDiagnosticRefresh, WorkspaceSymbolRequest,
 };
 use lsp_types::{
     ApplyWorkspaceEditParams, CodeAction, CodeActionOrCommand, CompletionItem,
@@ -304,6 +305,8 @@ pub(crate) enum Question {
     Hover,
     Definition,
     References,
+    Implementation,
+    TypeDefinition,
 }
 
 impl Question {
@@ -312,6 +315,8 @@ impl Question {
             Question::Hover => HoverRequest::METHOD,
             Question::Definition => GotoDefinition::METHOD,
             Question::References => References::METHOD,
+            Question::Implementation => GotoImplementation::METHOD,
+            Question::TypeDefinition => GotoTypeDefinition::METHOD,
         }
     }
 }
@@ -518,7 +523,7 @@ pub(crate) struct Client {
     notifier: Notifier,
     /// The action whose command ran last, which edits the server asks for belong to.
     executing: Cell<Option<u64>>,
-    signatures: SharedSignatureSupport,
+    offered: SharedOffered,
     /// What the server is busy with; servers that never say they are loading the project
     /// are taken as settled.
     progress: SharedProgress,
@@ -561,14 +566,14 @@ impl Client {
         let inbox = SharedInbox::default();
         let pull_generation = Arc::new(AtomicU64::new(0));
         let progress = Arc::new(Mutex::new(Progress::new(Instant::now(), !server.reports_loading)));
-        let signatures = SharedSignatureSupport::default();
+        let offered = SharedOffered::default();
         let writer = Writer {
             server: server.name,
             stdin: BufWriter::new(stdin),
             inbox: Arc::clone(&inbox),
             notifier: Arc::clone(&notifier),
             next_id: INITIALIZE_ID + 1,
-            signatures: Arc::clone(&signatures),
+            offered: Arc::clone(&offered),
         };
         let program_dir = fs::canonicalize(program).unwrap_or_else(|_| program.to_path_buf());
         let program_dir = program_dir.parent().unwrap_or(&program_dir).to_string_lossy();
@@ -594,7 +599,7 @@ impl Client {
             pull_generation: Arc::clone(&pull_generation),
             notifier: Arc::clone(&notifier),
             progress: Arc::clone(&progress),
-            signatures: Arc::clone(&signatures),
+            offered: Arc::clone(&offered),
             legend: None,
         };
         let (exit_inbox, exit_notifier) = (Arc::clone(&inbox), Arc::clone(&notifier));
@@ -613,7 +618,7 @@ impl Client {
             notifier,
             executing: Cell::new(None),
             progress,
-            signatures,
+            offered,
             replies,
             tsserver: server.tsserver,
         })
@@ -657,8 +662,17 @@ impl Client {
     /// Whether a request for `trigger` may show signatures; true until the server agreed
     /// on what it supports, as the writer holds requests until then.
     pub fn may_sign(&self, trigger: SignatureTrigger) -> bool {
-        self.signatures.get().is_none_or(|support| {
-            support.as_ref().is_some_and(|support| support.context(trigger).is_some())
+        self.offered.get().is_none_or(|offered| {
+            offered.signatures.as_ref().is_some_and(|support| support.context(trigger).is_some())
+        })
+    }
+
+    /// Whether the server may answer `question`; true until it agreed on what it offers.
+    pub fn may_answer(&self, question: Question) -> bool {
+        self.offered.get().is_none_or(|offered| match question {
+            Question::Implementation => offered.implementation,
+            Question::TypeDefinition => offered.type_definition,
+            Question::Hover | Question::Definition | Question::References => true,
         })
     }
 
@@ -845,12 +859,28 @@ struct Writer {
     inbox: SharedInbox,
     notifier: Notifier,
     next_id: u64,
-    signatures: SharedSignatureSupport,
+    offered: SharedOffered,
 }
 
-/// What the server agreed to about signatures, once `initialize` is answered; the editor
-/// reads it too, so keystrokes that open no call never leave it.
-type SharedSignatureSupport = Arc<OnceLock<Option<SignatureSupport>>>;
+/// What the server agreed to offer, once `initialize` is answered; the editor reads it
+/// too, so keystrokes that open no call and questions it cannot answer never leave it.
+type SharedOffered = Arc<OnceLock<Offered>>;
+
+struct Offered {
+    signatures: Option<SignatureSupport>,
+    implementation: bool,
+    type_definition: bool,
+}
+
+impl Offered {
+    fn from_capabilities(capabilities: &Value) -> Self {
+        Self {
+            signatures: SignatureSupport::from_capabilities(capabilities),
+            implementation: is_provided(&capabilities["implementationProvider"]),
+            type_definition: is_provided(&capabilities["typeDefinitionProvider"]),
+        }
+    }
+}
 
 impl Writer {
     /// The server must hear nothing but `initialize` until it answers, so the queue waits.
@@ -950,7 +980,7 @@ impl Writer {
                 self.ask(question.method(), params, pending)
             }
             Outgoing::Signatures { uri, id, text, offset, trigger, modes } => {
-                let support = self.signatures.get().and_then(Option::as_ref);
+                let support = self.offered.get().and_then(|offered| offered.signatures.as_ref());
                 let Some(context) = support.and_then(|support| support.context(*trigger)) else {
                     lock(&self.inbox)
                         .answers
@@ -1291,7 +1321,7 @@ struct Reader {
     pull_generation: Arc<AtomicU64>,
     notifier: Notifier,
     progress: SharedProgress,
-    signatures: SharedSignatureSupport,
+    offered: SharedOffered,
     /// What the server's semantic token numbers stand for, once `initialize` is answered.
     legend: Option<Arc<Legend>>,
 }
@@ -1414,7 +1444,7 @@ impl Reader {
         };
         let sync = &capabilities["textDocumentSync"];
         let full_sync = sync.get("change").unwrap_or(sync).as_u64() == Some(1);
-        let _ = (self.signatures).set(SignatureSupport::from_capabilities(capabilities));
+        let _ = self.offered.set(Offered::from_capabilities(capabilities));
         self.legend = Legend::offered(capabilities).map(Arc::new);
         let _ = agreed.send(Negotiated {
             encoding: self.encoding,
@@ -1481,7 +1511,11 @@ impl Reader {
                 let answer = hover::answer(response, &origin.text, origin.encoding, origin.modes);
                 self.deliver(Answer::Hover { id, answer });
             }
-            Pending::AtPoint { question: Question::Definition, id, .. } => {
+            Pending::AtPoint {
+                question: Question::Definition | Question::Implementation | Question::TypeDefinition,
+                id,
+                ..
+            } => {
                 let response = serde_json::from_value(result).unwrap_or_default();
                 self.deliver(Answer::Locations {
                     id,
@@ -1668,6 +1702,18 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+
+    /// A provider given as `true` or as its options is offered; one left out or `false` not.
+    #[test]
+    fn implementations_and_type_definitions_are_offered_as_the_server_says() {
+        let offered = |capabilities: Value| {
+            let offered = Offered::from_capabilities(&capabilities);
+            (offered.implementation, offered.type_definition)
+        };
+        let both = json!({ "implementationProvider": true, "typeDefinitionProvider": {} });
+        assert_eq!(offered(both), (true, true));
+        assert_eq!(offered(json!({ "implementationProvider": false })), (false, false));
+    }
 
     #[test]
     fn a_server_that_exits_at_once_says_why() {

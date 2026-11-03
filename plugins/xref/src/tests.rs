@@ -7,8 +7,8 @@ use remacs_minibuffer::MinibufferPlugin;
 
 use crate::{
     DocumentSymbolRequest, Location, Lookup, Request, Symbol, SymbolRequest, XrefPlugin, deliver,
-    deliver_document_symbols, deliver_symbols, take_document_symbol_requests, take_requests,
-    take_symbol_requests,
+    deliver_document_symbols, deliver_symbols, refuse, take_document_symbol_requests,
+    take_requests, take_symbol_requests,
 };
 
 /// `main.rs` calling `lib.rs`'s `helper`, each defined once in `lib.rs` and once in `mod.rs`.
@@ -102,6 +102,43 @@ fn references_are_listed_even_when_there_is_one() {
     press(&mut editor, "M-?");
     deliver(&mut editor, 2, Vec::new());
     assert_eq!(editor.echo().as_deref(), Some("No references found"));
+}
+
+/// One goes there, several are listed, none says so, each under its lookup's own words.
+#[test]
+fn implementations_and_type_definitions_are_gone_to_or_listed() {
+    let (main, lib, module) = project("implementations");
+    let mut editor = editor_at(&main, 18);
+    press(&mut editor, "M-g M-i");
+    assert_eq!(
+        take_requests(&mut editor),
+        [Request { id: 1, offset: 18, lookup: Lookup::Implementations }]
+    );
+    let implementations =
+        vec![Location { path: lib.clone(), offset: 14 }, Location { path: module, offset: 7 }];
+    deliver(&mut editor, 1, implementations);
+    assert_eq!(editor.minibuffer().unwrap().prompt().label, "Implementations");
+    press(&mut editor, "RET");
+    assert_eq!(place(&editor), (lib.clone(), 14));
+
+    press(&mut editor, "M-g M-t");
+    assert_eq!(
+        take_requests(&mut editor),
+        [Request { id: 2, offset: 14, lookup: Lookup::TypeDefinitions }]
+    );
+    deliver(&mut editor, 2, vec![Location { path: main.clone(), offset: 3 }]);
+    assert_eq!(place(&editor), (main, 3));
+    press(&mut editor, "M-,");
+    assert_eq!(place(&editor), (lib, 14));
+
+    press(&mut editor, "M-g M-t");
+    deliver(&mut editor, 3, Vec::new());
+    assert_eq!(editor.echo().as_deref(), Some("No type definitions found"));
+
+    press(&mut editor, "M-g M-i");
+    refuse(&mut editor, 4, "vscode-css-language-server");
+    let echo = editor.echo();
+    assert_eq!(echo.as_deref(), Some("vscode-css-language-server cannot find implementations"));
 }
 
 fn symbol(

@@ -44,6 +44,7 @@ use std::rc::Rc;
 use remacs_config::state_dir;
 use remacs_core::{Command, Editor, MenuItem, Plugin, Registry};
 use remacs_tools::Tool;
+use remacs_xref::Lookup;
 use serde_json::Value;
 
 use crate::catalog::When;
@@ -154,6 +155,13 @@ impl Plugin for LspPlugin {
             MenuItem::new("Edit", "code", "Download Language Servers", offer::DOWNLOAD)
                 .enabled_when(offer::can_download),
         );
+        // Xref's commands, here as only the servers know whether they can answer them.
+        registry.menu_items.extend([
+            MenuItem::new("Go", "types", "Implementations", remacs_xref::FIND_IMPLEMENTATIONS)
+                .enabled_when(|editor| document::may_look_up(editor, Lookup::Implementations)),
+            MenuItem::new("Go", "types", "Type Definition", remacs_xref::FIND_TYPE_DEFINITIONS)
+                .enabled_when(|editor| document::may_look_up(editor, Lookup::TypeDefinitions)),
+        ]);
     }
 }
 

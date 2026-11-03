@@ -1,5 +1,5 @@
 //! Built-in plugin: going to the definition of the symbol at point and back, to its uses,
-//! and to any symbol of the project by name, like Emacs xref. It knows nothing of where
+//! implementations and type, and to any symbol of the project by name, like Emacs xref. It knows nothing of where
 //! definitions and symbols come from; backends such as `lsp` take its requests and deliver
 //! locations.
 
@@ -12,7 +12,10 @@ use std::rc::Rc;
 use remacs_core::{Command, MenuItem, Plugin, Registry, visiting_file};
 
 pub use apropos::{Symbol, SymbolRequest, deliver_symbols, take_symbol_requests};
-pub use definitions::{Location, Lookup, Request, deliver, take_requests};
+pub use definitions::{
+    FIND_IMPLEMENTATIONS, FIND_TYPE_DEFINITIONS, Location, Lookup, Request, deliver, refuse,
+    take_requests,
+};
 pub use imenu::{DocumentSymbolRequest, deliver_document_symbols, take_document_symbol_requests};
 
 pub struct XrefPlugin;
@@ -21,6 +24,8 @@ pub struct XrefPlugin;
 const COMMANDS: &[Command] = &[
     Command::new(definitions::FIND_DEFINITIONS, "Go to the definition of the symbol at point", definitions::find_definitions),
     Command::new(definitions::FIND_REFERENCES, "List the uses of the symbol at point and go to one", definitions::find_references),
+    Command::new(FIND_IMPLEMENTATIONS, "Go to an implementation of the trait, interface or method at point", definitions::find_implementations),
+    Command::new(FIND_TYPE_DEFINITIONS, "Go to the definition of the type of the value at point", definitions::find_type_definitions),
     Command::new("xref-go-back", "Go back to where the last definition was looked up", definitions::go_back),
     Command::new(apropos::FIND_APROPOS, "Find a symbol of the project by name and go to it", apropos::find_apropos),
     Command::new(imenu::IMENU, "Go to a symbol of the file by name", imenu::imenu),
@@ -29,6 +34,8 @@ const COMMANDS: &[Command] = &[
 const BINDINGS: &[(&str, &str)] = &[
     ("M-.", definitions::FIND_DEFINITIONS),
     ("M-?", definitions::FIND_REFERENCES),
+    ("M-g M-i", FIND_IMPLEMENTATIONS),
+    ("M-g M-t", FIND_TYPE_DEFINITIONS),
     ("M-,", "xref-go-back"),
     ("C-M-.", apropos::FIND_APROPOS),
     ("M-g i", imenu::IMENU),

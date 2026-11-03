@@ -220,12 +220,37 @@ fn documentation(file: &Path, symbol: &str) -> Documentation {
 
 /// The file and line point lands on from `call`.
 fn definition(file: &Path, call: &str) -> (PathBuf, String) {
-    ask_at(file, call, "xref-find-definitions", |editor| {
+    landing(file, call, "xref-find-definitions")
+}
+
+/// The file and line `command` takes point to from `at`, on a line without it.
+fn landing(file: &Path, at: &str, command: &str) -> (PathBuf, String) {
+    ask_at(file, at, command, |editor| {
         let buffer = editor.window_buffer();
         let range = buffer.text().line_range(buffer.point_line())?;
         let line = buffer.contents(range).trim().to_owned();
-        (!line.contains(call)).then(|| (buffer.path().unwrap().to_path_buf(), line))
+        (!line.contains(at)).then(|| (buffer.path().unwrap().to_path_buf(), line))
     })
+}
+
+#[test]
+#[ignore]
+fn rust_analyzer_goes_to_implementations_and_type_definitions() {
+    let rust = project(
+        "rust-implementations",
+        &[
+            ("Cargo.toml", "[package]\nname = \"demo\"\nedition = \"2024\"\n"),
+            (
+                "src/main.rs",
+                "trait Speak {\n    fn speak(&self);\n}\n\nstruct Dog;\n\nimpl Speak for Dog {\n    fn speak(&self) {}\n}\n\nfn main() {\n    let pet = Dog;\n    pet.speak();\n}\n",
+            ),
+        ],
+    );
+    let main = rust.join("src/main.rs");
+    let (_, line) = landing(&main, "Speak {", "xref-find-implementations");
+    assert_eq!(line, "impl Speak for Dog {");
+    let (_, line) = landing(&main, "pet.speak", "xref-find-type-definitions");
+    assert_eq!(line, "struct Dog;");
 }
 
 #[test]

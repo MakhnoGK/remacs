@@ -973,6 +973,27 @@ pub(crate) fn server_at(
     Some((Rc::clone(&document.client), document.uri.clone(), document.sent_text()))
 }
 
+/// Whether a server of the code at point in the window buffer may answer `lookup`.
+pub(crate) fn may_look_up(editor: &Editor, lookup: Lookup) -> bool {
+    let buffer = editor.window_buffer();
+    let Some(documents) = buffer.local::<Documents>() else {
+        return false;
+    };
+    let asked = asked_at(editor, buffer, buffer.point());
+    let question = question(lookup);
+    (documents.list.iter().zip(asked))
+        .any(|(document, asked)| asked && document.client.may_answer(question))
+}
+
+fn question(lookup: Lookup) -> Question {
+    match lookup {
+        Lookup::Definitions => Question::Definition,
+        Lookup::References => Question::References,
+        Lookup::Implementations => Question::Implementation,
+        Lookup::TypeDefinitions => Question::TypeDefinition,
+    }
+}
+
 /// Which of `buffer`'s documents a question about the code at `offset` goes to.
 fn asked_at(editor: &Editor, buffer: &Buffer, offset: usize) -> Vec<bool> {
     let list = buffer.local::<Documents>().map_or(&[][..], |documents| &documents.list);
@@ -1281,13 +1302,13 @@ fn send_requests(editor: &mut Editor) {
             _ => no_signatures.push(request.id),
         }
     }
+    let mut refused = Vec::new();
     for request in definitions {
-        let question = match request.lookup {
-            Lookup::Definitions => Question::Definition,
-            Lookup::References => Question::References,
-        };
-        match each(&asked(request.offset)).next() {
+        let question = question(request.lookup);
+        let servers: Vec<_> = each(&asked(request.offset)).collect();
+        match servers.iter().find(|document| document.client.may_answer(question)) {
             Some(document) => document.ask(question, request.id, request.offset),
+            None if !servers.is_empty() => refused.push((request.id, servers[0].server.name)),
             None => no_definitions.push(request.id),
         }
     }
@@ -1320,6 +1341,9 @@ fn send_requests(editor: &mut Editor) {
     }
     for id in no_definitions {
         remacs_xref::deliver(editor, id, Vec::new());
+    }
+    for (id, server) in refused {
+        remacs_xref::refuse(editor, id, server);
     }
     for id in no_actions {
         remacs_actions::deliver(editor, id, Vec::new());
