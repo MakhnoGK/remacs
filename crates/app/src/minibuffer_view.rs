@@ -61,6 +61,8 @@ const MAX_LISTED_ITEMS: usize = 5;
 /// Of a message's description, shown at once.
 const DESCRIPTION_LINES: usize = 4;
 const DESCRIPTION_LINE_HEIGHT: f32 = 22.0;
+const PANEL_PADDING: f32 = 8.0;
+const FIELD_PADDING_X: f32 = 12.0;
 
 /// Dims the editor behind an open prompt; a modal one also blurs it a little.
 pub fn render_scrim(modal: bool) -> impl IntoElement {
@@ -88,7 +90,7 @@ pub fn modal(width: f32) -> Div {
 }
 
 fn panel_on(surface: Div, width: f32) -> Div {
-    surface.w(px(width)).p(px(8.0)).font_family(font::ui()).fg(color::fg_main())
+    surface.w(px(width)).p(px(PANEL_PADDING)).font_family(font::ui()).fg(color::fg_main())
 }
 
 /// A title as dialogs and titled prompts set it.
@@ -111,14 +113,24 @@ pub fn draws_input(minibuffer: &Minibuffer) -> bool {
         && !minibuffer.is_question()
 }
 
+/// Characters `mono_width` wide that fit across a message's description in a popover
+/// `width` wide, inside the panel's padding and the field's padding and border; one column
+/// is kept for a space hanging off a row's end, which the cursor may be on.
+fn description_columns(width: f32, mono_width: Pixels) -> usize {
+    let inset = 2.0 * (PANEL_PADDING + FIELD_PADDING_X + 1.0);
+    ((px(width - inset) / mono_width).floor() as usize).saturating_sub(1).max(1)
+}
+
 /// `input_scroll` keeps the input's sideways scroll between frames; it keeps
 /// `prompts.input_margin` in view on each side of the cursor. `composition` is drawn in
-/// the input that takes typed text.
+/// the input that takes typed text; a message's description wraps to fit characters
+/// `mono_width` wide.
 pub fn render_minibuffer(
     minibuffer: &Minibuffer,
     input_scroll: &ScrollHandle,
     composition: Option<&Composition>,
     prompts: PromptsSettings,
+    mono_width: Pixels,
     cx: &mut Context<EditorView>,
 ) -> AnyElement {
     if let Some(dialog) = minibuffer.dialog() {
@@ -157,7 +169,11 @@ pub fn render_minibuffer(
         .when(!prompt.summary.is_empty(), |popover| popover.child(render_summary(&prompt.summary)))
         .children(chips_first)
         .children(render_segmented_choices(minibuffer, cx))
-        .children(render_description(minibuffer, composition))
+        .children(render_description(
+            minibuffer,
+            composition,
+            description_columns(width, mono_width),
+        ))
         .when(!minibuffer.candidates().is_empty(), |popover| {
             popover.child(render_candidates(minibuffer, cx))
         })
