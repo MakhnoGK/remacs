@@ -144,7 +144,8 @@ fn implementations_and_type_definitions_are_gone_to_or_listed() {
 
 fn item(key: u64, name: &str, path: &Path, offset: usize, line: usize) -> HierarchyItem {
     let location = Location { path: path.to_path_buf(), offset };
-    HierarchyItem { key, name: name.into(), detail: format!("fn {name}()"), location, line }
+    let detail = format!("fn {name}()");
+    HierarchyItem { key, name: name.into(), detail, location, line, calls: Vec::new() }
 }
 
 type HierarchyRow = (usize, Option<bool>, String, String);
@@ -158,7 +159,8 @@ fn hierarchy_pane(editor: &Editor) -> (String, Vec<HierarchyRow>) {
     (pane.title, rows.collect())
 }
 
-/// Opened as asked for, each row's children asked for once; flipped from the same item.
+/// Opened as asked for, each row's children asked for once, a caller's row going to its
+/// first call; flipped from the same item.
 #[test]
 fn a_call_hierarchy_opens_row_by_row_and_flips() {
     let (main, lib, _) = project("hierarchy");
@@ -169,7 +171,10 @@ fn a_call_hierarchy_opens_row_by_row_and_flips() {
     deliver_hierarchy(&mut editor, 1, Ok(vec![item(0, "helper", &lib, 14, 1)]));
     let expand = |id, key, relation| HierarchyRequest::Expand { id, key, relation };
     assert_eq!(take_hierarchy_requests(&mut editor), [expand(2, 0, Relation::Callers)]);
-    deliver_hierarchy(&mut editor, 2, Ok(vec![item(1, "main", &main, 3, 0)]));
+    let call = |offset, line| (Location { path: main.clone(), offset }, line);
+    let caller =
+        HierarchyItem { calls: vec![call(16, 1), call(20, 1)], ..item(1, "main", &main, 3, 0) };
+    deliver_hierarchy(&mut editor, 2, Ok(vec![caller]));
     let row = |depth, open, name: &str, place: &str| (depth, open, name.into(), place.into());
     assert_eq!(
         hierarchy_pane(&editor),
@@ -177,7 +182,7 @@ fn a_call_hierarchy_opens_row_by_row_and_flips() {
             "Callers of helper".into(),
             vec![
                 row(0, Some(true), "helper", "lib.rs:2"),
-                row(1, Some(false), "main", "main.rs:1")
+                row(1, Some(false), "main", "main.rs:2 ×2")
             ]
         )
     );
@@ -185,12 +190,12 @@ fn a_call_hierarchy_opens_row_by_row_and_flips() {
     press(&mut editor, "C-n TAB");
     assert_eq!(take_hierarchy_requests(&mut editor), [expand(3, 1, Relation::Callers)]);
     deliver_hierarchy(&mut editor, 3, Ok(Vec::new()));
-    assert_eq!(hierarchy_pane(&editor).1[1], row(1, None, "main", "main.rs:1"));
+    assert_eq!(hierarchy_pane(&editor).1[1], row(1, None, "main", "main.rs:2 ×2"));
     press(&mut editor, "C-p TAB TAB");
     assert!(take_hierarchy_requests(&mut editor).is_empty(), "children are asked for once");
 
     press(&mut editor, "C-n RET");
-    assert_eq!(place(&editor), (main.clone(), 3));
+    assert_eq!(place(&editor), (main.clone(), 16));
     assert!(!editor.pane_focused());
     press(&mut editor, "M-,");
     assert_eq!(place(&editor), (lib.clone(), 14));

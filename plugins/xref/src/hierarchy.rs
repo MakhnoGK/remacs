@@ -131,7 +131,7 @@ impl Hierarchy {
         }
     }
 
-    fn name(self) -> &'static str {
+    pub fn name(self) -> &'static str {
         match self {
             Hierarchy::Calls => "call hierarchy",
             Hierarchy::Types => "type hierarchy",
@@ -150,6 +150,16 @@ pub struct HierarchyItem {
     pub location: Location,
     /// Of the location, from 0.
     pub line: usize,
+    /// Of a caller or callee, the calls it is a caller or callee by, in the caller, with
+    /// their lines; rows go to the first.
+    pub calls: Vec<(Location, usize)>,
+}
+
+impl HierarchyItem {
+    /// Where its row goes: its first call, else the item itself; and that line.
+    fn target(&self) -> (&Location, usize) {
+        self.calls.first().map_or((&self.location, self.line), |(location, line)| (location, *line))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -312,7 +322,7 @@ fn selected(editor: &mut Editor) -> Option<(Vec<usize>, bool, Location)> {
     let tree = state(editor).tree.as_ref()?;
     let rows = rows(tree);
     let (path, node) = rows.get(tree.selected.min(rows.len().checked_sub(1)?))?;
-    Some((path.clone(), node.open, node.item.location.clone()))
+    Some((path.clone(), node.open, node.item.target().0.clone()))
 }
 
 fn step(editor: &mut Editor, forward: bool) -> CommandResult {
@@ -449,10 +459,17 @@ pub(crate) fn pane(editor: &Editor) -> Option<Pane> {
     })
 }
 
-/// `main.rs:12`
+/// `main.rs:12`, and `×3` after the first call when there are more.
 fn place(item: &HierarchyItem) -> String {
-    let name = item.location.path.file_name().map(Path::new).unwrap_or(&item.location.path);
-    format!("{}:{}", name.display(), item.line + 1)
+    let (location, line) = item.target();
+    let name = location.path.file_name().map(Path::new).unwrap_or(&location.path);
+    let place = format!("{}:{}", name.display(), line + 1);
+    // shortcut: only the first call is gone to; list each once callers that call many
+    // times need them apart.
+    match item.calls.len() {
+        0 | 1 => place,
+        calls => format!("{place} ×{calls}"),
+    }
 }
 
 fn capitalized(text: &str) -> String {

@@ -295,11 +295,11 @@ pub(crate) struct Found {
     pub settled: bool,
 }
 
-/// Items of a hierarchy as a server gave them, to ask about again; none when it cannot
-/// tell.
+/// Items of a hierarchy as a server gave them, to ask about again, each with where its
+/// calls are; none when it cannot tell.
 pub(crate) struct Walked {
     pub id: u64,
-    pub items: Vec<Value>,
+    pub items: Vec<(Value, Vec<Position>)>,
     pub encoding: Encoding,
 }
 

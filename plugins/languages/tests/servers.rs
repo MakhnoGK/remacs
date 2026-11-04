@@ -254,11 +254,11 @@ fn rust_analyzer_goes_to_implementations_and_type_definitions() {
     assert_eq!(line, "struct Dog;");
 }
 
-/// The pane's title and the names under its first row, once the hierarchy `command`
-/// shows for `at` has some; one found empty while the server loads is asked again.
-fn hierarchy(file: &Path, at: &str, command: &str) -> (String, Vec<String>) {
+/// The pane's title and the names and places of the rows under its first, once the
+/// hierarchy `command` shows for `at`, flipped if `flip`, has some; one found empty while
+/// the server loads is asked again.
+fn hierarchy(file: &Path, at: &str, command: &str, flip: bool) -> (String, Vec<(String, String)>) {
     let mut editor = Editor::new(PLUGINS);
-    editor.visit_file(file).unwrap();
     let point = fs::read_to_string(file).unwrap().find(at).unwrap() + 1;
     let started = Instant::now();
     loop {
@@ -271,14 +271,19 @@ fn hierarchy(file: &Path, at: &str, command: &str) -> (String, Vec<String>) {
         thread::sleep(Duration::from_millis(300));
         editor.refresh();
         let Some(pane) = editor.pane() else { continue };
+        if flip && pane.title.starts_with("Callers") {
+            editor.run_command("xref-hierarchy-flip");
+            continue;
+        }
         let PaneBody::Columns(columns) = pane.body else { panic!("a hierarchy is a column") };
         let rows = &columns[0].rows;
         if rows.first().is_some_and(|root| root.open.is_none()) {
             editor.run_command("xref-hierarchy-close");
             continue;
         }
-        let children: Vec<_> =
-            rows.iter().filter(|row| row.depth == 1).map(|row| row.name.clone()).collect();
+        let children: Vec<_> = (rows.iter().filter(|row| row.depth == 1))
+            .map(|row| (row.name.clone(), row.detail.clone()))
+            .collect();
         if !children.is_empty() {
             eprintln!("{}: {at}: {} {children:?}", file.display(), pane.title);
             return (pane.title, children);
@@ -286,26 +291,44 @@ fn hierarchy(file: &Path, at: &str, command: &str) -> (String, Vec<String>) {
     }
 }
 
+/// Callers and callees go to their calls: in the caller, each time.
 #[test]
 #[ignore]
-fn rust_analyzer_shows_callers() {
+fn rust_analyzer_shows_callers_and_callees_at_their_calls() {
     let rust = project(
         "rust-calls",
         &[
             ("Cargo.toml", "[package]\nname = \"demo\"\nedition = \"2024\"\n"),
-            ("src/main.rs", "fn helper() {}\n\nfn main() {\n    helper();\n}\n"),
+            ("src/main.rs", "fn helper() {}\n\nfn main() {\n    helper();\n    helper();\n}\n"),
         ],
     );
-    let callers = hierarchy(&rust.join("src/main.rs"), "helper()", "xref-call-hierarchy");
-    assert_eq!(callers, ("Callers of helper".into(), vec!["main".into()]));
+    let main = rust.join("src/main.rs");
+    let row = |name: &str, place: &str| (name.to_owned(), place.to_owned());
+    let callers = hierarchy(&main, "helper()", "xref-call-hierarchy", false);
+    assert_eq!(callers, ("Callers of helper".into(), vec![row("main", "main.rs:4 ×2")]));
+    let callees = hierarchy(&main, "main()", "xref-call-hierarchy", true);
+    assert_eq!(callees, ("Callees of main".into(), vec![row("helper", "main.rs:4 ×2")]));
 }
 
 #[test]
 #[ignore]
 fn clangd_shows_supertypes() {
     let cpp = project("cpp-types", &[("main.cpp", "struct Animal {};\nstruct Dog : Animal {};\n")]);
-    let supertypes = hierarchy(&cpp.join("main.cpp"), "Dog", "xref-type-hierarchy");
-    assert_eq!(supertypes, ("Supertypes of Dog".into(), vec!["Animal".into()]));
+    let supertypes = hierarchy(&cpp.join("main.cpp"), "Dog", "xref-type-hierarchy", false);
+    let animal = ("Animal".to_owned(), "main.cpp:1".to_owned());
+    assert_eq!(supertypes, ("Supertypes of Dog".into(), vec![animal]));
+}
+
+/// A server without hierarchies says so, once it has said what it offers.
+#[test]
+#[ignore]
+fn a_server_without_hierarchies_says_so() {
+    let css = project("css-hierarchy", &[("style.css", "a { color: red; }\n")]);
+    let refused = "vscode-css-language-server cannot show a call hierarchy";
+    let echo = ask_at(&css.join("style.css"), "color", "xref-call-hierarchy", |editor| {
+        editor.echo().filter(|echo| echo == refused)
+    });
+    assert_eq!(echo, refused);
 }
 
 #[test]
