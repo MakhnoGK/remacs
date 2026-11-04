@@ -296,10 +296,10 @@ pub(crate) struct Found {
 }
 
 /// Items of a hierarchy as a server gave them, to ask about again, each with where its
-/// calls are; none when it cannot tell.
+/// calls are; or why there are none to trust.
 pub(crate) struct Walked {
     pub id: u64,
-    pub items: Vec<(Value, Vec<Position>)>,
+    pub items: Result<Vec<(Value, Vec<Position>)>, String>,
     pub encoding: Encoding,
 }
 
@@ -1738,6 +1738,13 @@ impl Reader {
             }
             Pending::Hierarchy { id, relation } => {
                 let items = hierarchy::items(result, relation);
+                // Empty while loading only means the project is not read yet.
+                let loading = items.is_empty() && !lock_progress(&self.progress).is_settled();
+                let items = match error {
+                    Some(error) => Err(format!("{}: {error}", self.server)),
+                    None if loading => Err(format!("{} is still loading the project", self.server)),
+                    None => Ok(items),
+                };
                 lock(&self.inbox).walked.push(Walked { id, items, encoding: self.encoding });
                 (self.notifier)();
             }

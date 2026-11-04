@@ -255,8 +255,8 @@ fn rust_analyzer_goes_to_implementations_and_type_definitions() {
 }
 
 /// The pane's title and the names and places of the rows under its first, once the
-/// hierarchy `command` shows for `at`, flipped if `flip`, has some; one found empty while
-/// the server loads is asked again.
+/// hierarchy `command` shows for `at`, flipped if `flip`, has some; a row closed by the
+/// server still loading is opened again.
 fn hierarchy(file: &Path, at: &str, command: &str, flip: bool) -> (String, Vec<(String, String)>) {
     let mut editor = Editor::new(PLUGINS);
     let point = fs::read_to_string(file).unwrap().find(at).unwrap() + 1;
@@ -277,8 +277,9 @@ fn hierarchy(file: &Path, at: &str, command: &str, flip: bool) -> (String, Vec<(
         }
         let PaneBody::Columns(columns) = pane.body else { panic!("a hierarchy is a column") };
         let rows = &columns[0].rows;
-        if rows.first().is_some_and(|root| root.open.is_none()) {
-            editor.run_command("xref-hierarchy-close");
+        assert!(rows.first().is_some_and(|root| root.open.is_some()), "{at} has none");
+        if rows.first().is_some_and(|root| root.open == Some(false)) {
+            editor.run_command("xref-hierarchy-toggle");
             continue;
         }
         let children: Vec<_> = (rows.iter().filter(|row| row.depth == 1))

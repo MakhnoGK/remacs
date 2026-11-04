@@ -208,9 +208,19 @@ fn a_call_hierarchy_opens_row_by_row_and_flips() {
         ("Callees of helper".into(), vec![row(0, Some(true), "helper", "lib.rs:2")])
     );
 
-    press(&mut editor, "M-g M-y");
-    deliver_hierarchy(&mut editor, 5, Ok(Vec::new()));
+    // A failure is said and closes the row, which asks again when opened.
+    deliver_hierarchy(&mut editor, 4, Err("rust-analyzer is still loading the project".into()));
+    assert_eq!(editor.echo().as_deref(), Some("rust-analyzer is still loading the project"));
+    assert_eq!(hierarchy_pane(&editor).1, [row(0, Some(false), "helper", "lib.rs:2")]);
+    editor.focus_pane(true);
+    press(&mut editor, "TAB");
+    assert_eq!(take_hierarchy_requests(&mut editor), [expand(5, 0, Relation::Callees)]);
+
+    // A tree that fails to start leaves the one shown.
+    press(&mut editor, "C-g M-g M-y");
+    deliver_hierarchy(&mut editor, 6, Ok(Vec::new()));
     assert_eq!(editor.echo().as_deref(), Some("Nothing at point has a type hierarchy"));
+    assert_eq!(hierarchy_pane(&editor).0, "Callees of helper");
     editor.run_command("xref-hierarchy-close");
     assert!(editor.pane().is_none());
 }

@@ -29,7 +29,14 @@ Status: accepted, 2026-11-04 (issue #203)
   tree under the roots and asks again.
 - **Items are asked about by the server that gave them**, not the window buffer's:
   `lsp` keeps each item as the server sent it, with its client, under the key it hands
-  `xref`, so rows open whatever file the window shows. A new tree drops the items kept.
+  `xref`, so rows open whatever file the window shows. A new tree's roots, once they
+  come, replace the items kept; a tree that fails to start leaves the one shown working.
+  The client is held weakly, so a server restarted or stopped exits rather than living
+  on for the tree; its rows then say to open the hierarchy again, and so does a request
+  whose server stopped before answering, rather than asking for good.
+- **Failures are said, never shown as empty.** A server's error, or an empty answer
+  while it is still loading the project, is said in the echo area and closes the row,
+  which asks again when opened; only a settled server's empty answer means "none".
 - **A caller's or callee's row goes to its call**, in the caller (`fromRanges`): for a
   caller, where it calls the row above; for a callee, where the row above calls it. The
   place shows the first call's line and, when there are more, how many (`main.rs:4 ×2`).

@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 use lsp_types::{Position, Uri};
 use remacs_core::{Editor, embedded_file};
@@ -13,16 +13,25 @@ use serde_json::Value;
 
 use crate::client::{Client, Outgoing, Walked};
 use crate::document::{self, Clients};
-use crate::position::{Encoding, from_lsp, text_of};
+use crate::position::{from_lsp, text_of};
 use crate::uri;
 
 /// The items of the shown hierarchy, by xref's key, with the server that gave each.
 #[derive(Default)]
 struct Items {
-    kept: Vec<(Rc<Client>, Value)>,
+    kept: Vec<(Weak<Client>, Value)>,
     /// Of each request for an item's callees, that item's file, where the calls are.
     callers: HashMap<u64, Uri>,
+    /// The request for a new tree's roots, whose items replace those kept; until they
+    /// come, the tree shown still opens.
+    roots: Option<u64>,
+    /// Requests not answered yet, by the server asked.
+    asked: HashMap<u64, Weak<Client>>,
 }
+
+/// Said of a request whose server was restarted or stopped before it answered, or of an
+/// item it gave.
+const STOPPED: &str = "Its language server stopped: open the hierarchy again";
 
 /// Hands over what the servers answered, then sends xref's requests.
 pub(crate) fn sync(editor: &mut Editor) {
@@ -30,9 +39,15 @@ pub(crate) fn sync(editor: &mut Editor) {
         editor.plugin_state::<Clients>().running().map(|(_, client)| Rc::clone(client)).collect();
     for client in clients {
         for walked in client.take_walked() {
-            let (id, items) = place(editor, &client, walked);
-            remacs_xref::deliver_hierarchy(editor, id, Ok(items));
+            let id = walked.id;
+            editor.plugin_state::<Items>().asked.remove(&id);
+            let items = place(editor, &client, walked);
+            remacs_xref::deliver_hierarchy(editor, id, items);
         }
+    }
+    // Their answers would never be taken, leaving the rows asking for good.
+    for id in editor.plugin_state::<Items>().orphaned() {
+        remacs_xref::deliver_hierarchy(editor, id, Err(STOPPED.to_owned()));
     }
     for request in remacs_xref::take_hierarchy_requests(editor) {
         ask(editor, request);
@@ -54,72 +69,102 @@ fn ask(editor: &mut Editor, request: HierarchyRequest) {
                     return remacs_xref::deliver_hierarchy(editor, id, Err(error));
                 }
             };
-            // A new tree: the items of the one before are asked about no more.
-            *editor.plugin_state::<Items>() = Items::default();
+            let items = editor.plugin_state::<Items>();
+            items.roots = Some(id);
+            items.asked.insert(id, Rc::downgrade(&client));
             client.send(Outgoing::PrepareHierarchy { id, hierarchy, uri, text, offset });
         }
         HierarchyRequest::Expand { id, key, relation } => {
             let items = editor.plugin_state::<Items>();
-            let Some((client, item)) = items.kept.get(key as usize).cloned() else {
-                return remacs_xref::deliver_hierarchy(editor, id, Ok(Vec::new()));
+            let kept = items.kept.get(key as usize).cloned();
+            // Held weakly, so that a server restarted or stopped exits rather than lives on
+            // for the tree.
+            let Some((client, item)) =
+                kept.and_then(|(client, item)| Some((client.upgrade()?, item)))
+            else {
+                return remacs_xref::deliver_hierarchy(editor, id, Err(STOPPED.to_owned()));
             };
-            if relation == Relation::Callees
-                && let Ok(file) = serde_json::from_value(item["uri"].clone())
-            {
+            if let Some(file) = calls_in(relation, &item) {
                 items.callers.insert(id, file);
             }
+            items.asked.insert(id, Rc::downgrade(&client));
             client.send(Outgoing::ExpandHierarchy { id, relation, item });
         }
     }
 }
 
-/// The items a server answered, kept to ask about again and placed, with their calls, in
-/// the texts it knows; one it cannot place is left out.
-fn place(editor: &mut Editor, client: &Rc<Client>, walked: Walked) -> (u64, Vec<HierarchyItem>) {
-    let callers_file = editor.plugin_state::<Items>().callers.remove(&walked.id);
-    let encoding = walked.encoding;
-    let items = walked.items.into_iter().filter_map(|(item, calls)| {
-        let name = item["name"].as_str()?.to_owned();
-        let detail = item["detail"].as_str().unwrap_or_default().to_owned();
-        let file: Uri = serde_json::from_value(item["uri"].clone()).ok()?;
-        let position: Position =
-            serde_json::from_value(item["selectionRange"]["start"].clone()).ok()?;
-        let (location, line) = locate(editor, &file, [position], encoding).pop()?;
-        let calls = locate(editor, callers_file.as_ref().unwrap_or(&file), calls, encoding);
-        Some((name, detail, location, line, calls, item))
-    });
-    let items: Vec<_> = items.collect();
-    let kept = &mut editor.plugin_state::<Items>().kept;
-    let items = items
-        .into_iter()
-        .map(|(name, detail, location, line, calls, item)| {
-            kept.push((Rc::clone(client), item));
-            HierarchyItem { key: kept.len() as u64 - 1, name, detail, location, line, calls }
-        })
-        .collect();
-    (walked.id, items)
+/// The file the calls of the items `relation` of `item` are in, when it is not theirs:
+/// `item`'s own for its callees, since it is the caller.
+fn calls_in(relation: Relation, item: &Value) -> Option<Uri> {
+    (relation == Relation::Callees).then(|| serde_json::from_value(item["uri"].clone()).ok())?
 }
 
-/// Where `positions` of `file` are in the text the server knows, with their lines.
-fn locate(
-    editor: &Editor,
-    file: &Uri,
-    positions: impl IntoIterator<Item = Position>,
-    encoding: Encoding,
-) -> Vec<(Location, usize)> {
-    let Some(path) = uri::to_path(file) else {
-        return Vec::new();
+/// The items a server answered, kept to ask about again and placed, with their calls, in
+/// the texts it knows; one it cannot place is left out.
+fn place(
+    editor: &mut Editor,
+    client: &Rc<Client>,
+    walked: Walked,
+) -> Result<Vec<HierarchyItem>, String> {
+    let callers_file = editor.plugin_state::<Items>().callers.remove(&walked.id);
+    let answered = walked.items?;
+    let mut texts = HashMap::new();
+    let mut locate = |file: &Uri, positions: Vec<Position>| {
+        let path = uri::to_path(file)?;
+        let text = texts.entry(path.clone()).or_insert_with(|| text_of(editor, &path)).clone()?;
+        let shown = embedded_file(&path).unwrap_or(path);
+        let place = |position: Position| {
+            let offset = from_lsp(&text, position, walked.encoding);
+            (Location { path: shown.clone(), offset }, position.line as usize)
+        };
+        Some(positions.into_iter().map(place).collect::<Vec<_>>())
     };
-    let Some(text) = text_of(editor, &path) else {
-        return Vec::new();
-    };
-    let shown = embedded_file(&path).unwrap_or(path);
-    let place = |position: Position| {
-        let location =
-            Location { path: shown.clone(), offset: from_lsp(&text, position, encoding) };
-        (location, position.line as usize)
-    };
-    positions.into_iter().map(place).collect()
+    let (answered, placed): (Vec<_>, Vec<_>) = answered
+        .into_iter()
+        .filter_map(|(item, calls)| {
+            let name = item["name"].as_str()?.to_owned();
+            let detail = item["detail"].as_str().unwrap_or_default().to_owned();
+            let file: Uri = serde_json::from_value(item["uri"].clone()).ok()?;
+            let position: Position =
+                serde_json::from_value(item["selectionRange"]["start"].clone()).ok()?;
+            let (location, line) = locate(&file, vec![position])?.pop()?;
+            let calls = locate(callers_file.as_ref().unwrap_or(&file), calls).unwrap_or_default();
+            Some((item, (name, detail, location, line, calls)))
+        })
+        .unzip();
+    let keys = editor.plugin_state::<Items>().keep(walked.id, &Rc::downgrade(client), answered);
+    let placed =
+        keys.into_iter().zip(placed).map(|(key, (name, detail, location, line, calls))| {
+            HierarchyItem { key, name, detail, location, line, calls }
+        });
+    Ok(placed.collect())
+}
+
+impl Items {
+    /// Keeps the `answered` items of request `id`, asked of `client`, and gives their
+    /// keys; a new tree's roots replace those kept, unless there are none.
+    fn keep(&mut self, id: u64, client: &Weak<Client>, answered: Vec<Value>) -> Vec<u64> {
+        if self.roots == Some(id) && !answered.is_empty() {
+            self.kept.clear();
+            self.roots = None;
+        }
+        let first = self.kept.len() as u64;
+        self.kept.extend(answered.into_iter().map(|item| (Weak::clone(client), item)));
+        (first..self.kept.len() as u64).collect()
+    }
+
+    /// Takes the requests whose server is gone without answering them.
+    fn orphaned(&mut self) -> Vec<u64> {
+        let gone: Vec<u64> = (self.asked.iter())
+            .filter(|(_, client)| client.strong_count() == 0)
+            .map(|(&id, _)| id)
+            .collect();
+        for id in &gone {
+            self.asked.remove(id);
+            self.callers.remove(id);
+        }
+        gone
+    }
 }
 
 /// The items of an answer, each with where its calls are: the callers or callees of a
@@ -165,5 +210,44 @@ mod tests {
         assert_eq!(items(json!([caller]), Some(Relation::Subtypes)), types);
         assert_eq!(items(json!([caller]), None), types);
         assert!(items(Value::Null, Some(Relation::Callers)).is_empty());
+    }
+
+    /// A new tree's roots replace the items kept, unless there are none, so the tree
+    /// shown still opens after one fails to start.
+    #[test]
+    fn a_new_trees_roots_replace_the_items_kept_unless_there_are_none() {
+        let mut items = Items { roots: Some(2), ..Items::default() };
+        let item = |name: &str| json!({ "name": name });
+        let kept =
+            |items: &Items| items.kept.iter().map(|(_, item)| item.clone()).collect::<Vec<_>>();
+        assert_eq!(items.keep(1, &Weak::new(), vec![item("old"), item("child")]), [0, 1]);
+        assert_eq!(items.keep(2, &Weak::new(), Vec::new()), Vec::<u64>::new());
+        assert_eq!(kept(&items), [item("old"), item("child")]);
+        assert_eq!(items.roots, Some(2));
+        assert_eq!(items.keep(2, &Weak::new(), vec![item("new")]), [0]);
+        assert_eq!(kept(&items), [item("new")]);
+        assert_eq!(items.keep(3, &Weak::new(), vec![item("its child")]), [1]);
+    }
+
+    /// A request whose server is gone is taken once, with what was kept for its answer.
+    #[test]
+    fn requests_of_a_server_gone_are_orphaned_once() {
+        let mut items = Items::default();
+        items.asked.insert(1, Weak::new());
+        items.callers.insert(1, "file:///p/main.rs".parse().unwrap());
+        assert_eq!(items.orphaned(), [1]);
+        assert!(items.asked.is_empty() && items.callers.is_empty());
+        assert!(items.orphaned().is_empty());
+    }
+
+    /// A callee's calls are in the item asked about, the caller; a caller's in its own.
+    #[test]
+    fn calls_are_in_the_caller() {
+        let item = json!({ "name": "main", "uri": "file:///p/main.rs" });
+        let main: Uri = "file:///p/main.rs".parse().unwrap();
+        assert_eq!(calls_in(Relation::Callees, &item), Some(main));
+        for relation in [Relation::Callers, Relation::Supertypes, Relation::Subtypes] {
+            assert_eq!(calls_in(relation, &item), None);
+        }
     }
 }

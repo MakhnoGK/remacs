@@ -178,7 +178,6 @@ struct Node {
 }
 
 struct Tree {
-    hierarchy: Hierarchy,
     relation: Relation,
     roots: Vec<Node>,
     selected: usize,
@@ -240,14 +239,22 @@ fn prepare(editor: &mut Editor, hierarchy: Hierarchy) -> CommandResult {
     Ok(())
 }
 
-/// Answers request `id`: starts the tree, or fills a row's children; a refusal is said.
+/// Answers request `id`: starts the tree, or fills a row's children. A failure is said,
+/// and a row it was for closes, to be asked again when opened.
 pub fn deliver_hierarchy(editor: &mut Editor, id: u64, items: Result<Vec<HierarchyItem>, String>) {
     let Some(awaited) = state(editor).awaited.remove(&id) else {
         return;
     };
     let items = match items {
         Ok(items) => items,
-        Err(error) => return editor.set_error(error),
+        Err(error) => {
+            if let Awaited::Children(path) = awaited
+                && let Some(found) = tree_node(editor, &path)
+            {
+                found.open = false;
+            }
+            return editor.set_error(error);
+        }
     };
     match awaited {
         Awaited::Roots(hierarchy) if items.is_empty() => {
@@ -258,7 +265,7 @@ pub fn deliver_hierarchy(editor: &mut Editor, id: u64, items: Result<Vec<Hierarc
             let relation = hierarchy.first();
             let state = state(editor);
             state.awaited.retain(|_, awaited| matches!(awaited, Awaited::Roots(_)));
-            state.tree = Some(Tree { hierarchy, relation, roots, selected: 0 });
+            state.tree = Some(Tree { relation, roots, selected: 0 });
             open(editor, &[0]);
             editor.select_pane(NAME);
             editor.focus_pane(true);
@@ -441,12 +448,12 @@ pub(crate) fn pane(editor: &Editor) -> Option<Pane> {
         empty: format!("No {}", relation.to_lowercase()),
         hints: COLUMN_HINTS,
     };
-    let root = tree.roots.first().map_or("", |root| root.item.name.as_str());
+    let root = tree.roots.first()?;
     Some(Pane {
         count: None,
         height: shown.settings.hierarchy_pane_height,
-        title: format!("{relation} of {root}"),
-        subtitle: capitalized(tree.hierarchy.name()),
+        title: format!("{relation} of {}", root.item.name),
+        subtitle: place(&root.item),
         state: if asking {
             ("Asking".into(), Tone::Warning)
         } else {
@@ -470,11 +477,6 @@ fn place(item: &HierarchyItem) -> String {
         0 | 1 => place,
         calls => format!("{place} ×{calls}"),
     }
-}
-
-fn capitalized(text: &str) -> String {
-    let mut chars = text.chars();
-    chars.next().map_or_else(String::new, |first| first.to_uppercase().chain(chars).collect())
 }
 
 #[cfg(test)]
