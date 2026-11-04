@@ -13,7 +13,8 @@ use std::time::{Duration, Instant};
 use remacs_actions::ActionsPlugin;
 use remacs_completion::CompletionPlugin;
 use remacs_core::{
-    Changes, Documentation, Editor, Elsewhere, Face, Icon, Plugin, Popup, Settings, parse_sequence,
+    Changes, Documentation, Editor, Elsewhere, Face, Icon, PaneBody, Plugin, Popup, Settings,
+    parse_sequence,
 };
 use remacs_diagnostics::DiagnosticsPlugin;
 use remacs_dired::{DiredPlugin, list_directory};
@@ -220,12 +221,115 @@ fn documentation(file: &Path, symbol: &str) -> Documentation {
 
 /// The file and line point lands on from `call`.
 fn definition(file: &Path, call: &str) -> (PathBuf, String) {
-    ask_at(file, call, "xref-find-definitions", |editor| {
+    landing(file, call, "xref-find-definitions")
+}
+
+/// The file and line `command` takes point to from `at`, on a line without it.
+fn landing(file: &Path, at: &str, command: &str) -> (PathBuf, String) {
+    ask_at(file, at, command, |editor| {
         let buffer = editor.window_buffer();
         let range = buffer.text().line_range(buffer.point_line())?;
         let line = buffer.contents(range).trim().to_owned();
-        (!line.contains(call)).then(|| (buffer.path().unwrap().to_path_buf(), line))
+        (!line.contains(at)).then(|| (buffer.path().unwrap().to_path_buf(), line))
     })
+}
+
+#[test]
+#[ignore]
+fn rust_analyzer_goes_to_implementations_and_type_definitions() {
+    let rust = project(
+        "rust-implementations",
+        &[
+            ("Cargo.toml", "[package]\nname = \"demo\"\nedition = \"2024\"\n"),
+            (
+                "src/main.rs",
+                "trait Speak {\n    fn speak(&self);\n}\n\nstruct Dog;\n\nimpl Speak for Dog {\n    fn speak(&self) {}\n}\n\nfn main() {\n    let pet = Dog;\n    pet.speak();\n}\n",
+            ),
+        ],
+    );
+    let main = rust.join("src/main.rs");
+    let (_, line) = landing(&main, "Speak {", "xref-find-implementations");
+    assert_eq!(line, "impl Speak for Dog {");
+    let (_, line) = landing(&main, "pet.speak", "xref-find-type-definitions");
+    assert_eq!(line, "struct Dog;");
+}
+
+/// The pane's title and the names and places of the rows under its first, once the
+/// hierarchy `command` shows for `at`, flipped if `flip`, has some; a row closed by the
+/// server still loading is opened again.
+fn hierarchy(file: &Path, at: &str, command: &str, flip: bool) -> (String, Vec<(String, String)>) {
+    let mut editor = Editor::new(PLUGINS);
+    let point = fs::read_to_string(file).unwrap().find(at).unwrap() + 1;
+    let started = Instant::now();
+    loop {
+        assert!(started.elapsed() < TIMEOUT, "{command} on {at} never answered");
+        if editor.pane().is_none() {
+            editor.visit_file(file).unwrap();
+            editor.window_buffer_mut().set_point(point);
+            editor.run_command(command);
+        }
+        thread::sleep(Duration::from_millis(300));
+        editor.refresh();
+        let Some(pane) = editor.pane() else { continue };
+        if flip && pane.title.starts_with("Callers") {
+            editor.run_command("xref-hierarchy-flip");
+            continue;
+        }
+        let PaneBody::Columns(columns) = pane.body else { panic!("a hierarchy is a column") };
+        let rows = &columns[0].rows;
+        assert!(rows.first().is_some_and(|root| root.open.is_some()), "{at} has none");
+        if rows.first().is_some_and(|root| root.open == Some(false)) {
+            editor.run_command("xref-hierarchy-toggle");
+            continue;
+        }
+        let children: Vec<_> = (rows.iter().filter(|row| row.depth == 1))
+            .map(|row| (row.name.clone(), row.detail.clone()))
+            .collect();
+        if !children.is_empty() {
+            eprintln!("{}: {at}: {} {children:?}", file.display(), pane.title);
+            return (pane.title, children);
+        }
+    }
+}
+
+/// Callers and callees go to their calls: in the caller, each time.
+#[test]
+#[ignore]
+fn rust_analyzer_shows_callers_and_callees_at_their_calls() {
+    let rust = project(
+        "rust-calls",
+        &[
+            ("Cargo.toml", "[package]\nname = \"demo\"\nedition = \"2024\"\n"),
+            ("src/main.rs", "fn helper() {}\n\nfn main() {\n    helper();\n    helper();\n}\n"),
+        ],
+    );
+    let main = rust.join("src/main.rs");
+    let row = |name: &str, place: &str| (name.to_owned(), place.to_owned());
+    let callers = hierarchy(&main, "helper()", "xref-call-hierarchy", false);
+    assert_eq!(callers, ("Callers of helper".into(), vec![row("main", "main.rs:4 ×2")]));
+    let callees = hierarchy(&main, "main()", "xref-call-hierarchy", true);
+    assert_eq!(callees, ("Callees of main".into(), vec![row("helper", "main.rs:4 ×2")]));
+}
+
+#[test]
+#[ignore]
+fn clangd_shows_supertypes() {
+    let cpp = project("cpp-types", &[("main.cpp", "struct Animal {};\nstruct Dog : Animal {};\n")]);
+    let supertypes = hierarchy(&cpp.join("main.cpp"), "Dog", "xref-type-hierarchy", false);
+    let animal = ("Animal".to_owned(), "main.cpp:1".to_owned());
+    assert_eq!(supertypes, ("Supertypes of Dog".into(), vec![animal]));
+}
+
+/// A server without hierarchies says so, once it has said what it offers.
+#[test]
+#[ignore]
+fn a_server_without_hierarchies_says_so() {
+    let css = project("css-hierarchy", &[("style.css", "a { color: red; }\n")]);
+    let refused = "vscode-css-language-server cannot show a call hierarchy";
+    let echo = ask_at(&css.join("style.css"), "color", "xref-call-hierarchy", |editor| {
+        editor.echo().filter(|echo| echo == refused)
+    });
+    assert_eq!(echo, refused);
 }
 
 #[test]

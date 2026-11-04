@@ -42,7 +42,8 @@ pub(crate) fn sync(editor: &mut Editor, servers: &'static [LanguageServer]) {
 /// a request held back, which is dropped if the buffer changed since.
 fn send(editor: &mut Editor, request: Request, held: Option<Snapshot>) {
     let (Request::Name { path, offset, .. } | Request::Rename { path, offset, .. }) = &request;
-    let server = server_at(editor, path, *offset).ok_or("No language server for this buffer");
+    let server = server_at(editor, path, *offset, |_| true)
+        .map_err(|_| "No language server for this buffer");
     let server = server.and_then(|server| match &held {
         Some(held) if server.2.edit_from(held).is_some() => {
             Err("The buffer changed while the language server was loading")

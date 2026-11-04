@@ -17,11 +17,14 @@ use lsp_types::notification::{
     DidSaveTextDocument, Initialized, Notification, PublishDiagnostics,
 };
 use lsp_types::request::{
-    ApplyWorkspaceEdit, CodeActionRequest, CodeActionResolveRequest, Completion, DocumentColor,
+    ApplyWorkspaceEdit, CallHierarchyIncomingCalls, CallHierarchyOutgoingCalls,
+    CallHierarchyPrepare, CodeActionRequest, CodeActionResolveRequest, Completion, DocumentColor,
     DocumentDiagnosticRequest, DocumentSymbolRequest, ExecuteCommand, Formatting, GotoDefinition,
-    HoverRequest, Initialize, PrepareRenameRequest, RangeFormatting, References, Rename, Request,
-    ResolveCompletionItem, SemanticTokensFullRequest, SemanticTokensRefresh, SignatureHelpRequest,
-    WillRenameFiles, WorkspaceConfiguration, WorkspaceDiagnosticRefresh, WorkspaceSymbolRequest,
+    GotoImplementation, GotoTypeDefinition, HoverRequest, Initialize, PrepareRenameRequest,
+    RangeFormatting, References, Rename, Request, ResolveCompletionItem, SemanticTokensFullRequest,
+    SemanticTokensRefresh, SignatureHelpRequest, TypeHierarchyPrepare, TypeHierarchySubtypes,
+    TypeHierarchySupertypes, WillRenameFiles, WorkspaceConfiguration, WorkspaceDiagnosticRefresh,
+    WorkspaceSymbolRequest,
 };
 use lsp_types::{
     ApplyWorkspaceEditParams, CodeAction, CodeActionOrCommand, CompletionItem,
@@ -36,6 +39,7 @@ use remacs_core::{IndentUnit, Notifier, StatusItem};
 use remacs_documentation::{SignatureTrigger, Signatures};
 use remacs_format::{Failure, Formatted};
 use remacs_text::{Edit, Snapshot};
+use remacs_xref::{Hierarchy, Relation};
 use serde_json::{Value, json};
 
 use crate::LanguageServer;
@@ -48,7 +52,7 @@ use crate::semantic::{self, Legend, Token};
 use crate::signature::{self, SignatureSupport};
 use crate::symbols::{self, FoundSymbol};
 use crate::transport::{read_message, write_message};
-use crate::{code_action, definition, document_symbols, hover, symbol_rename, uri};
+use crate::{code_action, definition, document_symbols, hierarchy, hover, symbol_rename, uri};
 
 const INITIALIZE_ID: u64 = 0;
 /// rust-analyzer's, with `quiescent` false while it loads the project.
@@ -225,6 +229,20 @@ pub(crate) enum Outgoing {
         id: u64,
         uri: Uri,
     },
+    /// Asks for the items of `hierarchy` at `offset` of `text`; `id` is xref's.
+    PrepareHierarchy {
+        id: u64,
+        hierarchy: Hierarchy,
+        uri: Uri,
+        text: Snapshot,
+        offset: usize,
+    },
+    /// Asks for the items `relation` of `item`, as the server gave it.
+    ExpandHierarchy {
+        id: u64,
+        relation: Relation,
+        item: Value,
+    },
     /// Asks for the name of the symbol at `offset` of `text` to rename, or whether it can
     /// be; `id` is the rename plugin's.
     PrepareRename {
@@ -277,6 +295,14 @@ pub(crate) struct Found {
     pub settled: bool,
 }
 
+/// Items of a hierarchy as a server gave them, to ask about again, each with where its
+/// calls are; or why there are none to trust.
+pub(crate) struct Walked {
+    pub id: u64,
+    pub items: Result<Vec<(Value, Vec<Position>)>, String>,
+    pub encoding: Encoding,
+}
+
 /// What a server answered about renaming a symbol.
 pub(crate) enum SymbolRenamed {
     Name {
@@ -304,6 +330,8 @@ pub(crate) enum Question {
     Hover,
     Definition,
     References,
+    Implementation,
+    TypeDefinition,
 }
 
 impl Question {
@@ -312,6 +340,8 @@ impl Question {
             Question::Hover => HoverRequest::METHOD,
             Question::Definition => GotoDefinition::METHOD,
             Question::References => References::METHOD,
+            Question::Implementation => GotoImplementation::METHOD,
+            Question::TypeDefinition => GotoTypeDefinition::METHOD,
         }
     }
 }
@@ -379,23 +409,74 @@ pub(crate) enum Answer {
 
 /// A request in flight and what its answer is for.
 enum Pending {
-    Pull { path: PathBuf, version: i32 },
-    Colors { path: PathBuf, text: Snapshot },
-    SemanticTokens { path: PathBuf, text: Snapshot },
-    Complete { id: u64, origin: Origin },
-    Resolve { id: u64, index: usize, origin: Origin },
-    AtPoint { question: Question, id: u64, origin: Origin },
-    Signatures { id: u64, mode: &'static str },
-    CodeActions { id: u64, kind: Option<&'static str> },
-    ResolveAction { id: u64 },
-    Execute { id: u64 },
-    Format { id: u64, text: Snapshot },
-    WillRename { id: u64 },
-    Symbols { id: u64 },
-    DocumentSymbols { id: u64, path: PathBuf },
-    PrepareRename { id: u64, text: Snapshot, offset: usize },
-    Rename { id: u64 },
+    Pull {
+        path: PathBuf,
+        version: i32,
+    },
+    Colors {
+        path: PathBuf,
+        text: Snapshot,
+    },
+    SemanticTokens {
+        path: PathBuf,
+        text: Snapshot,
+    },
+    Complete {
+        id: u64,
+        origin: Origin,
+    },
+    Resolve {
+        id: u64,
+        index: usize,
+        origin: Origin,
+    },
+    AtPoint {
+        question: Question,
+        id: u64,
+        origin: Origin,
+    },
+    Signatures {
+        id: u64,
+        mode: &'static str,
+    },
+    CodeActions {
+        id: u64,
+        kind: Option<&'static str>,
+    },
+    ResolveAction {
+        id: u64,
+    },
+    Execute {
+        id: u64,
+    },
+    Format {
+        id: u64,
+        text: Snapshot,
+    },
+    WillRename {
+        id: u64,
+    },
+    Symbols {
+        id: u64,
+    },
+    DocumentSymbols {
+        id: u64,
+        path: PathBuf,
+    },
+    PrepareRename {
+        id: u64,
+        text: Snapshot,
+        offset: usize,
+    },
+    Rename {
+        id: u64,
+    },
     Tsserver(TsserverReply),
+    /// `relation` is `None` for the items a hierarchy starts from.
+    Hierarchy {
+        id: u64,
+        relation: Option<Relation>,
+    },
 }
 
 impl Pending {
@@ -429,6 +510,7 @@ struct Inbox {
     renamed: Vec<Renamed>,
     found: Vec<Found>,
     document_symbols: Vec<Found>,
+    walked: Vec<Walked>,
     symbol_renamed: Vec<SymbolRenamed>,
     tsserver_requests: Vec<TsserverRequest>,
     /// Why the server exited, once it has.
@@ -518,7 +600,7 @@ pub(crate) struct Client {
     notifier: Notifier,
     /// The action whose command ran last, which edits the server asks for belong to.
     executing: Cell<Option<u64>>,
-    signatures: SharedSignatureSupport,
+    offered: SharedOffered,
     /// What the server is busy with; servers that never say they are loading the project
     /// are taken as settled.
     progress: SharedProgress,
@@ -561,14 +643,14 @@ impl Client {
         let inbox = SharedInbox::default();
         let pull_generation = Arc::new(AtomicU64::new(0));
         let progress = Arc::new(Mutex::new(Progress::new(Instant::now(), !server.reports_loading)));
-        let signatures = SharedSignatureSupport::default();
+        let offered = SharedOffered::default();
         let writer = Writer {
             server: server.name,
             stdin: BufWriter::new(stdin),
             inbox: Arc::clone(&inbox),
             notifier: Arc::clone(&notifier),
             next_id: INITIALIZE_ID + 1,
-            signatures: Arc::clone(&signatures),
+            offered: Arc::clone(&offered),
         };
         let program_dir = fs::canonicalize(program).unwrap_or_else(|_| program.to_path_buf());
         let program_dir = program_dir.parent().unwrap_or(&program_dir).to_string_lossy();
@@ -594,7 +676,7 @@ impl Client {
             pull_generation: Arc::clone(&pull_generation),
             notifier: Arc::clone(&notifier),
             progress: Arc::clone(&progress),
-            signatures: Arc::clone(&signatures),
+            offered: Arc::clone(&offered),
             legend: None,
         };
         let (exit_inbox, exit_notifier) = (Arc::clone(&inbox), Arc::clone(&notifier));
@@ -613,7 +695,7 @@ impl Client {
             notifier,
             executing: Cell::new(None),
             progress,
-            signatures,
+            offered,
             replies,
             tsserver: server.tsserver,
         })
@@ -657,8 +739,25 @@ impl Client {
     /// Whether a request for `trigger` may show signatures; true until the server agreed
     /// on what it supports, as the writer holds requests until then.
     pub fn may_sign(&self, trigger: SignatureTrigger) -> bool {
-        self.signatures.get().is_none_or(|support| {
-            support.as_ref().is_some_and(|support| support.context(trigger).is_some())
+        self.offered.get().is_none_or(|offered| {
+            offered.signatures.as_ref().is_some_and(|support| support.context(trigger).is_some())
+        })
+    }
+
+    /// Whether the server may answer `question`; true until it agreed on what it offers.
+    pub fn may_answer(&self, question: Question) -> bool {
+        self.offered.get().is_none_or(|offered| match question {
+            Question::Implementation => offered.implementation,
+            Question::TypeDefinition => offered.type_definition,
+            Question::Hover | Question::Definition | Question::References => true,
+        })
+    }
+
+    /// Whether the server may walk `hierarchy`; true until it agreed on what it offers.
+    pub fn may_walk(&self, hierarchy: Hierarchy) -> bool {
+        self.offered.get().is_none_or(|offered| match hierarchy {
+            Hierarchy::Calls => offered.call_hierarchy,
+            Hierarchy::Types => offered.type_hierarchy,
         })
     }
 
@@ -709,6 +808,10 @@ impl Client {
 
     pub fn take_found(&self) -> Vec<Found> {
         std::mem::take(&mut lock(&self.inbox).found)
+    }
+
+    pub fn take_walked(&self) -> Vec<Walked> {
+        std::mem::take(&mut lock(&self.inbox).walked)
     }
 
     pub fn take_document_symbols(&self) -> Vec<Found> {
@@ -786,6 +889,8 @@ fn initialize_params(options: Option<Value>, configured: bool, root: &Path) -> V
                     "contextSupport": true,
                 },
                 "colorProvider": {},
+                "callHierarchy": {},
+                "typeHierarchy": {},
                 // Whole files only; servers may leave what tree-sitter paints anyway.
                 "semanticTokens": {
                     "requests": { "full": true },
@@ -845,12 +950,32 @@ struct Writer {
     inbox: SharedInbox,
     notifier: Notifier,
     next_id: u64,
-    signatures: SharedSignatureSupport,
+    offered: SharedOffered,
 }
 
-/// What the server agreed to about signatures, once `initialize` is answered; the editor
-/// reads it too, so keystrokes that open no call never leave it.
-type SharedSignatureSupport = Arc<OnceLock<Option<SignatureSupport>>>;
+/// What the server agreed to offer, once `initialize` is answered; the editor reads it
+/// too, so keystrokes that open no call and questions it cannot answer never leave it.
+type SharedOffered = Arc<OnceLock<Offered>>;
+
+struct Offered {
+    signatures: Option<SignatureSupport>,
+    implementation: bool,
+    type_definition: bool,
+    call_hierarchy: bool,
+    type_hierarchy: bool,
+}
+
+impl Offered {
+    fn from_capabilities(capabilities: &Value) -> Self {
+        Self {
+            signatures: SignatureSupport::from_capabilities(capabilities),
+            implementation: is_provided(&capabilities["implementationProvider"]),
+            type_definition: is_provided(&capabilities["typeDefinitionProvider"]),
+            call_hierarchy: is_provided(&capabilities["callHierarchyProvider"]),
+            type_hierarchy: is_provided(&capabilities["typeHierarchyProvider"]),
+        }
+    }
+}
 
 impl Writer {
     /// The server must hear nothing but `initialize` until it answers, so the queue waits.
@@ -950,7 +1075,7 @@ impl Writer {
                 self.ask(question.method(), params, pending)
             }
             Outgoing::Signatures { uri, id, text, offset, trigger, modes } => {
-                let support = self.signatures.get().and_then(Option::as_ref);
+                let support = self.offered.get().and_then(|offered| offered.signatures.as_ref());
                 let Some(context) = support.and_then(|support| support.context(*trigger)) else {
                     lock(&self.inbox)
                         .answers
@@ -1082,6 +1207,27 @@ impl Writer {
                 let params = json!({ "query": query });
                 let pending = Pending::Symbols { id: *id };
                 self.ask(WorkspaceSymbolRequest::METHOD, params, pending)
+            }
+            Outgoing::PrepareHierarchy { id, hierarchy, uri, text, offset } => {
+                let params = json!({
+                    "textDocument": TextDocumentIdentifier::new(uri.clone()),
+                    "position": to_lsp(text, *offset, negotiated.encoding),
+                });
+                let method = match hierarchy {
+                    Hierarchy::Calls => CallHierarchyPrepare::METHOD,
+                    Hierarchy::Types => TypeHierarchyPrepare::METHOD,
+                };
+                self.ask(method, params, Pending::Hierarchy { id: *id, relation: None })
+            }
+            Outgoing::ExpandHierarchy { id, relation, item } => {
+                let method = match relation {
+                    Relation::Callers => CallHierarchyIncomingCalls::METHOD,
+                    Relation::Callees => CallHierarchyOutgoingCalls::METHOD,
+                    Relation::Supertypes => TypeHierarchySupertypes::METHOD,
+                    Relation::Subtypes => TypeHierarchySubtypes::METHOD,
+                };
+                let pending = Pending::Hierarchy { id: *id, relation: Some(*relation) };
+                self.ask(method, json!({ "item": item }), pending)
             }
             Outgoing::DocumentSymbols { id, uri } => {
                 let path = uri::to_path(uri).unwrap_or_default();
@@ -1223,6 +1369,8 @@ impl Outgoing {
             | Outgoing::DidRename { .. }
             | Outgoing::Symbols { .. }
             | Outgoing::DocumentSymbols { .. }
+            | Outgoing::PrepareHierarchy { .. }
+            | Outgoing::ExpandHierarchy { .. }
             | Outgoing::PrepareRename { .. }
             | Outgoing::Rename { .. }
             | Outgoing::Tsserver { .. } => unreachable!("the writer numbers requests"),
@@ -1291,7 +1439,7 @@ struct Reader {
     pull_generation: Arc<AtomicU64>,
     notifier: Notifier,
     progress: SharedProgress,
-    signatures: SharedSignatureSupport,
+    offered: SharedOffered,
     /// What the server's semantic token numbers stand for, once `initialize` is answered.
     legend: Option<Arc<Legend>>,
 }
@@ -1414,7 +1562,7 @@ impl Reader {
         };
         let sync = &capabilities["textDocumentSync"];
         let full_sync = sync.get("change").unwrap_or(sync).as_u64() == Some(1);
-        let _ = (self.signatures).set(SignatureSupport::from_capabilities(capabilities));
+        let _ = self.offered.set(Offered::from_capabilities(capabilities));
         self.legend = Legend::offered(capabilities).map(Arc::new);
         let _ = agreed.send(Negotiated {
             encoding: self.encoding,
@@ -1481,7 +1629,11 @@ impl Reader {
                 let answer = hover::answer(response, &origin.text, origin.encoding, origin.modes);
                 self.deliver(Answer::Hover { id, answer });
             }
-            Pending::AtPoint { question: Question::Definition, id, .. } => {
+            Pending::AtPoint {
+                question: Question::Definition | Question::Implementation | Question::TypeDefinition,
+                id,
+                ..
+            } => {
                 let response = serde_json::from_value(result).unwrap_or_default();
                 self.deliver(Answer::Locations {
                     id,
@@ -1584,6 +1736,18 @@ impl Reader {
                 });
                 (self.notifier)();
             }
+            Pending::Hierarchy { id, relation } => {
+                let items = hierarchy::items(result, relation);
+                // Empty while loading only means the project is not read yet.
+                let loading = items.is_empty() && !lock_progress(&self.progress).is_settled();
+                let items = match error {
+                    Some(error) => Err(format!("{}: {error}", self.server)),
+                    None if loading => Err(format!("{} is still loading the project", self.server)),
+                    None => Ok(items),
+                };
+                lock(&self.inbox).walked.push(Walked { id, items, encoding: self.encoding });
+                (self.notifier)();
+            }
             Pending::DocumentSymbols { id, path } => {
                 let response =
                     error.is_none().then(|| serde_json::from_value(result).ok()).flatten();
@@ -1668,6 +1832,18 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+
+    /// A provider given as `true` or as its options is offered; one left out or `false` not.
+    #[test]
+    fn implementations_and_type_definitions_are_offered_as_the_server_says() {
+        let offered = |capabilities: Value| {
+            let offered = Offered::from_capabilities(&capabilities);
+            (offered.implementation, offered.type_definition)
+        };
+        let both = json!({ "implementationProvider": true, "typeDefinitionProvider": {} });
+        assert_eq!(offered(both), (true, true));
+        assert_eq!(offered(json!({ "implementationProvider": false })), (false, false));
+    }
 
     #[test]
     fn a_server_that_exits_at_once_says_why() {

@@ -1,14 +1,15 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use remacs_core::{Editor, SymbolKind, parse_sequence};
+use remacs_core::{Editor, PaneBody, SymbolKind, parse_sequence};
 use remacs_editing::EditingPlugin;
 use remacs_minibuffer::MinibufferPlugin;
 
 use crate::{
-    DocumentSymbolRequest, Location, Lookup, Request, Symbol, SymbolRequest, XrefPlugin, deliver,
-    deliver_document_symbols, deliver_symbols, take_document_symbol_requests, take_requests,
-    take_symbol_requests,
+    DocumentSymbolRequest, Hierarchy, HierarchyItem, HierarchyRequest, Location, Lookup, Relation,
+    Request, Symbol, SymbolRequest, XrefPlugin, deliver, deliver_document_symbols,
+    deliver_hierarchy, deliver_symbols, refuse, take_document_symbol_requests,
+    take_hierarchy_requests, take_requests, take_symbol_requests,
 };
 
 /// `main.rs` calling `lib.rs`'s `helper`, each defined once in `lib.rs` and once in `mod.rs`.
@@ -102,6 +103,126 @@ fn references_are_listed_even_when_there_is_one() {
     press(&mut editor, "M-?");
     deliver(&mut editor, 2, Vec::new());
     assert_eq!(editor.echo().as_deref(), Some("No references found"));
+}
+
+/// One goes there, several are listed, none says so, each under its lookup's own words.
+#[test]
+fn implementations_and_type_definitions_are_gone_to_or_listed() {
+    let (main, lib, module) = project("implementations");
+    let mut editor = editor_at(&main, 18);
+    press(&mut editor, "M-g M-i");
+    assert_eq!(
+        take_requests(&mut editor),
+        [Request { id: 1, offset: 18, lookup: Lookup::Implementations }]
+    );
+    let implementations =
+        vec![Location { path: lib.clone(), offset: 14 }, Location { path: module, offset: 7 }];
+    deliver(&mut editor, 1, implementations);
+    assert_eq!(editor.minibuffer().unwrap().prompt().label, "Implementations");
+    press(&mut editor, "RET");
+    assert_eq!(place(&editor), (lib.clone(), 14));
+
+    press(&mut editor, "M-g M-t");
+    assert_eq!(
+        take_requests(&mut editor),
+        [Request { id: 2, offset: 14, lookup: Lookup::TypeDefinitions }]
+    );
+    deliver(&mut editor, 2, vec![Location { path: main.clone(), offset: 3 }]);
+    assert_eq!(place(&editor), (main, 3));
+    press(&mut editor, "M-,");
+    assert_eq!(place(&editor), (lib, 14));
+
+    press(&mut editor, "M-g M-t");
+    deliver(&mut editor, 3, Vec::new());
+    assert_eq!(editor.echo().as_deref(), Some("No type definitions found"));
+
+    press(&mut editor, "M-g M-i");
+    refuse(&mut editor, 4, "vscode-css-language-server");
+    let echo = editor.echo();
+    assert_eq!(echo.as_deref(), Some("vscode-css-language-server cannot find implementations"));
+}
+
+fn item(key: u64, name: &str, path: &Path, offset: usize, line: usize) -> HierarchyItem {
+    let location = Location { path: path.to_path_buf(), offset };
+    let detail = format!("fn {name}()");
+    HierarchyItem { key, name: name.into(), detail, location, line, calls: Vec::new() }
+}
+
+type HierarchyRow = (usize, Option<bool>, String, String);
+
+/// The pane's title and its rows' depth, whether they open and are open, name and place.
+fn hierarchy_pane(editor: &Editor) -> (String, Vec<HierarchyRow>) {
+    let pane = editor.pane().unwrap();
+    let PaneBody::Columns(columns) = pane.body else { panic!("a hierarchy is a column") };
+    let rows = columns[0].rows.iter();
+    let rows = rows.map(|row| (row.depth, row.open, row.name.clone(), row.detail.clone()));
+    (pane.title, rows.collect())
+}
+
+/// Opened as asked for, each row's children asked for once, a caller's row going to its
+/// first call; flipped from the same item.
+#[test]
+fn a_call_hierarchy_opens_row_by_row_and_flips() {
+    let (main, lib, _) = project("hierarchy");
+    let mut editor = editor_at(&lib, 14);
+    press(&mut editor, "M-g M-c");
+    let prepare = HierarchyRequest::Prepare { id: 1, offset: 14, hierarchy: Hierarchy::Calls };
+    assert_eq!(take_hierarchy_requests(&mut editor), [prepare]);
+    deliver_hierarchy(&mut editor, 1, Ok(vec![item(0, "helper", &lib, 14, 1)]));
+    let expand = |id, key, relation| HierarchyRequest::Expand { id, key, relation };
+    assert_eq!(take_hierarchy_requests(&mut editor), [expand(2, 0, Relation::Callers)]);
+    let call = |offset, line| (Location { path: main.clone(), offset }, line);
+    let caller =
+        HierarchyItem { calls: vec![call(16, 1), call(20, 1)], ..item(1, "main", &main, 3, 0) };
+    deliver_hierarchy(&mut editor, 2, Ok(vec![caller]));
+    let row = |depth, open, name: &str, place: &str| (depth, open, name.into(), place.into());
+    assert_eq!(
+        hierarchy_pane(&editor),
+        (
+            "Callers of helper".into(),
+            vec![
+                row(0, Some(true), "helper", "lib.rs:2"),
+                row(1, Some(false), "main", "main.rs:2 ×2")
+            ]
+        )
+    );
+
+    press(&mut editor, "C-n TAB");
+    assert_eq!(take_hierarchy_requests(&mut editor), [expand(3, 1, Relation::Callers)]);
+    deliver_hierarchy(&mut editor, 3, Ok(Vec::new()));
+    assert_eq!(hierarchy_pane(&editor).1[1], row(1, None, "main", "main.rs:2 ×2"));
+    press(&mut editor, "C-p TAB TAB");
+    assert!(take_hierarchy_requests(&mut editor).is_empty(), "children are asked for once");
+
+    press(&mut editor, "C-n RET");
+    assert_eq!(place(&editor), (main.clone(), 16));
+    assert!(!editor.pane_focused());
+    press(&mut editor, "M-,");
+    assert_eq!(place(&editor), (lib.clone(), 14));
+
+    editor.run_command("xref-hierarchy-flip");
+    assert_eq!(take_hierarchy_requests(&mut editor), [expand(4, 0, Relation::Callees)]);
+    deliver_hierarchy(&mut editor, 2, Ok(vec![item(2, "stale", &main, 3, 0)]));
+    assert_eq!(
+        hierarchy_pane(&editor),
+        ("Callees of helper".into(), vec![row(0, Some(true), "helper", "lib.rs:2")])
+    );
+
+    // A failure is said and closes the row, which asks again when opened.
+    deliver_hierarchy(&mut editor, 4, Err("rust-analyzer is still loading the project".into()));
+    assert_eq!(editor.echo().as_deref(), Some("rust-analyzer is still loading the project"));
+    assert_eq!(hierarchy_pane(&editor).1, [row(0, Some(false), "helper", "lib.rs:2")]);
+    editor.focus_pane(true);
+    press(&mut editor, "TAB");
+    assert_eq!(take_hierarchy_requests(&mut editor), [expand(5, 0, Relation::Callees)]);
+
+    // A tree that fails to start leaves the one shown.
+    press(&mut editor, "C-g M-g M-y");
+    deliver_hierarchy(&mut editor, 6, Ok(Vec::new()));
+    assert_eq!(editor.echo().as_deref(), Some("Nothing at point has a type hierarchy"));
+    assert_eq!(hierarchy_pane(&editor).0, "Callees of helper");
+    editor.run_command("xref-hierarchy-close");
+    assert!(editor.pane().is_none());
 }
 
 fn symbol(

@@ -17,6 +17,7 @@ mod document_symbols;
 #[doc(hidden)]
 pub mod embedded;
 mod file_rename;
+mod hierarchy;
 mod hover;
 mod markdown;
 mod offer;
@@ -44,9 +45,11 @@ use std::rc::Rc;
 use remacs_config::state_dir;
 use remacs_core::{Command, Editor, MenuItem, Plugin, Registry};
 use remacs_tools::Tool;
+use remacs_xref::Hierarchy;
 use serde_json::Value;
 
 use crate::catalog::When;
+use crate::client::Question;
 use crate::offer::Offers;
 
 /// How to run a language server and which major modes it serves; built from the servers'
@@ -127,6 +130,7 @@ impl Plugin for LspPlugin {
         registry.post_command_hooks.push(Rc::new(move |editor| {
             let servers = settings::servers(editor, catalog);
             document::sync(editor, servers);
+            hierarchy::sync(editor);
             file_rename::sync(editor, servers);
             symbol_rename::sync(editor, servers);
             symbols::sync(editor, servers);
@@ -154,8 +158,22 @@ impl Plugin for LspPlugin {
             MenuItem::new("Edit", "code", "Download Language Servers", offer::DOWNLOAD)
                 .enabled_when(offer::can_download),
         );
+        registry.menu_items.extend_from_slice(XREF_MENU_ITEMS);
     }
 }
+
+/// Xref's commands, here as only the servers know whether they can answer them.
+#[rustfmt::skip]
+const XREF_MENU_ITEMS: &[MenuItem] = &[
+    MenuItem::new("Go", "related", "Implementations", remacs_xref::FIND_IMPLEMENTATIONS)
+        .enabled_when(|editor| document::offered_at_point(editor, |client| client.may_answer(Question::Implementation))),
+    MenuItem::new("Go", "related", "Type Definition", remacs_xref::FIND_TYPE_DEFINITIONS)
+        .enabled_when(|editor| document::offered_at_point(editor, |client| client.may_answer(Question::TypeDefinition))),
+    MenuItem::new("Go", "related", "Call Hierarchy", remacs_xref::CALL_HIERARCHY)
+        .enabled_when(|editor| document::offered_at_point(editor, |client| client.may_walk(Hierarchy::Calls))),
+    MenuItem::new("Go", "related", "Type Hierarchy", remacs_xref::TYPE_HIERARCHY)
+        .enabled_when(|editor| document::offered_at_point(editor, |client| client.may_walk(Hierarchy::Types))),
+];
 
 /// The servers a catalog describes as they are built in, or why one cannot be built.
 pub fn catalog_servers(catalog: &str) -> Result<Vec<LanguageServer>, String> {

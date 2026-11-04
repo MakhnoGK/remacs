@@ -958,19 +958,47 @@ pub(crate) fn window_servers(editor: &Editor) -> Vec<&'static str> {
         .unwrap_or_default()
 }
 
-/// The server that answers questions about the code at `offset` in `path`'s buffer, as
-/// `routed` picks it, its document's URI and the text the server has.
+/// The first server that `offers` what is asked about the code at `offset` in `path`'s
+/// buffer, of those `routed` picks, its document's URI and the text the server has; else
+/// the name of the first that does not, if there is one.
 pub(crate) fn server_at(
     editor: &Editor,
     path: &Path,
     offset: usize,
-) -> Option<(Rc<Client>, Uri, Snapshot)> {
-    let buffer = (editor.buffers().iter()).find(|buffer| buffer.path() == Some(path))?;
-    let list = &buffer.local::<Documents>()?.list;
+    offers: impl Fn(&Client) -> bool,
+) -> Result<(Rc<Client>, Uri, Snapshot), Option<&'static str>> {
+    let buffer = (editor.buffers().iter()).find(|buffer| buffer.path() == Some(path));
+    let Some((buffer, documents)) =
+        buffer.and_then(|buffer| Some((buffer, buffer.local::<Documents>()?)))
+    else {
+        return Err(None);
+    };
     let asked = asked_at(editor, buffer, offset);
-    let document =
-        (list.iter().zip(asked)).find_map(|(document, asked)| asked.then_some(document))?;
-    Some((Rc::clone(&document.client), document.uri.clone(), document.sent_text()))
+    let routed: Vec<_> = (documents.list.iter().zip(asked))
+        .filter_map(|(document, asked)| asked.then_some(document))
+        .collect();
+    let document = routed.iter().find(|document| offers(&document.client));
+    let document = document.ok_or_else(|| routed.first().map(|document| document.server.name))?;
+    Ok((Rc::clone(&document.client), document.uri.clone(), document.sent_text()))
+}
+
+/// Whether a server of the code at point in the window buffer `offers` something.
+pub(crate) fn offered_at_point(editor: &Editor, offers: impl Fn(&Client) -> bool) -> bool {
+    let buffer = editor.window_buffer();
+    let Some(documents) = buffer.local::<Documents>() else {
+        return false;
+    };
+    let asked = asked_at(editor, buffer, buffer.point());
+    (documents.list.iter().zip(asked)).any(|(document, asked)| asked && offers(&document.client))
+}
+
+fn question(lookup: Lookup) -> Question {
+    match lookup {
+        Lookup::Definitions => Question::Definition,
+        Lookup::References => Question::References,
+        Lookup::Implementations => Question::Implementation,
+        Lookup::TypeDefinitions => Question::TypeDefinition,
+    }
 }
 
 /// Which of `buffer`'s documents a question about the code at `offset` goes to.
@@ -1281,13 +1309,13 @@ fn send_requests(editor: &mut Editor) {
             _ => no_signatures.push(request.id),
         }
     }
+    let mut refused = Vec::new();
     for request in definitions {
-        let question = match request.lookup {
-            Lookup::Definitions => Question::Definition,
-            Lookup::References => Question::References,
-        };
-        match each(&asked(request.offset)).next() {
+        let question = question(request.lookup);
+        let servers: Vec<_> = each(&asked(request.offset)).collect();
+        match servers.iter().find(|document| document.client.may_answer(question)) {
             Some(document) => document.ask(question, request.id, request.offset),
+            None if !servers.is_empty() => refused.push((request.id, servers[0].server.name)),
             None => no_definitions.push(request.id),
         }
     }
@@ -1320,6 +1348,9 @@ fn send_requests(editor: &mut Editor) {
     }
     for id in no_definitions {
         remacs_xref::deliver(editor, id, Vec::new());
+    }
+    for (id, server) in refused {
+        remacs_xref::refuse(editor, id, server);
     }
     for id in no_actions {
         remacs_actions::deliver(editor, id, Vec::new());
