@@ -84,7 +84,7 @@ pub(super) fn region_shape(
     }
     let (char_width, row_height) = (char_width.into(), row_height.into());
     let pieces = pieces(rows, first_column, char_width, row_height, radius);
-    let color: Hsla = rgba(glass::region()).into();
+    let color: Hsla = rgba(glass::region_tint()).into();
     let paint = move |bounds: Bounds<Pixels>, (), window: &mut Window, _: &mut App| {
         let at = |x: f32, y: f32| bounds.origin + point(px(x), px(y));
         for piece in &pieces {
