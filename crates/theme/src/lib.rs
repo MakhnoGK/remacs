@@ -489,6 +489,20 @@ pub mod glass {
         WINDOW_ALPHA.store(alpha, Ordering::Relaxed);
     }
 
+    static REGION_OPACITY: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
+
+    /// The theme's region, its alpha times the configured opacity.
+    pub fn region_tint() -> u32 {
+        let color = region();
+        let opacity = f32::from_bits(REGION_OPACITY.load(Ordering::Relaxed));
+        color & !0xff | ((color & 0xff) as f32 * opacity).round() as u32
+    }
+
+    /// From 0.0, invisible, to 1.0, the theme's alpha.
+    pub fn set_region_opacity(opacity: f32) {
+        REGION_OPACITY.store(opacity.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+    }
+
     pub const SURFACE_BLUR: f32 = 30.0;
     pub const SURFACE_SATURATION: f32 = 1.5;
     pub const SURFACE_RADIUS: f32 = 14.0;
