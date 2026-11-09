@@ -7,7 +7,7 @@ use std::sync::OnceLock;
 
 use remacs_files::expand_home;
 
-use crate::configuration::{Configuration, Kind, PackageManager};
+use crate::configuration::{Cargo, Configuration, Kind, PackageManager};
 use crate::settings::{RunSettings, TypeScriptRuntime};
 use crate::tasks::{file_directory, task_command};
 
@@ -115,6 +115,12 @@ pub fn launch(
         args.extend(configuration.args.iter().cloned());
     }
     let cwd = configuration.cwd.as_ref().map_or(own_directory, |cwd| root.join(expand_home(cwd)));
+    if let Kind::Cargo(cargo) = &configuration.kind
+        && settings.nextest
+        && runs_on_nextest(cargo, &cwd)
+    {
+        args.splice(0..1, ["nextest".to_owned(), "run".to_owned()]);
+    }
     let mut env: Vec<(String, String)> =
         settings.env.iter().map(|(name, value)| (name.clone(), value.clone())).collect();
     if let Some(env_file) = &configuration.env_file {
@@ -125,6 +131,12 @@ pub fn launch(
     }
     env.extend(configuration.env.iter().map(|(name, value)| (name.clone(), value.clone())));
     Ok(Launch { program, args, cwd, env, before: configuration.before_launch.clone(), shown })
+}
+
+/// Whether `cargo`'s tests run on cargo-nextest, as the workspace at `cwd` sets it up to;
+/// doctests stay on `cargo test`, as nextest cannot run them.
+fn runs_on_nextest(cargo: &Cargo, cwd: &Path) -> bool {
+    cargo.runs_tests() && !cargo.runs_doctests() && cwd.join(".config/nextest.toml").is_file()
 }
 
 pub fn is_typescript(file: &str) -> bool {
