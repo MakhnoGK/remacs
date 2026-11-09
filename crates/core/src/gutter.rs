@@ -71,6 +71,18 @@ pub struct TextLabel {
 /// Labels on `lines` of the window buffer, all plugins' together.
 pub type TextLabelProvider = Rc<dyn Fn(&Editor, Range<usize>) -> Vec<TextLabel>>;
 
+/// Text drawn dim between the window buffer's characters, before `offset`, that is not
+/// part of it, like a language server's inlay hints: point, the region, copying and search
+/// pass it by.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InlayHint {
+    pub offset: usize,
+    pub text: String,
+}
+
+/// Hints before the window buffer's offsets in a range of bytes, its end too, in order.
+pub type InlayHintProvider = Rc<dyn Fn(&Editor, Range<usize>) -> Vec<InlayHint>>;
+
 /// Controls of a buffer drawn as text or as a screen, like an Emacs header line: buttons
 /// in the title bar and keys under the text, e.g. a process's Stop and Rerun.
 #[derive(Default)]

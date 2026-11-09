@@ -8,9 +8,17 @@ pub(crate) const FIND_DEFINITIONS: &str = "xref-find-definitions";
 pub(crate) const FIND_REFERENCES: &str = "xref-find-references";
 pub const FIND_IMPLEMENTATIONS: &str = "xref-find-implementations";
 pub const FIND_TYPE_DEFINITIONS: &str = "xref-find-type-definitions";
+pub const FIND_PARENT_MODULE: &str = "xref-find-parent-module";
+pub const FIND_MANIFEST: &str = "xref-find-manifest";
 /// Every lookup's command, whose answers come after it.
-const LOOKUPS: [&str; 4] =
-    [FIND_DEFINITIONS, FIND_REFERENCES, FIND_IMPLEMENTATIONS, FIND_TYPE_DEFINITIONS];
+const LOOKUPS: [&str; 6] = [
+    FIND_DEFINITIONS,
+    FIND_REFERENCES,
+    FIND_IMPLEMENTATIONS,
+    FIND_TYPE_DEFINITIONS,
+    FIND_PARENT_MODULE,
+    FIND_MANIFEST,
+];
 /// Places to go back to, like `xref-history-storage`'s length.
 const MAX_HISTORY: usize = 16;
 const MAX_PREVIEW_CHARS: usize = 200;
@@ -33,6 +41,10 @@ pub enum Lookup {
     Implementations,
     /// The type of the value at point.
     TypeDefinitions,
+    /// Where the module of the code at point is declared, like Rust's `mod`.
+    ParentModule,
+    /// The manifest of the package of the code at point, like its `Cargo.toml`.
+    Manifest,
 }
 
 type Hints = &'static [(&'static str, &'static str)];
@@ -46,6 +58,8 @@ impl Lookup {
             Lookup::References => ("references", "References", &[("↵", "Go to reference"), ("C-g", "Close")]),
             Lookup::Implementations => ("implementations", "Implementations", &[("↵", "Go to implementation"), ("C-g", "Close")]),
             Lookup::TypeDefinitions => ("type definitions", "Type Definitions", &[("↵", "Go to type definition"), ("C-g", "Close")]),
+            Lookup::ParentModule => ("parent module", "Parent Modules", &[("↵", "Go to parent module"), ("C-g", "Close")]),
+            Lookup::Manifest => ("manifest", "Manifests", &[("↵", "Go to manifest"), ("C-g", "Close")]),
         }
     }
 }
@@ -97,6 +111,14 @@ pub(crate) fn find_implementations(editor: &mut Editor) -> CommandResult {
 
 pub(crate) fn find_type_definitions(editor: &mut Editor) -> CommandResult {
     look_up(editor, Lookup::TypeDefinitions)
+}
+
+pub(crate) fn find_parent_module(editor: &mut Editor) -> CommandResult {
+    look_up(editor, Lookup::ParentModule)
+}
+
+pub(crate) fn find_manifest(editor: &mut Editor) -> CommandResult {
+    look_up(editor, Lookup::Manifest)
 }
 
 fn look_up(editor: &mut Editor, lookup: Lookup) -> CommandResult {

@@ -26,6 +26,10 @@
 #               url) with its `package`, and other packages `with` it; `program` when it
 #               is not the command; `needs`,
 #               programs it runs with; `arch`, what the builds call Apple silicon and Intel
+# config-files  globs, from the project root (`*` within a name, `**` across directories,
+#               `{a,b}` either), of the files whose change on disk restarts the server;
+#               one it registered to hear of (`workspace/didChangeWatchedFiles`) is told
+#               to it instead
 # Without `install`, a server runs only when it is on PATH: one that comes with its
 # language's own tools, like sourcekit-lsp or dart.
 
@@ -34,10 +38,14 @@ name = "rust-analyzer"
 command = "rust-analyzer"
 languages = { Rust = "rust" }
 root-markers = ["Cargo.toml"]
-# Calls complete to `f()` with point inside, not to argument names to type over.
-initialization-options = { completion = { callable = { snippets = "add_parentheses" } } }
+# Calls complete to `f()` with point inside, not to argument names to type over. Besides
+# the types and parameter names it hints by itself, it hints the return types of closures
+# with a block and the lifetimes elided in signatures that have more than one.
+initialization-options = { completion = { callable = { snippets = "add_parentheses" } }, inlayHints = { closureReturnTypeHints = { enable = "with_block" }, lifetimeElisionHints = { enable = "skip_trivial" } } }
 reports-loading = true
 install = { from = "github", package = "rust-lang/rust-analyzer", asset = "rust-analyzer-{target}.gz" }
+# It registers for its manifests and rust-analyzer.toml itself, so is mostly told.
+config-files = ["rust-analyzer.toml", "**/Cargo.{toml,lock}", "rust-toolchain*", ".cargo/config*"]
 
 [[servers]]
 name = "clangd"
@@ -47,6 +55,7 @@ languages = { C = "c", "C++" = "cpp", "Objective-C" = "objective-c" }
 root-markers = ["compile_commands.json", "compile_flags.txt", ".clangd"]
 # A universal build, with the compiler headers it needs beside it.
 install = { from = "github", package = "clangd/clangd", asset = "clangd-mac-{tag}.zip", program = "clangd_{version}/bin/clangd" }
+config-files = [".clangd", "compile_commands.json", "build/compile_commands.json", "compile_flags.txt"]
 
 # TypeScript 7's own server, native and much leaner than typescript-language-server. A
 # project's own `tsc` is mostly TypeScript 5, which has no `--lsp`, and so may be one on
@@ -61,6 +70,7 @@ root-markers = ["package.json", "tsconfig.json", "jsconfig.json"]
 pull-diagnostics = true
 unless = { older = { typescript = 7 } }
 install = { from = "npm", package = "typescript" }
+config-files = ["{ts,js}config*.json"]
 
 # Projects that build with an older TypeScript, through its own tsserver: TypeScript 7
 # drops options their tsconfig may still rely on, such as `baseUrl`.
@@ -71,9 +81,12 @@ args = ["--stdio"]
 languages = { TypeScript = "typescript", TSX = "typescriptreact", JavaScript = "javascript", JSX = "javascriptreact" }
 root-markers = ["package.json", "tsconfig.json", "jsconfig.json"]
 when = { older = { typescript = 7 } }
+# tsserver hints nothing unless asked to.
+initialization-options = { preferences = { includeInlayParameterNameHints = "all", includeInlayVariableTypeHints = true, includeInlayFunctionLikeReturnTypeHints = true } }
 # Its own TypeScript, for a project whose copy lies below the root it is started in, is
 # the version the projects it serves mostly have.
 install = { from = "npm", package = "typescript-language-server", with = ["typescript@5"] }
+config-files = ["{ts,js}config*.json"]
 
 [[servers]]
 name = "vscode-html-language-server"
@@ -198,6 +211,7 @@ root-markers = ["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt"]
 group = "python"
 # The wheel brings its own Node.
 install = { from = "pip", package = "basedpyright" }
+config-files = ["pyproject.toml", "{basedpyright,pyright}config.json"]
 
 [[servers]]
 name = "pyright"
@@ -207,6 +221,7 @@ languages = { Python = "python" }
 root-markers = ["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt"]
 group = "python"
 install = { from = "npm", package = "pyright" }
+config-files = ["pyproject.toml", "pyrightconfig.json"]
 
 [[servers]]
 name = "ty"
@@ -216,6 +231,7 @@ languages = { Python = "python" }
 root-markers = ["pyproject.toml"]
 group = "python"
 install = { from = "github", package = "astral-sh/ty", asset = "ty-{target}.tar.gz", program = "ty-{target}/ty" }
+config-files = ["pyproject.toml", "ty.toml"]
 
 [[servers]]
 name = "pylsp"
@@ -231,6 +247,11 @@ command = "gopls"
 languages = { Go = "go" }
 root-markers = ["go.work", "go.mod"]
 install = { from = "go", package = "golang.org/x/tools/gopls" }
+config-files = ["**/go.{mod,work}"]
+
+# It hints nothing unless asked to: the types `:=` and `range` give, and parameter names.
+[servers.configuration]
+hints = { assignVariableTypes = true, rangeVariableTypes = true, parameterNames = true }
 
 [[servers]]
 name = "jdtls"
@@ -320,6 +341,7 @@ command = "lua-language-server"
 languages = { Lua = "lua" }
 root-markers = [".luarc.json", ".luarc.jsonc"]
 install = { from = "github", package = "LuaLS/lua-language-server", asset = "lua-language-server-{version}-darwin-{arch}.tar.gz", program = "bin/lua-language-server" }
+config-files = [".luarc.{json,jsonc}"]
 
 # Its version must suit the project's Zig; the latest serves the latest Zig.
 [[servers]]
@@ -405,6 +427,7 @@ args = ["--stdio"]
 languages = { Svelte = "svelte" }
 root-markers = ["package.json", "svelte.config.js"]
 install = { from = "npm", package = "svelte-language-server" }
+config-files = ["svelte.config.*", "tsconfig*.json"]
 
 # Templates and styles; it asks vue-typescript for its scripts' TypeScript. Both come in
 # one download, with the TypeScript plugin they share; TypeScript 7 has no tsserver.
@@ -427,7 +450,7 @@ command = "vue-typescript"
 args = ["--stdio"]
 languages = { Vue = "vue" }
 root-markers = ["package.json", "tsconfig.json", "jsconfig.json"]
-initialization-options = { plugins = [{ name = "@vue/typescript-plugin", location = "{program-dir}", languages = ["vue"] }] }
+initialization-options = { plugins = [{ name = "@vue/typescript-plugin", location = "{program-dir}", languages = ["vue"] }], preferences = { includeInlayParameterNameHints = "all", includeInlayVariableTypeHints = true, includeInlayFunctionLikeReturnTypeHints = true } }
 install = { from = "npm", package = "@vue/language-server", with = ["typescript@6", "typescript-language-server"], program = "typescript-language-server" }
 
 # Add-ons, after the languages' own servers.
@@ -446,6 +469,7 @@ when = { files = [".oxlintrc.json", ".oxlintrc.jsonc"], dependencies = ["oxlint"
 env = { VP_VERSION = "1" }
 env-when = { dependencies = ["vite-plus"] }
 install = { from = "github", package = "oxc-project/oxc", tag-prefix = "oxlint_v", asset = "oxlint-{target}.tar.gz", program = "oxlint-{target}" }
+config-files = [".oxlintrc.{json,jsonc}", "vite.config.*"]
 
 # Formats whole files, ahead of tsc, for projects that use it; Vite+'s `fmt` as oxlint's
 # `lint` above.
@@ -462,6 +486,7 @@ env = { VP_VERSION = "1" }
 env-when = { dependencies = ["vite-plus"] }
 # The native GitHub build has no `--lsp`; only the npm package serves LSP.
 install = { from = "npm", package = "oxfmt" }
+config-files = [".oxfmtrc.{json,jsonc}", "vite.config.*"]
 
 # Loads the project's own eslint, else the global one; only for projects with a config.
 [[servers]]
@@ -473,6 +498,7 @@ root-markers = ["package.json"]
 pull-diagnostics = true
 when = { files = ["eslint.config.*", ".eslintrc", ".eslintrc.*"], dependencies = ["eslint"] }
 install = { from = "npm", package = "vscode-langservers-extracted" }
+config-files = ["eslint.config.*", ".eslintrc*"]
 
 # VS Code's defaults, which the server expects in full. `packageManager` lets it find a
 # global eslint; fixes on save are left to remacs.
@@ -501,6 +527,7 @@ node-modules = true
 formats-first = true
 when = { files = ["biome.json", "biome.jsonc"], dependencies = ["@biomejs/biome"] }
 install = { from = "github", package = "biomejs/biome", tag-prefix = "@biomejs/biome@", asset = "biome-darwin-{arch}" }
+config-files = ["biome.{json,jsonc}"]
 
 [[servers]]
 name = "stylelint"
@@ -510,6 +537,7 @@ languages = { CSS = "css" }
 root-markers = ["package.json"]
 when = { files = ["stylelint.config.*", ".stylelintrc", ".stylelintrc.*"], dependencies = ["stylelint"] }
 install = { from = "npm", package = "@stylelint/language-server" }
+config-files = ["stylelint.config.*", ".stylelintrc*"]
 
 [[servers]]
 name = "tailwindcss"
@@ -521,6 +549,7 @@ root-markers = ["package.json"]
 # names it in `lsp.toml` `when`.
 when = { files = ["tailwind.config.*"], dependencies = ["tailwindcss", "@tailwindcss/*"] }
 install = { from = "npm", package = "@tailwindcss/language-server" }
+config-files = ["tailwind.config.*"]
 
 # Asked for as both the `editor` and the `tailwindCSS` sections; the server takes its
 # defaults for the rest. Strings passed to these hold classes too, like cn("p-4").
@@ -535,6 +564,7 @@ languages = { Python = "python" }
 root-markers = ["pyproject.toml", "ruff.toml"]
 when = { files = ["ruff.toml", ".ruff.toml"], contains = { "pyproject.toml" = "[tool.ruff" } }
 install = { from = "github", package = "astral-sh/ruff", asset = "ruff-{target}.tar.gz", program = "ruff-{target}/ruff" }
+config-files = ["pyproject.toml", "{ruff,.ruff}.toml"]
 
 [[servers]]
 name = "typos-lsp"
@@ -542,6 +572,7 @@ command = "typos-lsp"
 languages = { Rust = "rust", Python = "python", Go = "go", TypeScript = "typescript", TSX = "typescriptreact", JavaScript = "javascript", JSX = "javascriptreact", Markdown = "markdown" }
 when = { files = ["typos.toml", "_typos.toml", ".typos.toml"], contains = { "pyproject.toml" = "[tool.typos]", "Cargo.toml" = "metadata.typos]" } }
 install = { from = "github", package = "tekumara/typos-lsp", tag-prefix = "v", asset = "typos-lsp-{tag}-{target}.tar.gz" }
+config-files = ["{typos,_typos,.typos}.toml"]
 
 # Grammar and spelling of prose; turned on in lsp.toml, as no project says it wants it.
 [[servers]]

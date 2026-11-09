@@ -32,7 +32,9 @@ use crate::position::{Encoding, from_lsp};
 use crate::semantic::Painting;
 use crate::settings::LspSettings;
 use crate::version::Versions;
-use crate::{code_action, definition, offer, uri};
+use crate::{code_action, definition, offer, rust_analyzer, uri};
+
+pub(crate) mod inlay;
 
 /// Servers hold whole files in memory and reparse them; larger ones stay unsynced.
 const MAX_SYNCED_BYTES: usize = 16 << 20;
@@ -144,6 +146,7 @@ struct Document {
     /// asked: the version, the server's refreshes and the paintings so far.
     semantic: Vec<(Range<usize>, Face)>,
     semantic_asked: Option<(i32, u64, u64)>,
+    hints: inlay::Hints,
     /// The newest completion list, as the server sent it, for resolving its items.
     listed: Option<Listed>,
     /// The diagnostics last taken, as the server sent them, and the text they refer to;
@@ -204,6 +207,7 @@ impl Document {
             colors_asked: None,
             semantic: Vec::new(),
             semantic_asked: None,
+            hints: inlay::Hints::default(),
             listed: None,
             reported: None,
             offered: None,
@@ -274,6 +278,7 @@ impl Document {
             }
             color::shift(&mut self.colors, edit);
             color::shift(&mut self.semantic, edit);
+            self.hints.shift(edit);
         }
         if self.modified && !modified {
             self.client.send(Outgoing::Save { uri: self.uri.clone() });
@@ -564,7 +569,14 @@ pub(crate) enum NotStarted {
 impl Clients {
     /// The running servers and their project roots.
     pub(crate) fn running(&self) -> impl Iterator<Item = (&Path, &Rc<Client>)> {
-        self.running.iter().map(|((_, root), client)| (root.as_path(), client))
+        self.running_servers().map(|(_, root, client)| (root, client))
+    }
+
+    /// The running servers by name, with their project roots.
+    pub(crate) fn running_servers(
+        &self,
+    ) -> impl Iterator<Item = (&'static str, &Path, &Rc<Client>)> {
+        self.running.iter().map(|((name, root), client)| (*name, root.as_path(), client))
     }
 
     /// Each server started so far, with the project roots it runs for; none for one that
@@ -833,7 +845,18 @@ pub(crate) fn restart(editor: &mut Editor, name: &'static str) {
     // What `when` and `unless` saw may have changed since, e.g. `node_modules` installed.
     clients.declined.clear();
     clients.versions.forget();
-    detach(editor, name);
+    detach(editor, |document| document.server.name == name);
+}
+
+/// Stops server `name` for the project at `root` alone, if it runs there; the next sync
+/// starts it there again.
+pub(crate) fn restart_at(editor: &mut Editor, name: &'static str, root: &Path) -> bool {
+    let running = &mut editor.plugin_state::<Clients>().running;
+    let Some(client) = running.remove(&(name, root.to_path_buf())) else {
+        return false;
+    };
+    detach(editor, |document| Rc::ptr_eq(&document.client, &client));
+    true
 }
 
 /// Servers that exited by themselves are not started again, and the editor says why.
@@ -851,7 +874,7 @@ fn report_exits(editor: &mut Editor) {
         clients.failed.insert(name);
     }
     for (name, reason) in exited {
-        detach(editor, name);
+        detach(editor, |document| document.server.name == name);
         editor.set_error(format!("{name} {reason}"));
     }
 }
@@ -870,15 +893,15 @@ fn report_ready(editor: &mut Editor) {
     }
 }
 
-/// Closes server `name`'s files in every buffer and drops its diagnostics.
-fn detach(editor: &mut Editor, name: &'static str) {
+/// Closes the documents `closes` picks in every buffer and drops their diagnostics.
+fn detach(editor: &mut Editor, closes: impl Fn(&Document) -> bool) {
     for buffer in editor.buffers_mut() {
         let Some(documents) = buffer.local_mut::<Documents>() else {
             continue;
         };
         let mut checkers = Vec::new();
         documents.list.retain(|document| {
-            let closed = document.server.name == name;
+            let closed = closes(document);
             if closed {
                 checkers.push(document.checker());
             }
@@ -967,29 +990,45 @@ pub(crate) fn server_at(
     offset: usize,
     offers: impl Fn(&Client) -> bool,
 ) -> Result<(Rc<Client>, Uri, Snapshot), Option<&'static str>> {
-    let buffer = (editor.buffers().iter()).find(|buffer| buffer.path() == Some(path));
-    let Some((buffer, documents)) =
-        buffer.and_then(|buffer| Some((buffer, buffer.local::<Documents>()?)))
-    else {
-        return Err(None);
-    };
+    let buffer =
+        (editor.buffers().iter()).find(|buffer| buffer.path() == Some(path)).ok_or(None)?;
+    let document = document_at(editor, buffer, offset, offers)?;
+    Ok((Rc::clone(&document.client), document.uri.clone(), document.sent_text()))
+}
+
+/// The first of `buffer`'s documents asked about the code at `offset` whose server
+/// `offers` something; else the name of the first one's server, if there is one.
+fn document_at<'a>(
+    editor: &Editor,
+    buffer: &'a Buffer,
+    offset: usize,
+    offers: impl Fn(&Client) -> bool,
+) -> Result<&'a Document, Option<&'static str>> {
+    let documents = buffer.local::<Documents>().ok_or(None)?;
     let asked = asked_at(editor, buffer, offset);
     let routed: Vec<_> = (documents.list.iter().zip(asked))
         .filter_map(|(document, asked)| asked.then_some(document))
         .collect();
-    let document = routed.iter().find(|document| offers(&document.client));
-    let document = document.ok_or_else(|| routed.first().map(|document| document.server.name))?;
-    Ok((Rc::clone(&document.client), document.uri.clone(), document.sent_text()))
+    let document = routed.iter().find(|document| offers(&document.client)).copied();
+    document.ok_or_else(|| routed.first().map(|document| document.server.name))
 }
 
 /// Whether a server of the code at point in the window buffer `offers` something.
 pub(crate) fn offered_at_point(editor: &Editor, offers: impl Fn(&Client) -> bool) -> bool {
     let buffer = editor.window_buffer();
-    let Some(documents) = buffer.local::<Documents>() else {
-        return false;
-    };
-    let asked = asked_at(editor, buffer, buffer.point());
-    (documents.list.iter().zip(asked)).any(|(document, asked)| asked && offers(&document.client))
+    document_at(editor, buffer, buffer.point(), offers).is_ok()
+}
+
+/// Asks the first server of the code at point in the window buffer that may answer
+/// `question`; else says the name of the first that may not, if there is one.
+pub(crate) fn ask_at_point(
+    editor: &Editor,
+    question: Question,
+) -> Result<(), Option<&'static str>> {
+    let buffer = editor.window_buffer();
+    let offers = |client: &Client| client.may_answer(question);
+    document_at(editor, buffer, buffer.point(), offers)?.ask(question, 0, buffer.point());
+    Ok(())
 }
 
 fn question(lookup: Lookup) -> Question {
@@ -998,6 +1037,8 @@ fn question(lookup: Lookup) -> Question {
         Lookup::References => Question::References,
         Lookup::Implementations => Question::Implementation,
         Lookup::TypeDefinitions => Question::TypeDefinition,
+        Lookup::ParentModule => Question::ParentModule,
+        Lookup::Manifest => Question::Manifest,
     }
 }
 
@@ -1059,6 +1100,7 @@ pub(crate) fn sync(editor: &mut Editor, servers: &'static [LanguageServer]) {
     hand_over_answers(editor);
     let clients = editor.plugin_state::<Clients>();
     let (painting, paintings) = (Rc::clone(&clients.painting), clients.paintings);
+    let (hinting, in_view) = (inlay::hinting(editor), inlay::lines_in_view(editor));
     // After the answers, so that a file a definition opened is attached at once.
     for index in 0..editor.buffers().len() {
         attach(editor, index, servers);
@@ -1072,12 +1114,15 @@ pub(crate) fn sync(editor: &mut Editor, servers: &'static [LanguageServer]) {
             .list
             .iter_mut()
             .filter_map(|document| {
-                let (text, diagnostics) = document.sync(
+                let synced = document.sync(
                     text.clone(),
                     embedded.as_deref(),
                     modified,
                     (&painting, paintings),
-                )?;
+                );
+                // The window buffer's, the one in view, are asked for.
+                document.update_hints(hinting, (index == 0).then(|| in_view.clone()));
+                let (text, diagnostics) = synced?;
                 Some((document.checker(), text, diagnostics))
             })
             .collect();
@@ -1169,6 +1214,7 @@ fn hand_over(editor: &mut Editor, index: usize, client: &Client, answer: Answer)
         Answer::Signatures { id, signatures } => {
             remacs_documentation::deliver_signatures(editor, id, signatures);
         }
+        Answer::Expansion { mode, expansion } => rust_analyzer::show(editor, mode, expansion),
         Answer::CodeActions { id, menu, .. } => gather_actions(editor, id, index, menu),
         Answer::ResolvedAction { id, action, encoding, settled } => {
             if !settled && action.edit.is_none() && action.data.is_some() {

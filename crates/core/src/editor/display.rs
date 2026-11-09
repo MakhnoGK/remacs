@@ -6,7 +6,7 @@ use super::Editor;
 use crate::buffer::Buffer;
 use crate::buffer_look::BufferLook;
 use crate::decoration::{Span, split_by_line};
-use crate::gutter::{GutterMark, LineExtra, TextControls, TextLabel};
+use crate::gutter::{GutterMark, InlayHint, LineExtra, TextControls, TextLabel};
 use crate::outline::Outline;
 use crate::pane::{Pane, PaneBody, PaneSource};
 use crate::popup::Popup;
@@ -49,6 +49,16 @@ impl Editor {
 
     pub fn text_labels(&self, lines: Range<usize>) -> Vec<TextLabel> {
         self.registry.text_labels.iter().flat_map(|provide| provide(self, lines.clone())).collect()
+    }
+
+    /// Hints before the window buffer's offsets in `bytes`, its end too, all plugins'
+    /// together, in order.
+    pub fn inlay_hints(&self, bytes: Range<usize>) -> Vec<InlayHint> {
+        let providers = self.registry.inlay_hints.iter();
+        let mut hints: Vec<_> =
+            providers.flat_map(|provide| provide(self, bytes.clone())).collect();
+        hints.sort_by_key(|hint| hint.offset);
+        hints
     }
 
     /// The pane shown under the window buffer: the one last selected while it has

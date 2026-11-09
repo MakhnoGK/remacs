@@ -142,6 +142,24 @@ fn implementations_and_type_definitions_are_gone_to_or_listed() {
     assert_eq!(echo.as_deref(), Some("vscode-css-language-server cannot find implementations"));
 }
 
+#[test]
+fn the_parent_module_and_manifest_are_gone_to() {
+    let (main, lib, _) = project("parent-module");
+    let mut editor = editor_at(&lib, 9);
+    editor.run_command(crate::FIND_PARENT_MODULE);
+    assert_eq!(
+        take_requests(&mut editor),
+        [Request { id: 1, offset: 9, lookup: Lookup::ParentModule }]
+    );
+    deliver(&mut editor, 1, vec![Location { path: main.clone(), offset: 3 }]);
+    assert_eq!(place(&editor), (main, 3));
+
+    editor.run_command(crate::FIND_MANIFEST);
+    assert_eq!(take_requests(&mut editor)[0].lookup, Lookup::Manifest);
+    deliver(&mut editor, 2, Vec::new());
+    assert_eq!(editor.echo().as_deref(), Some("No manifest found"));
+}
+
 fn item(key: u64, name: &str, path: &Path, offset: usize, line: usize) -> HierarchyItem {
     let location = Location { path: path.to_path_buf(), offset };
     let detail = format!("fn {name}()");

@@ -66,8 +66,8 @@ pub enum Kind {
     },
 }
 
-/// `cargo <command> -p <package> [--lib | --bin <bin> | --test <test> | --example
-/// <example>] [<filter>]`.
+/// `cargo <command> -p <package> [--lib | --bin <bin> | --test <test> | --bench <bench> |
+/// --example <example>] [<filter>]`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub struct Cargo {
@@ -83,6 +83,9 @@ pub struct Cargo {
     /// An integration test, a file of `tests/`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub test: Option<String>,
+    /// A benchmark, a file of `benches/`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bench: Option<String>,
     #[serde(default = "cargo_run", skip_serializing_if = "is_cargo_run")]
     pub command: String,
     /// The tests to run, by path: `cargo test` runs those whose path contains it.
@@ -102,6 +105,8 @@ pub struct Task {
 }
 
 pub const CARGO_TEST: &str = "test";
+/// `cargo test`'s argument running only doctests.
+pub const DOCTESTS: &str = "--doc";
 
 impl Default for Cargo {
     fn default() -> Self {
@@ -111,6 +116,7 @@ impl Default for Cargo {
             example: None,
             lib: false,
             test: None,
+            bench: None,
             command: cargo_run(),
             filter: None,
             cargo_args: Vec::new(),
@@ -126,6 +132,7 @@ impl Cargo {
             ("-p", &self.package),
             ("--bin", &self.bin),
             ("--test", &self.test),
+            ("--bench", &self.bench),
             ("--example", &self.example),
         ] {
             if let Some(value) = value {
@@ -140,6 +147,11 @@ impl Cargo {
 
     pub fn runs_tests(&self) -> bool {
         self.command == CARGO_TEST
+    }
+
+    /// Runs a library's doctests, which rustdoc builds and runs itself.
+    pub fn runs_doctests(&self) -> bool {
+        self.runs_tests() && self.cargo_args.iter().any(|arg| arg == DOCTESTS)
     }
 }
 
@@ -245,8 +257,9 @@ const HEADER: &str = "\
 # first time, and New configuration… one from what runs where point is, each with the
 # fields it leaves out as comments to fill in; changes apply once the file is saved.
 #
-# kind = \"cargo\": package; bin, example, lib = true or test (a file of tests/);
-#   command (\"run\"; \"test\" runs tests, those whose path contains filter); cargo-args
+# kind = \"cargo\": package; bin, example, lib = true, test (a file of tests/) or bench
+#   (a file of benches/); command (\"run\"; \"test\" runs tests and \"bench\" benchmarks,
+#   those whose path contains filter); cargo-args
 # kind = \"npm\": package-json, script, package-manager (npm, pnpm, yarn, bun)
 # kind = \"make\": file (a Makefile), task (its target)
 # kind = \"just\": file (a justfile), task (its recipe)
