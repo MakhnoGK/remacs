@@ -148,7 +148,7 @@ impl DisplayLine {
 
     /// The display column `text` starts at.
     pub fn first_column(&self) -> usize {
-        self.cells[0].column
+        self.cells[0].before.1
     }
 
     /// Byte range of the cell the cursor covers at the line's `char_column`; past the end
@@ -293,6 +293,12 @@ mod tests {
         assert_eq!(line.char_column_at(4), 4);
         assert_eq!(line.char_column_at(16), 10);
         assert_eq!(line.char_column_at(19), 11);
+
+        // A part of a line scrolled sideways starts at its first hint.
+        let slice = slice_line("ab cd".bytes(), 3..10);
+        let mut part = DisplayLine::part("cd", slice.start, slice.continues);
+        part.insert_hints([(0, "x: ")]);
+        assert_eq!((part.text.as_str(), part.first_column()), ("x: cd", 3));
     }
 
     #[test]

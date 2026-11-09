@@ -304,14 +304,25 @@ mod tests {
             |json: &str| format!("printf 'Content-Length: {}\\r\\n\\r\\n%s' '{json}'", json.len());
         let initialized =
             r#"{"jsonrpc":"2.0","id":0,"result":{"capabilities":{"inlayHintProvider":true}}}"#;
-        // The first request the server is sent, as it offers nothing else.
-        let hints = r#"{"jsonrpc":"2.0","id":1,"result":[{"position":{"line":0,"character":5},"label":": i32","kind":1}]}"#;
+        // The first requests the server is sent, as it offers nothing else: the first is
+        // dropped as the project changed meanwhile, which asks again.
+        let modified =
+            r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32801,"message":"content modified"}}"#;
+        let hints = r#"{"jsonrpc":"2.0","id":2,"result":[{"position":{"line":0,"character":5},"label":": i32","kind":1}]}"#;
+        let asked = |count| {
+            format!(
+                "until [ \"$(grep -o textDocument/inlayHint {} | wc -l)\" -ge {count} ]; do sleep 0.02; done",
+                input.display()
+            )
+        };
         let script = format!(
-            "{}; exec 3<&0; cat <&3 > {input} & \
-             until grep -q textDocument/inlayHint {input} 2>/dev/null; do sleep 0.02; done; {}; wait",
+            "{}; exec 3<&0; cat <&3 > {} & {}; {}; {}; {}; wait",
             message(initialized),
+            input.display(),
+            asked(1),
+            message(modified),
+            asked(2),
             message(hints),
-            input = input.display(),
         );
         let catalog = format!(
             "[[servers]]\nname = \"hinting\"\ncommand = \"sh\"\nargs = [\"-c\", {script:?}]\n\
@@ -320,7 +331,8 @@ mod tests {
         let plugin: &'static crate::LspPlugin =
             Box::leak(Box::new(crate::LspPlugin::new(catalog.leak())));
         let mut editor = Editor::new(&[plugin]);
-        let buffer = Buffer::new("a.txt", Text::from("let x = 1;\n"), "Fundamental");
+        let text = format!("let x = 1;\n{}", "y\n".repeat(9));
+        let buffer = Buffer::new("a.txt", Text::from(text.as_str()), "Fundamental");
         editor.add_buffer(buffer.with_file(root.join("a.txt")));
         let started = Instant::now();
         let shown = loop {
@@ -333,14 +345,27 @@ mod tests {
         };
         assert_eq!(shown, [InlayHint { offset: 5, text: ": i32".into() }]);
         let input = std::fs::read_to_string(&input).unwrap();
-        let asked = input.split("Content-Length").find(|message| message.contains("/inlayHint"));
-        let asked: serde_json::Value = asked
-            .and_then(|message| serde_json::from_str(&message[message.find('{')?..]).ok())
-            .unwrap_or_else(|| panic!("{input}"));
-        // The line in view, before the window's first layout, a line more, and the end.
+        let asked = input.split("Content-Length").filter(|message| message.contains("/inlayHint"));
+        let ranges: Vec<serde_json::Value> = asked
+            .filter_map(|message| serde_json::from_str(&message[message.find('{')?..]).ok())
+            .map(|mut asked: serde_json::Value| asked["params"]["range"].take())
+            .collect();
+        // The line in view, before the window's first layout, and a line more.
         let range =
-            json!({ "start": { "line": 0, "character": 0 }, "end": { "line": 1, "character": 0 } });
-        assert_eq!(asked["params"]["range"], range);
+            json!({ "start": { "line": 0, "character": 0 }, "end": { "line": 2, "character": 0 } });
+        assert_eq!(ranges, [range.clone(), range], "{input}");
+
+        // Drawing a line not asked for wakes the editor once, to ask for it.
+        let woken = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = std::sync::Arc::clone(&woken);
+        editor.set_notifier(std::sync::Arc::new(move || {
+            counted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }));
+        let eighth_line = editor.window_buffer().text().line_range(8).unwrap();
+        for _ in 0..2 {
+            assert!(editor.inlay_hints(eighth_line.clone()).is_empty());
+        }
+        assert_eq!(woken.load(std::sync::atomic::Ordering::Relaxed), 1);
         std::fs::remove_dir_all(&root).unwrap();
     }
 
