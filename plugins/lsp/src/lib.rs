@@ -26,6 +26,7 @@ mod offer;
 pub mod position;
 mod progress;
 mod restart;
+mod rust_analyzer;
 /// Public for the benchmarks only.
 #[doc(hidden)]
 pub mod semantic;
@@ -155,6 +156,11 @@ impl Plugin for LspPlugin {
             restart::restart_server,
         ));
         registry.commands.add(Command::new(
+            rust_analyzer::EXPAND_MACRO,
+            "Show what the macro call at point expands to, in a read-only buffer",
+            rust_analyzer::expand_macro,
+        ));
+        registry.commands.add(Command::new(
             offer::DOWNLOAD,
             "Offer again to download the language servers this file wants and lacks",
             offer::offer_again,
@@ -162,6 +168,14 @@ impl Plugin for LspPlugin {
         registry.menu_items.push(
             MenuItem::new("Edit", "code", "Download Language Servers", offer::DOWNLOAD)
                 .enabled_when(offer::can_download),
+        );
+        registry.menu_items.push(
+            MenuItem::new("Edit", "code", "Expand Macro", rust_analyzer::EXPAND_MACRO)
+                .enabled_when(|editor| {
+                    document::offered_at_point(editor, |client| {
+                        client.may_answer(Question::ExpandMacro)
+                    })
+                }),
         );
         registry.menu_items.extend_from_slice(XREF_MENU_ITEMS);
     }
@@ -178,6 +192,10 @@ const XREF_MENU_ITEMS: &[MenuItem] = &[
         .enabled_when(|editor| document::offered_at_point(editor, |client| client.may_walk(Hierarchy::Calls))),
     MenuItem::new("Go", "related", "Type Hierarchy", remacs_xref::TYPE_HIERARCHY)
         .enabled_when(|editor| document::offered_at_point(editor, |client| client.may_walk(Hierarchy::Types))),
+    MenuItem::new("Go", "related", "Parent Module", remacs_xref::FIND_PARENT_MODULE)
+        .enabled_when(|editor| document::offered_at_point(editor, |client| client.may_answer(Question::ParentModule))),
+    MenuItem::new("Go", "related", "Cargo.toml", remacs_xref::FIND_MANIFEST)
+        .enabled_when(|editor| document::offered_at_point(editor, |client| client.may_answer(Question::Manifest))),
 ];
 
 /// The servers a catalog describes as they are built in, or why one cannot be built.

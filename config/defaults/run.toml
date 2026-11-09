@@ -23,6 +23,10 @@ entry-point-delay = 300
 # later), else tsx from node_modules; "node" or "tsx" always that one.
 typescript = "auto"
 
+# Whether Rust tests run on cargo-nextest (cargo nextest run) in a workspace that sets it
+# up with a .config/nextest.toml; doctests, which nextest cannot run, stay on cargo test.
+nextest = true
+
 # Set for every program run, so that it prints colors though not to a terminal. A table
 # here replaces this whole one.
 [env]

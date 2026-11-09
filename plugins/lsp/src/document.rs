@@ -32,7 +32,7 @@ use crate::position::{Encoding, from_lsp};
 use crate::semantic::Painting;
 use crate::settings::LspSettings;
 use crate::version::Versions;
-use crate::{code_action, definition, offer, uri};
+use crate::{code_action, definition, offer, rust_analyzer, uri};
 
 /// Servers hold whole files in memory and reparse them; larger ones stay unsynced.
 const MAX_SYNCED_BYTES: usize = 16 << 20;
@@ -985,29 +985,45 @@ pub(crate) fn server_at(
     offset: usize,
     offers: impl Fn(&Client) -> bool,
 ) -> Result<(Rc<Client>, Uri, Snapshot), Option<&'static str>> {
-    let buffer = (editor.buffers().iter()).find(|buffer| buffer.path() == Some(path));
-    let Some((buffer, documents)) =
-        buffer.and_then(|buffer| Some((buffer, buffer.local::<Documents>()?)))
-    else {
-        return Err(None);
-    };
+    let buffer =
+        (editor.buffers().iter()).find(|buffer| buffer.path() == Some(path)).ok_or(None)?;
+    let document = document_at(editor, buffer, offset, offers)?;
+    Ok((Rc::clone(&document.client), document.uri.clone(), document.sent_text()))
+}
+
+/// The first of `buffer`'s documents asked about the code at `offset` whose server
+/// `offers` something; else the name of the first one's server, if there is one.
+fn document_at<'a>(
+    editor: &Editor,
+    buffer: &'a Buffer,
+    offset: usize,
+    offers: impl Fn(&Client) -> bool,
+) -> Result<&'a Document, Option<&'static str>> {
+    let documents = buffer.local::<Documents>().ok_or(None)?;
     let asked = asked_at(editor, buffer, offset);
     let routed: Vec<_> = (documents.list.iter().zip(asked))
         .filter_map(|(document, asked)| asked.then_some(document))
         .collect();
-    let document = routed.iter().find(|document| offers(&document.client));
-    let document = document.ok_or_else(|| routed.first().map(|document| document.server.name))?;
-    Ok((Rc::clone(&document.client), document.uri.clone(), document.sent_text()))
+    let document = routed.iter().find(|document| offers(&document.client)).copied();
+    document.ok_or_else(|| routed.first().map(|document| document.server.name))
 }
 
 /// Whether a server of the code at point in the window buffer `offers` something.
 pub(crate) fn offered_at_point(editor: &Editor, offers: impl Fn(&Client) -> bool) -> bool {
     let buffer = editor.window_buffer();
-    let Some(documents) = buffer.local::<Documents>() else {
-        return false;
-    };
-    let asked = asked_at(editor, buffer, buffer.point());
-    (documents.list.iter().zip(asked)).any(|(document, asked)| asked && offers(&document.client))
+    document_at(editor, buffer, buffer.point(), offers).is_ok()
+}
+
+/// Asks the first server of the code at point in the window buffer that may answer
+/// `question`; else says the name of the first that may not, if there is one.
+pub(crate) fn ask_at_point(
+    editor: &Editor,
+    question: Question,
+) -> Result<(), Option<&'static str>> {
+    let buffer = editor.window_buffer();
+    let offers = |client: &Client| client.may_answer(question);
+    document_at(editor, buffer, buffer.point(), offers)?.ask(question, 0, buffer.point());
+    Ok(())
 }
 
 fn question(lookup: Lookup) -> Question {
@@ -1016,6 +1032,8 @@ fn question(lookup: Lookup) -> Question {
         Lookup::References => Question::References,
         Lookup::Implementations => Question::Implementation,
         Lookup::TypeDefinitions => Question::TypeDefinition,
+        Lookup::ParentModule => Question::ParentModule,
+        Lookup::Manifest => Question::Manifest,
     }
 }
 
@@ -1187,6 +1205,7 @@ fn hand_over(editor: &mut Editor, index: usize, client: &Client, answer: Answer)
         Answer::Signatures { id, signatures } => {
             remacs_documentation::deliver_signatures(editor, id, signatures);
         }
+        Answer::Expansion { mode, expansion } => rust_analyzer::show(editor, mode, expansion),
         Answer::CodeActions { id, menu, .. } => gather_actions(editor, id, index, menu),
         Answer::ResolvedAction { id, action, encoding, settled } => {
             if !settled && action.edit.is_none() && action.data.is_some() {
