@@ -1,4 +1,6 @@
 use std::collections::BTreeMap;
+use std::ops::RangeInclusive;
+use std::time::Duration;
 
 use remacs_core::{Editor, Section};
 use remacs_syntax::SyntaxSettings;
@@ -27,7 +29,12 @@ pub(crate) struct LspSettings {
     /// Changes to which capture each token type takes, over `semantic::CAPTURES`.
     semantic_token_captures: BTreeMap<String, String>,
     servers: BTreeMap<String, ServerSpec>,
+    /// Milliseconds of quiet after a project's files change before its servers hear of
+    /// it (ADR 0096).
+    watch_delay: u64,
 }
+
+const WATCH_DELAYS: RangeInclusive<u64> = 0..=5_000;
 
 impl Default for LspSettings {
     fn default() -> Self {
@@ -38,12 +45,21 @@ impl Default for LspSettings {
             semantic_tokens: true,
             semantic_token_captures: BTreeMap::new(),
             servers: BTreeMap::new(),
+            watch_delay: 200,
         }
     }
 }
 
 impl Section for LspSettings {
     const NAME: &str = "lsp";
+
+    fn check(&self) -> Result<(), String> {
+        if WATCH_DELAYS.contains(&self.watch_delay) {
+            Ok(())
+        } else {
+            Err(format!("watch-delay must be {} to {}", WATCH_DELAYS.start(), WATCH_DELAYS.end()))
+        }
+    }
 }
 
 impl LspSettings {
@@ -57,6 +73,10 @@ impl LspSettings {
 
     pub fn signature_help_on_typing(&self) -> bool {
         self.signature_help_on_typing
+    }
+
+    pub fn watch_delay(&self) -> Duration {
+        Duration::from_millis(self.watch_delay)
     }
 
     /// How semantic tokens are painted, with `syntax`'s level and variables.
@@ -124,5 +144,6 @@ mod tests {
         assert!(parse("[servers.clangd]\ncomand = \"clangd\"\n").is_err());
         assert!(parse("[server.clangd]\n").is_err());
         assert!(parse("offer-downloads = false\n").is_ok());
+        assert!(parse("watch-delay = 5001\n").unwrap().check().is_err());
     }
 }

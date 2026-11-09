@@ -37,6 +37,7 @@ mod symbols;
 mod transport;
 mod uri;
 mod version;
+mod watch;
 mod workspace_edit;
 
 use std::path::Path;
@@ -105,6 +106,9 @@ pub struct LanguageServer {
     pub tool: Option<&'static Tool>,
     /// A program set in `lsp.toml`, run as it is rather than looked for.
     pub own_program: Option<&'static Path>,
+    /// Globs, from the project root, of the files whose change restarts the server
+    /// unless it registered for them, like `rust-analyzer.toml` (ADR 0096).
+    pub config_files: &'static [&'static str],
 }
 
 impl LanguageServer {
@@ -130,6 +134,7 @@ impl Plugin for LspPlugin {
         registry.post_command_hooks.push(Rc::new(move |editor| {
             let servers = settings::servers(editor, catalog);
             document::sync(editor, servers);
+            watch::sync(editor, servers);
             hierarchy::sync(editor);
             file_rename::sync(editor, servers);
             symbol_rename::sync(editor, servers);

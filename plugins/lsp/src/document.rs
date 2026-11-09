@@ -564,7 +564,14 @@ pub(crate) enum NotStarted {
 impl Clients {
     /// The running servers and their project roots.
     pub(crate) fn running(&self) -> impl Iterator<Item = (&Path, &Rc<Client>)> {
-        self.running.iter().map(|((_, root), client)| (root.as_path(), client))
+        self.running_servers().map(|(_, root, client)| (root, client))
+    }
+
+    /// The running servers by name, with their project roots.
+    pub(crate) fn running_servers(
+        &self,
+    ) -> impl Iterator<Item = (&'static str, &Path, &Rc<Client>)> {
+        self.running.iter().map(|((name, root), client)| (*name, root.as_path(), client))
     }
 
     /// Each server started so far, with the project roots it runs for; none for one that
@@ -833,7 +840,18 @@ pub(crate) fn restart(editor: &mut Editor, name: &'static str) {
     // What `when` and `unless` saw may have changed since, e.g. `node_modules` installed.
     clients.declined.clear();
     clients.versions.forget();
-    detach(editor, name);
+    detach(editor, |document| document.server.name == name);
+}
+
+/// Stops server `name` for the project at `root` alone, if it runs there; the next sync
+/// starts it there again.
+pub(crate) fn restart_at(editor: &mut Editor, name: &'static str, root: &Path) -> bool {
+    let running = &mut editor.plugin_state::<Clients>().running;
+    let Some(client) = running.remove(&(name, root.to_path_buf())) else {
+        return false;
+    };
+    detach(editor, |document| Rc::ptr_eq(&document.client, &client));
+    true
 }
 
 /// Servers that exited by themselves are not started again, and the editor says why.
@@ -851,7 +869,7 @@ fn report_exits(editor: &mut Editor) {
         clients.failed.insert(name);
     }
     for (name, reason) in exited {
-        detach(editor, name);
+        detach(editor, |document| document.server.name == name);
         editor.set_error(format!("{name} {reason}"));
     }
 }
@@ -870,15 +888,15 @@ fn report_ready(editor: &mut Editor) {
     }
 }
 
-/// Closes server `name`'s files in every buffer and drops its diagnostics.
-fn detach(editor: &mut Editor, name: &'static str) {
+/// Closes the documents `closes` picks in every buffer and drops their diagnostics.
+fn detach(editor: &mut Editor, closes: impl Fn(&Document) -> bool) {
     for buffer in editor.buffers_mut() {
         let Some(documents) = buffer.local_mut::<Documents>() else {
             continue;
         };
         let mut checkers = Vec::new();
         documents.list.retain(|document| {
-            let closed = document.server.name == name;
+            let closed = closes(document);
             if closed {
                 checkers.push(document.checker());
             }
