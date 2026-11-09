@@ -34,6 +34,8 @@ use crate::settings::LspSettings;
 use crate::version::Versions;
 use crate::{code_action, definition, offer, uri};
 
+pub(crate) mod inlay;
+
 /// Servers hold whole files in memory and reparse them; larger ones stay unsynced.
 const MAX_SYNCED_BYTES: usize = 16 << 20;
 /// Sent texts kept for diagnostics that may still arrive for them.
@@ -144,6 +146,7 @@ struct Document {
     /// asked: the version, the server's refreshes and the paintings so far.
     semantic: Vec<(Range<usize>, Face)>,
     semantic_asked: Option<(i32, u64, u64)>,
+    hints: inlay::Hints,
     /// The newest completion list, as the server sent it, for resolving its items.
     listed: Option<Listed>,
     /// The diagnostics last taken, as the server sent them, and the text they refer to;
@@ -204,6 +207,7 @@ impl Document {
             colors_asked: None,
             semantic: Vec::new(),
             semantic_asked: None,
+            hints: inlay::Hints::default(),
             listed: None,
             reported: None,
             offered: None,
@@ -274,6 +278,7 @@ impl Document {
             }
             color::shift(&mut self.colors, edit);
             color::shift(&mut self.semantic, edit);
+            self.hints.shift(edit);
         }
         if self.modified && !modified {
             self.client.send(Outgoing::Save { uri: self.uri.clone() });
@@ -1059,6 +1064,7 @@ pub(crate) fn sync(editor: &mut Editor, servers: &'static [LanguageServer]) {
     hand_over_answers(editor);
     let clients = editor.plugin_state::<Clients>();
     let (painting, paintings) = (Rc::clone(&clients.painting), clients.paintings);
+    let (hinting, in_view) = (inlay::hinting(editor), inlay::lines_in_view(editor));
     // After the answers, so that a file a definition opened is attached at once.
     for index in 0..editor.buffers().len() {
         attach(editor, index, servers);
@@ -1072,12 +1078,15 @@ pub(crate) fn sync(editor: &mut Editor, servers: &'static [LanguageServer]) {
             .list
             .iter_mut()
             .filter_map(|document| {
-                let (text, diagnostics) = document.sync(
+                let synced = document.sync(
                     text.clone(),
                     embedded.as_deref(),
                     modified,
                     (&painting, paintings),
-                )?;
+                );
+                // The window buffer's, the one in view, are asked for.
+                document.update_hints(hinting, (index == 0).then(|| in_view.clone()));
+                let (text, diagnostics) = synced?;
                 Some((document.checker(), text, diagnostics))
             })
             .collect();

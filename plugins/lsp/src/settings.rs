@@ -7,6 +7,7 @@ use serde::Deserialize;
 
 use crate::LanguageServer;
 use crate::catalog::{self, ServerSpec};
+use crate::document::inlay::{self, HintKinds};
 use crate::document::{self, Clients};
 use crate::semantic::{self, Painting};
 
@@ -26,6 +27,9 @@ pub(crate) struct LspSettings {
     semantic_tokens: bool,
     /// Changes to which capture each token type takes, over `semantic::CAPTURES`.
     semantic_token_captures: BTreeMap<String, String>,
+    /// Types and parameter names servers show between the characters (ADR 0095).
+    inlay_hints: bool,
+    inlay_hint_kinds: HintKinds,
     servers: BTreeMap<String, ServerSpec>,
 }
 
@@ -37,6 +41,8 @@ impl Default for LspSettings {
             signature_help_on_typing: true,
             semantic_tokens: true,
             semantic_token_captures: BTreeMap::new(),
+            inlay_hints: true,
+            inlay_hint_kinds: HintKinds::default(),
             servers: BTreeMap::new(),
         }
     }
@@ -84,6 +90,7 @@ pub(crate) fn read(editor: &mut Editor, catalog: &str) -> &'static [LanguageServ
     let settings = editor.settings_section::<LspSettings>();
     let painting = settings.painting(&editor.settings_section::<SyntaxSettings>());
     editor.plugin_state::<Clients>().paint_with(painting);
+    inlay::configure(editor, settings.inlay_hints, settings.inlay_hint_kinds);
     let specs = catalog::merge(catalog::built_in(catalog), &settings.servers);
     let mut errors = Vec::new();
     let servers: Vec<LanguageServer> = specs

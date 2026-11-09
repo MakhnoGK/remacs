@@ -26,6 +26,7 @@ use lsp_types::request::{
     TypeHierarchySupertypes, WillRenameFiles, WorkspaceConfiguration, WorkspaceDiagnosticRefresh,
     WorkspaceSymbolRequest,
 };
+use lsp_types::request::{InlayHintRefreshRequest, InlayHintRequest};
 use lsp_types::{
     ApplyWorkspaceEditParams, CodeAction, CodeActionOrCommand, CompletionItem,
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
@@ -45,6 +46,7 @@ use serde_json::{Value, json};
 use crate::LanguageServer;
 use crate::color::{self, Swatch};
 use crate::completion::{self, CompletionSupport, Origin};
+use crate::document::inlay::{self, Hint};
 use crate::markdown::CodeModes;
 use crate::position::{Encoding, from_lsp, to_lsp};
 use crate::progress::Progress;
@@ -139,6 +141,13 @@ pub(crate) enum Outgoing {
         uri: Uri,
         path: PathBuf,
         text: Snapshot,
+    },
+    /// Asks for the hints in `range` of `text`, the text the server has.
+    InlayHints {
+        uri: Uri,
+        path: PathBuf,
+        text: Snapshot,
+        range: Range<usize>,
     },
     /// Asks for completions at `offset` of `text`, the text the server has; `id` is the
     /// completion plugin's.
@@ -421,6 +430,10 @@ enum Pending {
         path: PathBuf,
         text: Snapshot,
     },
+    InlayHints {
+        path: PathBuf,
+        text: Snapshot,
+    },
     Complete {
         id: u64,
         origin: Origin,
@@ -489,6 +502,7 @@ impl Pending {
             Pending::Pull { .. }
                 | Pending::Colors { .. }
                 | Pending::SemanticTokens { .. }
+                | Pending::InlayHints { .. }
                 | Pending::Resolve { .. }
         )
     }
@@ -504,6 +518,9 @@ struct Inbox {
     semantic_tokens: HashMap<PathBuf, SemanticTokens>,
     /// Bumped when the server asks for every file's tokens again, e.g. once it loaded.
     semantic_refreshes: u64,
+    /// Likewise the newest hints of each file, and the server's asking for them again.
+    inlay_hints: HashMap<PathBuf, (Snapshot, Vec<Hint>)>,
+    inlay_hint_refreshes: u64,
     requests: HashMap<u64, Pending>,
     answers: Vec<Answer>,
     /// Kept apart from `answers`, which are for the window buffer's document.
@@ -579,6 +596,7 @@ struct Negotiated {
     completion: Option<CompletionSupport>,
     colors: bool,
     semantic_tokens: bool,
+    inlay_hints: bool,
     will_rename: bool,
     did_rename: bool,
     formatting: bool,
@@ -793,6 +811,15 @@ impl Client {
         lock(&self.inbox).semantic_refreshes
     }
 
+    pub fn take_inlay_hints(&self, path: &Path) -> Option<(Snapshot, Vec<Hint>)> {
+        lock(&self.inbox).inlay_hints.remove(path)
+    }
+
+    /// How many times the server asked for every file's hints again.
+    pub fn inlay_hint_refreshes(&self) -> u64 {
+        lock(&self.inbox).inlay_hint_refreshes
+    }
+
     /// Why the server exited, the first time it is asked after it has.
     pub fn take_exit(&self) -> Option<String> {
         lock(&self.inbox).exit.take()
@@ -908,6 +935,9 @@ fn initialize_params(options: Option<Value>, configured: bool, root: &Path) -> V
                     "multilineTokenSupport": false,
                     "augmentsSyntaxTokens": true,
                 },
+                // shortcut: hints are not resolved (`inlayHint/resolve`), as the text has no
+                // mouse hover for their tooltips to show on; resolve them once it has.
+                "inlayHint": {},
                 "definition": { "linkSupport": true },
                 "references": {},
                 "rename": { "prepareSupport": true },
@@ -937,6 +967,7 @@ fn initialize_params(options: Option<Value>, configured: bool, root: &Path) -> V
                 },
                 "fileOperations": { "willRename": true, "didRename": true },
                 "semanticTokens": { "refreshSupport": true },
+                "inlayHint": { "refreshSupport": true },
                 // Every kind, up to type parameters; else servers keep to the first 18.
                 "symbol": { "symbolKind": { "valueSet": (1..=26).collect::<Vec<u8>>() } },
             },
@@ -1030,6 +1061,20 @@ impl Writer {
                 let params = json!({ "textDocument": TextDocumentIdentifier::new(uri.clone()) });
                 let pending = Pending::SemanticTokens { path: path.clone(), text: text.clone() };
                 self.ask(SemanticTokensFullRequest::METHOD, params, pending)
+            }
+            Outgoing::InlayHints { uri, path, text, range } => {
+                if !negotiated.inlay_hints {
+                    return Ok(());
+                }
+                let params = json!({
+                    "textDocument": TextDocumentIdentifier::new(uri.clone()),
+                    "range": lsp_types::Range::new(
+                        to_lsp(text, range.start, negotiated.encoding),
+                        to_lsp(text, range.end, negotiated.encoding),
+                    ),
+                });
+                let pending = Pending::InlayHints { path: path.clone(), text: text.clone() };
+                self.ask(InlayHintRequest::METHOD, params, pending)
             }
             Outgoing::Complete { uri, id, text, start, offset, trigger, modes } => {
                 let Some(context) = completion.and_then(|support| support.context(*trigger)) else {
@@ -1308,6 +1353,7 @@ fn is_superseded(message: &Outgoing, later: &[Outgoing]) -> bool {
         (Outgoing::Pull { uri, .. }, Outgoing::Pull { uri: other, .. })
         | (Outgoing::Colors { uri, .. }, Outgoing::Colors { uri: other, .. })
         | (Outgoing::SemanticTokens { uri, .. }, Outgoing::SemanticTokens { uri: other, .. })
+        | (Outgoing::InlayHints { uri, .. }, Outgoing::InlayHints { uri: other, .. })
         | (Outgoing::Complete { uri, .. }, Outgoing::Complete { uri: other, .. })
         | (Outgoing::Signatures { uri, .. }, Outgoing::Signatures { uri: other, .. })
         | (Outgoing::CodeActions { uri, .. }, Outgoing::CodeActions { uri: other, .. }) => {
@@ -1357,6 +1403,7 @@ impl Outgoing {
             Outgoing::Pull { .. }
             | Outgoing::Colors { .. }
             | Outgoing::SemanticTokens { .. }
+            | Outgoing::InlayHints { .. }
             | Outgoing::Complete { .. }
             | Outgoing::Resolve { .. }
             | Outgoing::AtPoint { .. }
@@ -1523,6 +1570,11 @@ impl Reader {
                 (self.notifier)();
                 Value::Null
             }
+            InlayHintRefreshRequest::METHOD => {
+                lock(&self.inbox).inlay_hint_refreshes += 1;
+                (self.notifier)();
+                Value::Null
+            }
             _ => Value::Null,
         };
         send_reply(&self.replies, Outgoing::Reply { id, result });
@@ -1570,6 +1622,7 @@ impl Reader {
             completion: CompletionSupport::from_capabilities(capabilities),
             colors: is_provided(&capabilities["colorProvider"]),
             semantic_tokens: self.legend.is_some(),
+            inlay_hints: is_provided(&capabilities["inlayHintProvider"]),
             will_rename: capabilities["workspace"]["fileOperations"]["willRename"].is_object(),
             did_rename: capabilities["workspace"]["fileOperations"]["didRename"].is_object(),
             formatting: is_provided(&capabilities["documentFormattingProvider"]),
@@ -1590,6 +1643,15 @@ impl Reader {
         let error = response
             .get("error")
             .map(|error| error["message"].as_str().unwrap_or("no reason given").to_owned());
+        // Hints the project changed under while they were found, as rust-analyzer's as it
+        // finishes loading it, are asked for again, as when the server asks for that.
+        if matches!(pending, Pending::InlayHints { .. })
+            && response["error"]["code"] == lsp_types::error_codes::CONTENT_MODIFIED
+        {
+            lock(&self.inbox).inlay_hint_refreshes += 1;
+            (self.notifier)();
+            return;
+        }
         if error.is_some() && !pending.answers_failure() {
             return;
         }
@@ -1611,6 +1673,12 @@ impl Reader {
                 let tokens = semantic::decode(&data, &text, self.encoding);
                 let found = (text, Arc::clone(legend), tokens);
                 lock(&self.inbox).semantic_tokens.insert(path, found);
+                (self.notifier)();
+            }
+            Pending::InlayHints { path, text } => {
+                let found = serde_json::from_value(result).unwrap_or_default();
+                let hints = inlay::decode(found, &text, self.encoding);
+                lock(&self.inbox).inlay_hints.insert(path, (text, hints));
                 (self.notifier)();
             }
             Pending::Complete { id, origin } => {

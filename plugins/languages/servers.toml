@@ -34,8 +34,10 @@ name = "rust-analyzer"
 command = "rust-analyzer"
 languages = { Rust = "rust" }
 root-markers = ["Cargo.toml"]
-# Calls complete to `f()` with point inside, not to argument names to type over.
-initialization-options = { completion = { callable = { snippets = "add_parentheses" } } }
+# Calls complete to `f()` with point inside, not to argument names to type over. Besides
+# the types and parameter names it hints by itself, it hints the return types of closures
+# with a block and the lifetimes elided in signatures that have more than one.
+initialization-options = { completion = { callable = { snippets = "add_parentheses" } }, inlayHints = { closureReturnTypeHints = { enable = "with_block" }, lifetimeElisionHints = { enable = "skip_trivial" } } }
 reports-loading = true
 install = { from = "github", package = "rust-lang/rust-analyzer", asset = "rust-analyzer-{target}.gz" }
 
@@ -71,6 +73,8 @@ args = ["--stdio"]
 languages = { TypeScript = "typescript", TSX = "typescriptreact", JavaScript = "javascript", JSX = "javascriptreact" }
 root-markers = ["package.json", "tsconfig.json", "jsconfig.json"]
 when = { older = { typescript = 7 } }
+# tsserver hints nothing unless asked to.
+initialization-options = { preferences = { includeInlayParameterNameHints = "all", includeInlayVariableTypeHints = true, includeInlayFunctionLikeReturnTypeHints = true } }
 # Its own TypeScript, for a project whose copy lies below the root it is started in, is
 # the version the projects it serves mostly have.
 install = { from = "npm", package = "typescript-language-server", with = ["typescript@5"] }
@@ -231,6 +235,10 @@ command = "gopls"
 languages = { Go = "go" }
 root-markers = ["go.work", "go.mod"]
 install = { from = "go", package = "golang.org/x/tools/gopls" }
+
+# It hints nothing unless asked to: the types `:=` and `range` give, and parameter names.
+[servers.configuration]
+hints = { assignVariableTypes = true, rangeVariableTypes = true, parameterNames = true }
 
 [[servers]]
 name = "jdtls"
@@ -427,7 +435,7 @@ command = "vue-typescript"
 args = ["--stdio"]
 languages = { Vue = "vue" }
 root-markers = ["package.json", "tsconfig.json", "jsconfig.json"]
-initialization-options = { plugins = [{ name = "@vue/typescript-plugin", location = "{program-dir}", languages = ["vue"] }] }
+initialization-options = { plugins = [{ name = "@vue/typescript-plugin", location = "{program-dir}", languages = ["vue"] }], preferences = { includeInlayParameterNameHints = "all", includeInlayVariableTypeHints = true, includeInlayFunctionLikeReturnTypeHints = true } }
 install = { from = "npm", package = "@vue/language-server", with = ["typescript@6", "typescript-language-server"], program = "typescript-language-server" }
 
 # Add-ons, after the languages' own servers.
