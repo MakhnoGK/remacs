@@ -88,6 +88,8 @@ settings_sections! {
     pub struct SelectionSettings {
         /// Pixels, of its outer corners and the curves of its inner ones; 0 squares them.
         pub radius: f32 = 4.0,
+        /// Times the theme's region alpha.
+        pub opacity: f32 = 1.0,
     }
 
     #[derive(Clone, Copy, Eq)]

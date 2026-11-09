@@ -111,7 +111,7 @@ pub fn console_color(color: ConsoleColor) -> u32 {
 }
 
 pub fn region_style() -> HighlightStyle {
-    background(glass::region())
+    background(glass::region_tint())
 }
 
 /// A background of `color`, with alpha.

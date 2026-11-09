@@ -96,6 +96,9 @@ radius = 1
 # Pixels the region's corners are rounded by in text, its inside corners curved by as
 # much: 0 (square) to 12; past half a row's height the ends are round.
 radius = 4
+# Times the theme's region alpha: 0.0 (invisible) to 1.0 (as the theme draws it). The
+# region in text and fields; a terminal's selection keeps the theme's color.
+opacity = 1.0
 
 [keyboard]
 # The Option keys that are Meta: "both", "left" or "right". The other one types what
