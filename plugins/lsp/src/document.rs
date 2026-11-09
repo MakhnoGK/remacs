@@ -843,13 +843,15 @@ pub(crate) fn restart(editor: &mut Editor, name: &'static str) {
     detach(editor, |document| document.server.name == name);
 }
 
-/// Stops server `name` for the project at `root` alone; the next sync starts it there
-/// again.
-pub(crate) fn restart_at(editor: &mut Editor, name: &'static str, root: &Path) {
+/// Stops server `name` for the project at `root` alone, if it runs there; the next sync
+/// starts it there again.
+pub(crate) fn restart_at(editor: &mut Editor, name: &'static str, root: &Path) -> bool {
     let running = &mut editor.plugin_state::<Clients>().running;
-    if let Some(client) = running.remove(&(name, root.to_path_buf())) {
-        detach(editor, |document| Rc::ptr_eq(&document.client, &client));
-    }
+    let Some(client) = running.remove(&(name, root.to_path_buf())) else {
+        return false;
+    };
+    detach(editor, |document| Rc::ptr_eq(&document.client, &client));
+    true
 }
 
 /// Servers that exited by themselves are not started again, and the editor says why.

@@ -36,6 +36,10 @@ Status: accepted, 2026-11-09 (issue #186)
   `tailwind.config.js`, starts nothing until the next `lsp-restart`: only running
   servers' roots are watched, and the `when` a server was declined for is not looked at
   again.
+- Files outside the project root are never told, though a server registers for them,
+  like rust-analyzer for a path dependency in `../shared`; that server watched them
+  itself before it left watching to remacs. Watching the fixed start of each
+  registered glob that lies outside the root would cover them.
 - Changes are matched against every registered glob; a server registering for
   `node_modules` hears of a whole `npm install` in one notification, as with any
   client without exclusions.

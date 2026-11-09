@@ -138,9 +138,11 @@ pub(crate) fn sync(editor: &mut Editor, servers: &[LanguageServer]) {
         mem::take(&mut shared.restarts)
     };
     for ((name, root), file) in &restarts {
-        document::restart_at(editor, name, root);
-        let file = file.strip_prefix(root).unwrap_or(file).display();
-        editor.set_done(format!("Restarted {name}: {file} changed"));
+        // One that exited meanwhile stays stopped, as `report_exits` said.
+        if document::restart_at(editor, name, root) {
+            let file = file.strip_prefix(root).unwrap_or(file).display();
+            editor.set_done(format!("Restarted {name}: {file} changed"));
+        }
     }
     if !restarts.is_empty() {
         // The next sync starts them again.
@@ -183,8 +185,9 @@ fn follow(editor: &mut Editor, servers: &[LanguageServer]) {
         .collect();
     watch.clients = clients.running_servers().map(|(_, _, client)| Rc::downgrade(client)).collect();
     // shortcut: only running servers' roots are watched, so a first config file where its
-    // server was declined (`when`) starts nothing until `lsp-restart`; watch those too if
-    // that is missed.
+    // server was declined (`when`) starts nothing until `lsp-restart`, and a registered
+    // glob outside the root (rust-analyzer's path dependency in `../shared`) is never
+    // told; watch those directories too if that is missed.
     let roots: HashSet<PathBuf> = routes.iter().map(|route| route.root.clone()).collect();
     if roots.is_empty() {
         watch.watcher = None;
