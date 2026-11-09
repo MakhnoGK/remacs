@@ -766,9 +766,9 @@ impl Client {
         self.offered.get().is_none_or(|offered| match question {
             Question::Implementation => offered.implementation,
             Question::TypeDefinition => offered.type_definition,
-            Question::ParentModule => offered.parent_module,
+            // rust-analyzer never offers expandMacro by name; only it offers parentModule.
+            Question::ParentModule | Question::ExpandMacro => offered.parent_module,
             Question::Manifest => offered.manifest,
-            Question::ExpandMacro => offered.expand_macro,
             Question::Hover | Question::Definition | Question::References => true,
         })
     }
@@ -985,7 +985,6 @@ struct Offered {
     type_hierarchy: bool,
     parent_module: bool,
     manifest: bool,
-    expand_macro: bool,
 }
 
 impl Offered {
@@ -999,8 +998,6 @@ impl Offered {
             type_hierarchy: is_provided(&capabilities["typeHierarchyProvider"]),
             parent_module: experimental["parentModule"] == true,
             manifest: experimental["openCargoToml"] == true,
-            // Never offered by name, but always by rust-analyzer, which offers these too.
-            expand_macro: experimental["parentModule"] == true,
         }
     }
 }
@@ -1886,12 +1883,12 @@ mod tests {
     fn rust_analyzer_requests_are_offered_by_its_experimental_capabilities() {
         let offered = |capabilities: Value| {
             let offered = Offered::from_capabilities(&capabilities);
-            (offered.parent_module, offered.manifest, offered.expand_macro)
+            (offered.parent_module, offered.manifest)
         };
         let rust_analyzer =
             json!({ "experimental": { "parentModule": true, "openCargoToml": true } });
-        assert_eq!(offered(rust_analyzer), (true, true, true));
-        assert_eq!(offered(json!({ "experimental": {} })), (false, false, false));
+        assert_eq!(offered(rust_analyzer), (true, true));
+        assert_eq!(offered(json!({ "experimental": {} })), (false, false));
     }
 
     #[test]

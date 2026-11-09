@@ -23,16 +23,26 @@ pub(crate) struct Expansion {
     expansion: String,
 }
 
+/// `Editor::command_count` once the `expand-macro` waiting for its answer has run.
+#[derive(Default)]
+struct Awaited(Option<u64>);
+
 /// Asks the server of the code at point what the macro call there expands to.
 pub(crate) fn expand_macro(editor: &mut Editor) -> CommandResult {
-    document::ask_at_point(editor, Question::ExpandMacro).map_err(|server| {
-        let server = server.unwrap_or("No language server here");
-        format!("{server} cannot expand macros").into()
-    })
+    document::ask_at_point(editor, Question::ExpandMacro).map_err(|server| match server {
+        Some(server) => format!("{server} cannot expand macros"),
+        None => "No language server expands macros here".to_owned(),
+    })?;
+    editor.plugin_state::<Awaited>().0 = Some(editor.command_count() + 1);
+    Ok(())
 }
 
-/// Shows `expansion` read-only in `mode`, in a buffer named for its macro.
+/// Shows `expansion` read-only in `mode`, in a buffer named for its macro; an answer that
+/// comes after another command is dropped, as the user went on to something else.
 pub(crate) fn show(editor: &mut Editor, mode: &'static str, expansion: Option<Expansion>) {
+    if editor.plugin_state::<Awaited>().0.take() != Some(editor.command_count()) {
+        return;
+    }
     let Some(Expansion { name, expansion }) = expansion else {
         editor.set_error("No macro call at point");
         return;
@@ -95,8 +105,14 @@ mod tests {
         let answer = |expansion: &str| {
             serde_json::from_value(json!({ "name": "vec!", "expansion": expansion })).unwrap()
         };
-        show(&mut editor, "Rust", answer("<[_]>::into_vec(old)"));
-        show(&mut editor, "Rust", answer("<[_]>::into_vec(new)"));
+        let awaited = |editor: &mut Editor, expansion| {
+            editor.plugin_state::<Awaited>().0 = Some(editor.command_count());
+            show(editor, "Rust", expansion);
+        };
+        awaited(&mut editor, answer("<[_]>::into_vec(old)"));
+        awaited(&mut editor, answer("<[_]>::into_vec(new)"));
+        // Asked for by no command since.
+        show(&mut editor, "Rust", answer("late"));
         let buffers: Vec<&str> = editor.buffers().iter().map(Buffer::name).collect();
         assert_eq!(buffers.iter().filter(|name| **name == "*vec! expanded*").count(), 1);
         let buffer = editor.window_buffer();
@@ -108,7 +124,7 @@ mod tests {
         );
         assert_eq!(shown, ("*vec! expanded*", "Rust", true, "<[_]>::into_vec(new)".to_owned()));
 
-        show(&mut editor, "Rust", serde_json::from_value(Value::Null).unwrap());
+        awaited(&mut editor, serde_json::from_value(Value::Null).unwrap());
         assert_eq!(editor.echo().as_deref(), Some("No macro call at point"));
     }
 
