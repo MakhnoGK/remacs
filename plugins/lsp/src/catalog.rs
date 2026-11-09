@@ -11,7 +11,7 @@ use remacs_tools::{InstallSpec, Tool};
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::LanguageServer;
+use crate::{LanguageServer, watch};
 
 /// The built-in catalog's file: its servers in the order they serve a file.
 #[derive(Deserialize)]
@@ -55,6 +55,9 @@ pub(crate) struct ServerSpec {
     group: Option<String>,
     tsserver: Option<String>,
     install: Option<InstallSpec>,
+    /// Globs, from the project root, of the files whose change restarts the server
+    /// unless it registered for them.
+    config_files: Option<Vec<String>>,
 }
 
 /// When a server serves a project at all, e.g. a linter only where it is set up; any one
@@ -221,6 +224,7 @@ impl ServerSpec {
             group: change.group.or(self.group),
             tsserver: change.tsserver.or(self.tsserver),
             install: change.install.or(self.install),
+            config_files: change.config_files.or(self.config_files),
         }
     }
 
@@ -238,6 +242,11 @@ impl ServerSpec {
             Some(install) => Some(install.tool(name, command)?),
             None => None,
         };
+        if let Some(bad) =
+            self.config_files.iter().flatten().find(|glob| watch::glob(glob).is_none())
+        {
+            return Err(format!("server {name} has a bad glob in `config-files`: {bad}"));
+        }
         Ok(LanguageServer {
             name: leak(name),
             command: leak(command),
@@ -266,6 +275,7 @@ impl ServerSpec {
             tsserver: self.tsserver.as_deref().map(leak),
             tool,
             own_program: own_command.then(|| &*Box::leak(expand_home(command).into_boxed_path())),
+            config_files: leak_all(self.config_files.iter().flatten()),
         })
     }
 }
@@ -416,6 +426,17 @@ mod tests {
         assert_eq!(
             merged[0].1.build("zls", false).err().as_deref(),
             Some("server zls serves no `languages`")
+        );
+
+        let watching: ServerSpec = toml::from_str(
+            "command = \"zls\"\n\
+             languages = { Zig = \"zig\" }\n\
+             config-files = [\"zls.json\", \"build.{zig\"]\n",
+        )
+        .unwrap();
+        assert_eq!(
+            watching.build("zls", false).err().as_deref(),
+            Some("server zls has a bad glob in `config-files`: build.{zig")
         );
     }
 }

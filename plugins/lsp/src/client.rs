@@ -13,25 +13,26 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use lsp_types::notification::{
-    DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidRenameFiles,
-    DidSaveTextDocument, Initialized, Notification, PublishDiagnostics,
+    DidChangeTextDocument, DidChangeWatchedFiles, DidCloseTextDocument, DidOpenTextDocument,
+    DidRenameFiles, DidSaveTextDocument, Initialized, Notification, PublishDiagnostics,
 };
 use lsp_types::request::{
     ApplyWorkspaceEdit, CallHierarchyIncomingCalls, CallHierarchyOutgoingCalls,
     CallHierarchyPrepare, CodeActionRequest, CodeActionResolveRequest, Completion, DocumentColor,
     DocumentDiagnosticRequest, DocumentSymbolRequest, ExecuteCommand, Formatting, GotoDefinition,
     GotoImplementation, GotoTypeDefinition, HoverRequest, Initialize, PrepareRenameRequest,
-    RangeFormatting, References, Rename, Request, ResolveCompletionItem, SemanticTokensFullRequest,
-    SemanticTokensRefresh, SignatureHelpRequest, TypeHierarchyPrepare, TypeHierarchySubtypes,
-    TypeHierarchySupertypes, WillRenameFiles, WorkspaceConfiguration, WorkspaceDiagnosticRefresh,
-    WorkspaceSymbolRequest,
+    RangeFormatting, References, RegisterCapability, Rename, Request, ResolveCompletionItem,
+    SemanticTokensFullRequest, SemanticTokensRefresh, SignatureHelpRequest, TypeHierarchyPrepare,
+    TypeHierarchySubtypes, TypeHierarchySupertypes, UnregisterCapability, WillRenameFiles,
+    WorkspaceConfiguration, WorkspaceDiagnosticRefresh, WorkspaceSymbolRequest,
 };
 use lsp_types::{
     ApplyWorkspaceEditParams, CodeAction, CodeActionOrCommand, CompletionItem,
-    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, GotoDefinitionResponse, InitializedParams, Position,
-    PublishDiagnosticsParams, TextDocumentContentChangeEvent, TextDocumentIdentifier,
-    TextDocumentItem, TextEdit, Uri, VersionedTextDocumentIdentifier, WorkspaceEdit,
+    DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, FileEvent, GotoDefinitionResponse,
+    InitializedParams, Position, PublishDiagnosticsParams, TextDocumentContentChangeEvent,
+    TextDocumentIdentifier, TextDocumentItem, TextEdit, Uri, VersionedTextDocumentIdentifier,
+    WorkspaceEdit,
 };
 use remacs_actions::Action;
 use remacs_completion::{Item, List, Trigger};
@@ -52,6 +53,7 @@ use crate::semantic::{self, Legend, Token};
 use crate::signature::{self, SignatureSupport};
 use crate::symbols::{self, FoundSymbol};
 use crate::transport::{read_message, write_message};
+use crate::watch::{self, SharedRegistered};
 use crate::{code_action, definition, document_symbols, hierarchy, hover, symbol_rename, uri};
 
 const INITIALIZE_ID: u64 = 0;
@@ -274,6 +276,10 @@ pub(crate) enum Outgoing {
     TsserverResponse {
         id: Value,
         body: Value,
+    },
+    /// Tells of files it registered for that changed on disk.
+    WatchedFiles {
+        changes: Vec<FileEvent>,
     },
 }
 
@@ -534,9 +540,9 @@ fn lock_progress(progress: &SharedProgress) -> MutexGuard<'_, Progress> {
 
 /// The reader's way to the writer, taken when the client is dropped: the writer ends
 /// once no one can send to it, which closes the server's input so that it exits.
-type SharedReplies = Arc<Mutex<Option<Sender<Outgoing>>>>;
+pub(crate) type SharedReplies = Arc<Mutex<Option<Sender<Outgoing>>>>;
 
-fn send_reply(replies: &SharedReplies, message: Outgoing) {
+pub(crate) fn send_reply(replies: &SharedReplies, message: Outgoing) {
     let replies = replies.lock().expect("no thread panics holding the replies");
     if let Some(replies) = &*replies {
         let _ = replies.send(message);
@@ -606,6 +612,8 @@ pub(crate) struct Client {
     progress: SharedProgress,
     replies: SharedReplies,
     tsserver: Option<&'static str>,
+    /// The files the server registered to hear of (`workspace/didChangeWatchedFiles`).
+    registered: SharedRegistered,
 }
 
 impl Drop for Client {
@@ -666,7 +674,9 @@ impl Client {
             .name(format!("{} writer", server.name))
             .spawn(move || writer.write_all(initialize, negotiated, queued))?;
         let replies = Arc::new(Mutex::new(Some(outgoing.clone())));
+        let registered = SharedRegistered::default();
         let reader = Reader {
+            registered: Arc::clone(&registered),
             server: server.name,
             configuration: server.configuration.clone().unwrap_or_default(),
             replies: Arc::clone(&replies),
@@ -698,7 +708,14 @@ impl Client {
             offered,
             replies,
             tsserver: server.tsserver,
+            registered,
         })
+    }
+
+    /// What the project watcher's thread holds: the files the server registered for, and
+    /// its way to the writer, gone with the client.
+    pub fn listener(&self) -> (SharedRegistered, SharedReplies) {
+        (Arc::clone(&self.registered), Arc::clone(&self.replies))
     }
 
     /// The server its `tsserver/request`s go to.
@@ -937,6 +954,8 @@ fn initialize_params(options: Option<Value>, configured: bool, root: &Path) -> V
                 },
                 "fileOperations": { "willRename": true, "didRename": true },
                 "semanticTokens": { "refreshSupport": true },
+                // rust-analyzer, gopls and others then leave watching to remacs (ADR 0096).
+                "didChangeWatchedFiles": { "dynamicRegistration": true },
                 // Every kind, up to type parameters; else servers keep to the first 18.
                 "symbol": { "symbolKind": { "valueSet": (1..=26).collect::<Vec<u8>>() } },
             },
@@ -1380,6 +1399,11 @@ impl Outgoing {
             Outgoing::TsserverResponse { id, body } => {
                 json!({ "jsonrpc": "2.0", "method": TSSERVER_RESPONSE, "params": [[id, body]] })
             }
+            Outgoing::WatchedFiles { changes } => {
+                notification::<DidChangeWatchedFiles>(DidChangeWatchedFilesParams {
+                    changes: changes.clone(),
+                })
+            }
         }
     }
 }
@@ -1442,6 +1466,7 @@ struct Reader {
     offered: SharedOffered,
     /// What the server's semantic token numbers stand for, once `initialize` is answered.
     legend: Option<Arc<Legend>>,
+    registered: SharedRegistered,
 }
 
 impl Reader {
@@ -1521,6 +1546,14 @@ impl Reader {
             SemanticTokensRefresh::METHOD => {
                 lock(&self.inbox).semantic_refreshes += 1;
                 (self.notifier)();
+                Value::Null
+            }
+            RegisterCapability::METHOD => {
+                watch::lock(&self.registered).register(params);
+                Value::Null
+            }
+            UnregisterCapability::METHOD => {
+                watch::lock(&self.registered).unregister(params);
                 Value::Null
             }
             _ => Value::Null,
