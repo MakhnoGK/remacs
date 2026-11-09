@@ -334,7 +334,7 @@ mod tests {
     }
 
     #[test]
-    fn inks_scale_the_alpha_asked_for() {
+    fn inks_and_the_region_scale_the_alpha_asked_for() {
         let ink = Ink { color: Rgb(0x000000), strength: 0.5 };
         install(&Theme::built_in(LIGHT));
         glass::put_inks_in_place(ink, Ink { strength: 4.0, ..ink });
@@ -342,5 +342,13 @@ mod tests {
         assert_eq!(glass::shadow(0x80), 0x000000ff);
         install(&Theme::built_in(DEFAULT));
         assert_eq!(glass::ink(0x14), 0xffffff14);
+        // In the same test: both read the installed theme, which the lines above swap.
+        let region = glass::region();
+        glass::set_region_opacity(0.0);
+        assert_eq!(glass::region_tint(), region & !0xff);
+        glass::set_region_opacity(0.5);
+        assert_eq!(glass::region_tint() & 0xff, ((region & 0xff) as f32 / 2.0).round() as u32);
+        glass::set_region_opacity(2.0);
+        assert_eq!(glass::region_tint(), region);
     }
 }
