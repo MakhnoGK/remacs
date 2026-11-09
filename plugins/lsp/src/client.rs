@@ -48,6 +48,7 @@ use crate::completion::{self, CompletionSupport, Origin};
 use crate::markdown::CodeModes;
 use crate::position::{Encoding, from_lsp, to_lsp};
 use crate::progress::Progress;
+use crate::rust_analyzer::{self, Expansion};
 use crate::semantic::{self, Legend, Token};
 use crate::signature::{self, SignatureSupport};
 use crate::symbols::{self, FoundSymbol};
@@ -332,6 +333,12 @@ pub(crate) enum Question {
     References,
     Implementation,
     TypeDefinition,
+    /// rust-analyzer's own: where the module at point is declared.
+    ParentModule,
+    /// rust-analyzer's own: the crate's `Cargo.toml`.
+    Manifest,
+    /// rust-analyzer's own: what the macro call at point expands to.
+    ExpandMacro,
 }
 
 impl Question {
@@ -342,6 +349,9 @@ impl Question {
             Question::References => References::METHOD,
             Question::Implementation => GotoImplementation::METHOD,
             Question::TypeDefinition => GotoTypeDefinition::METHOD,
+            Question::ParentModule => "experimental/parentModule",
+            Question::Manifest => "experimental/openCargoToml",
+            Question::ExpandMacro => "rust-analyzer/expandMacro",
         }
     }
 }
@@ -374,6 +384,11 @@ pub(crate) enum Answer {
     Signatures {
         id: u64,
         signatures: Option<Signatures>,
+    },
+    /// What the macro call asked about expands to, in the major mode of its file.
+    Expansion {
+        mode: &'static str,
+        expansion: Option<Expansion>,
     },
     CodeActions {
         id: u64,
@@ -654,7 +669,7 @@ impl Client {
         };
         let program_dir = fs::canonicalize(program).unwrap_or_else(|_| program.to_path_buf());
         let program_dir = program_dir.parent().unwrap_or(&program_dir).to_string_lossy();
-        let initialize = initialize_params(
+        let mut initialize = initialize_params(
             server.initialization_options.clone().map(|mut options| {
                 fill_program_dir(&mut options, &program_dir);
                 options
@@ -662,9 +677,11 @@ impl Client {
             server.configuration.is_some(),
             root,
         );
-        thread::Builder::new()
-            .name(format!("{} writer", server.name))
-            .spawn(move || writer.write_all(initialize, negotiated, queued))?;
+        let (root_dir, env) = (root.to_path_buf(), env.to_vec());
+        thread::Builder::new().name(format!("{} writer", server.name)).spawn(move || {
+            rust_analyzer::without_missing_clippy(&mut initialize, &root_dir, &env);
+            writer.write_all(initialize, negotiated, queued)
+        })?;
         let replies = Arc::new(Mutex::new(Some(outgoing.clone())));
         let reader = Reader {
             server: server.name,
@@ -749,6 +766,9 @@ impl Client {
         self.offered.get().is_none_or(|offered| match question {
             Question::Implementation => offered.implementation,
             Question::TypeDefinition => offered.type_definition,
+            Question::ParentModule => offered.parent_module,
+            Question::Manifest => offered.manifest,
+            Question::ExpandMacro => offered.expand_macro,
             Question::Hover | Question::Definition | Question::References => true,
         })
     }
@@ -963,16 +983,24 @@ struct Offered {
     type_definition: bool,
     call_hierarchy: bool,
     type_hierarchy: bool,
+    parent_module: bool,
+    manifest: bool,
+    expand_macro: bool,
 }
 
 impl Offered {
     fn from_capabilities(capabilities: &Value) -> Self {
+        let experimental = &capabilities["experimental"];
         Self {
             signatures: SignatureSupport::from_capabilities(capabilities),
             implementation: is_provided(&capabilities["implementationProvider"]),
             type_definition: is_provided(&capabilities["typeDefinitionProvider"]),
             call_hierarchy: is_provided(&capabilities["callHierarchyProvider"]),
             type_hierarchy: is_provided(&capabilities["typeHierarchyProvider"]),
+            parent_module: experimental["parentModule"] == true,
+            manifest: experimental["openCargoToml"] == true,
+            // Never offered by name, but always by rust-analyzer, which offers these too.
+            expand_macro: experimental["parentModule"] == true,
         }
     }
 }
@@ -1629,8 +1657,17 @@ impl Reader {
                 let answer = hover::answer(response, &origin.text, origin.encoding, origin.modes);
                 self.deliver(Answer::Hover { id, answer });
             }
+            Pending::AtPoint { question: Question::ExpandMacro, origin, .. } => {
+                let expansion = serde_json::from_value(result).unwrap_or_default();
+                self.deliver(Answer::Expansion { mode: origin.modes.document, expansion });
+            }
             Pending::AtPoint {
-                question: Question::Definition | Question::Implementation | Question::TypeDefinition,
+                question:
+                    Question::Definition
+                    | Question::Implementation
+                    | Question::TypeDefinition
+                    | Question::ParentModule
+                    | Question::Manifest,
                 id,
                 ..
             } => {
@@ -1843,6 +1880,18 @@ mod tests {
         let both = json!({ "implementationProvider": true, "typeDefinitionProvider": {} });
         assert_eq!(offered(both), (true, true));
         assert_eq!(offered(json!({ "implementationProvider": false })), (false, false));
+    }
+
+    #[test]
+    fn rust_analyzer_requests_are_offered_by_its_experimental_capabilities() {
+        let offered = |capabilities: Value| {
+            let offered = Offered::from_capabilities(&capabilities);
+            (offered.parent_module, offered.manifest, offered.expand_macro)
+        };
+        let rust_analyzer =
+            json!({ "experimental": { "parentModule": true, "openCargoToml": true } });
+        assert_eq!(offered(rust_analyzer), (true, true, true));
+        assert_eq!(offered(json!({ "experimental": {} })), (false, false, false));
     }
 
     #[test]

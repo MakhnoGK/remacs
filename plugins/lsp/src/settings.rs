@@ -8,6 +8,7 @@ use serde::Deserialize;
 use crate::LanguageServer;
 use crate::catalog::{self, ServerSpec};
 use crate::document::{self, Clients};
+use crate::rust_analyzer;
 use crate::semantic::{self, Painting};
 
 /// `lsp.toml`: changes to the built-in servers, and servers of one's own, by name.
@@ -26,6 +27,8 @@ pub(crate) struct LspSettings {
     semantic_tokens: bool,
     /// Changes to which capture each token type takes, over `semantic::CAPTURES`.
     semantic_token_captures: BTreeMap<String, String>,
+    /// rust-analyzer checks with `cargo clippy` rather than `cargo check` where it runs.
+    clippy: bool,
     servers: BTreeMap<String, ServerSpec>,
 }
 
@@ -37,6 +40,7 @@ impl Default for LspSettings {
             signature_help_on_typing: true,
             semantic_tokens: true,
             semantic_token_captures: BTreeMap::new(),
+            clippy: true,
             servers: BTreeMap::new(),
         }
     }
@@ -84,7 +88,10 @@ pub(crate) fn read(editor: &mut Editor, catalog: &str) -> &'static [LanguageServ
     let settings = editor.settings_section::<LspSettings>();
     let painting = settings.painting(&editor.settings_section::<SyntaxSettings>());
     editor.plugin_state::<Clients>().paint_with(painting);
-    let specs = catalog::merge(catalog::built_in(catalog), &settings.servers);
+    let mut specs = catalog::merge(catalog::built_in(catalog), &settings.servers);
+    if settings.clippy {
+        rust_analyzer::check_with_clippy(&mut specs);
+    }
     let mut errors = Vec::new();
     let servers: Vec<LanguageServer> = specs
         .iter()

@@ -40,7 +40,7 @@ pub(crate) struct ServerSpec {
     /// Major modes and their LSP language ids.
     languages: Option<BTreeMap<String, String>>,
     root_markers: Option<Vec<String>>,
-    initialization_options: Option<Value>,
+    pub(crate) initialization_options: Option<Value>,
     configuration: Option<Value>,
     pull_diagnostics: Option<bool>,
     reports_loading: Option<bool>,
