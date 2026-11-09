@@ -9,6 +9,7 @@ use serde::Deserialize;
 
 use crate::LanguageServer;
 use crate::catalog::{self, ServerSpec};
+use crate::document::inlay::{self, HintKinds};
 use crate::document::{self, Clients};
 use crate::rust_analyzer;
 use crate::semantic::{self, Painting};
@@ -31,6 +32,9 @@ pub(crate) struct LspSettings {
     semantic_token_captures: BTreeMap<String, String>,
     /// rust-analyzer checks with `cargo clippy` rather than `cargo check` where it runs.
     clippy: bool,
+    /// Types and parameter names servers show between the characters (ADR 0095).
+    inlay_hints: bool,
+    inlay_hint_kinds: HintKinds,
     servers: BTreeMap<String, ServerSpec>,
     /// Milliseconds of quiet after a project's files change before its servers hear of
     /// it (ADR 0096).
@@ -48,6 +52,8 @@ impl Default for LspSettings {
             semantic_tokens: true,
             semantic_token_captures: BTreeMap::new(),
             clippy: true,
+            inlay_hints: true,
+            inlay_hint_kinds: HintKinds::default(),
             servers: BTreeMap::new(),
             watch_delay: 200,
         }
@@ -108,6 +114,7 @@ pub(crate) fn read(editor: &mut Editor, catalog: &str) -> &'static [LanguageServ
     let settings = editor.settings_section::<LspSettings>();
     let painting = settings.painting(&editor.settings_section::<SyntaxSettings>());
     editor.plugin_state::<Clients>().paint_with(painting);
+    inlay::configure(editor, settings.inlay_hints, settings.inlay_hint_kinds);
     let mut specs = catalog::merge(catalog::built_in(catalog), &settings.servers);
     if settings.clippy {
         rust_analyzer::check_with_clippy(&mut specs);

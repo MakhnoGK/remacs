@@ -51,6 +51,7 @@ pub use gutter::{
     BreakpointIcon, GutterIcon, GutterMark, GutterProvider, LineExtra, LineExtraProvider,
     TextControls, TextControlsProvider, TextLabel, TextLabelProvider, TextSide,
 };
+pub use gutter::{InlayHint, InlayHintProvider};
 pub use key::{Key, KeyCode, Modifiers, describe_sequence, parse_sequence};
 pub use keymap::{Binding, Keymap};
 pub use kill_ring::KillRing;

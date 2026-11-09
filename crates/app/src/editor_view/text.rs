@@ -3,8 +3,8 @@ use std::ops::Range;
 use std::time::Instant;
 
 use gpui::{
-    AnyElement, Bounds, Context, Div, Hsla, Pixels, Point, StyledText, Window, div, font, point,
-    prelude::*, px, rgb, rgba, size, svg,
+    AnyElement, Bounds, Context, Div, HighlightStyle, Hsla, Pixels, Point, StyledText, Window, div,
+    font, point, prelude::*, px, rgb, rgba, size, svg,
 };
 use remacs_core::{
     BreakpointIcon, ChangedLines, Face, GutterIcon, GutterMark, Icon, LineChange, LineExtra,
@@ -24,7 +24,7 @@ use crate::highlights::{Highlights, combine, face_style, swatch_style};
 use crate::settings::{FoldToggles, SwatchesSettings};
 use crate::widgets::{
     Edge, PressExt, SCROLL_FADE_SIZE, StyleExt, block_cursor, cursor_height, cursor_text_style,
-    edge_fade, hollow_cursor, icon, over, text_run, tone_color,
+    edge_fade, hollow_cursor, hsla, icon, over, text_run, tone_color,
 };
 
 /// Minified files can hold megabytes on one line; lay out only what can be on screen.
@@ -90,7 +90,14 @@ impl EditorView {
         let continues = part.continues || visible.end < end;
         let source = text.bytes_in(visible.clone());
         let source = String::from_utf8_lossy(&source);
-        (DisplayLine::part(&source, part.start, continues), visible)
+        let mut display_line = DisplayLine::part(&source, part.start, continues);
+        // shortcut: lines are cut to the window's columns before hints widen them, so a
+        // line ending past its right edge only by its hints shows no fade there; count hints
+        // in `slice_line` if that is seen.
+        let hints = self.editor.inlay_hints(visible.clone());
+        let hints = hints.iter().map(|hint| (hint.offset - visible.start, &*hint.text));
+        display_line.insert_hints(hints);
+        (display_line, visible)
     }
 
     /// The display column at the left edge, partly scrolled past.
@@ -98,12 +105,14 @@ impl EditorView {
         self.window_state.sideways.shown() as usize
     }
 
-    /// The display column of the window buffer's point.
+    /// The display column of the window buffer's point, past the hints before it.
     fn point_display_column(&self) -> usize {
         let buffer = self.editor.window_buffer();
         let text = buffer.text();
-        let line_start = text.line_range(buffer.point_line()).unwrap_or_default().start;
-        display_width(text.chunks(line_start..buffer.point()).flatten().copied())
+        let before = text.line_range(buffer.point_line()).unwrap_or_default().start..buffer.point();
+        let hints = self.editor.inlay_hints(before.clone()).into_iter();
+        display_width(text.chunks(before).flatten().copied())
+            + hints.map(|hint| hint.text.chars().count()).sum::<usize>()
     }
 
     /// Each decorator's `decorations` of the `visible` bytes, mapped onto their display text.
@@ -164,6 +173,9 @@ impl EditorView {
         let on_point = line == buffer.point_line();
         let is_current = on_point && selected;
         let mut layers = Self::face_layers(&visible, decorations, &display_line, self.swatches);
+        let hint_style =
+            HighlightStyle { color: Some(hsla(color::fg_faint())), ..Default::default() };
+        layers.push(display_line.hints.iter().map(|hint| (hint.clone(), hint_style)).collect());
         let line_range = buffer.text().line_range(line).unwrap_or_default();
         let cursors = if selected { buffer.cursors() } else { &[] };
         let on_line = cursors.partition_point(|cursor| cursor.point < line_range.start)

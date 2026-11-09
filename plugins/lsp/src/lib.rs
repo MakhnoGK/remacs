@@ -52,6 +52,7 @@ use serde_json::Value;
 
 use crate::catalog::When;
 use crate::client::Question;
+use crate::document::inlay;
 use crate::offer::Offers;
 
 /// How to run a language server and which major modes it serves; built from the servers'
@@ -147,6 +148,16 @@ impl Plugin for LspPlugin {
         // After the syntax plugin's, which they paint over.
         registry.decorators.push(Rc::new(document::semantic_spans));
         registry.decorators.push(Rc::new(document::swatch_spans));
+        registry.inlay_hints.push(Rc::new(inlay::inlay_hints));
+        registry.commands.add(Command::new(
+            inlay::TOGGLE,
+            "Hide the types and parameter names servers show in the code, or show them again",
+            inlay::toggle,
+        ));
+        registry.menu_items.push(
+            MenuItem::new("View", "hints", "Hide Inlay Hints", inlay::TOGGLE)
+                .titled_by(inlay::toggle_title),
+        );
         registry.settings_hooks.push(Rc::new(move |editor| {
             settings::read(editor, catalog);
         }));
