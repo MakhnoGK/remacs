@@ -16,7 +16,7 @@ use remacs_tools::Program;
 /// Ample for any `--version`, Node's start included; one stuck is not waited for longer.
 // shortcut: a slower answer counts as none until `lsp-restart`; move it to `lsp.toml` if
 // a real program (a cold version-manager shim) ever needs longer.
-const TIMEOUT: Duration = Duration::from_secs(10);
+pub(crate) const TIMEOUT: Duration = Duration::from_secs(10);
 const POLL_INTERVAL: Duration = Duration::from_millis(20);
 
 /// Per program and project root, its major version once it said it; `None` for one that
@@ -52,7 +52,8 @@ impl Versions {
         let (versions, program, notifier) =
             (Arc::clone(&self.0), program.clone(), Arc::clone(notifier));
         thread::spawn(move || {
-            let major = major_version(&program, &key.1, TIMEOUT);
+            let said = output(&program, &["--version"], &key.1, TIMEOUT);
+            let major = said.and_then(|said| first_number(&said));
             let mut asked = versions.lock().unwrap_or_else(PoisonError::into_inner);
             asked.insert(key, Asked::Answered(major));
             drop(asked);
@@ -67,11 +68,16 @@ impl Versions {
     }
 }
 
-/// The major version `program --version` says; `None` for one that fails, says none or
-/// has not said by `timeout`, as the server would not start from it either.
-fn major_version(program: &Program, root: &Path, timeout: Duration) -> Option<u64> {
+/// What `program` with `args`, run in `root`, says, like its version; `None` once it
+/// fails or has not said by `timeout`, as the server would not start from it either.
+pub(crate) fn output(
+    program: &Program,
+    args: &[&str],
+    root: &Path,
+    timeout: Duration,
+) -> Option<String> {
     let mut child = Command::new(&program.path)
-        .arg("--version")
+        .args(args)
         .current_dir(root)
         .envs(program.env.iter().map(|(name, value)| (name, value)))
         .stdin(Stdio::null())
@@ -94,7 +100,7 @@ fn major_version(program: &Program, root: &Path, timeout: Duration) -> Option<u6
     };
     let mut stdout = Vec::new();
     child.stdout.take()?.read_to_end(&mut stdout).ok()?;
-    status.success().then(|| first_number(&String::from_utf8_lossy(&stdout))).flatten()
+    status.success().then(|| String::from_utf8_lossy(&stdout).into_owned())
 }
 
 /// The first number in `text`, as in `Version 5.7.2` or `clangd version 18.1.3`.
@@ -126,7 +132,7 @@ mod tests {
         let program = Program { path: path.clone(), env: Vec::new() };
         let started = Instant::now();
         let root = std::env::temp_dir();
-        assert_eq!(major_version(&program, &root, Duration::from_millis(200)), None);
+        assert_eq!(output(&program, &["--version"], &root, Duration::from_millis(200)), None);
         assert!(started.elapsed() < Duration::from_secs(5));
         std::fs::remove_file(&path).unwrap();
     }

@@ -64,5 +64,9 @@ toml.workspace = true
 name = "cell_glyphs"
 harness = false
 
+[[bench]]
+name = "display_lines"
+harness = false
+
 [lints]
 workspace = true

@@ -4,6 +4,7 @@ use crate::buffer_look::BufferLookProvider;
 use crate::command::{CommandResult, Commands};
 use crate::decoration::Decorator;
 use crate::editor::Editor;
+use crate::gutter::InlayHintProvider;
 use crate::gutter::{GutterProvider, LineExtraProvider, TextControlsProvider, TextLabelProvider};
 use crate::keymap::Keymap;
 use crate::menu::{Menu, MenuItem};
@@ -93,6 +94,8 @@ pub struct Registry {
     pub line_extras: Vec<LineExtraProvider>,
     /// Labels drawn over the text of buffers drawn as text.
     pub text_labels: Vec<TextLabelProvider>,
+    /// Hints drawn between the characters of buffers drawn as text.
+    pub inlay_hints: Vec<InlayHintProvider>,
     /// Panels under the window buffer, sharing one slot.
     pub panes: Vec<PaneSource>,
     /// Draw buffers as screens; the first that knows the buffer does.

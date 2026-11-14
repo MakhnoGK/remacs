@@ -142,6 +142,15 @@ fn cargo_tests_are_built_without_running_and_debugged_with_their_filter() {
         Kind::Cargo(Cargo { command: "bench".into(), ..Cargo::default() }),
     );
     assert!(plan(&bench, &launch).is_err());
+    let doctests = Configuration::new(
+        "doctest read",
+        Kind::Cargo(Cargo {
+            command: "test".into(),
+            cargo_args: vec!["--doc".into()],
+            ..Cargo::default()
+        }),
+    );
+    assert!(plan(&doctests, &launch).is_err());
 }
 
 #[test]

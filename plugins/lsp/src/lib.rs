@@ -26,6 +26,7 @@ mod offer;
 pub mod position;
 mod progress;
 mod restart;
+mod rust_analyzer;
 /// Public for the benchmarks only.
 #[doc(hidden)]
 pub mod semantic;
@@ -37,6 +38,7 @@ mod symbols;
 mod transport;
 mod uri;
 mod version;
+mod watch;
 mod workspace_edit;
 
 use std::path::Path;
@@ -50,6 +52,7 @@ use serde_json::Value;
 
 use crate::catalog::When;
 use crate::client::Question;
+use crate::document::inlay;
 use crate::offer::Offers;
 
 /// How to run a language server and which major modes it serves; built from the servers'
@@ -105,6 +108,9 @@ pub struct LanguageServer {
     pub tool: Option<&'static Tool>,
     /// A program set in `lsp.toml`, run as it is rather than looked for.
     pub own_program: Option<&'static Path>,
+    /// Globs, from the project root, of the files whose change restarts the server
+    /// unless it registered for them, like `rust-analyzer.toml` (ADR 0096).
+    pub config_files: &'static [&'static str],
 }
 
 impl LanguageServer {
@@ -130,6 +136,7 @@ impl Plugin for LspPlugin {
         registry.post_command_hooks.push(Rc::new(move |editor| {
             let servers = settings::servers(editor, catalog);
             document::sync(editor, servers);
+            watch::sync(editor, servers);
             hierarchy::sync(editor);
             file_rename::sync(editor, servers);
             symbol_rename::sync(editor, servers);
@@ -141,6 +148,16 @@ impl Plugin for LspPlugin {
         // After the syntax plugin's, which they paint over.
         registry.decorators.push(Rc::new(document::semantic_spans));
         registry.decorators.push(Rc::new(document::swatch_spans));
+        registry.inlay_hints.push(Rc::new(inlay::inlay_hints));
+        registry.commands.add(Command::new(
+            inlay::TOGGLE,
+            "Hide the types and parameter names servers show in the code, or show them again",
+            inlay::toggle,
+        ));
+        registry.menu_items.push(
+            MenuItem::new("View", "hints", "Hide Inlay Hints", inlay::TOGGLE)
+                .titled_by(inlay::toggle_title),
+        );
         registry.settings_hooks.push(Rc::new(move |editor| {
             settings::read(editor, catalog);
         }));
@@ -150,6 +167,11 @@ impl Plugin for LspPlugin {
             restart::restart_server,
         ));
         registry.commands.add(Command::new(
+            rust_analyzer::EXPAND_MACRO,
+            "Show what the macro call at point expands to, in a read-only buffer",
+            rust_analyzer::expand_macro,
+        ));
+        registry.commands.add(Command::new(
             offer::DOWNLOAD,
             "Offer again to download the language servers this file wants and lacks",
             offer::offer_again,
@@ -157,6 +179,14 @@ impl Plugin for LspPlugin {
         registry.menu_items.push(
             MenuItem::new("Edit", "code", "Download Language Servers", offer::DOWNLOAD)
                 .enabled_when(offer::can_download),
+        );
+        registry.menu_items.push(
+            MenuItem::new("Edit", "code", "Expand Macro", rust_analyzer::EXPAND_MACRO)
+                .enabled_when(|editor| {
+                    document::offered_at_point(editor, |client| {
+                        client.may_answer(Question::ExpandMacro)
+                    })
+                }),
         );
         registry.menu_items.extend_from_slice(XREF_MENU_ITEMS);
     }
@@ -173,6 +203,10 @@ const XREF_MENU_ITEMS: &[MenuItem] = &[
         .enabled_when(|editor| document::offered_at_point(editor, |client| client.may_walk(Hierarchy::Calls))),
     MenuItem::new("Go", "related", "Type Hierarchy", remacs_xref::TYPE_HIERARCHY)
         .enabled_when(|editor| document::offered_at_point(editor, |client| client.may_walk(Hierarchy::Types))),
+    MenuItem::new("Go", "related", "Parent Module", remacs_xref::FIND_PARENT_MODULE)
+        .enabled_when(|editor| document::offered_at_point(editor, |client| client.may_answer(Question::ParentModule))),
+    MenuItem::new("Go", "related", "Cargo.toml", remacs_xref::FIND_MANIFEST)
+        .enabled_when(|editor| document::offered_at_point(editor, |client| client.may_answer(Question::Manifest))),
 ];
 
 /// The servers a catalog describes as they are built in, or why one cannot be built.

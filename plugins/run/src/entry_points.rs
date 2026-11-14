@@ -124,7 +124,7 @@ impl<'a> CargoPackage<'a> {
         relative(&workspace_root(&self.dir, self.root, self.manifests), self.root)
     }
 
-    /// The binary or example whose root file is `path`.
+    /// The binary, example or benchmark whose root file is `path`.
     pub fn main_target(&self, path: &Path) -> Option<Target> {
         cargo_target(path.strip_prefix(&self.dir).ok()?, &self.manifest, &self.name)
     }
@@ -136,6 +136,8 @@ fn rust_main(path: &Path, text: &str, package: &CargoPackage) -> Option<EntryPoi
     let (name, bin, example) = match package.main_target(path)? {
         Target::Bin(bin) => (bin.clone(), Some(bin), None),
         Target::Example(example) => (example.clone(), None, Some(example)),
+        // Its benchmarks are its entry points, and `cargo run` cannot run it.
+        Target::Bench(_) => return None,
     };
     let mut configuration = Configuration::new(
         name,
@@ -160,6 +162,7 @@ fn is_main_line(line: &str) -> bool {
 pub(crate) enum Target {
     Bin(String),
     Example(String),
+    Bench(String),
 }
 
 /// The target whose root file is `file`, relative to the package directory.
@@ -174,11 +177,13 @@ fn cargo_target(file: &Path, manifest: &toml::Table, package: &str) -> Option<Ta
             .as_str()
             .map(str::to_owned)
     };
-    if let Some(bin) = declared("bin") {
-        return Some(Target::Bin(bin));
-    }
-    if let Some(example) = declared("example") {
-        return Some(Target::Example(example));
+    let sections = [
+        ("bin", Target::Bin as fn(String) -> Target),
+        ("example", Target::Example),
+        ("bench", Target::Bench),
+    ];
+    if let Some(target) = sections.iter().find_map(|(section, kind)| declared(section).map(kind)) {
+        return Some(target);
     }
     let components: Vec<&str> = file.iter().filter_map(|part| part.to_str()).collect();
     let stem = |name: &str| name.strip_suffix(".rs").map(str::to_owned);
@@ -188,6 +193,8 @@ fn cargo_target(file: &Path, manifest: &toml::Table, package: &str) -> Option<Ta
         ["src", "bin", name, "main.rs"] => Some(Target::Bin((*name).to_owned())),
         ["examples", name] => stem(name).map(Target::Example),
         ["examples", name, "main.rs"] => Some(Target::Example((*name).to_owned())),
+        ["benches", name] => stem(name).map(Target::Bench),
+        ["benches", name, "main.rs"] => Some(Target::Bench((*name).to_owned())),
         _ => None,
     }
 }

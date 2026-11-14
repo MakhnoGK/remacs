@@ -21,6 +21,7 @@ use crate::sessions::{State, of_window};
 use crate::settings::{CompileSettings, TypeScriptRuntime};
 
 mod new_configuration;
+mod rust_targets;
 mod search;
 
 const WAIT: Duration = Duration::from_secs(10);
