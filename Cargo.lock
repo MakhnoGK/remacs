@@ -5212,7 +5212,9 @@ name = "remacs-lsp"
 version = "0.1.0"
 dependencies = [
  "divan",
+ "globset",
  "lsp-types",
+ "notify",
  "remacs-actions",
  "remacs-completion",
  "remacs-config",

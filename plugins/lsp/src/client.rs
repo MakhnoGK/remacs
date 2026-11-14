@@ -13,25 +13,27 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use lsp_types::notification::{
-    DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidRenameFiles,
-    DidSaveTextDocument, Initialized, Notification, PublishDiagnostics,
+    DidChangeTextDocument, DidChangeWatchedFiles, DidCloseTextDocument, DidOpenTextDocument,
+    DidRenameFiles, DidSaveTextDocument, Initialized, Notification, PublishDiagnostics,
 };
 use lsp_types::request::{
     ApplyWorkspaceEdit, CallHierarchyIncomingCalls, CallHierarchyOutgoingCalls,
     CallHierarchyPrepare, CodeActionRequest, CodeActionResolveRequest, Completion, DocumentColor,
     DocumentDiagnosticRequest, DocumentSymbolRequest, ExecuteCommand, Formatting, GotoDefinition,
     GotoImplementation, GotoTypeDefinition, HoverRequest, Initialize, PrepareRenameRequest,
-    RangeFormatting, References, Rename, Request, ResolveCompletionItem, SemanticTokensFullRequest,
-    SemanticTokensRefresh, SignatureHelpRequest, TypeHierarchyPrepare, TypeHierarchySubtypes,
-    TypeHierarchySupertypes, WillRenameFiles, WorkspaceConfiguration, WorkspaceDiagnosticRefresh,
-    WorkspaceSymbolRequest,
+    RangeFormatting, References, RegisterCapability, Rename, Request, ResolveCompletionItem,
+    SemanticTokensFullRequest, SemanticTokensRefresh, SignatureHelpRequest, TypeHierarchyPrepare,
+    TypeHierarchySubtypes, TypeHierarchySupertypes, UnregisterCapability, WillRenameFiles,
+    WorkspaceConfiguration, WorkspaceDiagnosticRefresh, WorkspaceSymbolRequest,
 };
+use lsp_types::request::{InlayHintRefreshRequest, InlayHintRequest};
 use lsp_types::{
     ApplyWorkspaceEditParams, CodeAction, CodeActionOrCommand, CompletionItem,
-    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, GotoDefinitionResponse, InitializedParams, Position,
-    PublishDiagnosticsParams, TextDocumentContentChangeEvent, TextDocumentIdentifier,
-    TextDocumentItem, TextEdit, Uri, VersionedTextDocumentIdentifier, WorkspaceEdit,
+    DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, FileEvent, GotoDefinitionResponse,
+    InitializedParams, Position, PublishDiagnosticsParams, TextDocumentContentChangeEvent,
+    TextDocumentIdentifier, TextDocumentItem, TextEdit, Uri, VersionedTextDocumentIdentifier,
+    WorkspaceEdit,
 };
 use remacs_actions::Action;
 use remacs_completion::{Item, List, Trigger};
@@ -45,13 +47,16 @@ use serde_json::{Value, json};
 use crate::LanguageServer;
 use crate::color::{self, Swatch};
 use crate::completion::{self, CompletionSupport, Origin};
+use crate::document::inlay::{self, Hint};
 use crate::markdown::CodeModes;
 use crate::position::{Encoding, from_lsp, to_lsp};
 use crate::progress::Progress;
+use crate::rust_analyzer::{self, Expansion};
 use crate::semantic::{self, Legend, Token};
 use crate::signature::{self, SignatureSupport};
 use crate::symbols::{self, FoundSymbol};
 use crate::transport::{read_message, write_message};
+use crate::watch::{self, SharedRegistered};
 use crate::{code_action, definition, document_symbols, hierarchy, hover, symbol_rename, uri};
 
 const INITIALIZE_ID: u64 = 0;
@@ -139,6 +144,13 @@ pub(crate) enum Outgoing {
         uri: Uri,
         path: PathBuf,
         text: Snapshot,
+    },
+    /// Asks for the hints in `range` of `text`, the text the server has.
+    InlayHints {
+        uri: Uri,
+        path: PathBuf,
+        text: Snapshot,
+        range: Range<usize>,
     },
     /// Asks for completions at `offset` of `text`, the text the server has; `id` is the
     /// completion plugin's.
@@ -275,6 +287,10 @@ pub(crate) enum Outgoing {
         id: Value,
         body: Value,
     },
+    /// Tells of files it registered for that changed on disk.
+    WatchedFiles {
+        changes: Vec<FileEvent>,
+    },
 }
 
 /// The edits a server says renaming files calls for; none when it cannot tell.
@@ -332,6 +348,12 @@ pub(crate) enum Question {
     References,
     Implementation,
     TypeDefinition,
+    /// rust-analyzer's own: where the module at point is declared.
+    ParentModule,
+    /// rust-analyzer's own: the crate's `Cargo.toml`.
+    Manifest,
+    /// rust-analyzer's own: what the macro call at point expands to.
+    ExpandMacro,
 }
 
 impl Question {
@@ -342,6 +364,9 @@ impl Question {
             Question::References => References::METHOD,
             Question::Implementation => GotoImplementation::METHOD,
             Question::TypeDefinition => GotoTypeDefinition::METHOD,
+            Question::ParentModule => "experimental/parentModule",
+            Question::Manifest => "experimental/openCargoToml",
+            Question::ExpandMacro => "rust-analyzer/expandMacro",
         }
     }
 }
@@ -374,6 +399,11 @@ pub(crate) enum Answer {
     Signatures {
         id: u64,
         signatures: Option<Signatures>,
+    },
+    /// What the macro call asked about expands to, in the major mode of its file.
+    Expansion {
+        mode: &'static str,
+        expansion: Option<Expansion>,
     },
     CodeActions {
         id: u64,
@@ -418,6 +448,10 @@ enum Pending {
         text: Snapshot,
     },
     SemanticTokens {
+        path: PathBuf,
+        text: Snapshot,
+    },
+    InlayHints {
         path: PathBuf,
         text: Snapshot,
     },
@@ -489,6 +523,7 @@ impl Pending {
             Pending::Pull { .. }
                 | Pending::Colors { .. }
                 | Pending::SemanticTokens { .. }
+                | Pending::InlayHints { .. }
                 | Pending::Resolve { .. }
         )
     }
@@ -504,6 +539,9 @@ struct Inbox {
     semantic_tokens: HashMap<PathBuf, SemanticTokens>,
     /// Bumped when the server asks for every file's tokens again, e.g. once it loaded.
     semantic_refreshes: u64,
+    /// Likewise the newest hints of each file, and the server's asking for them again.
+    inlay_hints: HashMap<PathBuf, (Snapshot, Vec<Hint>)>,
+    inlay_hint_refreshes: u64,
     requests: HashMap<u64, Pending>,
     answers: Vec<Answer>,
     /// Kept apart from `answers`, which are for the window buffer's document.
@@ -534,9 +572,9 @@ fn lock_progress(progress: &SharedProgress) -> MutexGuard<'_, Progress> {
 
 /// The reader's way to the writer, taken when the client is dropped: the writer ends
 /// once no one can send to it, which closes the server's input so that it exits.
-type SharedReplies = Arc<Mutex<Option<Sender<Outgoing>>>>;
+pub(crate) type SharedReplies = Arc<Mutex<Option<Sender<Outgoing>>>>;
 
-fn send_reply(replies: &SharedReplies, message: Outgoing) {
+pub(crate) fn send_reply(replies: &SharedReplies, message: Outgoing) {
     let replies = replies.lock().expect("no thread panics holding the replies");
     if let Some(replies) = &*replies {
         let _ = replies.send(message);
@@ -579,6 +617,7 @@ struct Negotiated {
     completion: Option<CompletionSupport>,
     colors: bool,
     semantic_tokens: bool,
+    inlay_hints: bool,
     will_rename: bool,
     did_rename: bool,
     formatting: bool,
@@ -606,6 +645,8 @@ pub(crate) struct Client {
     progress: SharedProgress,
     replies: SharedReplies,
     tsserver: Option<&'static str>,
+    /// The files the server registered to hear of (`workspace/didChangeWatchedFiles`).
+    registered: SharedRegistered,
 }
 
 impl Drop for Client {
@@ -654,7 +695,7 @@ impl Client {
         };
         let program_dir = fs::canonicalize(program).unwrap_or_else(|_| program.to_path_buf());
         let program_dir = program_dir.parent().unwrap_or(&program_dir).to_string_lossy();
-        let initialize = initialize_params(
+        let mut initialize = initialize_params(
             server.initialization_options.clone().map(|mut options| {
                 fill_program_dir(&mut options, &program_dir);
                 options
@@ -662,11 +703,15 @@ impl Client {
             server.configuration.is_some(),
             root,
         );
-        thread::Builder::new()
-            .name(format!("{} writer", server.name))
-            .spawn(move || writer.write_all(initialize, negotiated, queued))?;
+        let (root_dir, env) = (root.to_path_buf(), env.to_vec());
+        thread::Builder::new().name(format!("{} writer", server.name)).spawn(move || {
+            rust_analyzer::without_missing_clippy(&mut initialize, &root_dir, &env);
+            writer.write_all(initialize, negotiated, queued)
+        })?;
         let replies = Arc::new(Mutex::new(Some(outgoing.clone())));
+        let registered = SharedRegistered::default();
         let reader = Reader {
+            registered: Arc::clone(&registered),
             server: server.name,
             configuration: server.configuration.clone().unwrap_or_default(),
             replies: Arc::clone(&replies),
@@ -698,7 +743,14 @@ impl Client {
             offered,
             replies,
             tsserver: server.tsserver,
+            registered,
         })
+    }
+
+    /// What the project watcher's thread holds: the files the server registered for, and
+    /// its way to the writer, gone with the client.
+    pub fn listener(&self) -> (SharedRegistered, SharedReplies) {
+        (Arc::clone(&self.registered), Arc::clone(&self.replies))
     }
 
     /// The server its `tsserver/request`s go to.
@@ -749,6 +801,9 @@ impl Client {
         self.offered.get().is_none_or(|offered| match question {
             Question::Implementation => offered.implementation,
             Question::TypeDefinition => offered.type_definition,
+            // rust-analyzer never offers expandMacro by name; only it offers parentModule.
+            Question::ParentModule | Question::ExpandMacro => offered.parent_module,
+            Question::Manifest => offered.manifest,
             Question::Hover | Question::Definition | Question::References => true,
         })
     }
@@ -791,6 +846,15 @@ impl Client {
     /// How many times the server asked for every file's tokens again.
     pub fn semantic_refreshes(&self) -> u64 {
         lock(&self.inbox).semantic_refreshes
+    }
+
+    pub fn take_inlay_hints(&self, path: &Path) -> Option<(Snapshot, Vec<Hint>)> {
+        lock(&self.inbox).inlay_hints.remove(path)
+    }
+
+    /// How many times the server asked for every file's hints again.
+    pub fn inlay_hint_refreshes(&self) -> u64 {
+        lock(&self.inbox).inlay_hint_refreshes
     }
 
     /// Why the server exited, the first time it is asked after it has.
@@ -908,6 +972,9 @@ fn initialize_params(options: Option<Value>, configured: bool, root: &Path) -> V
                     "multilineTokenSupport": false,
                     "augmentsSyntaxTokens": true,
                 },
+                // shortcut: hints are not resolved (`inlayHint/resolve`), as the text has no
+                // mouse hover for their tooltips to show on; resolve them once it has.
+                "inlayHint": {},
                 "definition": { "linkSupport": true },
                 "references": {},
                 "rename": { "prepareSupport": true },
@@ -937,6 +1004,9 @@ fn initialize_params(options: Option<Value>, configured: bool, root: &Path) -> V
                 },
                 "fileOperations": { "willRename": true, "didRename": true },
                 "semanticTokens": { "refreshSupport": true },
+                // rust-analyzer, gopls and others then leave watching to remacs (ADR 0096).
+                "didChangeWatchedFiles": { "dynamicRegistration": true },
+                "inlayHint": { "refreshSupport": true },
                 // Every kind, up to type parameters; else servers keep to the first 18.
                 "symbol": { "symbolKind": { "valueSet": (1..=26).collect::<Vec<u8>>() } },
             },
@@ -963,16 +1033,21 @@ struct Offered {
     type_definition: bool,
     call_hierarchy: bool,
     type_hierarchy: bool,
+    parent_module: bool,
+    manifest: bool,
 }
 
 impl Offered {
     fn from_capabilities(capabilities: &Value) -> Self {
+        let experimental = &capabilities["experimental"];
         Self {
             signatures: SignatureSupport::from_capabilities(capabilities),
             implementation: is_provided(&capabilities["implementationProvider"]),
             type_definition: is_provided(&capabilities["typeDefinitionProvider"]),
             call_hierarchy: is_provided(&capabilities["callHierarchyProvider"]),
             type_hierarchy: is_provided(&capabilities["typeHierarchyProvider"]),
+            parent_module: experimental["parentModule"] == true,
+            manifest: experimental["openCargoToml"] == true,
         }
     }
 }
@@ -1030,6 +1105,20 @@ impl Writer {
                 let params = json!({ "textDocument": TextDocumentIdentifier::new(uri.clone()) });
                 let pending = Pending::SemanticTokens { path: path.clone(), text: text.clone() };
                 self.ask(SemanticTokensFullRequest::METHOD, params, pending)
+            }
+            Outgoing::InlayHints { uri, path, text, range } => {
+                if !negotiated.inlay_hints {
+                    return Ok(());
+                }
+                let params = json!({
+                    "textDocument": TextDocumentIdentifier::new(uri.clone()),
+                    "range": lsp_types::Range::new(
+                        to_lsp(text, range.start, negotiated.encoding),
+                        to_lsp(text, range.end, negotiated.encoding),
+                    ),
+                });
+                let pending = Pending::InlayHints { path: path.clone(), text: text.clone() };
+                self.ask(InlayHintRequest::METHOD, params, pending)
             }
             Outgoing::Complete { uri, id, text, start, offset, trigger, modes } => {
                 let Some(context) = completion.and_then(|support| support.context(*trigger)) else {
@@ -1308,6 +1397,7 @@ fn is_superseded(message: &Outgoing, later: &[Outgoing]) -> bool {
         (Outgoing::Pull { uri, .. }, Outgoing::Pull { uri: other, .. })
         | (Outgoing::Colors { uri, .. }, Outgoing::Colors { uri: other, .. })
         | (Outgoing::SemanticTokens { uri, .. }, Outgoing::SemanticTokens { uri: other, .. })
+        | (Outgoing::InlayHints { uri, .. }, Outgoing::InlayHints { uri: other, .. })
         | (Outgoing::Complete { uri, .. }, Outgoing::Complete { uri: other, .. })
         | (Outgoing::Signatures { uri, .. }, Outgoing::Signatures { uri: other, .. })
         | (Outgoing::CodeActions { uri, .. }, Outgoing::CodeActions { uri: other, .. }) => {
@@ -1357,6 +1447,7 @@ impl Outgoing {
             Outgoing::Pull { .. }
             | Outgoing::Colors { .. }
             | Outgoing::SemanticTokens { .. }
+            | Outgoing::InlayHints { .. }
             | Outgoing::Complete { .. }
             | Outgoing::Resolve { .. }
             | Outgoing::AtPoint { .. }
@@ -1379,6 +1470,11 @@ impl Outgoing {
             }
             Outgoing::TsserverResponse { id, body } => {
                 json!({ "jsonrpc": "2.0", "method": TSSERVER_RESPONSE, "params": [[id, body]] })
+            }
+            Outgoing::WatchedFiles { changes } => {
+                notification::<DidChangeWatchedFiles>(DidChangeWatchedFilesParams {
+                    changes: changes.clone(),
+                })
             }
         }
     }
@@ -1442,6 +1538,7 @@ struct Reader {
     offered: SharedOffered,
     /// What the server's semantic token numbers stand for, once `initialize` is answered.
     legend: Option<Arc<Legend>>,
+    registered: SharedRegistered,
 }
 
 impl Reader {
@@ -1523,6 +1620,19 @@ impl Reader {
                 (self.notifier)();
                 Value::Null
             }
+            RegisterCapability::METHOD => {
+                watch::lock(&self.registered).register(params);
+                Value::Null
+            }
+            UnregisterCapability::METHOD => {
+                watch::lock(&self.registered).unregister(params);
+                Value::Null
+            }
+            InlayHintRefreshRequest::METHOD => {
+                lock(&self.inbox).inlay_hint_refreshes += 1;
+                (self.notifier)();
+                Value::Null
+            }
             _ => Value::Null,
         };
         send_reply(&self.replies, Outgoing::Reply { id, result });
@@ -1570,6 +1680,7 @@ impl Reader {
             completion: CompletionSupport::from_capabilities(capabilities),
             colors: is_provided(&capabilities["colorProvider"]),
             semantic_tokens: self.legend.is_some(),
+            inlay_hints: is_provided(&capabilities["inlayHintProvider"]),
             will_rename: capabilities["workspace"]["fileOperations"]["willRename"].is_object(),
             did_rename: capabilities["workspace"]["fileOperations"]["didRename"].is_object(),
             formatting: is_provided(&capabilities["documentFormattingProvider"]),
@@ -1590,6 +1701,15 @@ impl Reader {
         let error = response
             .get("error")
             .map(|error| error["message"].as_str().unwrap_or("no reason given").to_owned());
+        // Hints the project changed under while they were found, as rust-analyzer's as it
+        // finishes loading it, are asked for again, as when the server asks for that.
+        if matches!(pending, Pending::InlayHints { .. })
+            && response["error"]["code"] == lsp_types::error_codes::CONTENT_MODIFIED
+        {
+            lock(&self.inbox).inlay_hint_refreshes += 1;
+            (self.notifier)();
+            return;
+        }
         if error.is_some() && !pending.answers_failure() {
             return;
         }
@@ -1613,6 +1733,12 @@ impl Reader {
                 lock(&self.inbox).semantic_tokens.insert(path, found);
                 (self.notifier)();
             }
+            Pending::InlayHints { path, text } => {
+                let found = serde_json::from_value(result).unwrap_or_default();
+                let hints = inlay::decode(found, &text, self.encoding);
+                lock(&self.inbox).inlay_hints.insert(path, (text, hints));
+                (self.notifier)();
+            }
             Pending::Complete { id, origin } => {
                 let response = serde_json::from_value(result).unwrap_or_default();
                 let (list, items) = completion::list(response, &origin);
@@ -1629,8 +1755,17 @@ impl Reader {
                 let answer = hover::answer(response, &origin.text, origin.encoding, origin.modes);
                 self.deliver(Answer::Hover { id, answer });
             }
+            Pending::AtPoint { question: Question::ExpandMacro, origin, .. } => {
+                let expansion = serde_json::from_value(result).unwrap_or_default();
+                self.deliver(Answer::Expansion { mode: origin.modes.document, expansion });
+            }
             Pending::AtPoint {
-                question: Question::Definition | Question::Implementation | Question::TypeDefinition,
+                question:
+                    Question::Definition
+                    | Question::Implementation
+                    | Question::TypeDefinition
+                    | Question::ParentModule
+                    | Question::Manifest,
                 id,
                 ..
             } => {
@@ -1843,6 +1978,18 @@ mod tests {
         let both = json!({ "implementationProvider": true, "typeDefinitionProvider": {} });
         assert_eq!(offered(both), (true, true));
         assert_eq!(offered(json!({ "implementationProvider": false })), (false, false));
+    }
+
+    #[test]
+    fn rust_analyzer_requests_are_offered_by_its_experimental_capabilities() {
+        let offered = |capabilities: Value| {
+            let offered = Offered::from_capabilities(&capabilities);
+            (offered.parent_module, offered.manifest)
+        };
+        let rust_analyzer =
+            json!({ "experimental": { "parentModule": true, "openCargoToml": true } });
+        assert_eq!(offered(rust_analyzer), (true, true));
+        assert_eq!(offered(json!({ "experimental": {} })), (false, false));
     }
 
     #[test]

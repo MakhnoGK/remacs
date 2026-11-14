@@ -1,6 +1,7 @@
 //! Built-in plugin: going to the definition of the symbol at point and back, to its uses,
-//! implementations and type, through its call and type hierarchies, and to any symbol of
-//! the project by name, like Emacs xref. It knows nothing of where definitions and
+//! implementations and type, through its call and type hierarchies, to the parent module
+//! and package manifest of the code, and to any symbol of the project by name, like Emacs
+//! xref. It knows nothing of where definitions and
 //! symbols come from; backends such as `lsp` take its requests and deliver locations.
 
 mod apropos;
@@ -16,8 +17,8 @@ use remacs_core::{
 
 pub use apropos::{Symbol, SymbolRequest, deliver_symbols, take_symbol_requests};
 pub use definitions::{
-    FIND_IMPLEMENTATIONS, FIND_TYPE_DEFINITIONS, Location, Lookup, Request, deliver, refuse,
-    take_requests,
+    FIND_IMPLEMENTATIONS, FIND_MANIFEST, FIND_PARENT_MODULE, FIND_TYPE_DEFINITIONS, Location,
+    Lookup, Request, deliver, refuse, take_requests,
 };
 pub use hierarchy::{
     CALL_HIERARCHY, Hierarchy, HierarchyItem, HierarchyRequest, Relation, TYPE_HIERARCHY,
@@ -33,6 +34,8 @@ const COMMANDS: &[Command] = &[
     Command::new(definitions::FIND_REFERENCES, "List the uses of the symbol at point and go to one", definitions::find_references),
     Command::new(FIND_IMPLEMENTATIONS, "Go to an implementation of the trait, interface or method at point", definitions::find_implementations),
     Command::new(FIND_TYPE_DEFINITIONS, "Go to the definition of the type of the value at point", definitions::find_type_definitions),
+    Command::new(FIND_PARENT_MODULE, "Go to where the module of the code at point is declared, like Rust's `mod`", definitions::find_parent_module),
+    Command::new(FIND_MANIFEST, "Go to the manifest of the package of the code at point, like its Cargo.toml", definitions::find_manifest),
     Command::new("xref-go-back", "Go back to where the last definition was looked up", definitions::go_back),
     Command::new(apropos::FIND_APROPOS, "Find a symbol of the project by name and go to it", apropos::find_apropos),
     Command::new(imenu::IMENU, "Go to a symbol of the file by name", imenu::imenu),

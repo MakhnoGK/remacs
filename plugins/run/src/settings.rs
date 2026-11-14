@@ -27,6 +27,8 @@ pub struct RunSettings {
     /// Milliseconds of quiet after an edit before a file's entry points are found again.
     pub entry_point_delay: u64,
     pub typescript: TypeScriptRuntime,
+    /// Rust tests run on `cargo nextest run` in workspaces with a `.config/nextest.toml`.
+    pub nextest: bool,
     /// Set for every process run, e.g. so that it prints colors though not to a terminal.
     pub env: BTreeMap<String, String>,
     pub compile: CompileSettings,
@@ -107,6 +109,7 @@ impl Default for RunSettings {
             stop_timeout: 2_000,
             entry_point_delay: 300,
             typescript: TypeScriptRuntime::Auto,
+            nextest: true,
             env: [("CARGO_TERM_COLOR", "always"), ("CLICOLOR_FORCE", "1"), ("FORCE_COLOR", "1")]
                 .into_iter()
                 .map(|(name, value)| (name.to_owned(), value.to_owned()))

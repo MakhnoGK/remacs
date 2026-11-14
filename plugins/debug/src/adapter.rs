@@ -87,6 +87,9 @@ pub fn plan(configuration: &Configuration, launch: &Launch) -> Result<(Adapter, 
                     cargo.command
                 ));
             }
+            if cargo.runs_doctests() {
+                return Err("Doctests cannot be debugged: rustdoc builds and runs them".into());
+            }
             let mut args = cargo.selection();
             args.extend(cargo.cargo_args.iter().cloned());
             cargo_build = Some(CargoBuild { tests, args });
