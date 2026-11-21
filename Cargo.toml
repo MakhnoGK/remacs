@@ -69,7 +69,7 @@ trash = { version = "5.2", default-features = false }
 tree-sitter = "0.27"
 tree-sitter-bash = "0.25"
 tree-sitter-c = "0.24"
-tree-sitter-c-sharp = "0.23"
+tree-sitter-c-sharp = "0.24"
 tree-sitter-cmake = "0.7"
 tree-sitter-cpp = "0.23"
 tree-sitter-css = "0.25"
